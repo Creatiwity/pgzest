@@ -8,6 +8,40 @@ Le SQL pur est plus lisible que les query builders typés (cf. kysely-pg-procedu
 
 ---
 
+## Livrables
+
+### 1. Core Rust (agnostique)
+
+Ensemble de crates Rust purs, sans dépendance à un runtime ou un écosystème particulier. Fondation de tous les autres livrables.
+
+### 2. Framework npm
+
+Package npm (via WASM ou napi-rs) orienté DX pour les projets TypeScript/JavaScript. Couvre :
+- Gestion de la base de données (connexion, migrations, diff)
+- Exécution et typage des requêtes SQL (`db.query<MyQuery>()` avec types inférés à la consommation)
+- Gestion des **policies RLS** (authoring déclaratif, type-check des expressions `USING`/`WITH CHECK`, déploiement via diff)
+- Gestion des **triggers et procédures stockées** (authoring, type-check, déploiement)
+- Type-checking à 100% — toute requête ou procédure invalide est une erreur de compilation/build
+- Plugins : Prisma (génération de schéma depuis l'AST annoté), et autres via interface commune
+
+### 3. Lint SQL
+
+Crate `pgsql-lint` séparé avec ses propres règles configurables. Distinct du type-checker (qui valide la correction) : le linter enforce des conventions de style et des patterns à éviter (nommage, anti-patterns de performance, règles projet). Consommable en CLI et via le framework npm.
+
+### 4. Génération de typages à la consommation
+
+Quand une requête SQL est exécutée ou buildée, génération automatique des types TypeScript correspondant aux colonnes du résultat. S'appuie sur l'AST annoté produit par le type-checker.
+
+### 5. Extensions IDE
+
+Extensions pour les éditeurs (VS Code en priorité, JetBrains ensuite) fournissant :
+- Coloration syntaxique pour le SQL PostgreSQL et PL/pgSQL
+- Diagnostics en temps réel (erreurs de type, colonnes inexistantes, policies invalides, etc.) via le serveur LSP
+- Autocomplétion contextuelle
+- Go-to-definition sur tables, colonnes, fonctions
+
+---
+
 ## Architecture générale — Pipeline
 
 ```
@@ -18,7 +52,7 @@ AST syntaxique
 AST logique (FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → LIMIT)
     ↓ type-check (passe linéaire unique)
 AST annoté avec types
-    ↓ codegen / validation / diagnostics LSP
+    ↓ codegen / lint / diagnostics LSP / génération de typages TS
 ```
 
 ### Pourquoi reordonner l'AST
@@ -88,6 +122,13 @@ L'interface `SchemaProvider` est la même dans les deux sens.
 - Résolution des alias de table et de colonne
 - Support des CTEs (chaque CTE devient un type nommé dans le contexte)
 - JOINs : extension du contexte de types à chaque JOIN
+- **RLS policies** : type-check des expressions `USING` et `WITH CHECK` dans le contexte de la table cible
+
+---
+
+## RLS Policies
+
+Parsing et type-checking des `CREATE POLICY` / `ALTER POLICY`. Le framework npm expose un DSL déclaratif pour les authorer ; le checker valide que les expressions référencent des colonnes et des types corrects. Les policies sont déployées comme le reste du schéma, via le diff de migration.
 
 ---
 
@@ -120,9 +161,9 @@ Exemples à définir : insertions typées, upserts déclaratifs, patterns récur
 
 Serveur LSP (`tower-lsp`) pour intégration IDE :
 - Coloration syntaxique sémantique
-- Erreurs et warnings précis (colonne inexistante, type incompatible, etc.)
+- Erreurs et warnings précis (colonne inexistante, type incompatible, policy invalide, etc.)
 - Autocomplétion contextuelle (colonnes disponibles selon le contexte FROM/JOIN)
-- Go-to-definition sur les tables/colonnes
+- Go-to-definition sur les tables/colonnes/fonctions
 
 ---
 
@@ -134,13 +175,20 @@ pgsql-tools/
 │   ├── pgsql-parser/       # parser sqlparser-rs forké + dialecte PL/pgSQL
 │   ├── pgsql-ast/          # AST normalisé + types
 │   ├── pgsql-checker/      # type-checker (passe linéaire sur AST logique)
+│   ├── pgsql-lint/         # règles de lint configurables (style, anti-patterns)
 │   ├── pgsql-codegen/      # génération SQL + injections build-time
 │   └── pgsql-lsp/          # serveur LSP (tower-lsp)
 ├── bindings/
 │   ├── wasm/               # build WASM
 │   └── node/               # napi-rs addon
+├── npm/
+│   └── pgsql-tools/        # framework npm (DX layer : requêtes, RLS, triggers, migrations)
 ├── plugins/
-│   └── postgis/            # plugin PostGIS
+│   ├── postgis/            # plugin PostGIS
+│   └── prisma/             # plugin génération schéma Prisma
+├── editors/
+│   ├── vscode/             # extension VS Code
+│   └── jetbrains/          # extension JetBrains
 └── SPECS.md
 ```
 
