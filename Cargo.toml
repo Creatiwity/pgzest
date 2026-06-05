@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/pgsql-ast",
+    "crates/pgsql-parser",
+]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+sqlparser = "0.54"
