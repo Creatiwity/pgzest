@@ -1,0 +1,60 @@
+{
+  "name": "pgsql-tools",
+  "displayName": "pgsql-tools",
+  "description": "PostgreSQL type-safe toolchain: syntax highlighting, type checking, RLS policy validation",
+  "version": "0.1.0",
+  "publisher": "pgsql-tools",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Programming Languages", "Linters"],
+  "activationEvents": ["onLanguage:sql", "onLanguage:plpgsql"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "plpgsql",
+        "aliases": ["PL/pgSQL", "plpgsql"],
+        "extensions": [".psql", ".plpgsql"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "plpgsql",
+        "scopeName": "source.plpgsql",
+        "path": "./syntaxes/plpgsql.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "pgsql-tools",
+      "properties": {
+        "pgsqlTools.lspPath": {
+          "type": "string",
+          "default": "pgsql-lsp",
+          "description": "Path to the pgsql-lsp binary"
+        },
+        "pgsqlTools.schemaFile": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the DDL schema SQL file for type checking"
+        },
+        "pgsqlTools.enableLint": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable SQL linting"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^18",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

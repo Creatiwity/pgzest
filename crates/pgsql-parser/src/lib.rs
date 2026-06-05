@@ -1,7 +1,9 @@
 mod convert;
 pub mod error;
+pub mod normalize;
 
 pub use error::ParseError;
+pub use normalize::{NormalizedSelect, normalize_select};
 
 use pgsql_ast::Statement;
 use sqlparser::dialect::PostgreSqlDialect;

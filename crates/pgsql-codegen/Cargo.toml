@@ -1,0 +1,9 @@
+[package]
+name = "pgsql-codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pgsql-ast = { path = "../pgsql-ast" }
+serde = { workspace = true }
+thiserror = { workspace = true }

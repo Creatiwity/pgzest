@@ -1,0 +1,14 @@
+[package]
+name = "pgsql"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pgsql"
+path = "src/main.rs"
+
+[dependencies]
+pgsql-parser = { path = "../pgsql-parser" }
+pgsql-checker = { path = "../pgsql-checker" }
+pgsql-lint = { path = "../pgsql-lint" }
+serde = { workspace = true }

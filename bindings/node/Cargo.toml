@@ -1,0 +1,19 @@
+[package]
+name = "pgsql-node"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pgsql-parser = { path = "../../crates/pgsql-parser" }
+pgsql-checker = { path = "../../crates/pgsql-checker" }
+pgsql-lint = { path = "../../crates/pgsql-lint" }
+pgsql-codegen = { path = "../../crates/pgsql-codegen" }
+napi = { version = "2", features = ["napi6"] }
+napi-derive = "2"
+serde = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"

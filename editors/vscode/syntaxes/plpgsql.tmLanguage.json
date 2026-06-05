@@ -1,0 +1,181 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "PL/pgSQL",
+  "scopeName": "source.plpgsql",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#dollar-quoted-strings" },
+    { "include": "#single-quoted-strings" },
+    { "include": "#keywords-control" },
+    { "include": "#keywords-dml" },
+    { "include": "#keywords-ddl" },
+    { "include": "#keywords-plpgsql" },
+    { "include": "#data-types" },
+    { "include": "#constants" },
+    { "include": "#parameters" },
+    { "include": "#named-parameters" },
+    { "include": "#functions" },
+    { "include": "#operators" },
+    { "include": "#punctuation" },
+    { "include": "#numbers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.sql",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.sql",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.sql" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.sql" } }
+        }
+      ]
+    },
+    "dollar-quoted-strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.dollar.sql",
+          "begin": "(\\$\\$|\\$[A-Za-z_][A-Za-z0-9_]*\\$)",
+          "end": "(\\$\\$|\\$[A-Za-z_][A-Za-z0-9_]*\\$)",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.sql" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.sql" } },
+          "patterns": [
+            { "include": "#keywords-control" },
+            { "include": "#keywords-dml" },
+            { "include": "#keywords-plpgsql" },
+            { "include": "#data-types" },
+            { "include": "#parameters" },
+            { "include": "#named-parameters" },
+            { "include": "#comments" },
+            { "include": "#single-quoted-strings" },
+            { "include": "#constants" },
+            { "include": "#numbers" },
+            { "include": "#operators" },
+            { "include": "#functions" }
+          ]
+        }
+      ]
+    },
+    "single-quoted-strings": {
+      "name": "string.quoted.single.sql",
+      "begin": "'",
+      "end": "'",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.sql" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.sql" } },
+      "patterns": [
+        {
+          "name": "constant.character.escape.sql",
+          "match": "''"
+        }
+      ]
+    },
+    "keywords-dml": {
+      "name": "keyword.other.DML.sql",
+      "match": "(?i)\\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|ON|AS|WITH|RETURNING|INTO|SET|VALUES|LIMIT|OFFSET|ORDER\\s+BY|GROUP\\s+BY|HAVING|DISTINCT|UNION|INTERSECT|EXCEPT|ALL|FETCH|NEXT|ROWS|ROW|ONLY|LATERAL|USING|NATURAL)\\b"
+    },
+    "keywords-ddl": {
+      "name": "keyword.other.DDL.sql",
+      "match": "(?i)\\b(CREATE|ALTER|DROP|TABLE|VIEW|INDEX|SEQUENCE|FUNCTION|PROCEDURE|TRIGGER|SCHEMA|DATABASE|EXTENSION|TYPE|DOMAIN|ROLE|GRANT|REVOKE|POLICY|RULE|CONSTRAINT|PRIMARY\\s+KEY|FOREIGN\\s+KEY|UNIQUE|CHECK|DEFAULT|NOT\\s+NULL|REFERENCES|ON\\s+DELETE|ON\\s+UPDATE|CASCADE|RESTRICT|NO\\s+ACTION|SET\\s+NULL|SET\\s+DEFAULT|ENABLE|DISABLE|ROW\\s+LEVEL\\s+SECURITY|FORCE|PERMISSIVE|RESTRICTIVE|FOR|TO|USING|WITH\\s+CHECK|OWNER|TABLESPACE|INHERITS|PARTITION|ATTACH|DETACH|REPLACE|TEMP|TEMPORARY|UNLOGGED|MATERIALIZED|REFRESH|CONCURRENTLY)\\b"
+    },
+    "keywords-control": {
+      "name": "keyword.control.sql",
+      "match": "(?i)\\b(AND|OR|NOT|IN|EXISTS|ANY|SOME|ALL|BETWEEN|LIKE|ILIKE|SIMILAR\\s+TO|IS|IS\\s+NOT|NULL|TRUE|FALSE|CASE|WHEN|THEN|ELSE|END|CAST|COALESCE|NULLIF|GREATEST|LEAST|OVER|PARTITION\\s+BY|WINDOW|FILTER|WITHIN\\s+GROUP)\\b"
+    },
+    "keywords-plpgsql": {
+      "name": "keyword.control.plpgsql",
+      "match": "(?i)\\b(BEGIN|END|DECLARE|IF|ELSIF|ELSEIF|ELSE|LOOP|WHILE|FOR|FOREACH|RETURN|RETURN\\s+NEXT|RETURN\\s+QUERY|RAISE|PERFORM|EXECUTE|GET\\s+DIAGNOSTICS|OPEN|CLOSE|FETCH|MOVE|FOUND|ROWCOUNT|SQLERRM|SQLSTATE|EXCEPTION|WHEN|OTHERS|RESIGNAL|LANGUAGE|PLPGSQL|SQL|AS\\$\\$|VOLATILE|STABLE|IMMUTABLE|CALLED\\s+ON\\s+NULL\\s+INPUT|RETURNS\\s+NULL\\s+ON\\s+NULL\\s+INPUT|STRICT|SECURITY\\s+DEFINER|SECURITY\\s+INVOKER|COST|ROWS|SET|RESET|RECORD|ALIAS|CONSTANT|DEFAULT|NOT\\s+NULL|CONTINUE|EXIT|ASSERT|NOTICE|WARNING|INFO|LOG|DEBUG|EXCEPTION)\\b"
+    },
+    "data-types": {
+      "name": "storage.type.sql",
+      "match": "(?i)\\b(INTEGER|INT|INT2|INT4|INT8|SMALLINT|BIGINT|SERIAL|BIGSERIAL|SMALLSERIAL|DECIMAL|NUMERIC|REAL|FLOAT|FLOAT4|FLOAT8|DOUBLE\\s+PRECISION|MONEY|TEXT|VARCHAR|CHARACTER\\s+VARYING|CHAR|CHARACTER|BPCHAR|BYTEA|BOOLEAN|BOOL|DATE|TIME|TIMETZ|TIMESTAMP|TIMESTAMPTZ|TIMESTAMP\\s+WITH\\s+TIME\\s+ZONE|TIMESTAMP\\s+WITHOUT\\s+TIME\\s+ZONE|INTERVAL|UUID|JSON|JSONB|XML|POINT|LINE|LSEG|BOX|PATH|POLYGON|CIRCLE|CIDR|INET|MACADDR|MACADDR8|BIT|BIT\\s+VARYING|VARBIT|OID|REGCLASS|REGTYPE|REGPROC|REGROLE|REGNAMESPACE|TSVECTOR|TSQUERY|HSTORE|VOID|TRIGGER|EVENT_TRIGGER|LANGUAGE_HANDLER|INTERNAL|ANYELEMENT|ANYARRAY|ANYNONARRAY|ANYRANGE|ANYMULTIRANGE|ANYCOMPATIBLE|SETOF)\\b"
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.sql",
+          "match": "(?i)\\b(NULL|TRUE|FALSE|CURRENT_DATE|CURRENT_TIME|CURRENT_TIMESTAMP|LOCALTIME|LOCALTIMESTAMP|CURRENT_USER|SESSION_USER|CURRENT_ROLE|CURRENT_CATALOG|CURRENT_SCHEMA)\\b"
+        }
+      ]
+    },
+    "parameters": {
+      "name": "variable.parameter.positional.sql",
+      "match": "\\$[0-9]+"
+    },
+    "named-parameters": {
+      "name": "variable.parameter.named.sql",
+      "match": "\\b(p_|v_|l_|i_|o_|io_)[A-Za-z_][A-Za-z0-9_]*\\b"
+    },
+    "functions": {
+      "name": "entity.name.function.sql",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.sql",
+          "match": "(=|<>|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.sql",
+          "match": "(\\+|-|\\*|/|%|\\^|\\|\\||&&)"
+        },
+        {
+          "name": "keyword.operator.assignment.sql",
+          "match": "(:=|=>)"
+        },
+        {
+          "name": "keyword.operator.type-cast.sql",
+          "match": "::"
+        },
+        {
+          "name": "keyword.operator.json.sql",
+          "match": "(->>?|#>>?|@>|<@|\\?\\|?|\\?&|#-)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.parameters.begin.sql",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.definition.parameters.end.sql",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.separator.comma.sql",
+          "match": ","
+        },
+        {
+          "name": "punctuation.terminator.statement.sql",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.accessor.dot.sql",
+          "match": "\\."
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.sql",
+          "match": "\\b[0-9]+\\.[0-9]*([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.sql",
+          "match": "\\b[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.hex.sql",
+          "match": "\\b0x[0-9A-Fa-f]+\\b"
+        }
+      ]
+    }
+  }
+}

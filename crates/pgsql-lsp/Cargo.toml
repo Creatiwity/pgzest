@@ -1,0 +1,17 @@
+[package]
+name = "pgsql-lsp"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pgsql-lsp"
+path = "src/main.rs"
+
+[dependencies]
+pgsql-parser = { path = "../pgsql-parser" }
+pgsql-checker = { path = "../pgsql-checker" }
+pgsql-lint = { path = "../pgsql-lint" }
+tower-lsp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

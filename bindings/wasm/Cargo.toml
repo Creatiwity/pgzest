@@ -1,0 +1,20 @@
+[package]
+name = "pgsql-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pgsql-parser = { path = "../../crates/pgsql-parser" }
+pgsql-checker = { path = "../../crates/pgsql-checker" }
+pgsql-lint = { path = "../../crates/pgsql-lint" }
+pgsql-codegen = { path = "../../crates/pgsql-codegen" }
+wasm-bindgen = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = { workspace = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"

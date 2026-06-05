@@ -1,0 +1,13 @@
+[package]
+name = "pgsql-lint"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pgsql-ast = { path = "../pgsql-ast" }
+pgsql-checker = { path = "../pgsql-checker" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pgsql-ast = { path = "../pgsql-ast" }

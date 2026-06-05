@@ -2,10 +2,24 @@
 members = [
     "crates/pgsql-ast",
     "crates/pgsql-parser",
+    "crates/pgsql-checker",
+    "crates/pgsql-lint",
+    "crates/pgsql-cli",
+    "crates/pgsql-codegen",
+    "crates/pgsql-lsp",
+    "bindings/wasm",
+    "bindings/node",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 sqlparser = "0.54"
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+napi = { version = "2", features = ["napi6"] }
+napi-derive = "2"
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
