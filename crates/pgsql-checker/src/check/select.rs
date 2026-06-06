@@ -181,7 +181,11 @@ fn check_expr(
             let func_name = crate::schema::object_name_to_string(name);
             // Emit a warning for unknown functions (but only for single-part names;
             // schema-qualified calls like pg_catalog.now() are trusted).
-            if name.0.len() == 1 && schema.get_function(&func_name).is_none() {
+            // Built-in PostgreSQL / SQL-standard functions never require a declaration.
+            if name.0.len() == 1
+                && !crate::builtins::is_builtin_function(&func_name)
+                && schema.get_function(&func_name).is_none()
+            {
                 diags.push(Diagnostic::warning(
                     "W001",
                     format!("function '{}' is not defined in the known schema", func_name),

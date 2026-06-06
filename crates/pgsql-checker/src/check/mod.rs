@@ -15,6 +15,22 @@ pub fn check_sql(sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
     }
 }
 
+/// Parse `sql`, extrait le schéma des statements DDL qu'il contient,
+/// puis type-check tous les statements contre ce schéma.
+/// C'est le mode utilisé quand on vérifie un fichier sans schéma externe séparé.
+pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
+    let stmts = match pgsql_parser::parse(sql) {
+        Ok(s) => s,
+        Err(e) => return vec![Diagnostic::error("E000", format!("parse error: {e}"))],
+    };
+
+    // Première passe : construire le schéma depuis le DDL du fichier lui-même
+    let schema = crate::schema::DdlSchemaProvider::from_statements(&stmts);
+
+    // Deuxième passe : checker tous les statements contre ce schéma
+    check_statements(&stmts, &schema)
+}
+
 /// Type-check a slice of already-parsed AST statements.
 pub fn check_statements(stmts: &[Statement], schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
     let mut diags = Vec::new();

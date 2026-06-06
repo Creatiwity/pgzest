@@ -1,4 +1,4 @@
-use pgsql_checker::{check_sql, check_statements, DdlSchemaProvider, IntrospectionJsonProvider, SchemaProvider};
+use pgsql_checker::{check_sql, check_sql_self_contained, check_statements, DdlSchemaProvider, IntrospectionJsonProvider, SchemaProvider};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -279,6 +279,38 @@ fn trigger_new_nonexistent_column_is_error() {
     // If the body is Parsed, the AST checker should emit E001.
     // If it falls back to Raw, the text scanner may find it too.
     // Either way, we only assert no panic here as documented in the spec.
+}
+
+// ── self-contained mode ───────────────────────────────────────────────────────
+
+#[test]
+fn self_contained_schema_resolves_policies() {
+    // Un seul fichier SQL qui contient CREATE TABLE + CREATE POLICY
+    // Le checker doit résoudre la table depuis le DDL du même fichier
+    let sql = "
+        CREATE TABLE users (id UUID PRIMARY KEY, email TEXT NOT NULL);
+        CREATE POLICY users_select ON users
+            FOR SELECT USING (id = id);
+    ";
+    let diags = check_sql_self_contained(sql);
+    let errors: Vec<_> = diags.iter().filter(|d| matches!(d.severity, pgsql_checker::Severity::Error)).collect();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+}
+
+/// Built-in PostgreSQL functions (COUNT, ROUND, NULLIF, now(), etc.) must not emit W001.
+#[test]
+fn builtin_functions_no_warning() {
+    let sql = "
+        CREATE TABLE metrics (value NUMERIC NOT NULL);
+        SELECT COUNT(*), ROUND(AVG(value), 2), NULLIF(MAX(value), 0) FROM metrics;
+    ";
+    let diags = pgsql_checker::check_sql_self_contained(sql);
+    let w001: Vec<_> = diags.iter().filter(|d| d.code == "W001").collect();
+    assert!(
+        w001.is_empty(),
+        "unexpected W001 for builtin functions: {:?}",
+        w001
+    );
 }
 
 /// A function with an empty $$ $$ body should emit a W002 warning.

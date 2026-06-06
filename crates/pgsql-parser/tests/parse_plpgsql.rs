@@ -1,5 +1,6 @@
 use pgsql_ast::{
     ddl::{DdlStatement, FunctionBody},
+    plpgsql::PlExpr,
     Statement,
 };
 use pgsql_parser::parse;
@@ -60,6 +61,36 @@ fn parse_full_schema_plpgsql_functions() {
         "expected at least 2 SqlQuery bodies, got {}",
         sql_query_count
     );
+}
+
+#[test]
+fn parse_if_not_exists_subquery() {
+    // The expression NOT EXISTS (...) must NOT produce a PlExpr::Var
+    let sql = r#"
+        CREATE OR REPLACE PROCEDURE test_proc(p_id UUID)
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM memberships WHERE user_id = p_id) THEN
+            RAISE EXCEPTION 'not found';
+          END IF;
+        END;
+        $$;"#;
+    let stmts = pgsql_parser::parse(sql).expect("parse failed");
+    match &stmts[0] {
+        Statement::Ddl(DdlStatement::CreateProcedure(p)) => {
+            if let FunctionBody::Parsed(body) = &p.body {
+                use pgsql_ast::plpgsql::PlStatement;
+                if let Some(PlStatement::If { condition, .. }) = body.block.statements.first() {
+                    assert!(
+                        !matches!(condition, PlExpr::Var(v) if v.value.contains("EXISTS")),
+                        "NOT EXISTS incorrectly parsed as variable: {:?}",
+                        condition
+                    );
+                }
+            }
+        }
+        _ => panic!("expected procedure"),
+    }
 }
 
 fn get_function_body(sql: &str) -> FunctionBody {

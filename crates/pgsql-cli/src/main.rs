@@ -80,7 +80,13 @@ fn cmd_check(args: &[String]) -> i32 {
         None => Box::new(pgsql_checker::DdlSchemaProvider::from_statements(&[])),
     };
 
-    let diagnostics = pgsql_checker::check_sql(&sql, schema.as_ref());
+    // Si un schéma externe est fourni, l'utiliser. Sinon, mode self-contained :
+    // on extrait le schéma du fichier lui-même (deux passes).
+    let diagnostics = if schema_file.is_some() {
+        pgsql_checker::check_sql(&sql, schema.as_ref())
+    } else {
+        pgsql_checker::check_sql_self_contained(&sql)
+    };
 
     let mut has_errors = false;
     for diag in &diagnostics {
