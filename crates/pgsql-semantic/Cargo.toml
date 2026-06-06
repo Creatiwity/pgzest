@@ -1,0 +1,14 @@
+[package]
+name = "pgsql-semantic"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pgsql-ast = { path = "../pgsql-ast" }
+pgsql-checker = { path = "../pgsql-checker" }
+pgsql-parser = { path = "../pgsql-parser" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+pgsql-parser = { path = "../pgsql-parser" }

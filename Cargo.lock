@@ -731,6 +731,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pgsql-semantic"
+version = "0.1.0"
+dependencies = [
+ "pgsql-ast",
+ "pgsql-checker",
+ "pgsql-parser",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pgsql-wasm"
 version = "0.1.0"
 dependencies = [
