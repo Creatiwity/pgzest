@@ -64,3 +64,25 @@ pub fn parse_and_emit(sql: String) -> String {
         Err(e) => format!("-- error: {e}"),
     }
 }
+
+/// Generate TypeScript type declarations from SQL.
+/// If schema_sql is non-empty, it's prepended to sql for enriched analysis.
+#[napi]
+pub fn generate_types(sql: String, schema_sql: String) -> String {
+    let combined = if schema_sql.is_empty() {
+        sql
+    } else {
+        format!("{}\n\n{}", schema_sql, sql)
+    };
+    pgsql_codegen::generate_ts_types_from_sql(&combined)
+}
+
+/// Parse SQL and return AST as a JSON string.
+#[napi]
+pub fn parse_to_json(sql: String) -> String {
+    match pgsql_parser::parse(&sql) {
+        Ok(stmts) => serde_json::to_string_pretty(&stmts)
+            .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+        Err(e) => format!("{{\"error\":\"parse error: {e}\"}}"),
+    }
+}

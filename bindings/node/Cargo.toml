@@ -14,6 +14,7 @@ pgsql-codegen = { path = "../../crates/pgsql-codegen" }
 napi = { version = "2", features = ["napi6"] }
 napi-derive = "2"
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [build-dependencies]
 napi-build = "2"

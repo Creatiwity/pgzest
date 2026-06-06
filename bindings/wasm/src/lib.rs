@@ -72,3 +72,28 @@ pub fn parse_and_emit(sql: &str) -> String {
         Err(e) => format!("-- error: {}", e),
     }
 }
+
+/// Generate TypeScript type declarations from a SQL file.
+/// Returns a string of TypeScript interface definitions.
+#[wasm_bindgen]
+pub fn generate_types(sql: &str, schema_sql: &str) -> String {
+    // If schema_sql is provided and non-empty, use it to enrich the analysis
+    let combined = if schema_sql.is_empty() {
+        sql.to_string()
+    } else {
+        // Prepend schema DDL so the codegen knows about table columns
+        format!("{}\n\n{}", schema_sql, sql)
+    };
+    pgsql_codegen::generate_ts_types_from_sql(&combined)
+}
+
+/// Parse a SQL file and return its AST as JSON.
+/// Useful for debugging or building custom tools on top of the parser.
+#[wasm_bindgen]
+pub fn parse_to_json(sql: &str) -> String {
+    match pgsql_parser::parse(sql) {
+        Ok(stmts) => serde_json::to_string_pretty(&stmts)
+            .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
+        Err(e) => format!("{{\"error\":\"parse error: {}\"}}", e),
+    }
+}
