@@ -8,6 +8,7 @@ members = [
     "crates/pgsql-cli",
     "crates/pgsql-codegen",
     "crates/pgsql-lsp",
+    "crates/pgsql-plugin-wasm",
     "bindings/wasm",
     "bindings/node",
 ]
@@ -25,3 +26,4 @@ napi = { version = "2", features = ["napi6"] }
 napi-derive = "2"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
+wasmi = "0.31"

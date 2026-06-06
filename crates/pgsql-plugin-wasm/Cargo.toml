@@ -1,0 +1,13 @@
+[package]
+name = "pgsql-plugin-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pgsql-plugin = { path = "../pgsql-plugin" }
+pgsql-checker = { path = "../pgsql-checker" }
+pgsql-ast = { path = "../pgsql-ast" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+wasmi = "0.31"

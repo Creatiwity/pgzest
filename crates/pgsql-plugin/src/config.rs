@@ -12,6 +12,10 @@ pub struct PgsqlConfig {
 
     #[serde(default)]
     pub schema: SchemaConfig,
+
+    /// Paths to external WASM plugin files.
+    #[serde(default)]
+    pub wasm_plugins: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
