@@ -134,7 +134,7 @@
 ## Phase F — Extensions et polish
 
 **Durée estimée** : continue  
-**Statut** : ⏳ Planifiée  
+**Statut** : ✅ Livrée  
 **Dépendances** : Phases C + E  
 
 ### Livrables
@@ -171,6 +171,7 @@ F (Extensions) ← dépend de C + E, continu
 | C — LSP + Extension VS Code | juin 2026 | Hover, completion, go-to-definition, grammar TextMate |
 | D — Génération types TypeScript | juin 2026 | codegen SELECT → interfaces TS, CLI `pgsql codegen` |
 | E — Framework npm pgsql-tools | juin 2026 | db.ts, migrate.ts, policy.ts, backends/, plugin Prisma |
+| F — Extensions et polish | juin 2026 | Lint L005-L009, migration safety M001-M003, PostGIS plugin, JetBrains skeleton |
 
 ---
 
