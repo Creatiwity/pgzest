@@ -30,7 +30,7 @@
 ## Phase A — Fondation AST : NodeId + Span + Visit traits
 
 **Durée estimée** : 1–2 semaines  
-**Statut** : 🔄 En cours (workflow lancé)  
+**Statut** : ✅ Livrée  
 **Dépendances** : aucune  
 **Débloque** : Phase B (semantic), LSP hover/completion
 
@@ -49,7 +49,7 @@
 ## Phase B — `pgsql-semantic` : symbol table + inférence de types
 
 **Durée estimée** : 3–4 semaines  
-**Statut** : 🔄 En cours (workflow lancé)  
+**Statut** : ✅ Livrée  
 **Dépendances** : Phase A  
 **Débloque** : Phase C (LSP), Phase D (types TS), checker type-compat
 
@@ -73,7 +73,7 @@
 ## Phase C — LSP complet + Extension VS Code
 
 **Durée estimée** : 2 semaines  
-**Statut** : ⏳ Planifiée  
+**Statut** : ✅ Livrée  
 **Dépendances** : Phase B  
 **Débloque** : expérience IDE complète
 
@@ -95,7 +95,7 @@
 ## Phase D — Génération de types TypeScript
 
 **Durée estimée** : 1–2 semaines  
-**Statut** : ⏳ Planifiée  
+**Statut** : ✅ Livrée  
 **Dépendances** : Phase B  
 **Débloque** : Framework npm (Phase E)
 
@@ -114,7 +114,7 @@
 ## Phase E — Framework npm `pgsql-tools`
 
 **Durée estimée** : 3–4 semaines  
-**Statut** : ⏳ Planifiée  
+**Statut** : ✅ Livrée (TypeScript, nécessite pg pour la DB)  
 **Dépendances** : Phase D  
 **Débloque** : livrable principal côté TypeScript
 
@@ -159,6 +159,18 @@ A (NodeId + Visit)
 
 F (Extensions) ← dépend de C + E, continu
 ```
+
+---
+
+## Historique des livraisons
+
+| Phase | Date de livraison | Notes |
+|-------|:-----------------:|-------|
+| A — Fondation AST (NodeId + Span + Visit) | juin 2026 | NodeId/Span sur nœuds principaux, traits Visit/VisitMut |
+| B — pgsql-semantic (symbol table + types) | juin 2026 | SymbolTable, ScopeTree, inférence d'expressions |
+| C — LSP + Extension VS Code | juin 2026 | Hover, completion, go-to-definition, grammar TextMate |
+| D — Génération types TypeScript | juin 2026 | codegen SELECT → interfaces TS, CLI `pgsql codegen` |
+| E — Framework npm pgsql-tools | juin 2026 | db.ts, migrate.ts, policy.ts, backends/, plugin Prisma |
 
 ---
 
