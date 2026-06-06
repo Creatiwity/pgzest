@@ -1,4 +1,4 @@
-//! Conversion layer: sqlparser 0.54 AST → pgsql_ast types.
+//! Conversion layer: sqlparser 0.62 AST → pgsql_ast types.
 //!
 //! Entry point is [`convert_statement`].
 
@@ -24,7 +24,23 @@ use pgsql_ast::{
 use crate::error::ParseError;
 use sqlparser::ast as sp;
 
-// ── Public entry point ───────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Extract an `Ident` from an `ObjectNamePart`, discarding function parts.
+fn part_to_ident(part: sp::ObjectNamePart) -> Option<sp::Ident> {
+    match part {
+        sp::ObjectNamePart::Identifier(id) => Some(id),
+        sp::ObjectNamePart::Function(_) => None,
+    }
+}
+
+/// Convert an `IndexColumn` (used in PrimaryKey / Unique constraints) to a
+/// plain identifier by examining the column expression.
+fn convert_index_column(ic: sp::IndexColumn) -> Result<Ident, ParseError> {
+    convert_ident_from_expr(ic.column.expr)
+}
+
+// ── Public entry point ────────────────────────────────────────────────────────
 
 pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
     match stmt {
@@ -36,15 +52,8 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             let s = convert_insert(ins)?;
             Ok(Statement::Insert(s))
         }
-        sp::Statement::Update {
-            table,
-            assignments,
-            from,
-            selection,
-            returning,
-            ..
-        } => {
-            let s = convert_update(table, assignments, from, selection, returning)?;
+        sp::Statement::Update(upd) => {
+            let s = convert_update(upd.table, upd.assignments, upd.from, upd.selection, upd.returning)?;
             Ok(Statement::Update(s))
         }
         sp::Statement::Delete(del) => {
@@ -68,39 +77,29 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             name,
             params,
             body,
+            language: _,
         } => {
             let ddl = convert_create_procedure(or_alter, name, params, body)?;
             Ok(Statement::Ddl(DdlStatement::CreateProcedure(ddl)))
         }
-        sp::Statement::CreateTrigger {
-            name,
-            period,
-            events,
-            table_name,
-            trigger_object,
-            condition,
-            exec_body,
-            ..
-        } => {
-            let ddl = convert_create_trigger(name, period, events, table_name, trigger_object, condition, exec_body)?;
+        sp::Statement::CreateTrigger(ct) => {
+            let ddl = convert_create_trigger(ct)?;
             Ok(Statement::Ddl(DdlStatement::CreateTrigger(ddl)))
         }
-        sp::Statement::CreatePolicy {
-            name,
-            table_name,
-            policy_type,
-            command,
-            to,
-            using,
-            with_check,
-        } => {
-            let ddl = convert_create_policy(name, table_name, policy_type, command, to, using, with_check)?;
+        sp::Statement::CreatePolicy(policy) => {
+            let ddl = convert_create_policy(
+                policy.name,
+                policy.table_name,
+                policy.policy_type,
+                policy.command,
+                policy.to,
+                policy.using,
+                policy.with_check,
+            )?;
             Ok(Statement::Ddl(DdlStatement::CreatePolicy(ddl)))
         }
-        sp::Statement::AlterTable {
-            name, operations, ..
-        } => {
-            let ddl = convert_alter_table(name, operations)?;
+        sp::Statement::AlterTable(at) => {
+            let ddl = convert_alter_table(at.name, at.operations)?;
             Ok(Statement::Ddl(DdlStatement::AlterTable(ddl)))
         }
         // CREATE EXTENSION — silently skip (no pgsql_ast equivalent yet)
@@ -129,21 +128,35 @@ fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> {
         vec![]
     };
 
-    // ORDER BY
+    // ORDER BY — in 0.62 the kind is OrderByKind::Expressions(Vec<OrderByExpr>) | All(...)
     let order_by = if let Some(ob) = query.order_by {
-        ob.exprs
-            .into_iter()
-            .map(convert_order_by_expr)
-            .collect::<Result<Vec<_>, _>>()?
+        match ob.kind {
+            sp::OrderByKind::Expressions(exprs) => exprs
+                .into_iter()
+                .map(convert_order_by_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+            sp::OrderByKind::All(_) => {
+                return Err(ParseError::Unsupported(
+                    "ORDER BY ALL is not supported".to_string(),
+                ))
+            }
+        }
     } else {
         vec![]
     };
 
-    let limit = query.limit.map(convert_expr).transpose()?;
-    let offset = query
-        .offset
-        .map(|o| convert_expr(o.value))
-        .transpose()?;
+    // LIMIT / OFFSET — in 0.62 both live inside limit_clause
+    let (limit, offset) = match query.limit_clause {
+        None => (None, None),
+        Some(sp::LimitClause::LimitOffset { limit, offset, .. }) => {
+            let l = limit.map(convert_expr).transpose()?;
+            let o = offset.map(|o| convert_expr(o.value)).transpose()?;
+            (l, o)
+        }
+        Some(sp::LimitClause::OffsetCommaLimit { offset, limit }) => {
+            (Some(convert_expr(limit)?), Some(convert_expr(offset)?))
+        }
+    };
 
     // Unwrap the SetExpr into a plain SELECT
     match *query.body {
@@ -235,15 +248,23 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
 fn convert_select_item(item: sp::SelectItem) -> Result<SelectItem, ParseError> {
     match item {
         sp::SelectItem::Wildcard(_) => Ok(SelectItem::Wildcard),
-        sp::SelectItem::QualifiedWildcard(name, _) => {
-            // Take last part as the qualifier
-            let last = name
-                .0
-                .last()
-                .ok_or_else(|| ParseError::Unsupported("empty qualified wildcard".to_string()))?
-                .clone();
-            Ok(SelectItem::QualifiedWildcard(convert_ident(last)))
-        }
+        // In 0.62 the first field is SelectItemQualifiedWildcardKind, not ObjectName
+        sp::SelectItem::QualifiedWildcard(name_kind, _) => match name_kind {
+            sp::SelectItemQualifiedWildcardKind::ObjectName(name) => {
+                let last = name
+                    .0
+                    .into_iter()
+                    .filter_map(part_to_ident)
+                    .next_back()
+                    .ok_or_else(|| {
+                        ParseError::Unsupported("empty qualified wildcard".to_string())
+                    })?;
+                Ok(SelectItem::QualifiedWildcard(convert_ident(last)))
+            }
+            sp::SelectItemQualifiedWildcardKind::Expr(_) => Err(ParseError::Unsupported(
+                "expression qualified wildcard not supported".to_string(),
+            )),
+        },
         sp::SelectItem::UnnamedExpr(e) => Ok(SelectItem::Expr {
             expr: convert_expr(e)?,
             alias: None,
@@ -252,6 +273,9 @@ fn convert_select_item(item: sp::SelectItem) -> Result<SelectItem, ParseError> {
             expr: convert_expr(expr)?,
             alias: Some(convert_ident(alias)),
         }),
+        _ => Err(ParseError::Unsupported(
+            "unsupported select item variant".to_string(),
+        )),
     }
 }
 
@@ -272,11 +296,20 @@ fn convert_join(join: sp::Join) -> Result<Join, ParseError> {
     let table = convert_table_factor(join.relation)?;
 
     let (kind, constraint) = match join.join_operator {
+        // Generic JOIN (no explicit INNER keyword) — sqlparser 0.62 new variant
+        sp::JoinOperator::Join(c) => (JoinKind::Inner, convert_join_constraint(c)?),
         sp::JoinOperator::Inner(c) => (JoinKind::Inner, convert_join_constraint(c)?),
-        sp::JoinOperator::LeftOuter(c) => (JoinKind::Left, convert_join_constraint(c)?),
-        sp::JoinOperator::RightOuter(c) => (JoinKind::Right, convert_join_constraint(c)?),
+        // LEFT JOIN and LEFT OUTER JOIN are separate variants in 0.62
+        sp::JoinOperator::Left(c) | sp::JoinOperator::LeftOuter(c) => {
+            (JoinKind::Left, convert_join_constraint(c)?)
+        }
+        // RIGHT JOIN and RIGHT OUTER JOIN are separate variants in 0.62
+        sp::JoinOperator::Right(c) | sp::JoinOperator::RightOuter(c) => {
+            (JoinKind::Right, convert_join_constraint(c)?)
+        }
         sp::JoinOperator::FullOuter(c) => (JoinKind::Full, convert_join_constraint(c)?),
-        sp::JoinOperator::CrossJoin => (JoinKind::Cross, JoinConstraint::Natural),
+        // CrossJoin is now a tuple variant in 0.62
+        sp::JoinOperator::CrossJoin(_) => (JoinKind::Cross, JoinConstraint::Natural),
         other => {
             return Err(ParseError::Unsupported(format!(
                 "unsupported join operator: {:?}",
@@ -295,13 +328,14 @@ fn convert_join(join: sp::Join) -> Result<Join, ParseError> {
 fn convert_join_constraint(c: sp::JoinConstraint) -> Result<JoinConstraint, ParseError> {
     match c {
         sp::JoinConstraint::On(e) => Ok(JoinConstraint::On(convert_expr(e)?)),
+        // Using still holds Vec<ObjectName> in 0.62; each ObjectName.0 is Vec<ObjectNamePart>
         sp::JoinConstraint::Using(names) => {
-            // In sqlparser 0.54, Using holds Vec<ObjectName>
             let idents = names
                 .into_iter()
                 .map(|on| {
                     on.0.into_iter()
-                        .last()
+                        .filter_map(part_to_ident)
+                        .next_back()
                         .map(convert_ident)
                         .ok_or_else(|| ParseError::Unsupported("empty USING ident".to_string()))
                 })
@@ -314,18 +348,19 @@ fn convert_join_constraint(c: sp::JoinConstraint) -> Result<JoinConstraint, Pars
 }
 
 fn convert_order_by_expr(o: sp::OrderByExpr) -> Result<OrderByExpr, ParseError> {
+    // In 0.62, asc/nulls_first live inside OrderByOptions
     Ok(OrderByExpr {
         expr: convert_expr(o.expr)?,
-        asc: o.asc,
-        nulls_first: o.nulls_first,
+        asc: o.options.asc,
+        nulls_first: o.options.nulls_first,
     })
 }
 
-// ── Expression conversion ────────────────────────────────────────────────────
+// ── Expression conversion ─────────────────────────────────────────────────────
 
 fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
     match expr {
-        sp::Expr::Value(v) => convert_value(v),
+        sp::Expr::Value(v) => convert_value(v.value),
         sp::Expr::Identifier(id) => {
             // Single ident — could be a column name
             Ok(Expr::Column(ColumnRef {
@@ -392,17 +427,18 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             expr: Box::new(convert_expr(*expr)?),
             data_type: convert_data_type(data_type)?,
         }),
+        // In 0.62, Case uses Vec<CaseWhen> (each has .condition and .result);
+        // results is gone, and case_token/end_token are new (ignored with ..)
         sp::Expr::Case {
             operand,
             conditions,
-            results,
             else_result,
+            ..
         } => {
             let op = operand.map(|e| convert_expr(*e)).transpose()?.map(Box::new);
             let when_clauses = conditions
                 .into_iter()
-                .zip(results)
-                .map(|(cond, res)| Ok((convert_expr(cond)?, convert_expr(res)?)))
+                .map(|cw| Ok((convert_expr(cw.condition)?, convert_expr(cw.result)?)))
                 .collect::<Result<Vec<_>, ParseError>>()?;
             let else_clause = else_result
                 .map(|e| convert_expr(*e))
@@ -461,7 +497,6 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
         sp::Expr::Function(f) => {
             let name = convert_object_name(f.name);
             let args = convert_function_args(f.args)?;
-            // filter is not in pgsql_ast yet — ignore it
             Ok(Expr::FunctionCall {
                 name,
                 args,
@@ -470,11 +505,13 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             })
         }
         sp::Expr::Wildcard(_) => Ok(Expr::Wildcard),
+        // In 0.62, ObjectName.0 is Vec<ObjectNamePart>
         sp::Expr::QualifiedWildcard(parts, _) => {
             let last = parts
                 .0
                 .into_iter()
-                .last()
+                .filter_map(part_to_ident)
+                .next_back()
                 .ok_or_else(|| ParseError::Unsupported("empty qualified wildcard".to_string()))?;
             Ok(Expr::QualifiedWildcard(convert_ident(last)))
         }
@@ -507,7 +544,6 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             })
         }
         sp::Expr::IsTrue(e) => {
-            // Rewrite as `expr = TRUE`
             Ok(Expr::BinaryOp {
                 left: Box::new(convert_expr(*e)?),
                 op: BinaryOp::Is,
@@ -588,6 +624,41 @@ fn convert_binary_op(op: sp::BinaryOperator) -> Result<BinaryOp, ParseError> {
         sp::BinaryOperator::Multiply => Ok(BinaryOp::Multiply),
         sp::BinaryOperator::Divide => Ok(BinaryOp::Divide),
         sp::BinaryOperator::Modulo => Ok(BinaryOp::Modulo),
+        // PostgreSQL extension operators — map to Custom instead of erroring out.
+        // PostGIS spatial operators
+        sp::BinaryOperator::LtDashGt => Ok(BinaryOp::Custom("<->".into())),
+        sp::BinaryOperator::PGOverlap => Ok(BinaryOp::Custom("&&".into())),
+        sp::BinaryOperator::At => Ok(BinaryOp::Custom("@".into())),
+        sp::BinaryOperator::TildeEq => Ok(BinaryOp::Custom("~=".into())),
+        sp::BinaryOperator::AndLt => Ok(BinaryOp::Custom("&<".into())),
+        sp::BinaryOperator::AndGt => Ok(BinaryOp::Custom("&>".into())),
+        sp::BinaryOperator::LtLtPipe => Ok(BinaryOp::Custom("<<|".into())),
+        sp::BinaryOperator::PipeGtGt => Ok(BinaryOp::Custom("|>>".into())),
+        sp::BinaryOperator::AndLtPipe => Ok(BinaryOp::Custom("&<|".into())),
+        sp::BinaryOperator::PipeAndGt => Ok(BinaryOp::Custom("|&>".into())),
+        sp::BinaryOperator::LtCaret => Ok(BinaryOp::Custom("<^".into())),
+        sp::BinaryOperator::GtCaret => Ok(BinaryOp::Custom(">^".into())),
+        sp::BinaryOperator::QuestionHash => Ok(BinaryOp::Custom("?#".into())),
+        sp::BinaryOperator::QuestionDash => Ok(BinaryOp::Custom("?-".into())),
+        sp::BinaryOperator::QuestionDashPipe => Ok(BinaryOp::Custom("?-|".into())),
+        sp::BinaryOperator::QuestionDoublePipe => Ok(BinaryOp::Custom("?||".into())),
+        // PostgreSQL JSONB operators
+        sp::BinaryOperator::Arrow => Ok(BinaryOp::Custom("->".into())),
+        sp::BinaryOperator::LongArrow => Ok(BinaryOp::Custom("->>".into())),
+        sp::BinaryOperator::HashArrow => Ok(BinaryOp::Custom("#>".into())),
+        sp::BinaryOperator::HashLongArrow => Ok(BinaryOp::Custom("#>>".into())),
+        sp::BinaryOperator::AtArrow => Ok(BinaryOp::Custom("@>".into())),
+        sp::BinaryOperator::ArrowAt => Ok(BinaryOp::Custom("<@".into())),
+        sp::BinaryOperator::HashMinus => Ok(BinaryOp::Custom("#-".into())),
+        sp::BinaryOperator::AtAt => Ok(BinaryOp::Custom("@@".into())),
+        // Other PostgreSQL operators
+        sp::BinaryOperator::PGRegexMatch => Ok(BinaryOp::Custom("~".into())),
+        sp::BinaryOperator::DoubleHash => Ok(BinaryOp::Custom("##".into())),
+        // Generic custom / user-defined operators
+        sp::BinaryOperator::Custom(s) => Ok(BinaryOp::Custom(s)),
+        sp::BinaryOperator::PGCustomBinaryOperator(parts) => {
+            Ok(BinaryOp::Custom(parts.join(".")))
+        }
         other => Err(ParseError::Unsupported(format!(
             "unsupported binary operator: {:?}",
             other
@@ -608,12 +679,16 @@ fn convert_function_args(
             .into_iter()
             .map(|fa| match fa {
                 sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Expr(e)) => convert_expr(e),
-                sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Wildcard) => Ok(Expr::Wildcard),
+                sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Wildcard)
+                | sp::FunctionArg::Unnamed(sp::FunctionArgExpr::WildcardWithOptions(_)) => {
+                    Ok(Expr::Wildcard)
+                }
                 sp::FunctionArg::Unnamed(sp::FunctionArgExpr::QualifiedWildcard(n)) => {
                     let last = n
                         .0
                         .into_iter()
-                        .last()
+                        .filter_map(part_to_ident)
+                        .next_back()
                         .ok_or_else(|| {
                             ParseError::Unsupported("empty qualified wildcard".to_string())
                         })?;
@@ -641,23 +716,36 @@ fn convert_function_args(
 fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
     let table = match ins.table {
         sp::TableObject::TableName(n) => convert_object_name(n),
-        sp::TableObject::TableFunction(_) => {
+        sp::TableObject::TableFunction(_) | sp::TableObject::TableQuery(_) => {
             return Err(ParseError::Unsupported(
-                "INSERT INTO TABLE FUNCTION not supported".to_string(),
+                "INSERT INTO TABLE FUNCTION/QUERY not supported".to_string(),
             ))
         }
     };
 
-    let columns = ins.columns.into_iter().map(convert_ident).collect();
+    // In 0.62, Insert.columns is Vec<ObjectName>, not Vec<Ident>
+    let columns = ins
+        .columns
+        .into_iter()
+        .map(|on| {
+            on.0.into_iter()
+                .filter_map(part_to_ident)
+                .next_back()
+                .map(convert_ident)
+                .unwrap_or_else(|| Ident::new(""))
+        })
+        .collect();
 
     let source = if let Some(q) = ins.source {
         match *q.body {
             sp::SetExpr::Values(v) => {
+                // In 0.62, rows is Vec<Parens<Vec<Expr>>>; access .content
                 let rows = v
                     .rows
                     .into_iter()
                     .map(|row| {
-                        row.into_iter()
+                        row.content
+                            .into_iter()
                             .map(convert_expr)
                             .collect::<Result<Vec<_>, _>>()
                     })
@@ -714,7 +802,8 @@ fn convert_on_conflict(oc: sp::OnConflict) -> Result<OnConflict, ParseError> {
             let ident = name
                 .0
                 .into_iter()
-                .last()
+                .filter_map(part_to_ident)
+                .next_back()
                 .map(convert_ident)
                 .ok_or_else(|| ParseError::Unsupported("empty constraint name".to_string()))?;
             OnConflictTarget::Constraint(ident)
@@ -745,7 +834,8 @@ fn convert_assignment(a: sp::Assignment) -> Result<Assignment, ParseError> {
         sp::AssignmentTarget::ColumnName(name) => name
             .0
             .into_iter()
-            .last()
+            .filter_map(part_to_ident)
+            .next_back()
             .map(convert_ident)
             .ok_or_else(|| ParseError::Unsupported("empty assignment target".to_string()))?,
         sp::AssignmentTarget::Tuple(_) => {
@@ -771,12 +861,14 @@ fn convert_update(
 ) -> Result<UpdateStmt, ParseError> {
     let tref = convert_table_factor(table.relation)?;
 
+    // In 0.62, BeforeSet/AfterSet wrap Vec<TableWithJoins>, not a single one
     let from_tables = match from {
         None => vec![],
-        Some(sp::UpdateTableFromKind::BeforeSet(twj))
-        | Some(sp::UpdateTableFromKind::AfterSet(twj)) => {
-            vec![convert_table_factor(twj.relation)?]
-        }
+        Some(sp::UpdateTableFromKind::BeforeSet(tables))
+        | Some(sp::UpdateTableFromKind::AfterSet(tables)) => tables
+            .into_iter()
+            .map(|twj| convert_table_factor(twj.relation))
+            .collect::<Result<Vec<_>, _>>()?,
     };
 
     let assigns = assignments
@@ -890,29 +982,25 @@ fn convert_column_def(col: sp::ColumnDef) -> Result<ColumnDef, ParseError> {
                 default = Some(expr.clone());
                 constraints.push(ColumnConstraint::Default(expr));
             }
-            sp::ColumnOption::Unique { is_primary, .. } => {
-                if is_primary {
-                    constraints.push(ColumnConstraint::PrimaryKey);
-                } else {
-                    constraints.push(ColumnConstraint::Unique);
-                }
+            // In 0.62, PrimaryKey and Unique are separate tuple variants
+            sp::ColumnOption::PrimaryKey(_) => {
+                constraints.push(ColumnConstraint::PrimaryKey);
             }
-            sp::ColumnOption::ForeignKey {
-                foreign_table,
-                referred_columns,
-                on_delete,
-                on_update,
-                ..
-            } => {
+            sp::ColumnOption::Unique(_) => {
+                constraints.push(ColumnConstraint::Unique);
+            }
+            // In 0.62, ForeignKey is a tuple variant holding ForeignKeyConstraint
+            sp::ColumnOption::ForeignKey(fk) => {
                 constraints.push(ColumnConstraint::References {
-                    table: convert_object_name(foreign_table),
-                    column: referred_columns.into_iter().next().map(convert_ident),
-                    on_delete: on_delete.map(convert_referential_action),
-                    on_update: on_update.map(convert_referential_action),
+                    table: convert_object_name(fk.foreign_table),
+                    column: fk.referred_columns.into_iter().next().map(convert_ident),
+                    on_delete: fk.on_delete.map(convert_referential_action),
+                    on_update: fk.on_update.map(convert_referential_action),
                 });
             }
-            sp::ColumnOption::Check(e) => {
-                constraints.push(ColumnConstraint::Check(convert_expr(e)?));
+            // In 0.62, Check is a tuple variant holding CheckConstraint
+            sp::ColumnOption::Check(cc) => {
+                constraints.push(ColumnConstraint::Check(convert_expr(*cc.expr)?));
             }
             // Ignore other options (charset, comments, dialect-specific)
             _ => {}
@@ -930,28 +1018,30 @@ fn convert_column_def(col: sp::ColumnDef) -> Result<ColumnDef, ParseError> {
 
 fn convert_table_constraint(tc: sp::TableConstraint) -> Result<TableConstraint, ParseError> {
     match tc {
-        sp::TableConstraint::PrimaryKey { columns, .. } => Ok(TableConstraint::PrimaryKey {
-            columns: columns.into_iter().map(convert_ident).collect(),
+        // In 0.62, PrimaryKey/Unique/ForeignKey/Check are tuple variants
+        sp::TableConstraint::PrimaryKey(pk) => Ok(TableConstraint::PrimaryKey {
+            columns: pk
+                .columns
+                .into_iter()
+                .map(convert_index_column)
+                .collect::<Result<Vec<_>, _>>()?,
         }),
-        sp::TableConstraint::Unique { columns, .. } => Ok(TableConstraint::Unique {
-            columns: columns.into_iter().map(convert_ident).collect(),
+        sp::TableConstraint::Unique(uc) => Ok(TableConstraint::Unique {
+            columns: uc
+                .columns
+                .into_iter()
+                .map(convert_index_column)
+                .collect::<Result<Vec<_>, _>>()?,
         }),
-        sp::TableConstraint::ForeignKey {
-            columns,
-            foreign_table,
-            referred_columns,
-            on_delete,
-            on_update,
-            ..
-        } => Ok(TableConstraint::ForeignKey {
-            columns: columns.into_iter().map(convert_ident).collect(),
-            ref_table: convert_object_name(foreign_table),
-            ref_columns: referred_columns.into_iter().map(convert_ident).collect(),
-            on_delete: on_delete.map(convert_referential_action),
-            on_update: on_update.map(convert_referential_action),
+        sp::TableConstraint::ForeignKey(fk) => Ok(TableConstraint::ForeignKey {
+            columns: fk.columns.into_iter().map(convert_ident).collect(),
+            ref_table: convert_object_name(fk.foreign_table),
+            ref_columns: fk.referred_columns.into_iter().map(convert_ident).collect(),
+            on_delete: fk.on_delete.map(convert_referential_action),
+            on_update: fk.on_update.map(convert_referential_action),
         }),
-        sp::TableConstraint::Check { expr, .. } => {
-            Ok(TableConstraint::Check(convert_expr(*expr)?))
+        sp::TableConstraint::Check(cc) => {
+            Ok(TableConstraint::Check(convert_expr(*cc.expr)?))
         }
         other => Err(ParseError::Unsupported(format!(
             "unsupported table constraint: {}",
@@ -975,7 +1065,8 @@ fn convert_referential_action(action: sp::ReferentialAction) -> ReferentialActio
 fn convert_create_index(ci: sp::CreateIndex) -> Result<CreateIndex, ParseError> {
     let name = ci.name.map(|n| {
         n.0.into_iter()
-            .last()
+            .filter_map(part_to_ident)
+            .next_back()
             .map(convert_ident)
             .unwrap_or_else(|| Ident::new(""))
     });
@@ -983,7 +1074,7 @@ fn convert_create_index(ci: sp::CreateIndex) -> Result<CreateIndex, ParseError> 
     let columns = ci
         .columns
         .into_iter()
-        .map(|ob| convert_ident_from_expr(ob.expr))
+        .map(|ob| convert_ident_from_expr(ob.column.expr))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(CreateIndex {
@@ -1000,7 +1091,7 @@ fn convert_ident_from_expr(expr: sp::Expr) -> Result<Ident, ParseError> {
         sp::Expr::Identifier(id) => Ok(convert_ident(id)),
         sp::Expr::CompoundIdentifier(parts) => parts
             .into_iter()
-            .last()
+            .next_back()
             .map(convert_ident)
             .ok_or_else(|| ParseError::Unsupported("empty compound ident in index".to_string())),
         other => Err(ParseError::Unsupported(format!(
@@ -1033,10 +1124,11 @@ fn convert_create_function(cf: sp::CreateFunction) -> Result<CreateFunction, Par
         None => FunctionLanguage::Other("unknown".to_string()),
     };
 
-    // Return type
-    let return_type = match &cf.return_type {
+    // Return type — in 0.62, return_type is Option<FunctionReturnType>
+    let return_type = match cf.return_type {
         None => ReturnType::Void,
-        Some(dt) => convert_return_type(dt.clone())?,
+        Some(sp::FunctionReturnType::DataType(dt)) => convert_return_type_from_dt(dt)?,
+        Some(sp::FunctionReturnType::SetOf(dt)) => ReturnType::SetOf(convert_data_type(dt)?),
     };
 
     // Volatility
@@ -1046,10 +1138,6 @@ fn convert_create_function(cf: sp::CreateFunction) -> Result<CreateFunction, Par
         _ => Volatility::Volatile,
     };
 
-    // Security definer — extract from language string? No, from options:
-    // sqlparser exposes it in the function body but there's no dedicated field.
-    // We'll approximate: security definer is not in sqlparser 0.54 CreateFunction struct;
-    // we'll default to false. TODO: parse AS body keyword options.
     let security_definer = false;
 
     // Body
@@ -1076,6 +1164,7 @@ fn convert_function_arg(arg: sp::OperateFunctionArg) -> Result<FunctionParam, Pa
         None | Some(sp::ArgMode::In) => ParamMode::In,
         Some(sp::ArgMode::Out) => ParamMode::Out,
         Some(sp::ArgMode::InOut) => ParamMode::InOut,
+        Some(sp::ArgMode::Variadic) => ParamMode::Variadic,
     };
     let data_type = convert_data_type(arg.data_type)?;
     let default = arg.default_expr.map(convert_expr).transpose()?;
@@ -1087,26 +1176,20 @@ fn convert_function_arg(arg: sp::OperateFunctionArg) -> Result<FunctionParam, Pa
     })
 }
 
-fn convert_return_type(dt: sp::DataType) -> Result<ReturnType, ParseError> {
+/// Convert a sqlparser DataType to pgsql_ast ReturnType.
+fn convert_return_type_from_dt(dt: sp::DataType) -> Result<ReturnType, ParseError> {
     match &dt {
         sp::DataType::Trigger => Ok(ReturnType::Trigger),
-        // SETOF <type> — sqlparser may represent this as Custom("SETOF <type>") or Custom("SETOF")
         sp::DataType::Custom(name, _) => {
             let s = name
                 .0
                 .iter()
-                .map(|id| id.value.as_str())
+                .filter_map(|p| match p {
+                    sp::ObjectNamePart::Identifier(id) => Some(id.value.as_str()),
+                    sp::ObjectNamePart::Function(_) => None,
+                })
                 .collect::<Vec<_>>()
                 .join(" ");
-            let upper = s.to_uppercase();
-            if upper.starts_with("SETOF") {
-                let rest = s[5..].trim();
-                if rest.is_empty() {
-                    // SETOF without a type name — treat as SETOF record
-                    return Ok(ReturnType::SetOf(DataType::Custom("record".to_string())));
-                }
-                return Ok(ReturnType::SetOf(parse_simple_type(rest)));
-            }
             Ok(ReturnType::Scalar(DataType::Custom(s)))
         }
         other => Ok(ReturnType::Scalar(convert_data_type(other.clone())?)),
@@ -1152,9 +1235,20 @@ fn convert_function_body(
                 "function with no body".to_string(),
             ))
         }
-        Some(sp::CreateFunctionBody::AsBeforeOptions(e))
+        // AsBeforeOptions is a struct variant in 0.62; other variants are tuple or struct
+        Some(sp::CreateFunctionBody::AsBeforeOptions { body: e, .. })
         | Some(sp::CreateFunctionBody::AsAfterOptions(e))
-        | Some(sp::CreateFunctionBody::Return(e)) => extract_body_string(e),
+        | Some(sp::CreateFunctionBody::Return(e))
+        | Some(sp::CreateFunctionBody::AsReturnExpr(e)) => extract_body_string(e),
+        Some(sp::CreateFunctionBody::AsBeginEnd(bes)) => bes
+            .statements
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join("; "),
+        Some(sp::CreateFunctionBody::AsReturnSelect(select)) => {
+            format!("SELECT {select}")
+        }
     };
 
     // For LANGUAGE plpgsql, attempt to parse the body with the PL/pgSQL parser
@@ -1162,7 +1256,6 @@ fn convert_function_body(
         match crate::plpgsql::parse_plpgsql_body(&raw) {
             Ok(parsed) => return Ok(FunctionBody::Parsed(Box::new(parsed))),
             Err(e) => {
-                // Graceful degradation — fall through to Raw
                 eprintln!("PL/pgSQL parse warning: {}", e);
             }
         }
@@ -1170,11 +1263,8 @@ fn convert_function_body(
 
     // For LANGUAGE sql, try to parse as a SelectStmt
     if matches!(language, FunctionLanguage::Sql) {
-        // Attempt to parse the body string as a SELECT
         let dialect = sqlparser::dialect::PostgreSqlDialect {};
-        if let Ok(stmts) =
-            sqlparser::parser::Parser::parse_sql(&dialect, raw.trim())
-        {
+        if let Ok(stmts) = sqlparser::parser::Parser::parse_sql(&dialect, raw.trim()) {
             if let Some(sp::Statement::Query(q)) = stmts.into_iter().next() {
                 if let Ok(sel) = convert_query(*q) {
                     return Ok(FunctionBody::SqlQuery(Box::new(sel)));
@@ -1188,8 +1278,11 @@ fn convert_function_body(
 
 fn extract_body_string(expr: sp::Expr) -> String {
     match expr {
-        sp::Expr::Value(sp::Value::DollarQuotedString(dqs)) => dqs.value,
-        sp::Expr::Value(sp::Value::SingleQuotedString(s)) => s,
+        sp::Expr::Value(v) => match v.value {
+            sp::Value::DollarQuotedString(dqs) => dqs.value,
+            sp::Value::SingleQuotedString(s) => s,
+            other => format!("{other}"),
+        },
         other => other.to_string(),
     }
 }
@@ -1200,7 +1293,7 @@ fn convert_create_procedure(
     _or_alter: bool,
     name: sp::ObjectName,
     params: Option<Vec<sp::ProcedureParam>>,
-    body: Vec<sp::Statement>,
+    body: sp::ConditionalStatements,
 ) -> Result<CreateProcedure, ParseError> {
     let pname = convert_object_name(name);
     let or_replace = _or_alter;
@@ -1218,16 +1311,17 @@ fn convert_create_procedure(
         })
         .collect::<Result<Vec<_>, ParseError>>()?;
 
-    // The body of a procedure in sqlparser is a Vec<Statement>;
-    // for PL/pgSQL procedures, this is typically a single Begin..End block
-    // represented as a raw string by the parser.
-    let raw_body = body
+    // In 0.62, body is ConditionalStatements; extract the statement list
+    let stmts: Vec<sp::Statement> = match body {
+        sp::ConditionalStatements::Sequence { statements } => statements,
+        sp::ConditionalStatements::BeginEnd(bes) => bes.statements,
+    };
+    let raw_body = stmts
         .into_iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
         .join("; ");
 
-    // Attempt to parse with the PL/pgSQL parser
     let parsed_body = match crate::plpgsql::parse_plpgsql_body(&raw_body) {
         Ok(parsed) => FunctionBody::Parsed(Box::new(parsed)),
         Err(e) => {
@@ -1249,31 +1343,29 @@ fn convert_create_procedure(
 
 // ── CREATE TRIGGER ────────────────────────────────────────────────────────────
 
-fn convert_create_trigger(
-    name: sp::ObjectName,
-    period: sp::TriggerPeriod,
-    events: Vec<sp::TriggerEvent>,
-    table_name: sp::ObjectName,
-    trigger_object: sp::TriggerObject,
-    condition: Option<sp::Expr>,
-    exec_body: sp::TriggerExecBody,
-) -> Result<CreateTrigger, ParseError> {
-    let tname = name
+fn convert_create_trigger(ct: sp::CreateTrigger) -> Result<CreateTrigger, ParseError> {
+    // In 0.62, name is ObjectName (Vec<ObjectNamePart>)
+    let tname = ct
+        .name
         .0
         .into_iter()
-        .last()
+        .filter_map(part_to_ident)
+        .next_back()
         .map(convert_ident)
         .ok_or_else(|| ParseError::Unsupported("empty trigger name".to_string()))?;
 
-    let table = convert_object_name(table_name);
+    let table = convert_object_name(ct.table_name);
 
-    let timing = match period {
-        sp::TriggerPeriod::Before => TriggerTiming::Before,
-        sp::TriggerPeriod::After => TriggerTiming::After,
-        sp::TriggerPeriod::InsteadOf => TriggerTiming::InsteadOf,
+    // In 0.62, period is Option<TriggerPeriod> and also has a For variant
+    let timing = match ct.period {
+        Some(sp::TriggerPeriod::Before) => TriggerTiming::Before,
+        Some(sp::TriggerPeriod::After) => TriggerTiming::After,
+        Some(sp::TriggerPeriod::InsteadOf) => TriggerTiming::InsteadOf,
+        Some(sp::TriggerPeriod::For) | None => TriggerTiming::After,
     };
 
-    let evts = events
+    let evts = ct
+        .events
         .into_iter()
         .map(|e| match e {
             sp::TriggerEvent::Insert => Ok(TriggerEvent::Insert),
@@ -1285,14 +1377,22 @@ fn convert_create_trigger(
         })
         .collect::<Result<Vec<_>, ParseError>>()?;
 
-    let for_each = match trigger_object {
-        sp::TriggerObject::Row => TriggerForEach::Row,
-        sp::TriggerObject::Statement => TriggerForEach::Statement,
+    // In 0.62, trigger_object is Option<TriggerObjectKind> wrapping TriggerObject
+    let for_each = match ct.trigger_object {
+        Some(sp::TriggerObjectKind::For(sp::TriggerObject::Row))
+        | Some(sp::TriggerObjectKind::ForEach(sp::TriggerObject::Row)) => TriggerForEach::Row,
+        Some(sp::TriggerObjectKind::For(sp::TriggerObject::Statement))
+        | Some(sp::TriggerObjectKind::ForEach(sp::TriggerObject::Statement))
+        | None => TriggerForEach::Statement,
     };
 
-    let when = condition.map(convert_expr).transpose()?;
+    let when = ct.condition.map(convert_expr).transpose()?;
 
-    let function = convert_object_name(exec_body.func_desc.name);
+    // In 0.62, exec_body is Option<TriggerExecBody>
+    let function = ct
+        .exec_body
+        .map(|eb| convert_object_name(eb.func_desc.name))
+        .unwrap_or_else(|| ObjectName(vec![]));
 
     Ok(CreateTrigger {
         name: tname,
@@ -1379,22 +1479,30 @@ fn convert_alter_table_op(op: sp::AlterTableOperation) -> Result<AlterTableOp, P
         sp::AlterTableOperation::AddColumn { column_def, .. } => {
             Ok(AlterTableOp::AddColumn(convert_column_def(column_def)?))
         }
+        // In 0.62, DropColumn uses column_names (Vec) instead of column_name
         sp::AlterTableOperation::DropColumn {
-            column_name,
+            column_names,
             if_exists,
             ..
-        } => Ok(AlterTableOp::DropColumn {
-            name: convert_ident(column_name),
-            if_exists,
-        }),
+        } => {
+            let name = column_names
+                .into_iter()
+                .next()
+                .map(convert_ident)
+                .ok_or_else(|| {
+                    ParseError::Unsupported("DROP COLUMN with no column name".to_string())
+                })?;
+            Ok(AlterTableOp::DropColumn { name, if_exists })
+        }
         sp::AlterTableOperation::AlterColumn { column_name, op } => {
             Ok(AlterTableOp::AlterColumn {
                 name: convert_ident(column_name),
                 action: convert_alter_column_op(op)?,
             })
         }
-        sp::AlterTableOperation::AddConstraint(tc) => {
-            Ok(AlterTableOp::AddConstraint(convert_table_constraint(tc)?))
+        // In 0.62, AddConstraint is a struct variant
+        sp::AlterTableOperation::AddConstraint { constraint, .. } => {
+            Ok(AlterTableOp::AddConstraint(convert_table_constraint(constraint)?))
         }
         sp::AlterTableOperation::DropConstraint {
             name, if_exists, ..
@@ -1445,7 +1553,8 @@ fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
             let (precision, scale) = match info {
                 sp::ExactNumberInfo::None => (None, None),
                 sp::ExactNumberInfo::Precision(p) => (Some(p), None),
-                sp::ExactNumberInfo::PrecisionAndScale(p, s) => (Some(p), Some(s)),
+                // scale is i64 in 0.62, cast to u64
+                sp::ExactNumberInfo::PrecisionAndScale(p, s) => (Some(p), Some(s as u64)),
             };
             Ok(DataType::Numeric { precision, scale })
         }
@@ -1482,7 +1591,8 @@ fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
             sp::TimezoneInfo::WithTimeZone | sp::TimezoneInfo::Tz => Ok(DataType::TimestampTz),
             _ => Ok(DataType::Timestamp),
         },
-        sp::DataType::Interval => Ok(DataType::Interval),
+        // In 0.62, Interval is a struct variant
+        sp::DataType::Interval { .. } => Ok(DataType::Interval),
         // Boolean
         sp::DataType::Boolean | sp::DataType::Bool => Ok(DataType::Boolean),
         // Binary
@@ -1496,7 +1606,6 @@ fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
         sp::DataType::Array(elem) => {
             let inner = match elem {
                 sp::ArrayElemTypeDef::None => {
-                    // untyped array — fallback
                     return Ok(DataType::Custom("array".to_string()));
                 }
                 sp::ArrayElemTypeDef::AngleBracket(inner)
@@ -1505,12 +1614,15 @@ fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
             };
             Ok(DataType::Array(Box::new(convert_data_type(inner)?)))
         }
-        // Custom / enum / user-defined
+        // Custom / enum / user-defined — ObjectName.0 is now Vec<ObjectNamePart>
         sp::DataType::Custom(name, _) => {
             let s = name
                 .0
                 .into_iter()
-                .map(|id| id.value)
+                .filter_map(|p| match p {
+                    sp::ObjectNamePart::Identifier(id) => Some(id.value),
+                    sp::ObjectNamePart::Function(_) => None,
+                })
                 .collect::<Vec<_>>()
                 .join(".");
             Ok(DataType::Custom(s))
@@ -1533,6 +1645,16 @@ fn convert_ident(id: sp::Ident) -> Ident {
     }
 }
 
+/// In 0.62, ObjectName holds Vec<ObjectNamePart> instead of Vec<Ident>.
+/// We filter out any Function parts (dialect-specific) and keep Identifiers.
 fn convert_object_name(name: sp::ObjectName) -> ObjectName {
-    ObjectName(name.0.into_iter().map(convert_ident).collect())
+    ObjectName(
+        name.0
+            .into_iter()
+            .filter_map(|p| match p {
+                sp::ObjectNamePart::Identifier(id) => Some(convert_ident(id)),
+                sp::ObjectNamePart::Function(_) => None,
+            })
+            .collect(),
+    )
 }

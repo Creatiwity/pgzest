@@ -1260,7 +1260,7 @@ impl Parser {
         if let Ok(stmts) = crate::parse(&sql) {
             if !stmts.is_empty() {
                 if let pgsql_ast::Statement::Select(ref sel) = stmts[0] {
-                    if let Some(pgsql_ast::stmt::SelectItem::Expr { ref expr, .. }) =
+                    if let Some(pgsql_ast::stmt::SelectItem::Expr { expr, .. }) =
                         sel.columns.first()
                     {
                         return Ok(PlExpr::Sql(expr.clone()));
