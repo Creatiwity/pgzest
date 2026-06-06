@@ -256,28 +256,29 @@ fn emit_literal(lit: &Literal) -> String {
     }
 }
 
-fn emit_binary_op(op: &BinaryOp) -> &'static str {
+fn emit_binary_op(op: &BinaryOp) -> std::borrow::Cow<'static, str> {
     match op {
-        BinaryOp::Eq => "=",
-        BinaryOp::NotEq => "<>",
-        BinaryOp::Lt => "<",
-        BinaryOp::Lte => "<=",
-        BinaryOp::Gt => ">",
-        BinaryOp::Gte => ">=",
-        BinaryOp::And => "AND",
-        BinaryOp::Or => "OR",
-        BinaryOp::Plus => "+",
-        BinaryOp::Minus => "-",
-        BinaryOp::Multiply => "*",
-        BinaryOp::Divide => "/",
-        BinaryOp::Modulo => "%",
-        BinaryOp::In => "IN",
-        BinaryOp::NotIn => "NOT IN",
-        BinaryOp::Like => "LIKE",
-        BinaryOp::NotLike => "NOT LIKE",
-        BinaryOp::ILike => "ILIKE",
-        BinaryOp::Is => "IS",
-        BinaryOp::IsNot => "IS NOT",
+        BinaryOp::Eq => "=".into(),
+        BinaryOp::NotEq => "<>".into(),
+        BinaryOp::Lt => "<".into(),
+        BinaryOp::Lte => "<=".into(),
+        BinaryOp::Gt => ">".into(),
+        BinaryOp::Gte => ">=".into(),
+        BinaryOp::And => "AND".into(),
+        BinaryOp::Or => "OR".into(),
+        BinaryOp::Plus => "+".into(),
+        BinaryOp::Minus => "-".into(),
+        BinaryOp::Multiply => "*".into(),
+        BinaryOp::Divide => "/".into(),
+        BinaryOp::Modulo => "%".into(),
+        BinaryOp::In => "IN".into(),
+        BinaryOp::NotIn => "NOT IN".into(),
+        BinaryOp::Like => "LIKE".into(),
+        BinaryOp::NotLike => "NOT LIKE".into(),
+        BinaryOp::ILike => "ILIKE".into(),
+        BinaryOp::Is => "IS".into(),
+        BinaryOp::IsNot => "IS NOT".into(),
+        BinaryOp::Custom(s) => s.clone().into(),
     }
 }
 

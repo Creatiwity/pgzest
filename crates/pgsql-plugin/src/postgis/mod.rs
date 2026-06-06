@@ -5,6 +5,26 @@ use std::collections::HashMap;
 use pgsql_checker::schema::{FunctionSignature, SchemaProvider, TableSchema};
 use pgsql_ast::types::DataType;
 
+/// Inferred return type for a PostGIS binary operator.
+/// `left` and `right` are the inferred operand types (may be geometry or geography).
+fn postgis_operator_return(op: &str, left: &DataType, right: &DataType) -> Option<DataType> {
+    let is_spatial = |dt: &DataType| matches!(dt,
+        DataType::Custom(s) if s == "geometry" || s == "geography"
+    );
+    if !is_spatial(left) && !is_spatial(right) {
+        return None;
+    }
+    match op {
+        // KNN / distance operators → float8
+        "<->" | "<#>" => Some(DataType::DoublePrecision),
+        // Bounding box / topological overlap → boolean
+        "&&" | "&&&" | "@>" | "<@" | "~" | "@" | "~=" => Some(DataType::Boolean),
+        // Directional / geometric predicates → boolean
+        "&<" | "&>" | "<<|" | "|>>" | "&<|" | "|&>" | "<^" | ">^" => Some(DataType::Boolean),
+        _ => None,
+    }
+}
+
 /// PostGIS spatial types as custom DataType variants.
 pub fn geometry_type() -> DataType { DataType::Custom("geometry".into()) }
 pub fn geography_type() -> DataType { DataType::Custom("geography".into()) }
@@ -103,6 +123,10 @@ impl SchemaProvider for PostGisSchemaProvider {
 
     fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
         self.functions.get(&name.to_lowercase())
+    }
+
+    fn get_operator(&self, op: &str, left: &DataType, right: &DataType) -> Option<DataType> {
+        postgis_operator_return(op, left, right)
     }
 
     fn all_table_names(&self) -> Vec<&str> { vec![] }

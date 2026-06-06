@@ -39,10 +39,9 @@ impl WasmPlugin {
         let mut store: Store<()> = Store::new(&engine, ());
         let linker: Linker<()> = Linker::new(&engine);
         // Try to instantiate with empty linker (may fail if imports needed)
+        // wasmi 1.x combines instantiate + start into one call
         let instance = linker
-            .instantiate(&mut store, &module)
-            .ok()?
-            .start(&mut store)
+            .instantiate_and_start(&mut store, &module)
             .ok()?;
         let name_fn = instance
             .get_typed_func::<(), i32>(&store, "pgsql_plugin_name")
@@ -137,9 +136,7 @@ impl WasmPlugin {
             )
             .map_err(wasmi::Error::from)?;
 
-        let instance = linker
-            .instantiate(&mut store, &module)?
-            .start(&mut store)?;
+        let instance = linker.instantiate_and_start(&mut store, &module)?;
 
         // Get alloc and the check function
         let alloc = instance.get_typed_func::<i32, i32>(&store, "pgsql_alloc")?;
