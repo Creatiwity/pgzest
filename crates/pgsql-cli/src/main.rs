@@ -60,6 +60,12 @@ fn cmd_check(args: &[String]) -> i32 {
         }
     };
 
+    // Load pgsql.toml from the current directory or parent directories
+    let _config = pgsql_plugin::config::PgsqlConfig::load(
+        &std::path::PathBuf::from("pgsql.toml")
+    ).unwrap_or_default();
+    // (For now, just load config — plugin rule injection in P3)
+
     let schema: Box<dyn pgsql_checker::SchemaProvider> = match schema_file {
         Some(path) => {
             let schema_sql = match read_file(path) {

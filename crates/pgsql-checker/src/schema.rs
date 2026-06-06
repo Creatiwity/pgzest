@@ -39,6 +39,18 @@ pub trait SchemaProvider: Send + Sync {
     fn get_table(&self, name: &str) -> Option<&TableSchema>;
     fn get_function(&self, name: &str) -> Option<&FunctionSignature>;
     fn all_table_names(&self) -> Vec<&str>;
+
+    /// Downcast hook for the optional RLS-aware extension.
+    /// Returns `None` by default — safe for all existing providers.
+    fn as_rls_aware(&self) -> Option<&dyn RlsAwareSchemaProvider> {
+        None
+    }
+}
+
+/// Optional extension for SchemaProvider: RLS awareness.
+/// Implement this on your provider if you track ALTER TABLE ... ENABLE ROW LEVEL SECURITY.
+pub trait RlsAwareSchemaProvider: SchemaProvider {
+    fn table_has_rls(&self, table_name: &str) -> bool;
 }
 
 // ── DdlSchemaProvider ─────────────────────────────────────────────────────────
@@ -47,12 +59,15 @@ pub trait SchemaProvider: Send + Sync {
 pub struct DdlSchemaProvider {
     tables: HashMap<String, TableSchema>,
     functions: HashMap<String, FunctionSignature>,
+    /// Set of table names (lowercased) that have RLS enabled via ALTER TABLE.
+    rls_enabled: std::collections::HashSet<String>,
 }
 
 impl DdlSchemaProvider {
     pub fn from_statements(stmts: &[pgsql_ast::Statement]) -> Self {
         let mut tables: HashMap<String, TableSchema> = HashMap::new();
         let mut functions: HashMap<String, FunctionSignature> = HashMap::new();
+        let mut rls_enabled: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for stmt in stmts {
             if let pgsql_ast::Statement::Ddl(ddl) = stmt {
@@ -99,12 +114,26 @@ impl DdlSchemaProvider {
                             },
                         );
                     }
+                    pgsql_ast::DdlStatement::AlterTable(at) => {
+                        let table_name = object_name_to_string(&at.name).to_lowercase();
+                        for op in &at.operations {
+                            match op {
+                                pgsql_ast::AlterTableOp::EnableRowLevelSecurity => {
+                                    rls_enabled.insert(table_name.clone());
+                                }
+                                pgsql_ast::AlterTableOp::DisableRowLevelSecurity => {
+                                    rls_enabled.remove(&table_name);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
         }
 
-        Self { tables, functions }
+        Self { tables, functions, rls_enabled }
     }
 
     /// Parse `sql` and build the schema from the resulting DDL statements.
@@ -125,6 +154,16 @@ impl SchemaProvider for DdlSchemaProvider {
 
     fn all_table_names(&self) -> Vec<&str> {
         self.tables.keys().map(|s| s.as_str()).collect()
+    }
+
+    fn as_rls_aware(&self) -> Option<&dyn RlsAwareSchemaProvider> {
+        Some(self)
+    }
+}
+
+impl RlsAwareSchemaProvider for DdlSchemaProvider {
+    fn table_has_rls(&self, table_name: &str) -> bool {
+        self.rls_enabled.contains(&table_name.to_lowercase())
     }
 }
 
@@ -247,7 +286,7 @@ impl SchemaProvider for IntrospectionJsonProvider {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-pub(crate) fn object_name_to_string(name: &pgsql_ast::ObjectName) -> String {
+pub fn object_name_to_string(name: &pgsql_ast::ObjectName) -> String {
     name.0
         .iter()
         .map(|i| i.value.clone())

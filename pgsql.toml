@@ -1,0 +1,14 @@
+# pgsql-tools configuration
+# https://github.com/example/pgsql-tools
+
+[schema]
+# file = "schema.sql"  # optional external schema file
+
+[plugins]
+# rls-enforcer = {}    # enable built-in RLS enforcement plugin
+# prisma = { schema = "prisma/schema.prisma" }  # future Prisma plugin
+
+[rules]
+# "require-rls" = "warn"
+# "no-select-star" = "warn"
+# "naming-convention" = { level = "warn", style = "snake_case" }

@@ -1,0 +1,12 @@
+[package]
+name = "pgsql-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pgsql-checker = { path = "../pgsql-checker" }
+pgsql-ast = { path = "../pgsql-ast" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }

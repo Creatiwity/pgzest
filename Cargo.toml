@@ -3,6 +3,7 @@ members = [
     "crates/pgsql-ast",
     "crates/pgsql-parser",
     "crates/pgsql-checker",
+    "crates/pgsql-plugin",
     "crates/pgsql-lint",
     "crates/pgsql-cli",
     "crates/pgsql-codegen",
@@ -16,6 +17,7 @@ resolver = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+toml = "0.8"
 sqlparser = "0.54"
 wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"

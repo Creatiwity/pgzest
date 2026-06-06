@@ -11,4 +11,5 @@ path = "src/main.rs"
 pgsql-parser = { path = "../pgsql-parser" }
 pgsql-checker = { path = "../pgsql-checker" }
 pgsql-lint = { path = "../pgsql-lint" }
+pgsql-plugin = { path = "../pgsql-plugin" }
 serde = { workspace = true }
