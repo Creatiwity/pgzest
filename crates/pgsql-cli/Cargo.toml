@@ -8,6 +8,7 @@ name = "pgsql"
 path = "src/main.rs"
 
 [dependencies]
+pgsql-ast = { path = "../pgsql-ast" }
 pgsql-parser = { path = "../pgsql-parser" }
 pgsql-checker = { path = "../pgsql-checker" }
 pgsql-codegen = { path = "../pgsql-codegen" }
@@ -16,3 +17,4 @@ pgsql-plugin = { path = "../pgsql-plugin" }
 pgsql-semantic = { path = "../pgsql-semantic" }
 serde = { workspace = true }
 clap = { workspace = true }
+chrono = { workspace = true }

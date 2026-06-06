@@ -1,7 +1,10 @@
 use std::fs;
+use std::path::Path;
 use std::process;
 
 use clap::{Parser, Subcommand};
+
+mod migrate;
 
 #[derive(Parser)]
 #[command(name = "pgsql", about = "PostgreSQL language toolchain", version)]
@@ -58,6 +61,26 @@ enum MigrateAction {
         old: String,
         /// New schema SQL file
         new: String,
+    },
+
+    /// Create a migration by comparing schema/ against .schema-snapshots/.
+    ///
+    /// Reads all .sql files from --schema-dir (lexicographic order), diffs
+    /// against the last snapshot, writes a timestamped migration file, and
+    /// updates the snapshots. Dangerous ops (DROP TABLE, DROP COLUMN) are
+    /// commented out — uncomment only after review.
+    Create {
+        /// Migration name (prefixed with YYYYMMDD-HHMMSS_)
+        name: String,
+        /// Directory containing canonical CREATE TABLE files
+        #[arg(long, default_value = "schema")]
+        schema_dir: String,
+        /// Directory where migration files are written
+        #[arg(long, default_value = "migrations")]
+        migrations_dir: String,
+        /// Directory for schema snapshots
+        #[arg(long, default_value = ".schema-snapshots")]
+        snapshots_dir: String,
     },
 }
 
@@ -260,9 +283,17 @@ fn main() {
     let exit_code = match cli.command {
         Command::Check { file, schema } => cmd_check(&file, schema.as_deref()),
         Command::Lint { file } => cmd_lint(&file),
-        Command::Migrate { action: MigrateAction::Diff { old, new } } => {
-            cmd_migrate_diff(&old, &new)
-        }
+        Command::Migrate { action } => match action {
+            MigrateAction::Diff { old, new } => cmd_migrate_diff(&old, &new),
+            MigrateAction::Create { name, schema_dir, migrations_dir, snapshots_dir } => {
+                migrate::cmd_migrate_create(
+                    &name,
+                    Path::new(&schema_dir),
+                    Path::new(&migrations_dir),
+                    Path::new(&snapshots_dir),
+                )
+            }
+        },
         Command::Emit { file } => cmd_emit(&file),
         Command::Codegen { input, output } => cmd_codegen(&input, output.as_deref()),
     };
