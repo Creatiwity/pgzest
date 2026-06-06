@@ -1,7 +1,7 @@
-mod plpgsql;
+pub(crate) mod plpgsql;
 pub(crate) mod select;
 
-use pgsql_ast::ddl::{CreatePolicy, FunctionBody};
+use pgsql_ast::ddl::CreatePolicy;
 use pgsql_ast::Statement;
 
 use crate::diagnostic::Diagnostic;
@@ -33,143 +33,12 @@ pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
 
 /// Type-check a slice of already-parsed AST statements.
 pub fn check_statements(stmts: &[Statement], schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-
-    for stmt in stmts {
-        match stmt {
-            Statement::Select(sel) => {
-                diags.extend(select::check_select(sel, schema));
-            }
-
-            Statement::Insert(ins) => {
-                let table_name = object_name_to_string(&ins.table);
-                if schema.get_table(&table_name).is_none() {
-                    diags.push(
-                        Diagnostic::error(
-                            "E003",
-                            format!("table '{}' does not exist", table_name),
-                        )
-                        .with_hint("check the table name or provide a schema with that table"),
-                    );
-                }
-            }
-
-            Statement::Update(upd) => {
-                let table_name = object_name_to_string(&upd.table.name);
-                if schema.get_table(&table_name).is_none() {
-                    diags.push(Diagnostic::error(
-                        "E003",
-                        format!("table '{}' does not exist", table_name),
-                    ));
-                }
-            }
-
-            Statement::Delete(del) => {
-                let table_name = object_name_to_string(&del.table.name);
-                if schema.get_table(&table_name).is_none() {
-                    diags.push(Diagnostic::error(
-                        "E003",
-                        format!("table '{}' does not exist", table_name),
-                    ));
-                }
-            }
-
-            Statement::Ddl(ddl) => {
-                use pgsql_ast::DdlStatement;
-                match ddl {
-                    DdlStatement::CreateFunction(cf) => {
-                        let func_name = object_name_to_string(&cf.name);
-                        match &cf.body {
-                            FunctionBody::Parsed(body) => {
-                                // Determine whether this is a trigger function.
-                                let trigger_table_name: Option<&str> = None;
-                                plpgsql::check_plpgsql_ast(
-                                    body,
-                                    &func_name,
-                                    &cf.return_type,
-                                    trigger_table_name,
-                                    &cf.params,
-                                    schema,
-                                    &mut diags,
-                                );
-                            }
-                            FunctionBody::Raw(raw) => {
-                                plpgsql::check_plpgsql_body(
-                                    raw,
-                                    &func_name,
-                                    None,
-                                    schema,
-                                    &mut diags,
-                                );
-                            }
-                            FunctionBody::SqlQuery(sel) => {
-                                // SQL-language functions: parameter names are bound values,
-                                // not column references — pass them as plvars.
-                                let plvars: std::collections::HashSet<String> = cf
-                                    .params
-                                    .iter()
-                                    .filter_map(|p| p.name.as_ref())
-                                    .map(|n| n.value.to_lowercase())
-                                    .collect();
-                                diags.extend(select::check_select_with_plvars(sel, schema, &plvars));
-                            }
-                        }
-                    }
-
-                    DdlStatement::CreateProcedure(cp) => {
-                        let proc_name = object_name_to_string(&cp.name);
-                        match &cp.body {
-                            FunctionBody::Parsed(body) => {
-                                // Procedures have no return type; use Void.
-                                let return_type = pgsql_ast::ReturnType::Void;
-                                plpgsql::check_plpgsql_ast(
-                                    body,
-                                    &proc_name,
-                                    &return_type,
-                                    None,
-                                    &cp.params,
-                                    schema,
-                                    &mut diags,
-                                );
-                            }
-                            FunctionBody::Raw(raw) => {
-                                plpgsql::check_plpgsql_body(
-                                    raw,
-                                    &proc_name,
-                                    None,
-                                    schema,
-                                    &mut diags,
-                                );
-                            }
-                            FunctionBody::SqlQuery(sel) => {
-                                let plvars: std::collections::HashSet<String> = cp
-                                    .params
-                                    .iter()
-                                    .filter_map(|p| p.name.as_ref())
-                                    .map(|n| n.value.to_lowercase())
-                                    .collect();
-                                diags.extend(select::check_select_with_plvars(sel, schema, &plvars));
-                            }
-                        }
-                    }
-
-                    DdlStatement::CreatePolicy(policy) => {
-                        check_create_policy(policy, schema, &mut diags);
-                    }
-
-                    // Other DDL statements pass through without errors.
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    diags
+    crate::checker::Checker::with_builtin_rules().run(stmts, schema)
 }
 
 // ── RLS policy checker ────────────────────────────────────────────────────────
 
-fn check_create_policy(
+pub(crate) fn check_create_policy_rule(
     policy: &CreatePolicy,
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
