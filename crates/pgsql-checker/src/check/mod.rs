@@ -88,6 +88,7 @@ pub fn check_statements(stmts: &[Statement], schema: &dyn SchemaProvider) -> Vec
                                     &func_name,
                                     &cf.return_type,
                                     trigger_table_name,
+                                    &cf.params,
                                     schema,
                                     &mut diags,
                                 );
@@ -102,7 +103,15 @@ pub fn check_statements(stmts: &[Statement], schema: &dyn SchemaProvider) -> Vec
                                 );
                             }
                             FunctionBody::SqlQuery(sel) => {
-                                diags.extend(select::check_select(sel, schema));
+                                // SQL-language functions: parameter names are bound values,
+                                // not column references — pass them as plvars.
+                                let plvars: std::collections::HashSet<String> = cf
+                                    .params
+                                    .iter()
+                                    .filter_map(|p| p.name.as_ref())
+                                    .map(|n| n.value.to_lowercase())
+                                    .collect();
+                                diags.extend(select::check_select_with_plvars(sel, schema, &plvars));
                             }
                         }
                     }
@@ -118,6 +127,7 @@ pub fn check_statements(stmts: &[Statement], schema: &dyn SchemaProvider) -> Vec
                                     &proc_name,
                                     &return_type,
                                     None,
+                                    &cp.params,
                                     schema,
                                     &mut diags,
                                 );
@@ -132,7 +142,13 @@ pub fn check_statements(stmts: &[Statement], schema: &dyn SchemaProvider) -> Vec
                                 );
                             }
                             FunctionBody::SqlQuery(sel) => {
-                                diags.extend(select::check_select(sel, schema));
+                                let plvars: std::collections::HashSet<String> = cp
+                                    .params
+                                    .iter()
+                                    .filter_map(|p| p.name.as_ref())
+                                    .map(|n| n.value.to_lowercase())
+                                    .collect();
+                                diags.extend(select::check_select_with_plvars(sel, schema, &plvars));
                             }
                         }
                     }

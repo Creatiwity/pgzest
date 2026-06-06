@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use pgsql_ast::ddl::ReturnType;
+use pgsql_ast::ddl::{FunctionParam, ReturnType};
 use pgsql_ast::plpgsql::{
     AssignTarget, Block, ElsIf, PlExpr, PlStatement, PlpgsqlBody, RaiseLevel,
 };
@@ -33,6 +33,7 @@ pub fn check_plpgsql_ast(
     function_name: &str,
     return_type: &ReturnType,
     trigger_table: Option<&str>,
+    fn_params: &[FunctionParam],
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
 ) {
@@ -58,9 +59,17 @@ pub fn check_plpgsql_ast(
         vars.insert(decl.name.value.to_lowercase(), decl.data_type.clone());
     }
 
+    // Build params from function/procedure parameters.
+    let mut params: HashMap<String, DataType> = HashMap::new();
+    for p in fn_params {
+        if let Some(name) = &p.name {
+            params.insert(name.value.to_lowercase(), p.data_type.clone());
+        }
+    }
+
     let ctx = TypeContext {
         vars,
-        params: HashMap::new(), // params could be populated from CreateFunction if passed
+        params,
         trigger_table: trigger_table_schema,
         schema,
         return_type,
@@ -132,6 +141,12 @@ pub fn check_plpgsql_body(
 
 // ── AST checker internals ─────────────────────────────────────────────────────
 
+/// Build the set of all known PL/pgSQL identifiers (vars + params, lower-cased).
+/// Used to suppress false-positive E001 when those names appear in embedded SQL.
+fn plvars(ctx: &TypeContext<'_>) -> HashSet<String> {
+    ctx.vars.keys().chain(ctx.params.keys()).cloned().collect()
+}
+
 fn check_block(block: &Block, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
     for stmt in &block.statements {
         check_statement(stmt, ctx, diags);
@@ -193,9 +208,9 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             check_plexpr(value, ctx, diags);
         }
 
-        // SELECT … INTO: check the query.
+        // SELECT … INTO: check the query (passing PL/pgSQL vars so they aren't flagged as columns).
         PlStatement::SelectInto { query, .. } => {
-            let sub_diags = super::select::check_select(query, ctx.schema);
+            let sub_diags = super::select::check_select_with_plvars(query, ctx.schema, &plvars(ctx));
             diags.extend(sub_diags);
         }
 
@@ -255,7 +270,7 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
 
         // RETURN QUERY select.
         PlStatement::ReturnQuery(query) => {
-            let sub_diags = super::select::check_select(query, ctx.schema);
+            let sub_diags = super::select::check_select_with_plvars(query, ctx.schema, &plvars(ctx));
             diags.extend(sub_diags);
         }
 
@@ -295,7 +310,7 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
 
         // FOR … IN query.
         PlStatement::ForSelect { query, body, .. } => {
-            let sub_diags = super::select::check_select(query, ctx.schema);
+            let sub_diags = super::select::check_select_with_plvars(query, ctx.schema, &plvars(ctx));
             diags.extend(sub_diags);
             check_block(body, ctx, diags);
         }

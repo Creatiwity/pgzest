@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use pgsql_ast::{Expr, SelectItem, SelectStmt, TableRef};
 
@@ -7,6 +7,25 @@ use crate::schema::{SchemaProvider, TableSchema};
 
 /// Check a single SELECT statement against the schema.
 pub fn check_select(stmt: &SelectStmt, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
+    check_select_inner(stmt, schema, &HashSet::new())
+}
+
+/// Like `check_select`, but treats any identifier in `plvars` (lower-cased) as a
+/// bound PL/pgSQL variable or parameter rather than a column reference — suppressing
+/// false-positive E001 errors for names like `p_task_id` or `v_org_id`.
+pub fn check_select_with_plvars(
+    stmt: &SelectStmt,
+    schema: &dyn SchemaProvider,
+    plvars: &HashSet<String>,
+) -> Vec<Diagnostic> {
+    check_select_inner(stmt, schema, plvars)
+}
+
+fn check_select_inner(
+    stmt: &SelectStmt,
+    schema: &dyn SchemaProvider,
+    plvars: &HashSet<String>,
+) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
 
     // Build the column context from FROM + JOINs.
@@ -37,29 +56,29 @@ pub fn check_select(stmt: &SelectStmt, schema: &dyn SchemaProvider) -> Vec<Diagn
                 }
             }
             SelectItem::Expr { expr, .. } => {
-                check_expr(expr, &ctx, schema, &mut diags);
+                check_expr(expr, &ctx, schema, plvars, &mut diags);
             }
         }
     }
 
     // Check WHERE clause.
     if let Some(where_expr) = &stmt.where_clause {
-        check_expr(where_expr, &ctx, schema, &mut diags);
+        check_expr(where_expr, &ctx, schema, plvars, &mut diags);
     }
 
     // Check GROUP BY.
     for expr in &stmt.group_by {
-        check_expr(expr, &ctx, schema, &mut diags);
+        check_expr(expr, &ctx, schema, plvars, &mut diags);
     }
 
     // Check HAVING.
     if let Some(having) = &stmt.having {
-        check_expr(having, &ctx, schema, &mut diags);
+        check_expr(having, &ctx, schema, plvars, &mut diags);
     }
 
     // Check ORDER BY.
     for order in &stmt.order_by {
-        check_expr(&order.expr, &ctx, schema, &mut diags);
+        check_expr(&order.expr, &ctx, schema, plvars, &mut diags);
     }
 
     diags
@@ -103,6 +122,7 @@ fn check_expr(
     expr: &Expr,
     ctx: &HashMap<String, &TableSchema>,
     schema: &dyn SchemaProvider,
+    plvars: &HashSet<String>,
     diags: &mut Vec<Diagnostic>,
 ) {
     match expr {
@@ -148,7 +168,13 @@ fn check_expr(
                     }
                 }
                 None => {
-                    // Unqualified reference — search all tables in context.
+                    // Unqualified reference — skip if it's a known PL/pgSQL variable/param.
+                    let col_lower = col_name.to_lowercase();
+                    if plvars.contains(&col_lower) {
+                        return;
+                    }
+
+                    // Search all tables in context.
                     let found = ctx
                         .values()
                         .any(|ts| ts.get_column(col_name).is_some());
@@ -192,21 +218,21 @@ fn check_expr(
                 ));
             }
             for arg in args {
-                check_expr(arg, ctx, schema, diags);
+                check_expr(arg, ctx, schema, plvars, diags);
             }
         }
 
         Expr::BinaryOp { left, right, .. } => {
-            check_expr(left, ctx, schema, diags);
-            check_expr(right, ctx, schema, diags);
+            check_expr(left, ctx, schema, plvars, diags);
+            check_expr(right, ctx, schema, plvars, diags);
         }
 
         Expr::UnaryOp { expr, .. } => {
-            check_expr(expr, ctx, schema, diags);
+            check_expr(expr, ctx, schema, plvars, diags);
         }
 
         Expr::Cast { expr, .. } => {
-            check_expr(expr, ctx, schema, diags);
+            check_expr(expr, ctx, schema, plvars, diags);
         }
 
         Expr::Case {
@@ -215,41 +241,41 @@ fn check_expr(
             else_clause,
         } => {
             if let Some(op) = operand {
-                check_expr(op, ctx, schema, diags);
+                check_expr(op, ctx, schema, plvars, diags);
             }
             for (when, then) in when_clauses {
-                check_expr(when, ctx, schema, diags);
-                check_expr(then, ctx, schema, diags);
+                check_expr(when, ctx, schema, plvars, diags);
+                check_expr(then, ctx, schema, plvars, diags);
             }
             if let Some(el) = else_clause {
-                check_expr(el, ctx, schema, diags);
+                check_expr(el, ctx, schema, plvars, diags);
             }
         }
 
         Expr::Subquery(sub) => {
-            let sub_diags = check_select(sub, schema);
+            let sub_diags = check_select_inner(sub, schema, plvars);
             diags.extend(sub_diags);
         }
 
         Expr::InSubquery { expr, subquery, .. } => {
-            check_expr(expr, ctx, schema, diags);
-            let sub_diags = check_select(subquery, schema);
+            check_expr(expr, ctx, schema, plvars, diags);
+            let sub_diags = check_select_inner(subquery, schema, plvars);
             diags.extend(sub_diags);
         }
 
         Expr::InList { expr, list, .. } => {
-            check_expr(expr, ctx, schema, diags);
+            check_expr(expr, ctx, schema, plvars, diags);
             for item in list {
-                check_expr(item, ctx, schema, diags);
+                check_expr(item, ctx, schema, plvars, diags);
             }
         }
 
         Expr::Between {
             expr, low, high, ..
         } => {
-            check_expr(expr, ctx, schema, diags);
-            check_expr(low, ctx, schema, diags);
-            check_expr(high, ctx, schema, diags);
+            check_expr(expr, ctx, schema, plvars, diags);
+            check_expr(low, ctx, schema, plvars, diags);
+            check_expr(high, ctx, schema, plvars, diags);
         }
 
         // Literals and wildcards carry no references to resolve.
