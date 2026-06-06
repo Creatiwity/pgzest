@@ -113,3 +113,65 @@ fn parse_full_schema_counts_statements() {
         total
     );
 }
+
+/// The target SQL from the spec: RETURNS SETOF UUID + SECURITY DEFINER must parse
+/// without error and produce the correct AST fields.
+#[test]
+fn parse_create_function_setof_security_definer() {
+    use pgsql_ast::{
+        ddl::{DdlStatement, ReturnType},
+        types::DataType,
+        Statement,
+    };
+
+    let sql = r#"
+        CREATE OR REPLACE FUNCTION current_user_org_ids()
+        RETURNS SETOF UUID
+        LANGUAGE sql STABLE SECURITY DEFINER AS $$
+          SELECT org_id FROM memberships WHERE user_id = auth.uid()
+        $$;
+    "#;
+
+    let stmts = parse(sql).expect("should parse SETOF UUID + SECURITY DEFINER without error");
+    assert_eq!(stmts.len(), 1, "expected exactly one statement");
+
+    match &stmts[0] {
+        Statement::Ddl(DdlStatement::CreateFunction(cf)) => {
+            assert!(cf.security_definer, "security_definer should be true");
+            assert!(cf.or_replace, "or_replace should be true");
+            assert!(matches!(
+                &cf.return_type,
+                ReturnType::SetOf(DataType::Uuid)
+            ), "return_type should be SetOf(Uuid), got {:?}", cf.return_type);
+        }
+        other => panic!("expected CreateFunction, got {:?}", other),
+    }
+}
+
+/// Test COST n and ROWS n extraction.
+#[test]
+fn parse_create_function_cost_rows() {
+    use pgsql_ast::{
+        ddl::DdlStatement,
+        Statement,
+    };
+
+    let sql = r#"
+        CREATE OR REPLACE FUNCTION my_fn()
+        RETURNS INTEGER
+        LANGUAGE sql STABLE COST 100 ROWS 1000 AS $$
+          SELECT 42
+        $$;
+    "#;
+
+    let stmts = parse(sql).expect("should parse COST and ROWS without error");
+    assert_eq!(stmts.len(), 1);
+
+    match &stmts[0] {
+        Statement::Ddl(DdlStatement::CreateFunction(cf)) => {
+            assert_eq!(cf.cost, Some(100), "cost should be 100");
+            assert_eq!(cf.rows, Some(1000), "rows should be 1000");
+        }
+        other => panic!("expected CreateFunction, got {:?}", other),
+    }
+}

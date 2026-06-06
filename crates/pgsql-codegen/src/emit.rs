@@ -518,6 +518,7 @@ fn emit_function_body(body: &FunctionBody) -> String {
     match body {
         FunctionBody::Raw(s) => format!("$${}$$", s),
         FunctionBody::SqlQuery(sel) => format!("$${}\n$$", emit_select(sel)),
+        FunctionBody::Parsed(_) => "$$/* plpgsql body */$$".to_string(),
     }
 }
 

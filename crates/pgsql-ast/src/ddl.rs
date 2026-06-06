@@ -111,10 +111,12 @@ pub enum FunctionLanguage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FunctionBody {
-    /// Body as a raw string (PL/pgSQL $$...$$) — not yet parsed
+    /// Corps brut non parsé (ou parse échoué avec dégradation gracieuse)
     Raw(String),
-    /// Body as a SELECT statement (LANGUAGE sql functions)
+    /// Corps LANGUAGE sql parsé comme un SELECT
     SqlQuery(Box<SelectStmt>),
+    /// Corps LANGUAGE plpgsql parsé en AST structuré
+    Parsed(Box<crate::plpgsql::PlpgsqlBody>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -136,6 +138,8 @@ pub struct CreateFunction {
     pub body: FunctionBody,
     pub security_definer: bool,
     pub volatility: Volatility,
+    pub cost: Option<u64>,
+    pub rows: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

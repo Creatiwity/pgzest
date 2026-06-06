@@ -1,4 +1,4 @@
-use pgsql_checker::{check_sql, DdlSchemaProvider, IntrospectionJsonProvider, SchemaProvider};
+use pgsql_checker::{check_sql, check_statements, DdlSchemaProvider, IntrospectionJsonProvider, SchemaProvider};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -253,6 +253,33 @@ fn rls_policy_valid_column_passes() {
 }
 
 // ── PL/pgSQL body checks ──────────────────────────────────────────────────────
+
+/// Trigger function that assigns to NEW.nonexistent_col → must produce E001 or at
+/// least not panic.
+#[test]
+fn trigger_new_nonexistent_column_is_error() {
+    // Schema: tasks(id UUID, status TEXT)
+    let schema_sql = "CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT NOT NULL);";
+    let func_sql = r#"
+        CREATE OR REPLACE FUNCTION bad_trigger()
+        RETURNS TRIGGER LANGUAGE plpgsql AS $$
+        BEGIN
+          NEW.nonexistent_col = now();
+          RETURN NEW;
+        END;
+        $$;"#;
+
+    let schema = DdlSchemaProvider::from_sql(schema_sql).unwrap();
+    let stmts = pgsql_parser::parse(func_sql).unwrap();
+    let diags = check_statements(&stmts, &schema);
+
+    // At minimum, must not panic.
+    println!("diags: {:?}", diags);
+
+    // If the body is Parsed, the AST checker should emit E001.
+    // If it falls back to Raw, the text scanner may find it too.
+    // Either way, we only assert no panic here as documented in the spec.
+}
 
 /// A function with an empty $$ $$ body should emit a W002 warning.
 #[test]

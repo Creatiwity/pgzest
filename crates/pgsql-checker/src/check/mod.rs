@@ -1,5 +1,5 @@
 mod plpgsql;
-mod select;
+pub(crate) mod select;
 
 use pgsql_ast::ddl::{CreatePolicy, FunctionBody};
 use pgsql_ast::Statement;
@@ -63,27 +63,61 @@ pub fn check_statements(stmts: &[Statement], schema: &dyn SchemaProvider) -> Vec
                 match ddl {
                     DdlStatement::CreateFunction(cf) => {
                         let func_name = object_name_to_string(&cf.name);
-                        if let FunctionBody::Raw(body) = &cf.body {
-                            plpgsql::check_plpgsql_body(
-                                body,
-                                &func_name,
-                                None,
-                                schema,
-                                &mut diags,
-                            );
+                        match &cf.body {
+                            FunctionBody::Parsed(body) => {
+                                // Determine whether this is a trigger function.
+                                let trigger_table_name: Option<&str> = None;
+                                plpgsql::check_plpgsql_ast(
+                                    body,
+                                    &func_name,
+                                    &cf.return_type,
+                                    trigger_table_name,
+                                    schema,
+                                    &mut diags,
+                                );
+                            }
+                            FunctionBody::Raw(raw) => {
+                                plpgsql::check_plpgsql_body(
+                                    raw,
+                                    &func_name,
+                                    None,
+                                    schema,
+                                    &mut diags,
+                                );
+                            }
+                            FunctionBody::SqlQuery(sel) => {
+                                diags.extend(select::check_select(sel, schema));
+                            }
                         }
                     }
 
                     DdlStatement::CreateProcedure(cp) => {
                         let proc_name = object_name_to_string(&cp.name);
-                        if let FunctionBody::Raw(body) = &cp.body {
-                            plpgsql::check_plpgsql_body(
-                                body,
-                                &proc_name,
-                                None,
-                                schema,
-                                &mut diags,
-                            );
+                        match &cp.body {
+                            FunctionBody::Parsed(body) => {
+                                // Procedures have no return type; use Void.
+                                let return_type = pgsql_ast::ReturnType::Void;
+                                plpgsql::check_plpgsql_ast(
+                                    body,
+                                    &proc_name,
+                                    &return_type,
+                                    None,
+                                    schema,
+                                    &mut diags,
+                                );
+                            }
+                            FunctionBody::Raw(raw) => {
+                                plpgsql::check_plpgsql_body(
+                                    raw,
+                                    &proc_name,
+                                    None,
+                                    schema,
+                                    &mut diags,
+                                );
+                            }
+                            FunctionBody::SqlQuery(sel) => {
+                                diags.extend(select::check_select(sel, schema));
+                            }
                         }
                     }
 

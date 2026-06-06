@@ -1053,6 +1053,8 @@ fn convert_create_function(cf: sp::CreateFunction) -> Result<CreateFunction, Par
         body,
         security_definer,
         volatility,
+        cost: None,
+        rows: None,
     })
 }
 
@@ -1073,10 +1075,51 @@ fn convert_function_arg(arg: sp::OperateFunctionArg) -> Result<FunctionParam, Pa
 }
 
 fn convert_return_type(dt: sp::DataType) -> Result<ReturnType, ParseError> {
-    match dt {
+    match &dt {
         sp::DataType::Trigger => Ok(ReturnType::Trigger),
-        // SETOF handled via Custom name detection — sqlparser doesn't have a dedicated SETOF variant
-        other => Ok(ReturnType::Scalar(convert_data_type(other)?)),
+        // SETOF <type> — sqlparser may represent this as Custom("SETOF <type>") or Custom("SETOF")
+        sp::DataType::Custom(name, _) => {
+            let s = name
+                .0
+                .iter()
+                .map(|id| id.value.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let upper = s.to_uppercase();
+            if upper.starts_with("SETOF") {
+                let rest = s[5..].trim();
+                if rest.is_empty() {
+                    // SETOF without a type name — treat as SETOF record
+                    return Ok(ReturnType::SetOf(DataType::Custom("record".to_string())));
+                }
+                return Ok(ReturnType::SetOf(parse_simple_type(rest)));
+            }
+            Ok(ReturnType::Scalar(DataType::Custom(s)))
+        }
+        other => Ok(ReturnType::Scalar(convert_data_type(other.clone())?)),
+    }
+}
+
+pub(crate) fn parse_simple_type_pub(s: &str) -> DataType {
+    parse_simple_type(s)
+}
+
+fn parse_simple_type(s: &str) -> DataType {
+    match s.to_uppercase().as_str() {
+        "UUID" => DataType::Uuid,
+        "TEXT" => DataType::Text,
+        "INTEGER" | "INT" | "INT4" => DataType::Integer,
+        "BIGINT" | "INT8" => DataType::BigInt,
+        "BOOLEAN" | "BOOL" => DataType::Boolean,
+        "TIMESTAMPTZ" | "TIMESTAMP WITH TIME ZONE" => DataType::TimestampTz,
+        "TIMESTAMP" => DataType::Timestamp,
+        "DATE" => DataType::Date,
+        "REAL" | "FLOAT4" => DataType::Real,
+        "DOUBLE PRECISION" | "FLOAT8" => DataType::DoublePrecision,
+        "JSON" => DataType::Json,
+        "JSONB" => DataType::Jsonb,
+        "BYTEA" => DataType::Bytea,
+        _ => DataType::Custom(s.to_string()),
     }
 }
 
@@ -1094,6 +1137,17 @@ fn convert_function_body(
         | Some(sp::CreateFunctionBody::AsAfterOptions(e))
         | Some(sp::CreateFunctionBody::Return(e)) => extract_body_string(e),
     };
+
+    // For LANGUAGE plpgsql, attempt to parse the body with the PL/pgSQL parser
+    if matches!(language, FunctionLanguage::PlPgSql) {
+        match crate::plpgsql::parse_plpgsql_body(&raw) {
+            Ok(parsed) => return Ok(FunctionBody::Parsed(Box::new(parsed))),
+            Err(e) => {
+                // Graceful degradation — fall through to Raw
+                eprintln!("PL/pgSQL parse warning: {}", e);
+            }
+        }
+    }
 
     // For LANGUAGE sql, try to parse as a SelectStmt
     if matches!(language, FunctionLanguage::Sql) {
@@ -1146,20 +1200,29 @@ fn convert_create_procedure(
         .collect::<Result<Vec<_>, ParseError>>()?;
 
     // The body of a procedure in sqlparser is a Vec<Statement>;
-    // for PL/pgSQL procedures, this is typically a single Beging..End block
-    // represented as a raw string by the parser.  We emit Raw.
+    // for PL/pgSQL procedures, this is typically a single Begin..End block
+    // represented as a raw string by the parser.
     let raw_body = body
         .into_iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
         .join("; ");
 
+    // Attempt to parse with the PL/pgSQL parser
+    let parsed_body = match crate::plpgsql::parse_plpgsql_body(&raw_body) {
+        Ok(parsed) => FunctionBody::Parsed(Box::new(parsed)),
+        Err(e) => {
+            eprintln!("PL/pgSQL procedure parse warning: {}", e);
+            FunctionBody::Raw(raw_body)
+        }
+    };
+
     Ok(CreateProcedure {
         name: pname,
         or_replace,
         params: params_out,
         language: FunctionLanguage::PlPgSql,
-        body: FunctionBody::Raw(raw_body),
+        body: parsed_body,
     })
 }
 
