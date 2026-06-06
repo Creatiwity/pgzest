@@ -12,3 +12,6 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 pgsql-parser = { path = "../pgsql-parser" }
+
+[[example]]
+name = "semantic_demo"
