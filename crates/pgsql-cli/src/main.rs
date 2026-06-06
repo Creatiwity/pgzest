@@ -223,7 +223,7 @@ fn cmd_migrate(args: &[String]) -> i32 {
         }
     };
 
-    let _old_stmts = match pgsql_parser::parse(&old_sql) {
+    let old_stmts = match pgsql_parser::parse(&old_sql) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: failed to parse '{}': {}", rest[0], e);
@@ -231,7 +231,7 @@ fn cmd_migrate(args: &[String]) -> i32 {
         }
     };
 
-    let _new_stmts = match pgsql_parser::parse(&new_sql) {
+    let new_stmts = match pgsql_parser::parse(&new_sql) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: failed to parse '{}': {}", rest[1], e);
@@ -239,13 +239,26 @@ fn cmd_migrate(args: &[String]) -> i32 {
         }
     };
 
-    // pgsql-codegen is not yet implemented; emit a placeholder comment.
-    // When pgsql-codegen::diff_schemas is available, replace this block with:
-    //   let migration = pgsql_codegen::diff_schemas(&old_stmts, &new_stmts);
-    //   print!("{}", migration);
-    eprintln!("warning: migrate diff is not yet implemented (pgsql-codegen pending)");
-    println!("-- migration diff: {} → {}", rest[0], rest[1]);
-    println!("-- TODO: implement via pgsql-codegen::diff_schemas");
+    let diff = pgsql_codegen::diff_schemas(&old_stmts, &new_stmts);
+    let sql_output = diff.to_sql();
+
+    let safety_diags = pgsql_codegen::check_migration_safety(&diff);
+    if !safety_diags.is_empty() {
+        eprintln!("\nMigration safety warnings:");
+        for d in &safety_diags {
+            eprintln!("  [{}] {}", d.code, d.message);
+            if let Some(h) = &d.hint {
+                eprintln!("  hint: {}", h);
+            }
+        }
+        eprintln!();
+    }
+
+    if sql_output.is_empty() {
+        println!("-- no changes");
+    } else {
+        println!("{}", sql_output);
+    }
 
     0
 }

@@ -1,0 +1,44 @@
+<idea-plugin>
+  <id>com.pgsql-tools.jetbrains</id>
+  <name>pgsql-tools</name>
+  <version>0.1.0</version>
+  <vendor email="pgsql-tools@example.com" url="https://github.com/pgsql-tools">
+    pgsql-tools
+  </vendor>
+  <description><![CDATA[
+    PostgreSQL SQL + PL/pgSQL language support for JetBrains IDEs.
+    Provides type-checking, linting, hover, and completion via the pgsql-lsp server.
+    <br/>
+    Features:
+    <ul>
+      <li>Real-time type-checking (E001, E003...)</li>
+      <li>Lint rules (L001-L009)</li>
+      <li>Hover: shows column types</li>
+      <li>Completion: columns from schema</li>
+    </ul>
+  ]]></description>
+  <depends>com.intellij.modules.platform</depends>
+  <depends>com.intellij.modules.lang</depends>
+  <!-- LSP4IJ provides the LSP client infrastructure -->
+  <depends>com.redhat.devtools.lsp4ij</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <!-- Language file type -->
+    <fileType name="SQL" implementationClass="com.pgsqltools.PgsqlFileType"
+              language="SQL" extensions="sql;pgsql"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+    <server id="pgsql-lsp"
+            name="pgsql-lsp"
+            factoryClass="com.pgsqltools.PgsqlLspServerDefinition">
+      <description>PostgreSQL language server (pgsql-lsp)</description>
+    </server>
+    <languageMapping language="SQL"
+                     serverId="pgsql-lsp"
+                     filePattern="*.sql"/>
+    <languageMapping language="SQL"
+                     serverId="pgsql-lsp"
+                     filePattern="*.pgsql"/>
+  </extensions>
+</idea-plugin>

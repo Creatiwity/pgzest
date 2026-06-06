@@ -7,6 +7,8 @@
 [plugins]
 # rls-enforcer = {}    # enable built-in RLS enforcement plugin
 # prisma = { schema = "prisma/schema.prisma" }  # future Prisma plugin
+# Uncomment to enable PostGIS spatial type support:
+# postgis = {}
 
 [rules]
 # "require-rls" = "warn"
