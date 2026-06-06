@@ -3,6 +3,7 @@ use pgsql_ast::types::DataType;
 use pgsql_ast::expr::{Expr, Literal, BinaryOp};
 use crate::scope::{ScopeId, ScopeTree};
 use crate::symbol::SymbolTable;
+use pgsql_checker::schema::SchemaProvider;
 
 /// A resolved output column from a SELECT.
 #[derive(Debug, Clone)]
@@ -27,6 +28,7 @@ pub fn infer_expr_type(
     scope_id: ScopeId,
     scopes: &ScopeTree,
     symbols: &SymbolTable,
+    schema: &dyn SchemaProvider,
 ) -> Option<DataType> {
     match expr {
         // Literals — always known
@@ -71,7 +73,7 @@ pub fn infer_expr_type(
         Expr::Cast { data_type, .. } => Some(data_type.clone()),
 
         // Binary operators
-        Expr::BinaryOp { op, left, right: _ } => {
+        Expr::BinaryOp { op, left, right } => {
             match op {
                 // Comparison operators → Boolean
                 BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::Lte
@@ -83,20 +85,28 @@ pub fn infer_expr_type(
                 // Arithmetic — use left operand type as proxy
                 BinaryOp::Plus | BinaryOp::Minus | BinaryOp::Multiply
                 | BinaryOp::Divide | BinaryOp::Modulo => {
-                    infer_expr_type(left, scope_id, scopes, symbols)
+                    infer_expr_type(left, scope_id, scopes, symbols, schema)
+                }
+                // Custom / extension operators — ask the schema provider (e.g. PostGIS plugin)
+                BinaryOp::Custom(op_sym) => {
+                    let left_ty = infer_expr_type(left, scope_id, scopes, symbols, schema)
+                        .unwrap_or(DataType::Custom("unknown".into()));
+                    let right_ty = infer_expr_type(right, scope_id, scopes, symbols, schema)
+                        .unwrap_or(DataType::Custom("unknown".into()));
+                    schema.get_operator(op_sym, &left_ty, &right_ty)
                 }
             }
         }
 
         // Unary
         Expr::UnaryOp { expr, .. } => {
-            infer_expr_type(expr, scope_id, scopes, symbols)
+            infer_expr_type(expr, scope_id, scopes, symbols, schema)
         }
 
         // Case — use type of first THEN clause
         Expr::Case { when_clauses, .. } => {
             when_clauses.first()
-                .and_then(|(_, then)| infer_expr_type(then, scope_id, scopes, symbols))
+                .and_then(|(_, then)| infer_expr_type(then, scope_id, scopes, symbols, schema))
         }
 
         // Function calls — look up return type in symbol table

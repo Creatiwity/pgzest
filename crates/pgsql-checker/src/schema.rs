@@ -40,6 +40,13 @@ pub trait SchemaProvider: Send + Sync {
     fn get_function(&self, name: &str) -> Option<&FunctionSignature>;
     fn all_table_names(&self) -> Vec<&str>;
 
+    /// Look up the return type of a custom binary operator (e.g. PostGIS `<->`, `&&`).
+    /// `op` is the operator symbol, `left` and `right` are the inferred operand types.
+    /// Returns `None` by default — only extension providers need to implement this.
+    fn get_operator(&self, _op: &str, _left: &DataType, _right: &DataType) -> Option<DataType> {
+        None
+    }
+
     /// Downcast hook for the optional RLS-aware extension.
     /// Returns `None` by default — safe for all existing providers.
     fn as_rls_aware(&self) -> Option<&dyn RlsAwareSchemaProvider> {
@@ -321,8 +328,11 @@ impl SchemaProvider for CompositeSchemaProvider {
         self.providers.iter().find_map(|p| p.get_function(name))
     }
 
+    fn get_operator(&self, op: &str, left: &DataType, right: &DataType) -> Option<DataType> {
+        self.providers.iter().find_map(|p| p.get_operator(op, left, right))
+    }
+
     fn all_table_names(&self) -> Vec<&str> {
-        // Merge deduplicated table names from all providers
         let mut names: Vec<&str> = self.providers.iter()
             .flat_map(|p| p.all_table_names())
             .collect();

@@ -43,6 +43,9 @@ pub enum BinaryOp {
     Plus, Minus, Multiply, Divide, Modulo,
     In, NotIn, Like, NotLike, ILike,
     Is, IsNot,
+    /// Any non-standard or extension operator (PostGIS, JSONB, custom, etc.).
+    /// The string is the operator symbol, e.g. "<->", "&&", "@>", "#>>".
+    Custom(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

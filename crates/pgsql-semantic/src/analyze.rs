@@ -227,7 +227,7 @@ impl<'a> Analyzer<'a> {
         expr: &pgsql_ast::expr::Expr,
         scope_id: ScopeId,
     ) -> Option<DataType> {
-        let ty = infer_expr_type(expr, scope_id, &self.scopes, &self.symbols);
+        let ty = infer_expr_type(expr, scope_id, &self.scopes, &self.symbols, self.schema);
         // For subqueries, recurse
         if let pgsql_ast::expr::Expr::Subquery(sub) = expr {
             self.analyze_select(sub, scope_id);
