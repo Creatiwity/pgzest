@@ -625,9 +625,11 @@ name = "pgsql"
 version = "0.1.0"
 dependencies = [
  "pgsql-checker",
+ "pgsql-codegen",
  "pgsql-lint",
  "pgsql-parser",
  "pgsql-plugin",
+ "pgsql-semantic",
  "serde",
 ]
 
@@ -654,6 +656,9 @@ name = "pgsql-codegen"
 version = "0.1.0"
 dependencies = [
  "pgsql-ast",
+ "pgsql-checker",
+ "pgsql-parser",
+ "pgsql-semantic",
  "serde",
  "thiserror",
 ]

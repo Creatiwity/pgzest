@@ -27,6 +27,8 @@ struct FunctionMeta {
     rows: Option<u64>,
     /// If the original return type was `SETOF <type>`, stores the inner type string.
     setof_type: Option<String>,
+    /// If the original return type was `TABLE(col type, ...)`, stores the parsed columns.
+    table_columns: Option<Vec<(String, String)>>, // (col_name, type_name)
     /// True if the original statement was CREATE PROCEDURE (rewritten as CREATE FUNCTION).
     is_procedure: bool,
 }
@@ -58,6 +60,10 @@ fn preprocess_function_sql(sql: &str) -> (String, FunctionMeta) {
     let (header, body_and_rest, is_procedure) =
         rewrite_procedure_as_function(header, body_and_rest);
     meta.is_procedure = is_procedure;
+
+    // Detect and rewrite `RETURNS TABLE(col type, ...)` → `RETURNS VOID`
+    // Must happen before strip_function_options so the column info is captured.
+    let header = rewrite_returns_table(&header, &mut meta);
 
     let cleaned_header = strip_function_options(&header, &mut meta);
     (format!("{}{}", cleaned_header, body_and_rest), meta)
@@ -111,6 +117,84 @@ fn rewrite_procedure_as_function(
     };
 
     (new_header, body_and_rest.to_string(), true)
+}
+
+/// Detect `RETURNS TABLE(col1 type1, col2 type2, ...)` in a function header.
+/// If found, stores the parsed columns in `meta.table_columns` and rewrites the
+/// header so that `RETURNS TABLE(...)` becomes `RETURNS VOID`, which sqlparser
+/// can parse without issues.
+fn rewrite_returns_table(header: &str, meta: &mut FunctionMeta) -> String {
+    let upper = header.to_uppercase();
+    let upper_bytes = upper.as_bytes();
+    let len = header.len();
+
+    let mut i = 0;
+    while i < len {
+        if starts_with_word(upper_bytes, i, b"RETURNS") {
+            let after_returns = i + 7;
+            if let Some(j) = skip_spaces(upper_bytes, after_returns) {
+                if starts_with_word(upper_bytes, j, b"TABLE") {
+                    let after_table = j + 5;
+                    if let Some(paren_start) = skip_spaces(upper_bytes, after_table) {
+                        if paren_start < len && header.as_bytes()[paren_start] == b'(' {
+                            // Find matching closing paren
+                            let mut depth = 0usize;
+                            let mut k = paren_start;
+                            let hbytes = header.as_bytes();
+                            while k < len {
+                                if hbytes[k] == b'(' { depth += 1; }
+                                else if hbytes[k] == b')' {
+                                    depth -= 1;
+                                    if depth == 0 { break; }
+                                }
+                                k += 1;
+                            }
+                            let paren_end = k; // index of ')'
+                            // Extract and parse the column list
+                            let col_list = &header[paren_start + 1..paren_end];
+                            let cols = parse_table_columns(col_list);
+                            meta.table_columns = Some(cols);
+                            // Rewrite: keep everything before RETURNS, add RETURNS VOID,
+                            // then keep everything after the closing paren.
+                            let before = &header[..i];
+                            let after = &header[paren_end + 1..];
+                            return format!("{}RETURNS VOID{}", before, after);
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    header.to_string()
+}
+
+/// Parse a `col1 type1, col2 type2, ...` column list from a RETURNS TABLE(...) clause.
+/// Returns a Vec of (column_name, type_name) pairs.
+fn parse_table_columns(col_list: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    // Split by commas (simple approach — doesn't handle nested types with commas,
+    // but sufficient for common PostgreSQL scalar types).
+    for part in col_list.split(',') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Each part is "col_name type_name [...]"
+        // Split on first whitespace to get name and type.
+        let mut words = trimmed.splitn(2, |c: char| c.is_ascii_whitespace());
+        if let (Some(col_name), Some(type_part)) = (words.next(), words.next()) {
+            let col_name = col_name.trim().to_string();
+            // The type might have qualifiers; take the first word as the base type.
+            let type_name = type_part.trim().split_whitespace().next()
+                .unwrap_or(type_part.trim())
+                .to_string();
+            if !col_name.is_empty() {
+                result.push((col_name, type_name));
+            }
+        }
+    }
+    result
 }
 
 /// Returns the byte offset of the first `$$` or `$tag$` delimiter in `sql`,
@@ -384,6 +468,19 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                     cf.return_type =
                         ReturnType::SetOf(convert::parse_simple_type_pub(inner_type_str));
                 }
+                // Override return type to Table if we detected RETURNS TABLE(...)
+                if let Some(ref cols) = meta.table_columns {
+                    use pgsql_ast::ddl::ReturnType;
+                    use pgsql_ast::expr::Ident;
+                    let table_cols: Vec<(Ident, pgsql_ast::types::DataType)> = cols.iter()
+                        .map(|(col_name, type_name)| {
+                            let ident = Ident { value: col_name.clone(), quoted: false };
+                            let dt = convert::parse_simple_type_pub(type_name);
+                            (ident, dt)
+                        })
+                        .collect();
+                    cf.return_type = ReturnType::Table(table_cols);
+                }
             }
 
             // If the original statement was CREATE PROCEDURE (rewritten as FUNCTION for sqlparser),
@@ -451,6 +548,17 @@ fn split_statements(sql: &str) -> Vec<String> {
                 i += 1;
                 continue;
             }
+        }
+
+        // Skip line comments (-- ...) so that semicolons inside comments
+        // do not cause spurious statement splits.
+        if bytes[i] == b'-' && i + 1 < len && bytes[i + 1] == b'-' {
+            // Copy the comment characters and skip to end of line
+            while i < len && bytes[i] != b'\n' {
+                current.push(bytes[i] as char);
+                i += 1;
+            }
+            continue;
         }
 
         if bytes[i] == b'\'' {

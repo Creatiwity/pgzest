@@ -5,5 +5,8 @@ edition = "2021"
 
 [dependencies]
 pgsql-ast = { path = "../pgsql-ast" }
+pgsql-checker = { path = "../pgsql-checker" }
+pgsql-parser = { path = "../pgsql-parser" }
+pgsql-semantic = { path = "../pgsql-semantic" }
 serde = { workspace = true }
 thiserror = { workspace = true }

@@ -18,6 +18,10 @@ fn print_usage() {
     eprintln!();
     eprintln!("  emit <file.sql>");
     eprintln!("      Parse and re-emit the SQL (normalization round-trip).");
+    eprintln!();
+    eprintln!("  codegen [--input <file.sql>] [--output <file.ts>]");
+    eprintln!("      Generate TypeScript interfaces from SQL functions and named queries.");
+    eprintln!("      If --output is omitted, prints to stdout.");
 }
 
 fn read_file(path: &str) -> Result<String, String> {
@@ -276,6 +280,50 @@ fn cmd_emit(args: &[String]) -> i32 {
     0
 }
 
+fn cmd_codegen(args: &[String]) -> i32 {
+    let mut input_file: Option<&str> = None;
+    let mut output_file: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--input" => {
+                i += 1;
+                if i >= args.len() { eprintln!("error: --input requires a path"); return 2; }
+                input_file = Some(&args[i]);
+            }
+            "--output" => {
+                i += 1;
+                if i >= args.len() { eprintln!("error: --output requires a path"); return 2; }
+                output_file = Some(&args[i]);
+            }
+            other => { eprintln!("error: unexpected argument '{}'", other); return 2; }
+        }
+        i += 1;
+    }
+
+    let sql = match input_file {
+        Some(path) => match read_file(path) {
+            Ok(s) => s,
+            Err(e) => { eprintln!("error: {}", e); return 1; }
+        },
+        None => { eprintln!("error: --input <file.sql> is required"); return 2; }
+    };
+
+    let ts = pgsql_codegen::generate_ts_types_from_sql(&sql);
+
+    match output_file {
+        Some(path) => {
+            if let Err(e) = std::fs::write(path, &ts) {
+                eprintln!("error: cannot write '{}': {}", path, e);
+                return 1;
+            }
+            eprintln!("written: {}", path);
+        }
+        None => print!("{}", ts),
+    }
+    0
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -289,6 +337,7 @@ fn main() {
         "lint" => cmd_lint(&args[2..]),
         "migrate" => cmd_migrate(&args[2..]),
         "emit" => cmd_emit(&args[2..]),
+        "codegen" => cmd_codegen(&args[2..]),
         "--help" | "-h" | "help" => {
             print_usage();
             0
