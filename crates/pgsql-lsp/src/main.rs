@@ -1,5 +1,6 @@
 use tower_lsp::{LspService, Server};
 mod backend;
+mod completion;
 mod line_index;
 use backend::PgsqlBackend;
 
