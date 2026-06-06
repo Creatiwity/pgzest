@@ -7,6 +7,8 @@ use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
 
+use crate::line_index::LineIndex;
+
 pub struct PgsqlBackend {
     client: Client,
     /// URI → document text
@@ -26,6 +28,8 @@ impl PgsqlBackend {
 
     /// Parse, type-check and lint `text`, then publish LSP diagnostics for `uri`.
     async fn run_diagnostics(&self, uri: &str, text: &str) {
+        let line_index = LineIndex::new(text);
+
         let schema_guard = self.schema_sql.lock().await;
         let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
             Some(sql) => match DdlSchemaProvider::from_sql(sql) {
@@ -52,7 +56,7 @@ impl PgsqlBackend {
         let lsp_diags: Vec<tower_lsp::lsp_types::Diagnostic> = checker_diags
             .iter()
             .chain(lint_diags.iter())
-            .map(Self::to_lsp_diagnostic)
+            .map(|d| Self::to_lsp_diagnostic_with_index(d, &line_index))
             .collect();
 
         if let Ok(url) = uri.parse::<Url>() {
@@ -62,26 +66,40 @@ impl PgsqlBackend {
         }
     }
 
-    /// Convert a checker/lint `Diagnostic` to the LSP `Diagnostic` type.
-    fn to_lsp_diagnostic(d: &Diagnostic) -> tower_lsp::lsp_types::Diagnostic {
+    /// Convert a checker/lint `Diagnostic` to the LSP `Diagnostic` type using a LineIndex.
+    fn to_lsp_diagnostic_with_index(
+        d: &Diagnostic,
+        idx: &LineIndex,
+    ) -> tower_lsp::lsp_types::Diagnostic {
         let severity = match d.severity {
             Severity::Error => DiagnosticSeverity::ERROR,
             Severity::Warning => DiagnosticSeverity::WARNING,
             Severity::Info => DiagnosticSeverity::INFORMATION,
         };
 
-        // Span is a byte-offset range; we map it to a line/character range.
-        // Without a full line-index we approximate by placing diagnostics at
-        // line 0 when no span is available. A real implementation would
-        // pre-build a line index from the document text.
+        // Use span if present and non-zero; otherwise emit at (0,0).
+        // Infrastructure is ready for Phase E when parser emits real spans.
+        let (start_line, start_char) = match &d.span {
+            Some(span) if span.start != 0 || span.end != 0 => {
+                idx.offset_to_position(span.start as u32)
+            }
+            _ => (0, 0),
+        };
+        let (end_line, end_char) = match &d.span {
+            Some(span) if span.start != 0 || span.end != 0 => {
+                idx.offset_to_position(span.end as u32)
+            }
+            _ => (0, 0),
+        };
+
         let range = Range {
             start: Position {
-                line: 0,
-                character: 0,
+                line: start_line,
+                character: start_char,
             },
             end: Position {
-                line: 0,
-                character: 0,
+                line: end_line,
+                character: end_char,
             },
         };
 
@@ -115,6 +133,58 @@ impl SchemaProvider for EmptySchemaProvider {
     fn all_table_names(&self) -> Vec<&str> {
         vec![]
     }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Convert LSP (line, character) position to a byte offset in `text`.
+fn position_to_offset(text: &str, line: u32, character: u32) -> u32 {
+    let mut current_line = 0u32;
+    let mut offset = 0u32;
+    for (i, ch) in text.char_indices() {
+        if current_line == line {
+            return offset + character;
+        }
+        if ch == '\n' {
+            current_line += 1;
+            offset = (i + 1) as u32;
+        }
+    }
+    offset + character
+}
+
+/// Extract the SQL identifier (word) at a byte offset in `text`.
+/// Returns the word lowercased, or None if cursor is on whitespace/punctuation.
+fn word_at_offset(text: &str, offset: usize) -> Option<String> {
+    let bytes = text.as_bytes();
+    if offset >= bytes.len() {
+        return None;
+    }
+
+    // Find start of word (scan backward while alphanumeric or underscore)
+    let mut start = offset;
+    while start > 0 {
+        let b = bytes[start - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            start -= 1;
+        } else {
+            break;
+        }
+    }
+    // Find end of word (scan forward)
+    let mut end = offset;
+    while end < bytes.len() {
+        let b = bytes[end];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    if start == end {
+        return None;
+    }
+    Some(text[start..end].to_lowercase())
 }
 
 // ── LanguageServer implementation ─────────────────────────────────────────────
@@ -175,14 +245,181 @@ impl LanguageServer for PgsqlBackend {
             .await;
     }
 
-    async fn hover(&self, _params: HoverParams) -> Result<Option<Hover>> {
-        // Stub — a full implementation would look up the token under the cursor
-        // in the document AST and show type information.
-        Ok(None)
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri.to_string();
+        let pos = params.text_document_position_params.position;
+
+        let docs = self.documents.lock().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        // Convert LSP (line, char) back to byte offset
+        let offset = position_to_offset(&text, pos.line, pos.character);
+        let word = match word_at_offset(&text, offset as usize) {
+            Some(w) => w,
+            None => return Ok(None),
+        };
+
+        // Run semantic analysis to get type info
+        let schema_guard = self.schema_sql.lock().await;
+        let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
+            Some(sql) => match DdlSchemaProvider::from_sql(sql) {
+                Ok(p) => Box::new(p),
+                Err(_) => Box::new(EmptySchemaProvider),
+            },
+            None => Box::new(EmptySchemaProvider),
+        };
+        drop(schema_guard);
+
+        let stmts = match pgsql_parser::parse(&text) {
+            Ok(s) => s,
+            Err(_) => return Ok(None),
+        };
+
+        let semantic = pgsql_semantic::analyze(&stmts, schema.as_ref());
+
+        let mut hover_text: Option<String> = None;
+
+        // Search in all scopes for a matching column
+        for scope_id in 0..100u32 {
+            let sid = pgsql_semantic::ScopeId(scope_id);
+            let cols = semantic.scopes.available_columns(sid);
+            if cols.is_empty() {
+                break;
+            }
+            for col in cols {
+                if col.name.to_lowercase() == word {
+                    let ts_type = pgsql_semantic::data_type_to_ts(&col.data_type);
+                    hover_text = Some(format!(
+                        "```sql\n-- {} : {}\n```",
+                        col.name, ts_type
+                    ));
+                    break;
+                }
+            }
+            if hover_text.is_some() {
+                break;
+            }
+        }
+
+        // If not a column, check if it's a table name
+        if hover_text.is_none() {
+            if let Some(sym) = semantic.symbols.get_table(&word) {
+                hover_text = Some(format!("```sql\n-- table: {}\n```", sym.name));
+            }
+        }
+
+        // If not found in semantic, check output columns
+        if hover_text.is_none() {
+            'outer: for cols in semantic.select_columns.values() {
+                for col in cols {
+                    if col.name.as_deref().map(|n| n.to_lowercase()).as_deref() == Some(&word as &str) {
+                        let ts_type = col.ts_type();
+                        hover_text = Some(format!(
+                            "```sql\n-- {} : {}\n```",
+                            col.name.as_deref().unwrap_or(&word),
+                            ts_type
+                        ));
+                        break 'outer;
+                    }
+                }
+            }
+        }
+
+        Ok(hover_text.map(|text| Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: text,
+            }),
+            range: None,
+        }))
     }
 
-    async fn completion(&self, _params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        // Stub — return empty list for now.
-        Ok(Some(CompletionResponse::Array(vec![])))
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri.to_string();
+
+        let docs = self.documents.lock().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(Some(CompletionResponse::Array(vec![]))),
+        };
+        drop(docs);
+
+        let schema_guard = self.schema_sql.lock().await;
+        let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
+            Some(sql) => match DdlSchemaProvider::from_sql(sql) {
+                Ok(p) => Box::new(p),
+                Err(_) => Box::new(EmptySchemaProvider),
+            },
+            None => Box::new(EmptySchemaProvider),
+        };
+        drop(schema_guard);
+
+        let stmts = match pgsql_parser::parse(&text) {
+            Ok(s) => s,
+            Err(_) => return Ok(Some(CompletionResponse::Array(vec![]))),
+        };
+
+        let semantic = pgsql_semantic::analyze(&stmts, schema.as_ref());
+        let mut items: Vec<CompletionItem> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // Add table names from symbol table
+        for name in semantic.symbols.table_names() {
+            if seen.insert(name.to_string()) {
+                items.push(CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::CLASS),
+                    detail: Some("table".to_string()),
+                    ..Default::default()
+                });
+            }
+        }
+
+        // Add all columns from all scopes
+        for scope_idx in 0..100u32 {
+            let sid = pgsql_semantic::ScopeId(scope_idx);
+            let cols = semantic.scopes.available_columns(sid);
+            if cols.is_empty() {
+                break;
+            }
+            for col in cols {
+                let key = format!(
+                    "{}.{}",
+                    col.table_alias.as_deref().unwrap_or(""),
+                    col.name
+                );
+                if seen.insert(key) {
+                    let ts_type = pgsql_semantic::data_type_to_ts(&col.data_type);
+                    items.push(CompletionItem {
+                        label: col.name.clone(),
+                        kind: Some(CompletionItemKind::FIELD),
+                        detail: Some(ts_type.to_string()),
+                        documentation: col.table_alias.as_ref().map(|a| {
+                            Documentation::String(format!("from {}", a))
+                        }),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+
+        // SQL keywords
+        for kw in &[
+            "SELECT", "FROM", "WHERE", "JOIN", "LEFT JOIN", "GROUP BY",
+            "HAVING", "ORDER BY", "LIMIT", "OFFSET", "INSERT INTO",
+            "UPDATE", "DELETE FROM", "RETURNING", "WITH", "DISTINCT",
+        ] {
+            items.push(CompletionItem {
+                label: kw.to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                ..Default::default()
+            });
+        }
+
+        Ok(Some(CompletionResponse::Array(items)))
     }
 }

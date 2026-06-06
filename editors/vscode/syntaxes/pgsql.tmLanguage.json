@@ -1,0 +1,74 @@
+{
+  "name": "SQL",
+  "scopeName": "source.sql",
+  "fileTypes": ["sql", "pgsql"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#dollar_quotes" },
+    { "include": "#keywords" },
+    { "include": "#plpgsql_keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.sql",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.sql",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.single.sql",
+      "begin": "'",
+      "end": "'",
+      "patterns": [{ "name": "constant.character.escape.sql", "match": "''" }]
+    },
+    "dollar_quotes": {
+      "name": "string.quoted.dollar.sql",
+      "begin": "\\$\\$",
+      "end": "\\$\\$"
+    },
+    "keywords": {
+      "name": "keyword.other.sql",
+      "match": "(?i)\\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|AS|AND|OR|NOT|IN|IS|NULL|LIKE|ILIKE|BETWEEN|EXISTS|DISTINCT|GROUP BY|HAVING|ORDER BY|LIMIT|OFFSET|UNION|ALL|INTERSECT|EXCEPT|WITH|RECURSIVE|INSERT INTO|VALUES|UPDATE|SET|DELETE FROM|RETURNING|TRUNCATE|CREATE|ALTER|DROP|TABLE|VIEW|FUNCTION|PROCEDURE|TRIGGER|INDEX|POLICY|EXTENSION|SCHEMA|DATABASE|SEQUENCE|TYPE|DOMAIN|ROLE|GRANT|REVOKE|ON|TO|BEGIN|COMMIT|ROLLBACK|SAVEPOINT|LOCK|EXPLAIN|ANALYZE|VACUUM|REINDEX|CLUSTER|COPY|DECLARE|EXECUTE|PERFORM|RAISE|EXCEPTION|NOTICE|WARNING|IF|THEN|ELSIF|ELSE|END|FOR|LOOP|WHILE|RETURN|RETURNS|LANGUAGE|SECURITY DEFINER|STABLE|VOLATILE|IMMUTABLE|CALLED ON NULL INPUT|STRICT|WINDOW|PARTITION|OVER|FILTER|DEFAULT|NOT NULL|PRIMARY KEY|UNIQUE|FOREIGN KEY|REFERENCES|CHECK|CONSTRAINT|ON DELETE|ON UPDATE|CASCADE|SET NULL|RESTRICT|NO ACTION|ENABLE|DISABLE|ROW LEVEL SECURITY|FORCE ROW LEVEL SECURITY|USING|WITH CHECK|PERMISSIVE|RESTRICTIVE|ALL|SELECT|INSERT|UPDATE|DELETE|CURRENT_USER|CURRENT_TIMESTAMP|NOW|TRUE|FALSE)\\b"
+    },
+    "plpgsql_keywords": {
+      "name": "keyword.control.plpgsql.sql",
+      "match": "(?i)\\b(BEGIN|END|DECLARE|EXCEPTION|WHEN|OTHERS|RAISE|NOTICE|WARNING|EXCEPTION|IF|THEN|ELSIF|ELSE|FOR|IN|LOOP|WHILE|RETURN|PERFORM|EXECUTE|USING|INTO|FOUND|GET DIAGNOSTICS|ROW_COUNT)\\b"
+    },
+    "types": {
+      "name": "support.type.sql",
+      "match": "(?i)\\b(INTEGER|INT|BIGINT|SMALLINT|NUMERIC|DECIMAL|REAL|FLOAT|DOUBLE PRECISION|TEXT|VARCHAR|CHAR|BOOLEAN|BOOL|DATE|TIME|TIMESTAMP|TIMESTAMPTZ|INTERVAL|UUID|JSON|JSONB|BYTEA|OID|VOID|TRIGGER|SETOF|TABLE|RECORD)\\b"
+    },
+    "functions": {
+      "name": "support.function.sql",
+      "match": "(?i)\\b(count|sum|avg|min|max|coalesce|nullif|greatest|least|now|current_timestamp|current_date|current_time|extract|date_trunc|age|concat|lower|upper|trim|ltrim|rtrim|substr|substring|replace|regexp_replace|split_part|string_to_array|array_to_string|jsonb_build_object|json_build_object|row_to_json|to_jsonb|jsonb_agg|json_agg|array_agg|string_agg|bool_and|bool_or|bit_and|bit_or|uuid_generate_v4|gen_random_uuid|encode|decode|md5|sha256|length|char_length|octet_length|round|floor|ceil|abs|sign|sqrt|pow|log|exp|random|generate_series|unnest|array_length|cardinality|row_number|rank|dense_rank|lag|lead|first_value|last_value|nth_value|ntile|percent_rank|cume_dist)(?=\\s*\\()\\b"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.sql",
+          "match": "\\b[0-9]+\\.[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.sql",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "operators": {
+      "name": "keyword.operator.sql",
+      "match": "=|<>|!=|<=|>=|<|>|\\|\\||::|->>|->|@>|<@|&&|\\?\\||\\?&|\\?"
+    }
+  }
+}

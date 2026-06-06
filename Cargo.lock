@@ -675,6 +675,7 @@ dependencies = [
  "pgsql-checker",
  "pgsql-lint",
  "pgsql-parser",
+ "pgsql-semantic",
  "serde",
  "serde_json",
  "tokio",

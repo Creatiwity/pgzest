@@ -1,5 +1,6 @@
 use tower_lsp::{LspService, Server};
 mod backend;
+mod line_index;
 use backend::PgsqlBackend;
 
 #[tokio::main]
