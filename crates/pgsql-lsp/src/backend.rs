@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
 
+use crate::completion::{analyze_cursor, build_completions};
 use crate::line_index::LineIndex;
 
 pub struct PgsqlBackend {
@@ -117,6 +118,40 @@ impl PgsqlBackend {
     }
 }
 
+// ── Schema loading ────────────────────────────────────────────────────────────
+
+/// Load schema SQL from a file path or a directory.
+/// If the path is a directory, all `.sql` files are read in lexicographic order
+/// and concatenated.
+fn load_schema_from_path(path: &str) -> std::io::Result<String> {
+    let p = std::path::Path::new(path);
+    if p.is_file() {
+        return std::fs::read_to_string(p);
+    }
+    if p.is_dir() {
+        let mut entries: Vec<_> = std::fs::read_dir(p)?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        let mut parts = Vec::with_capacity(entries.len());
+        for entry in entries {
+            parts.push(std::fs::read_to_string(entry.path())?);
+        }
+        return Ok(parts.join("\n"));
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!("{path} is neither a file nor a directory"),
+    ))
+}
+
 // ── Empty schema provider (no schema loaded) ─────────────────────────────────
 
 struct EmptySchemaProvider;
@@ -191,7 +226,24 @@ fn word_at_offset(text: &str, offset: usize) -> Option<String> {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for PgsqlBackend {
-    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        if let Some(opts) = params.initialization_options {
+            if let Some(path) = opts.get("schemaFile").and_then(|v| v.as_str()) {
+                if !path.is_empty() {
+                    match load_schema_from_path(path) {
+                        Ok(sql) => *self.schema_sql.lock().await = Some(sql),
+                        Err(e) => {
+                            self.client
+                                .log_message(
+                                    MessageType::WARNING,
+                                    format!("pgsql-lsp: could not load schema at {path}: {e}"),
+                                )
+                                .await;
+                        }
+                    }
+                }
+            }
+        }
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -340,6 +392,7 @@ impl LanguageServer for PgsqlBackend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri.to_string();
+        let pos = params.text_document_position.position;
 
         let docs = self.documents.lock().await;
         let text = match docs.get(&uri) {
@@ -358,67 +411,9 @@ impl LanguageServer for PgsqlBackend {
         };
         drop(schema_guard);
 
-        let stmts = match pgsql_parser::parse(&text) {
-            Ok(s) => s,
-            Err(_) => return Ok(Some(CompletionResponse::Array(vec![]))),
-        };
-
-        let semantic = pgsql_semantic::analyze(&stmts, schema.as_ref());
-        let mut items: Vec<CompletionItem> = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-
-        // Add table names from symbol table
-        for name in semantic.symbols.table_names() {
-            if seen.insert(name.to_string()) {
-                items.push(CompletionItem {
-                    label: name.to_string(),
-                    kind: Some(CompletionItemKind::CLASS),
-                    detail: Some("table".to_string()),
-                    ..Default::default()
-                });
-            }
-        }
-
-        // Add all columns from all scopes
-        for scope_idx in 0..100u32 {
-            let sid = pgsql_semantic::ScopeId(scope_idx);
-            let cols = semantic.scopes.available_columns(sid);
-            if cols.is_empty() {
-                break;
-            }
-            for col in cols {
-                let key = format!(
-                    "{}.{}",
-                    col.table_alias.as_deref().unwrap_or(""),
-                    col.name
-                );
-                if seen.insert(key) {
-                    let ts_type = pgsql_semantic::data_type_to_ts(&col.data_type);
-                    items.push(CompletionItem {
-                        label: col.name.clone(),
-                        kind: Some(CompletionItemKind::FIELD),
-                        detail: Some(ts_type.to_string()),
-                        documentation: col.table_alias.as_ref().map(|a| {
-                            Documentation::String(format!("from {}", a))
-                        }),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
-
-        // SQL keywords
-        for kw in &[
-            "SELECT", "FROM", "WHERE", "JOIN", "LEFT JOIN", "GROUP BY",
-            "HAVING", "ORDER BY", "LIMIT", "OFFSET", "INSERT INTO",
-            "UPDATE", "DELETE FROM", "RETURNING", "WITH", "DISTINCT",
-        ] {
-            items.push(CompletionItem {
-                label: kw.to_string(),
-                kind: Some(CompletionItemKind::KEYWORD),
-                ..Default::default()
-            });
-        }
+        let cursor_offset = position_to_offset(&text, pos.line, pos.character) as usize;
+        let ctx = analyze_cursor(&text, cursor_offset);
+        let items = build_completions(&ctx, schema.as_ref());
 
         Ok(Some(CompletionResponse::Array(items)))
     }
