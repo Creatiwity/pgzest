@@ -11,3 +11,4 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 pgsql-ast = { path = "../pgsql-ast" }
+pgsql-parser = { path = "../pgsql-parser" }

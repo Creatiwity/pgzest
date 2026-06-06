@@ -22,11 +22,12 @@ impl LintResult {
 
 /// Lint a slice of already-parsed statements.
 pub fn lint_statements(stmts: &[Statement], config: &LintConfig) -> LintResult {
-    let diagnostics = stmts
+    let mut diagnostics: Vec<Diagnostic> = stmts
         .iter()
         .flat_map(|stmt| rules::check_statement(stmt, config))
         .collect();
-
+    // Cross-statement rules
+    diagnostics.extend(rules::check_all_statements(stmts, config));
     LintResult { diagnostics }
 }
 
