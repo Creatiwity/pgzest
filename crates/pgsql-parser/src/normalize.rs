@@ -164,6 +164,8 @@ mod tests {
 
     fn simple_stmt() -> SelectStmt {
         SelectStmt {
+            id: pgsql_ast::NodeId::DUMMY,
+            span: pgsql_ast::Span::DUMMY,
             with: vec![],
             distinct: false,
             columns: vec![
@@ -223,6 +225,8 @@ mod tests {
     #[test]
     fn alias_map_is_empty_for_wildcard_select() {
         let stmt = SelectStmt {
+            id: pgsql_ast::NodeId::DUMMY,
+            span: pgsql_ast::Span::DUMMY,
             with: vec![],
             distinct: false,
             columns: vec![SelectItem::Wildcard],

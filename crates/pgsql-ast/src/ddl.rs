@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use crate::expr::{Expr, ObjectName, Ident};
 use crate::types::DataType;
 use crate::stmt::SelectStmt;
+use crate::node::{NodeId, Span};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DdlStatement {
@@ -18,6 +19,8 @@ pub enum DdlStatement {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateTable {
+    pub id: NodeId,
+    pub span: Span,
     pub name: ObjectName,
     pub if_not_exists: bool,
     pub columns: Vec<ColumnDef>,
@@ -130,6 +133,8 @@ pub enum ReturnType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateFunction {
+    pub id: NodeId,
+    pub span: Span,
     pub name: ObjectName,
     pub or_replace: bool,
     pub params: Vec<FunctionParam>,
@@ -151,6 +156,8 @@ pub enum Volatility {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateProcedure {
+    pub id: NodeId,
+    pub span: Span,
     pub name: ObjectName,
     pub or_replace: bool,
     pub params: Vec<FunctionParam>,
@@ -196,6 +203,8 @@ pub enum TriggerForEach {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreatePolicy {
+    pub id: NodeId,
+    pub span: Span,
     pub name: Ident,
     pub table: ObjectName,
     pub command: PolicyCommand,

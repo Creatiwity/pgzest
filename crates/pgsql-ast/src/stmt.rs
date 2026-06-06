@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use crate::expr::{Expr, ObjectName, Ident};
 use crate::types::DataType;
+use crate::node::{NodeId, Span};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Statement {
@@ -15,6 +16,8 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SelectStmt {
+    pub id: NodeId,
+    pub span: Span,
     pub with: Vec<Cte>,
     pub distinct: bool,
     pub columns: Vec<SelectItem>,
@@ -82,6 +85,8 @@ pub struct OrderByExpr {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InsertStmt {
+    pub id: NodeId,
+    pub span: Span,
     pub table: ObjectName,
     pub columns: Vec<Ident>,
     pub source: InsertSource,
@@ -124,6 +129,8 @@ pub struct Assignment {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateStmt {
+    pub id: NodeId,
+    pub span: Span,
     pub table: TableRef,
     pub assignments: Vec<Assignment>,
     pub from: Vec<TableRef>,
@@ -135,6 +142,8 @@ pub struct UpdateStmt {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteStmt {
+    pub id: NodeId,
+    pub span: Span,
     pub table: TableRef,
     pub using: Vec<TableRef>,
     pub where_clause: Option<Expr>,

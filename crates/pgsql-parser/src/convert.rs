@@ -11,6 +11,7 @@ use pgsql_ast::{
         TriggerTiming, Volatility,
     },
     expr::{BinaryOp, ColumnRef, Expr, Ident, Literal, ObjectName, UnaryOp},
+    node::Span,
     stmt::{
         Assignment, Cte, DeleteStmt, InsertSource, InsertStmt, Join, JoinConstraint, JoinKind,
         OnConflict, OnConflictAction, OnConflictTarget, OrderByExpr, SelectItem, SelectStmt,
@@ -215,6 +216,8 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
     let having = select.having.map(convert_expr).transpose()?;
 
     Ok(SelectStmt {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         with: vec![],
         distinct,
         columns,
@@ -691,6 +694,8 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(InsertStmt {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         table,
         columns,
         source,
@@ -787,6 +792,8 @@ fn convert_update(
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(UpdateStmt {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         table: tref,
         assignments: assigns,
         from: from_tables,
@@ -826,6 +833,8 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(DeleteStmt {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         table,
         using,
         where_clause,
@@ -850,6 +859,8 @@ fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> 
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(CreateTable {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         name,
         if_not_exists,
         columns,
@@ -1045,6 +1056,8 @@ fn convert_create_function(cf: sp::CreateFunction) -> Result<CreateFunction, Par
     let body = convert_function_body(cf.function_body, &language)?;
 
     Ok(CreateFunction {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         name,
         or_replace,
         params,
@@ -1218,6 +1231,8 @@ fn convert_create_procedure(
     };
 
     Ok(CreateProcedure {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         name: pname,
         or_replace,
         params: params_out,
@@ -1320,6 +1335,8 @@ fn convert_create_policy(
         .collect();
 
     Ok(CreatePolicy {
+        id: crate::next_node_id(),
+        span: Span::DUMMY,
         name: convert_ident(name),
         table,
         command: cmd,

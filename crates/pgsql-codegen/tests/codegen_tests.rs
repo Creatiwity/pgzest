@@ -5,6 +5,8 @@ use pgsql_codegen::{diff_schemas, emit_statement, DiffOp};
 
 fn make_select(columns: Vec<SelectItem>, from: Vec<TableRef>) -> SelectStmt {
     SelectStmt {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         with: vec![],
         distinct: false,
         columns,
@@ -48,6 +50,8 @@ fn simple_col_def(name: &str, dt: DataType) -> ColumnDef {
 
 fn make_create_table(table_name: &str, cols: Vec<ColumnDef>) -> Statement {
     Statement::Ddl(DdlStatement::CreateTable(CreateTable {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         name: ObjectName::unquoted(&[table_name]),
         if_not_exists: false,
         columns: cols,
@@ -84,6 +88,8 @@ fn emit_select_roundtrip() {
 #[test]
 fn emit_select_with_where_and_limit() {
     let stmt = Statement::Select(SelectStmt {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         with: vec![],
         distinct: false,
         columns: vec![SelectItem::Wildcard],

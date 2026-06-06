@@ -3,6 +3,14 @@ pub mod error;
 pub mod normalize;
 pub mod plpgsql;
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static NODE_COUNTER: AtomicU32 = AtomicU32::new(1);
+
+pub(crate) fn next_node_id() -> pgsql_ast::NodeId {
+    pgsql_ast::NodeId(NODE_COUNTER.fetch_add(1, Ordering::Relaxed))
+}
+
 pub use error::ParseError;
 pub use normalize::{NormalizedSelect, normalize_select};
 
@@ -384,6 +392,8 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                 if let Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) = stmt {
                     use pgsql_ast::ddl::CreateProcedure;
                     let proc = CreateProcedure {
+                        id: cf.id,
+                        span: cf.span,
                         name: cf.name,
                         or_replace: cf.or_replace,
                         params: cf.params,

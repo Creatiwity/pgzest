@@ -1,5 +1,6 @@
 use pgsql_ast::ddl::{ColumnDef, CreateTable, DdlStatement, TableConstraint};
 use pgsql_ast::expr::{Ident, ObjectName};
+use pgsql_ast::node::{NodeId, Span};
 use pgsql_ast::stmt::{SelectItem, SelectStmt, Statement};
 use pgsql_ast::types::DataType;
 use pgsql_checker::diagnostic::Severity;
@@ -10,6 +11,8 @@ use pgsql_lint::{lint_statements, rules};
 
 fn empty_select(columns: Vec<SelectItem>) -> Statement {
     Statement::Select(SelectStmt {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         with: vec![],
         distinct: false,
         columns,
@@ -26,6 +29,8 @@ fn empty_select(columns: Vec<SelectItem>) -> Statement {
 
 fn create_table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConstraint>) -> Statement {
     Statement::Ddl(DdlStatement::CreateTable(CreateTable {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         name: ObjectName::unquoted(&[name]),
         if_not_exists: false,
         columns,
@@ -35,6 +40,8 @@ fn create_table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConst
 
 fn quoted_table(name: &str) -> Statement {
     Statement::Ddl(DdlStatement::CreateTable(CreateTable {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         name: ObjectName(vec![Ident { value: name.to_string(), quoted: true }]),
         if_not_exists: false,
         columns: vec![],
@@ -176,6 +183,8 @@ fn non_snake_case_column_triggers_warning() {
 fn not_in_subquery_triggers_warning() {
     use pgsql_ast::expr::{ColumnRef, Expr};
     let subquery = Box::new(SelectStmt {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         with: vec![],
         distinct: false,
         columns: vec![SelectItem::Expr {
@@ -199,6 +208,8 @@ fn not_in_subquery_triggers_warning() {
     };
 
     let stmt = Statement::Select(SelectStmt {
+        id: NodeId::DUMMY,
+        span: Span::DUMMY,
         with: vec![],
         distinct: false,
         columns: vec![SelectItem::Wildcard],
