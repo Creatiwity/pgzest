@@ -284,6 +284,54 @@ impl SchemaProvider for IntrospectionJsonProvider {
     }
 }
 
+// ── CompositeSchemaProvider ───────────────────────────────────────────────────
+
+/// Merges multiple SchemaProviders into one.
+/// The first provider that has a result wins (priority order = insertion order).
+pub struct CompositeSchemaProvider {
+    providers: Vec<Box<dyn SchemaProvider>>,
+}
+
+impl CompositeSchemaProvider {
+    pub fn new() -> Self {
+        Self { providers: Vec::new() }
+    }
+
+    pub fn add(&mut self, provider: Box<dyn SchemaProvider>) {
+        self.providers.push(provider);
+    }
+
+    pub fn from_providers(providers: Vec<Box<dyn SchemaProvider>>) -> Self {
+        Self { providers }
+    }
+}
+
+impl Default for CompositeSchemaProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SchemaProvider for CompositeSchemaProvider {
+    fn get_table(&self, name: &str) -> Option<&TableSchema> {
+        self.providers.iter().find_map(|p| p.get_table(name))
+    }
+
+    fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
+        self.providers.iter().find_map(|p| p.get_function(name))
+    }
+
+    fn all_table_names(&self) -> Vec<&str> {
+        // Merge deduplicated table names from all providers
+        let mut names: Vec<&str> = self.providers.iter()
+            .flat_map(|p| p.all_table_names())
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 pub fn object_name_to_string(name: &pgsql_ast::ObjectName) -> String {

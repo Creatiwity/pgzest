@@ -14,6 +14,8 @@ impl PluginRegistry {
         let mut r = Self { plugins: HashMap::new() };
         // Register built-in plugins
         r.register(Box::new(crate::builtin::RlsEnforcerPlugin));
+        // Register Prisma plugin
+        r.register(Box::new(crate::prisma::plugin::PrismaPlugin));
         r
     }
 

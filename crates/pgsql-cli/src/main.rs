@@ -60,36 +60,60 @@ fn cmd_check(args: &[String]) -> i32 {
         }
     };
 
-    // Load pgsql.toml from the current directory or parent directories
-    let _config = pgsql_plugin::config::PgsqlConfig::load(
+    // Load pgsql.toml from the current directory
+    let config = pgsql_plugin::config::PgsqlConfig::load(
         &std::path::PathBuf::from("pgsql.toml")
     ).unwrap_or_default();
-    // (For now, just load config — plugin rule injection in P3)
 
-    let schema: Box<dyn pgsql_checker::SchemaProvider> = match schema_file {
-        Some(path) => {
-            let schema_sql = match read_file(path) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("error: {}", e);
-                    return 1;
-                }
-            };
-            match pgsql_checker::DdlSchemaProvider::from_sql(&schema_sql) {
-                Ok(p) => Box::new(p),
-                Err(e) => {
-                    eprintln!("error: failed to load schema '{}': {}", path, e);
-                    return 1;
-                }
+    // Build composite schema: DDL from file/schema + providers from enabled plugins
+    let registry = pgsql_plugin::registry::PluginRegistry::new();
+    let mut composite = pgsql_checker::CompositeSchemaProvider::new();
+
+    // DDL provider: either from an explicit --schema file or an empty provider
+    if let Some(path) = schema_file {
+        let schema_sql = match read_file(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return 1;
+            }
+        };
+        match pgsql_checker::DdlSchemaProvider::from_sql(&schema_sql) {
+            Ok(p) => composite.add(Box::new(p)),
+            Err(e) => {
+                eprintln!("error: failed to load schema '{}': {}", path, e);
+                return 1;
             }
         }
-        None => Box::new(pgsql_checker::DdlSchemaProvider::from_statements(&[])),
-    };
+    } else {
+        // Self-contained mode: extract schema from the SQL file itself
+        let stmts = match pgsql_parser::parse(&sql) {
+            Ok(s) => s,
+            Err(_) => vec![],
+        };
+        composite.add(Box::new(pgsql_checker::DdlSchemaProvider::from_statements(&stmts)));
+    }
 
-    // Si un schéma externe est fourni, l'utiliser. Sinon, mode self-contained :
-    // on extrait le schéma du fichier lui-même (deux passes).
+    // Add schema providers from enabled plugins
+    for provider in registry.collect_schema_providers(&config.plugins) {
+        composite.add(provider);
+    }
+
+    // Run checker with built-in rules + rules from enabled plugins
+    let mut checker = pgsql_checker::Checker::with_builtin_rules();
+    for rule in registry.collect_rules(&config.plugins) {
+        checker.add_rule(rule);
+    }
+
     let diagnostics = if schema_file.is_some() {
-        pgsql_checker::check_sql(&sql, schema.as_ref())
+        let stmts = match pgsql_parser::parse(&sql) {
+            Ok(s) => s,
+            Err(e) => return {
+                eprintln!("error: parse error: {}", e);
+                1
+            },
+        };
+        checker.run(&stmts, &composite)
     } else {
         pgsql_checker::check_sql_self_contained(&sql)
     };
