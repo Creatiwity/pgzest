@@ -6,7 +6,7 @@ pub mod analyze;
 pub use analyze::{analyze, SemanticResult};
 pub use scope::{ScopeId, ScopeTree};
 pub use symbol::{Symbol, SymbolKind, SymbolTable};
-pub use infer::{OutputColumn, data_type_to_ts};
+pub use infer::{OutputColumn, data_type_to_ts, data_type_to_sql};
 
 /// Convert ObjectName to a simple string (last part only for schema-qualified names).
 pub(crate) fn schema_name(name: &pgsql_ast::expr::ObjectName) -> String {

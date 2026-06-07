@@ -62,9 +62,12 @@ pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<Co
 
         ClauseCtx::FromJoin => {
             for name in schema.all_table_names() {
-                if seen.insert(name.to_string()) {
+                // Strip schema prefix from label — "public.users" → "users".
+                // The checker's 3-step fallback resolves unqualified names correctly.
+                let label = name.split('.').last().unwrap_or(name);
+                if seen.insert(label.to_string()) {
                     items.push(CompletionItem {
-                        label: name.to_string(),
+                        label: label.to_string(),
                         kind: Some(CompletionItemKind::CLASS),
                         detail: Some("table".into()),
                         ..Default::default()

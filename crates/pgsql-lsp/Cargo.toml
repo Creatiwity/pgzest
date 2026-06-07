@@ -8,6 +8,7 @@ name = "pgsql-lsp"
 path = "src/main.rs"
 
 [dependencies]
+pgsql-ast = { path = "../pgsql-ast" }
 pgsql-parser = { path = "../pgsql-parser" }
 pgsql-checker = { path = "../pgsql-checker" }
 pgsql-lint = { path = "../pgsql-lint" }

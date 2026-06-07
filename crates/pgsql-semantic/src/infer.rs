@@ -168,3 +168,35 @@ pub fn data_type_to_ts(dt: &DataType) -> &'static str {
         Custom(_) => "unknown",
     }
 }
+
+/// Map DataType to its canonical SQL type name.
+pub fn data_type_to_sql(dt: &DataType) -> String {
+    use DataType::*;
+    match dt {
+        SmallInt => "smallint".into(),
+        Integer => "integer".into(),
+        BigInt => "bigint".into(),
+        Numeric { precision: Some(p), scale: Some(s) } => format!("numeric({p},{s})"),
+        Numeric { precision: Some(p), scale: None } => format!("numeric({p})"),
+        Numeric { .. } => "numeric".into(),
+        Real => "real".into(),
+        DoublePrecision => "double precision".into(),
+        Text => "text".into(),
+        Varchar(Some(n)) => format!("varchar({n})"),
+        Varchar(None) => "varchar".into(),
+        Char(Some(n)) => format!("char({n})"),
+        Char(None) => "char".into(),
+        Boolean => "boolean".into(),
+        Date => "date".into(),
+        Time => "time".into(),
+        Timestamp => "timestamp".into(),
+        TimestampTz => "timestamptz".into(),
+        Interval => "interval".into(),
+        Bytea => "bytea".into(),
+        Json => "json".into(),
+        Jsonb => "jsonb".into(),
+        Uuid => "uuid".into(),
+        Array(inner) => format!("{}[]", data_type_to_sql(inner)),
+        Custom(s) => s.clone(),
+    }
+}

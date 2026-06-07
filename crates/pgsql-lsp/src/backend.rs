@@ -7,6 +7,8 @@ use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
 
+use pgsql_semantic::data_type_to_sql;
+
 use crate::completion::{analyze_cursor, build_completions};
 use crate::line_index::LineIndex;
 use crate::semantic;
@@ -305,6 +307,109 @@ fn word_at_offset(text: &str, offset: usize) -> Option<String> {
     Some(text[start..end].to_lowercase())
 }
 
+// ── Hover helpers ─────────────────────────────────────────────────────────────
+
+/// Hover for schema (DDL) files: build self-schema and look up the hovered word
+/// as a table or column name.
+fn hover_schema_file(text: &str, word: &str) -> Option<String> {
+    let provider = DdlSchemaProvider::from_sql(text).ok()?;
+
+    // Table name?
+    if let Some(table) = provider.get_table(word) {
+        let cols: Vec<String> = table
+            .columns
+            .iter()
+            .map(|c| {
+                let nn = if c.nullable { "" } else { " NOT NULL" };
+                format!("  {}: {}{}", c.name, data_type_to_sql(&c.data_type), nn)
+            })
+            .collect();
+        return Some(format!(
+            "```sql\n-- table: {}\n{}\n```",
+            table.name,
+            cols.join("\n")
+        ));
+    }
+
+    // Column name? Search all tables for a matching column.
+    let lower = word.to_lowercase();
+    for table_name in provider.all_table_names() {
+        if let Some(table) = provider.get_table(table_name) {
+            if let Some(col) = table.get_column(&lower) {
+                let nn = if col.nullable { "" } else { " NOT NULL" };
+                return Some(format!(
+                    "```sql\n-- {}.{} : {}{}\n```",
+                    table.name,
+                    col.name,
+                    data_type_to_sql(&col.data_type),
+                    nn
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+/// Hover for query files: use semantic analysis to find the hovered word.
+fn hover_query(
+    stmts: &[pgsql_ast::Statement],
+    schema: &dyn SchemaProvider,
+    word: &str,
+) -> Option<String> {
+    let semantic = pgsql_semantic::analyze(stmts, schema);
+
+    // Search in all scopes for a matching column
+    for scope_id in 0..100u32 {
+        let sid = pgsql_semantic::ScopeId(scope_id);
+        let cols = semantic.scopes.available_columns(sid);
+        if cols.is_empty() {
+            break;
+        }
+        for col in &cols {
+            if col.name.to_lowercase() == word {
+                return Some(format!(
+                    "```sql\n-- {} : {}\n```",
+                    col.name,
+                    data_type_to_sql(&col.data_type)
+                ));
+            }
+        }
+    }
+
+    // Table name?
+    if let Some(sym) = semantic.symbols.get_table(word) {
+        if let Some(table) = schema.get_table(&sym.name) {
+            let cols: Vec<String> = table
+                .columns
+                .iter()
+                .map(|c| format!("  {}: {}", c.name, data_type_to_sql(&c.data_type)))
+                .collect();
+            return Some(format!(
+                "```sql\n-- table: {}\n{}\n```",
+                table.name,
+                cols.join("\n")
+            ));
+        }
+        return Some(format!("```sql\n-- table: {}\n```", sym.name));
+    }
+
+    // Output columns (SELECT aliases)
+    for cols in semantic.select_columns.values() {
+        for col in cols {
+            if col.name.as_deref().map(|n| n.to_lowercase()).as_deref() == Some(word) {
+                return Some(format!(
+                    "```sql\n-- {} : {}\n```",
+                    col.name.as_deref().unwrap_or(word),
+                    data_type_to_sql(&col.data_type)
+                ));
+            }
+        }
+    }
+
+    None
+}
+
 // ── LanguageServer implementation ─────────────────────────────────────────────
 
 #[tower_lsp::async_trait]
@@ -394,83 +499,39 @@ impl LanguageServer for PgsqlBackend {
         };
         drop(docs);
 
-        // Convert LSP (line, char) back to byte offset
         let offset = position_to_offset(&text, pos.line, pos.character);
         let word = match word_at_offset(&text, offset as usize) {
             Some(w) => w,
             None => return Ok(None),
         };
 
-        // Run semantic analysis to get type info
-        let schema_guard = self.schema_sql.lock().await;
-        let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
-            Some(sql) => match DdlSchemaProvider::from_sql(sql) {
-                Ok(p) => Box::new(p),
-                Err(_) => Box::new(EmptySchemaProvider),
-            },
-            None => Box::new(EmptySchemaProvider),
+        let hover_text: Option<String> = if self.is_schema_file(uri.as_str()).await {
+            // ── Schema file: hover against self-schema ────────────────────────
+            hover_schema_file(&text, &word)
+        } else {
+            // ── Query file: hover via semantic analysis ───────────────────────
+            let schema_guard = self.schema_sql.lock().await;
+            let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
+                Some(sql) => match DdlSchemaProvider::from_sql(sql) {
+                    Ok(p) => Box::new(p),
+                    Err(_) => Box::new(EmptySchemaProvider),
+                },
+                None => Box::new(EmptySchemaProvider),
+            };
+            drop(schema_guard);
+
+            let stmts = match pgsql_parser::parse(&text) {
+                Ok(s) => s,
+                Err(_) => return Ok(None),
+            };
+
+            hover_query(&stmts, schema.as_ref(), &word)
         };
-        drop(schema_guard);
 
-        let stmts = match pgsql_parser::parse(&text) {
-            Ok(s) => s,
-            Err(_) => return Ok(None),
-        };
-
-        let semantic = pgsql_semantic::analyze(&stmts, schema.as_ref());
-
-        let mut hover_text: Option<String> = None;
-
-        // Search in all scopes for a matching column
-        for scope_id in 0..100u32 {
-            let sid = pgsql_semantic::ScopeId(scope_id);
-            let cols = semantic.scopes.available_columns(sid);
-            if cols.is_empty() {
-                break;
-            }
-            for col in cols {
-                if col.name.to_lowercase() == word {
-                    let ts_type = pgsql_semantic::data_type_to_ts(&col.data_type);
-                    hover_text = Some(format!(
-                        "```sql\n-- {} : {}\n```",
-                        col.name, ts_type
-                    ));
-                    break;
-                }
-            }
-            if hover_text.is_some() {
-                break;
-            }
-        }
-
-        // If not a column, check if it's a table name
-        if hover_text.is_none() {
-            if let Some(sym) = semantic.symbols.get_table(&word) {
-                hover_text = Some(format!("```sql\n-- table: {}\n```", sym.name));
-            }
-        }
-
-        // If not found in semantic, check output columns
-        if hover_text.is_none() {
-            'outer: for cols in semantic.select_columns.values() {
-                for col in cols {
-                    if col.name.as_deref().map(|n| n.to_lowercase()).as_deref() == Some(&word as &str) {
-                        let ts_type = col.ts_type();
-                        hover_text = Some(format!(
-                            "```sql\n-- {} : {}\n```",
-                            col.name.as_deref().unwrap_or(&word),
-                            ts_type
-                        ));
-                        break 'outer;
-                    }
-                }
-            }
-        }
-
-        Ok(hover_text.map(|text| Hover {
+        Ok(hover_text.map(|value| Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
-                value: text,
+                value,
             }),
             range: None,
         }))
