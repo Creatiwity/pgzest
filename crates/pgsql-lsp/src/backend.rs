@@ -22,11 +22,11 @@ pub struct PgsqlBackend {
     client: Client,
     documents: Mutex<HashMap<String, String>>,
     /// Shared schema resolver — rebuilt when schema/migration files change.
-    /// Wrapped in Arc so it can be cloned out of the lock quickly.
     resolver: Mutex<Arc<SchemaResolver>>,
-    /// Project root where pgsql-tools.toml was found (if any).
+    /// Project root and config (from pgsql-tools.config.toml).
     project_root: Mutex<Option<PathBuf>>,
-    /// Fallback schema path from `schemaFile` init option (legacy).
+    config: Mutex<Option<ProjectConfig>>,
+    /// Fallback schema path from `schemaFile` init option (legacy, no config file).
     legacy_schema_path: Mutex<Option<String>>,
 }
 
@@ -37,6 +37,7 @@ impl PgsqlBackend {
             documents: Mutex::new(HashMap::new()),
             resolver: Mutex::new(Arc::new(SchemaResolver::empty())),
             project_root: Mutex::new(None),
+            config: Mutex::new(None),
             legacy_schema_path: Mutex::new(None),
         }
     }
@@ -48,32 +49,25 @@ impl PgsqlBackend {
 
     /// Determine the `FileRole` of a URI.
     async fn role_of(&self, uri: &str) -> FileRole {
-        let path = uri_to_path(uri);
-        let resolver = self.resolver().await;
+        let Some(path) = uri_to_path(uri) else { return FileRole::Query };
 
-        // Check the index first (files known to the schema source).
-        if let Some(role) = path
-            .as_deref()
-            .and_then(|p| resolver.index.role_of_path(p))
-        {
-            return role.clone();
+        // Config-driven classification (authoritative when pgsql-tools.config.toml present).
+        if let (Some(root), Some(config)) = (
+            self.project_root.lock().await.clone(),
+            self.config.lock().await.clone(),
+        ) {
+            return config.classify_file(&path, &root);
         }
 
-        // Fall back to heuristic detection from filename.
-        if let Some(p) = &path {
-            let detected = FileRole::detect(p);
-
-            // Legacy: if a `schemaFile` path was configured, files inside it are Schema.
-            if let Some(schema_path) = self.legacy_schema_path.lock().await.as_deref() {
-                if is_inside(p, schema_path) {
-                    return FileRole::Schema;
-                }
+        // Legacy: schemaFile option → everything inside that path is Schema.
+        if let Some(schema_path) = self.legacy_schema_path.lock().await.as_deref() {
+            if is_inside(&path, schema_path) {
+                return FileRole::Schema;
             }
-
-            return detected;
         }
 
-        FileRole::Query
+        // No config at all → treat everything as Schema (safe default).
+        FileRole::Schema
     }
 
     /// Rebuild the resolver from the project config (or legacy path).
@@ -219,6 +213,7 @@ impl LanguageServer for PgsqlBackend {
                 let resolver = SchemaResolver::from_source(&source);
                 *self.resolver.lock().await = Arc::new(resolver);
                 *self.project_root.lock().await = Some(project_root.clone());
+                *self.config.lock().await = Some(config);
                 self.client
                     .log_message(
                         MessageType::INFO,

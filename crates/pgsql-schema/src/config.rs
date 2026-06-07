@@ -2,17 +2,17 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::role::FileRole;
-use crate::source::{DirSource, FileSource, MultiSource, SchemaSource};
+use crate::role::{sequence_from_path, FileRole};
+use crate::source::{DirSource, MigrationDirSource, MultiSource, SchemaSource};
 
 // ── Top-level config ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProjectConfig {
     #[serde(default)]
-    pub schema: SchemaConfig,
-    #[serde(default)]
     pub migrations: MigrationsConfig,
+    #[serde(default)]
+    pub schema: SchemaConfig,
     #[serde(default)]
     pub instrumentation: InstrumentationConfig,
     #[serde(default)]
@@ -21,31 +21,11 @@ pub struct ProjectConfig {
     pub plugins: PluginsConfig,
 }
 
-// ── Schema section ────────────────────────────────────────────────────────────
+// ── Migrations ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Default)]
-pub struct SchemaConfig {
-    #[serde(default)]
-    pub sources: Vec<SourceEntry>,
-    #[serde(default = "default_search_path")]
-    pub search_path: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SourceEntry {
-    pub path: String,
-    /// "migration" | "schema" | "query" — if absent, auto-detected per file.
-    pub role: Option<String>,
-}
-
-fn default_search_path() -> Vec<String> {
-    vec!["public".into()]
-}
-
-// ── Migrations section ────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MigrationsConfig {
+    /// Directory containing numbered migration files.
     #[serde(default = "default_migrations_dir")]
     pub directory: String,
     /// `{sequence:06}_{name}.sql` or timestamp-based, etc.
@@ -69,25 +49,35 @@ fn default_migrations_dir() -> String { "migrations/".into() }
 fn default_format()        -> String { "{sequence:06}_{name}.sql".into() }
 fn default_hash_journal()  -> String { "pgsql-tools-hashes.json".into() }
 
-// ── Instrumentation section ───────────────────────────────────────────────────
+// ── Schema ────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SchemaConfig {
+    /// Optional directory for static DDL files (schema.sql, types.sql, …).
+    /// If absent: every non-migration file opened in the editor is treated as Schema.
+    /// If present: only files in this directory are Schema; others are Query.
+    pub directory: Option<String>,
+    #[serde(default = "default_search_path")]
+    pub search_path: Vec<String>,
+}
+
+fn default_search_path() -> Vec<String> { vec!["public".into()] }
+
+// ── Instrumentation ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct InstrumentationConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_log_level")]
-    pub log_level: String,   // "none" | "step" | "debug"
+    pub log_level: String,
     #[serde(default = "default_log_target")]
-    pub log_target: String,  // "notify" | "table" | "both"
+    pub log_target: String,
 }
 
 impl Default for InstrumentationConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            log_level: default_log_level(),
-            log_target: default_log_target(),
-        }
+        Self { enabled: true, log_level: default_log_level(), log_target: default_log_target() }
     }
 }
 
@@ -95,17 +85,17 @@ fn default_true()       -> bool   { true }
 fn default_log_level()  -> String { "step".into() }
 fn default_log_target() -> String { "notify".into() }
 
-// ── Lint section ──────────────────────────────────────────────────────────────
+// ── Lint ──────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct LintProjectConfig {
     #[serde(default)]
     pub disabled: Vec<String>,
 }
 
-// ── Plugins section ───────────────────────────────────────────────────────────
+// ── Plugins ───────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct PluginsConfig {
     #[serde(default)]
     pub enabled: Vec<String>,
@@ -114,9 +104,8 @@ pub struct PluginsConfig {
 // ── Loading ───────────────────────────────────────────────────────────────────
 
 impl ProjectConfig {
-    pub const FILENAME: &'static str = "pgsql-tools.toml";
+    pub const FILENAME: &'static str = "pgsql-tools.config.toml";
 
-    /// Load from a specific `pgsql-tools.toml` path.
     pub fn load(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
@@ -124,8 +113,7 @@ impl ProjectConfig {
             .map_err(|e| format!("cannot parse {}: {e}", path.display()))
     }
 
-    /// Walk up from `start` (file or directory) looking for `pgsql-tools.toml`.
-    /// Returns the project root directory and the loaded config.
+    /// Walk up from `start` looking for `pgsql-tools.config.toml`.
     pub fn find_and_load(start: &Path) -> Option<(PathBuf, Self)> {
         let mut dir: &Path = if start.is_file() { start.parent()? } else { start };
         loop {
@@ -138,40 +126,59 @@ impl ProjectConfig {
         }
     }
 
-    /// Build a `MultiSource` from this config, resolving paths relative to `base_dir`.
+    /// Build a `MultiSource` from this config.
+    ///
+    /// Includes:
+    /// 1. Migration files from `migrations.directory`
+    /// 2. Schema files from `schema.directory` (if configured)
     pub fn to_source(&self, base_dir: &Path) -> MultiSource {
         let mut sources: Vec<Box<dyn SchemaSource>> = Vec::new();
 
-        for entry in &self.schema.sources {
-            let path = base_dir.join(&entry.path);
-            let role_override = entry
-                .role
-                .as_deref()
-                .and_then(FileRole::from_str);
-
-            if path.is_dir() {
-                let mut src = DirSource::new(&path);
-                if let Some(r) = role_override {
-                    src.role_override = Some(r);
-                }
-                sources.push(Box::new(src));
-            } else if path.exists() || !path.to_str().map(|s| s.contains('*')).unwrap_or(false) {
-                let mut src = FileSource::new(&path);
-                if let Some(r) = role_override {
-                    src.role_override = Some(r);
-                }
-                sources.push(Box::new(src));
-            }
+        // Migration files — each gets sequence from filename
+        let mig_dir = base_dir.join(&self.migrations.directory);
+        if mig_dir.is_dir() {
+            sources.push(Box::new(MigrationDirSource::new(mig_dir)));
         }
 
-        // Default fallback: scan migrations/ directory if no sources configured.
-        if sources.is_empty() {
-            let mig = base_dir.join(&self.migrations.directory);
-            if mig.is_dir() {
-                sources.push(Box::new(DirSource::new(mig)));
+        // Schema files (explicit directory)
+        if let Some(ref sdir) = self.schema.directory {
+            let schema_dir = base_dir.join(sdir);
+            if schema_dir.is_dir() {
+                sources.push(Box::new(DirSource::new(schema_dir, FileRole::Schema)));
             }
         }
 
         MultiSource::new(sources)
+    }
+
+    /// Classify any file by path relative to the project root.
+    ///
+    /// Rules (config-driven, no filename heuristics):
+    /// 1. In `migrations.directory` → Migration (sequence from filename)
+    /// 2. In `schema.directory` (if configured) → Schema
+    /// 3. Otherwise:
+    ///    - If no `schema.directory` configured → Schema (the whole project is schema)
+    ///    - If `schema.directory` configured    → Query (SFC/template files, future)
+    pub fn classify_file(&self, path: &Path, base_dir: &Path) -> FileRole {
+        let mig_dir = base_dir.join(&self.migrations.directory);
+        let mig_canon = mig_dir.canonicalize().unwrap_or(mig_dir);
+        let path_canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+
+        if path_canon.starts_with(&mig_canon) {
+            return FileRole::Migration { sequence: sequence_from_path(&path_canon) };
+        }
+
+        if let Some(ref sdir) = self.schema.directory {
+            let schema_dir = base_dir.join(sdir);
+            let schema_canon = schema_dir.canonicalize().unwrap_or(schema_dir);
+            if path_canon.starts_with(&schema_canon) {
+                return FileRole::Schema;
+            }
+            // schema.directory is set but this file isn't in it → Query
+            return FileRole::Query;
+        }
+
+        // No schema.directory configured → every non-migration file is Schema
+        FileRole::Schema
     }
 }

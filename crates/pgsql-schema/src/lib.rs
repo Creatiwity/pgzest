@@ -8,9 +8,9 @@ pub mod resolver;
 pub use config::ProjectConfig;
 pub use index::SchemaIndex;
 pub use lint::check_ddl_role;
-pub use role::FileRole;
+pub use role::{sequence_from_path, FileRole};
 pub use resolver::SchemaResolver;
 pub use source::{
-    dir_source, DirSource, FileSource, InlineSource, MultiSource, SchemaSource, SqlChunk,
-    SourceOrigin,
+    DirSource, FileSource, InlineSource, MigrationDirSource, MultiSource,
+    SchemaSource, SqlChunk, SourceOrigin,
 };
