@@ -80,19 +80,18 @@ fn rewrite_procedure_as_function(
 ) -> (String, String, bool) {
     let upper = header.to_uppercase();
 
-    // Only rewrite PROCEDURE statements
-    if !upper.contains("PROCEDURE") {
-        return (header.to_string(), body_and_rest.to_string(), false);
-    }
+    // Only rewrite PROCEDURE statements — check outside comment sections so that
+    // a comment like "-- helper for procedures" doesn't trigger a false rewrite.
+    let proc_pos = match find_keyword_outside_comment(upper.as_bytes(), b"PROCEDURE") {
+        Some(p) => p,
+        None => return (header.to_string(), body_and_rest.to_string(), false),
+    };
 
     // Replace PROCEDURE keyword with FUNCTION and inject RETURNS VOID before LANGUAGE.
     // Strategy:
     //   1. Find "PROCEDURE" in the header and replace with "FUNCTION "
     //   2. Handle OR REPLACE: ensure "CREATE OR REPLACE FUNCTION"
     //   3. Insert "RETURNS VOID " before LANGUAGE (or before AS if no LANGUAGE in header)
-
-    // Step 1: Replace "PROCEDURE" with "FUNCTION"
-    let proc_pos = upper.find("PROCEDURE").unwrap();
     let mut new_header = String::new();
     new_header.push_str(&header[..proc_pos]);
     new_header.push_str("FUNCTION ");
@@ -382,18 +381,68 @@ fn parse_u64(buf: &[u8], pos: usize) -> Option<(u64, usize)> {
     Some((n, i))
 }
 
+/// Strip `--` line comments from SQL text.
+/// For each line, everything from the first `--` to end-of-line is removed.
+/// This avoids false keyword matches inside comments.
+fn strip_line_comments(sql: &str) -> String {
+    sql.lines()
+        .map(|line| {
+            // Naive scan: find -- not inside single-quoted strings.
+            let bytes = line.as_bytes();
+            let mut in_quote = false;
+            let mut i = 0;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'\'' => in_quote = !in_quote,
+                    b'-' if !in_quote && i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                        return &line[..i];
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Find the byte position of `keyword` (already uppercased bytes) in `text_upper`,
+/// skipping `--` line comment sections. Returns `None` if not found outside a comment.
+fn find_keyword_outside_comment(text_upper: &[u8], keyword: &[u8]) -> Option<usize> {
+    let mut i = 0;
+    while i < text_upper.len() {
+        // Skip line comment
+        if i + 1 < text_upper.len() && text_upper[i] == b'-' && text_upper[i + 1] == b'-' {
+            while i < text_upper.len() && text_upper[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if starts_with_word(text_upper, i, keyword) {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Returns true if the SQL statement (uppercased, trimmed) looks like a
 /// CREATE FUNCTION or CREATE OR REPLACE FUNCTION / PROCEDURE statement.
 /// Leading `--` comment lines are skipped so that comments attached to a
 /// function definition don't prevent detection.
 fn is_create_function_sql(sql: &str) -> bool {
-    // Skip leading comment lines (-- ...) before checking for CREATE.
-    let first_non_comment_line = sql
+    // Strip comments before any keyword matching so that e.g.
+    // "-- triggers/procedures..." above a CREATE EXTENSION doesn't trigger a
+    // false positive.
+    let no_comments = strip_line_comments(sql);
+
+    let first_non_empty = no_comments
         .lines()
         .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("--"));
+        .find(|l| !l.is_empty());
 
-    let s = match first_non_comment_line {
+    let s = match first_non_empty {
         Some(l) => l.to_uppercase(),
         None => return false,
     };
@@ -401,107 +450,89 @@ fn is_create_function_sql(sql: &str) -> bool {
     if !s.starts_with("CREATE") {
         return false;
     }
-    // Also check the full SQL (not just the first line) for FUNCTION/PROCEDURE
-    // in case the keyword appears on a later line.
-    let full_upper = sql.to_uppercase();
+    // Check comment-stripped SQL for FUNCTION/PROCEDURE keywords.
+    let full_upper = no_comments.to_uppercase();
     full_upper.contains("FUNCTION") || full_upper.contains("PROCEDURE")
 }
 
 pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
     let dialect = PostgreSqlDialect {};
 
-    // Split on ';' to handle each statement individually so we can pre-process
-    // CREATE FUNCTION statements independently.
-    // We do a simple split — statements inside $$ bodies can contain ';' but sqlparser
-    // handles the final split correctly. We pre-process per-statement by re-joining
-    // after stripping problematic tokens only from CREATE FUNCTION headers.
-
-    // Strategy: parse the whole SQL at once after preprocessing each statement.
-    // Since sqlparser splits on ';' itself (respecting dollar-quotes), we do a
-    // two-pass approach:
-    //   1. Collect raw statement strings by splitting on ';' outside dollar-quotes.
-    //   2. For each CREATE FUNCTION statement, preprocess it and store its meta.
-    //   3. Re-join all cleaned statements and parse at once.
-    //   4. Walk the resulting parsed statements, injecting meta back for CreateFunction nodes.
-
+    // Split into individual statement strings (respecting dollar-quotes).
+    // Parse each statement separately so that a single unsupported statement
+    // (e.g. CREATE SEQUENCE with multiple options, CREATE EXTENSION, GRANT, …)
+    // does not abort the entire parse — it is silently skipped instead.
     let raw_stmts = split_statements(sql);
-    let mut metas: Vec<Option<FunctionMeta>> = Vec::with_capacity(raw_stmts.len());
-    let mut cleaned_stmts: Vec<String> = Vec::with_capacity(raw_stmts.len());
+    let mut result = Vec::new();
 
     for stmt_sql in &raw_stmts {
-        if is_create_function_sql(stmt_sql) {
-            let (cleaned, meta) = preprocess_function_sql(stmt_sql);
-            cleaned_stmts.push(cleaned);
-            metas.push(Some(meta));
+        let (cleaned, meta) = if is_create_function_sql(stmt_sql) {
+            let (c, m) = preprocess_function_sql(stmt_sql);
+            (c, Some(m))
         } else {
-            cleaned_stmts.push(stmt_sql.clone());
-            metas.push(None);
-        }
-    }
-
-    let reassembled = cleaned_stmts.join("; ");
-
-    let sp_stmts = SqlParser::parse_sql(&dialect, &reassembled)
-        .map_err(|e| ParseError::Syntax(e.to_string()))?;
-
-    // Zip with metas and inject
-    let mut result = Vec::with_capacity(sp_stmts.len());
-    for (sp_stmt, meta) in sp_stmts.into_iter().zip(metas.into_iter()) {
-        let mut stmt = match convert::convert_statement(sp_stmt) {
-            Ok(s) => s,
-            // Silently skip DDL statements not yet supported by the AST
-            // (e.g. CREATE EXTENSION, unsupported ALTER TABLE variants).
-            Err(ParseError::Unsupported(_)) => continue,
-            Err(e) => return Err(e),
+            (stmt_sql.clone(), None)
         };
-        // Inject function meta if available
-        if let Some(meta) = meta {
-            if let Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(ref mut cf)) =
-                stmt
-            {
-                cf.security_definer = meta.security_definer;
-                cf.cost = meta.cost;
-                cf.rows = meta.rows;
-                // Override return type to SetOf if we detected RETURNS SETOF <type>
-                if let Some(ref inner_type_str) = meta.setof_type {
-                    use pgsql_ast::ddl::ReturnType;
-                    cf.return_type =
-                        ReturnType::SetOf(convert::parse_simple_type_pub(inner_type_str));
-                }
-                // Override return type to Table if we detected RETURNS TABLE(...)
-                if let Some(ref cols) = meta.table_columns {
-                    use pgsql_ast::ddl::ReturnType;
-                    use pgsql_ast::expr::Ident;
-                    let table_cols: Vec<(Ident, pgsql_ast::types::DataType)> = cols.iter()
-                        .map(|(col_name, type_name)| {
-                            let ident = Ident { value: col_name.clone(), quoted: false };
-                            let dt = convert::parse_simple_type_pub(type_name);
-                            (ident, dt)
-                        })
-                        .collect();
-                    cf.return_type = ReturnType::Table(table_cols);
-                }
-            }
 
-            // If the original statement was CREATE PROCEDURE (rewritten as FUNCTION for sqlparser),
-            // convert back to CreateProcedure.
-            if meta.is_procedure {
-                if let Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) = stmt {
-                    use pgsql_ast::ddl::CreateProcedure;
-                    let proc = CreateProcedure {
-                        id: cf.id,
-                        span: cf.span,
-                        name: cf.name,
-                        or_replace: cf.or_replace,
-                        params: cf.params,
-                        language: cf.language,
-                        body: cf.body,
-                    };
-                    stmt = Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(proc));
+        // Parse single statement; skip on syntax error (unsupported SQL).
+        let sp_stmts = match SqlParser::parse_sql(&dialect, &cleaned) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        for sp_stmt in sp_stmts {
+            let mut stmt = match convert::convert_statement(sp_stmt) {
+                Ok(s) => s,
+                Err(ParseError::Unsupported(_)) => continue,
+                Err(e) => return Err(e),
+            };
+
+            if let Some(ref meta) = meta {
+                if let Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(ref mut cf)) =
+                    stmt
+                {
+                    cf.security_definer = meta.security_definer;
+                    cf.cost = meta.cost;
+                    cf.rows = meta.rows;
+                    if let Some(ref inner_type_str) = meta.setof_type {
+                        use pgsql_ast::ddl::ReturnType;
+                        cf.return_type =
+                            ReturnType::SetOf(convert::parse_simple_type_pub(inner_type_str));
+                    }
+                    if let Some(ref cols) = meta.table_columns {
+                        use pgsql_ast::ddl::ReturnType;
+                        use pgsql_ast::expr::Ident;
+                        let table_cols: Vec<(Ident, pgsql_ast::types::DataType)> = cols
+                            .iter()
+                            .map(|(col_name, type_name)| {
+                                let ident = Ident { value: col_name.clone(), quoted: false };
+                                let dt = convert::parse_simple_type_pub(type_name);
+                                (ident, dt)
+                            })
+                            .collect();
+                        cf.return_type = ReturnType::Table(table_cols);
+                    }
+                }
+
+                if meta.is_procedure {
+                    if let Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) = stmt
+                    {
+                        use pgsql_ast::ddl::CreateProcedure;
+                        let proc = CreateProcedure {
+                            id: cf.id,
+                            span: cf.span,
+                            name: cf.name,
+                            or_replace: cf.or_replace,
+                            params: cf.params,
+                            language: cf.language,
+                            body: cf.body,
+                        };
+                        stmt =
+                            Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(proc));
+                    }
                 }
             }
+            result.push(stmt);
         }
-        result.push(stmt);
     }
     Ok(result)
 }
