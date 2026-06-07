@@ -627,7 +627,61 @@ Les commentaires `-- @pgsql-tools: <directive>` s'appliquent à l'objet qui les 
 
 ---
 
-## 6. Roadmap — ce qui n'est pas dans cette spec
+## 6. Workarounds parser — roadmap des cas hors scope
+
+Plusieurs constructions PL/pgSQL ont été temporairement simplifiées pour ne pas bloquer le checker.
+Chaque cas est documenté ici avec l'approche correcte à implémenter.
+
+### Cas 1 — `RETURNING … INTO var` (strip actuel → AST dédié)
+
+**Situation** : `INSERT … RETURNING col INTO v_result` n'est pas compris par sqlparser-rs.
+**Workaround actuel** : `strip_returning_into()` supprime la clause ` INTO var` avant de passer le fragment à sqlparser, perdant l'information sur les variables cibles.
+**Fix correct** :
+1. Ajouter `PlStatement::DmlReturningInto { stmt: Box<Statement>, targets: Vec<Ident> }` dans `pgsql-ast`.
+2. Dans `parse_dml_statement` (parser PL/pgSQL), détecter la présence de `INTO` après `RETURNING`, extraire les cibles, et construire ce variant au lieu de stripper.
+3. Dans le checker, vérifier les colonnes RETURNING contre le schéma et marquer les `targets` comme variables assignées dans le contexte.
+
+### Cas 2 — Variables record (`v_rec.col`) dans le SQL embarqué
+
+**Situation** : Une variable déclarée `v_rec RECORD` ou `v_row my_table%ROWTYPE` peut être utilisée comme `v_rec.col` dans des expressions SQL. Le checker voit `v_rec` comme un qualificateur de table et émet E002.
+**Workaround actuel** : le checker texte (`check_plpgsql_body`) supprime tous les E002, au prix de faux négatifs.
+**Fix correct** :
+1. Étendre `TypeContext` avec `record_vars: HashMap<String, Option<&TableSchema>>` — `None` pour `RECORD`, `Some(ts)` pour `%ROWTYPE`.
+2. Dans `BodySchemaProvider::get_table`, consulter `record_vars` en priorité (avant `temp_tables`).
+3. Propager les assignations `SELECT … INTO v_rec FROM t` pour inférer le type de `v_rec` de manière flow-sensitive.
+
+### Cas 3 — `NEW`/`OLD` dans le SQL embarqué des triggers ✅ (implémenté)
+
+**Situation** : Les triggers utilisent `NEW.col` et `OLD.col` dans leurs corps SQL. Sans contexte, le checker émet E002 pour `NEW` et `OLD`.
+**Fix implémenté** (deux niveaux) :
+1. **Trigger table connue** : quand un `CREATE TRIGGER ... ON table_name EXECUTE FUNCTION fn()` est trouvé dans le même ensemble de fichiers analysés, le checker construit un `TriggerCtx` avec la table, et enregistre `new`/`old` dans `temp_tables` avec le schéma de cette table. `BodySchemaProvider.get_table("new")` retourne alors le bon schéma → vérification de colonnes complète.
+2. **Trigger table inconnue** : quand la fonction a `RETURNS TRIGGER` mais aucun `CREATE TRIGGER` n'est trouvé dans les fichiers analysés (`trigger_table == None`), `is_trigger = true` dans `TypeContext`. Tous les `check_select_*` de ce contexte passent `phantom_qualifiers = {"new", "old"}` : le qualifier est reconnu comme valide, E002 supprimé, mais vérification de colonnes skippée (pas de schéma disponible).
+3. **Multi-fichiers** : le CLI `check` construit maintenant le trigger_map depuis l'ensemble context + fichiers vérifiés via `Checker::run_with_context`. Passer `examples/procs.sql --schema examples/schema.sql` → les `CREATE TRIGGER` dans le schéma sont visibles même si les fonctions sont dans `procs.sql`.
+
+**Points restants pour le roadmap** :
+- Clause `REFERENCING NEW TABLE AS name` (nommage custom des tables de transition) → nécessite extension AST + parser
+- Détection de la disponibilité flow-sensitive : `INSERT` only → OLD indéfini, `IF TG_OP = 'DELETE'` → OLD défini dans le scope du IF
+- Statement-level triggers (NEW/OLD sont des tables, pas des lignes) → sémantique différente à gérer
+
+### Cas 4 — Plvars dans `INSERT … VALUES (…)`
+
+**Situation** : `INSERT INTO t (col) VALUES (p_param)` — `p_param` est une variable PL/pgSQL mais `check_sql_in_body` ne parcourt pas les expressions VALUES avec `plvars`, émettant potentiellement E001.
+**Workaround actuel** : seul le SELECT source d'un INSERT est vérifié avec `check_select_with_plvars` ; les VALUES bruts ne sont pas traversés.
+**Fix correct** :
+1. Dans `check_sql_in_body`, pour `Statement::Insert` avec `InsertSource::Values`, parcourir chaque expression avec `check_expr` en passant `plvars`.
+2. Alternativement, traiter les plvars comme des littéraux inconnus (`Expr::Literal`) en aval dans le type-checker.
+
+### Cas 5 — Fallback texte (`check_plpgsql_body`) trop permissif
+
+**Situation** : Quand le parser PL/pgSQL échoue sur un corps complexe (CTEs, FOR IN unnest, etc.), on bascule sur l'analyse ligne-par-ligne. Ce fallback supprime les E002 entiers et rate beaucoup de constructions.
+**Fix correct** :
+1. Étendre le parser PL/pgSQL pour couvrir les cas qui échouent (FOR IN, RETURN QUERY, CTEs imbriquées).
+2. À défaut, que le fallback texte n'émette que des avertissements structurels (W002, W003) sans diagnostics de colonnes/tables — mieux vaut rien que des faux positifs.
+3. Suivre le taux de fallback via un compteur de métriques dans le LSP (ratio corps parsés / corps texte) pour prioriser les cas à traiter.
+
+---
+
+## 7. Roadmap — ce qui n'est pas dans cette spec
 
 À ajouter ultérieurement :
 - **Go-to-definition** : naviguer vers la définition d'une table/colonne/fonction depuis n'importe quel fichier SQL

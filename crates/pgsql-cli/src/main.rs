@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process;
 
 use clap::{Parser, Subcommand};
+use pgsql_ast::Statement;
 
 mod migrate;
 
@@ -15,13 +16,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Type-check a SQL file, printing diagnostics. Exits 1 if any errors are found.
+    /// Type-check SQL files, printing diagnostics. Exits 1 if any errors are found.
+    ///
+    /// All positional files are checked. Any `--schema` files contribute to the
+    /// schema context and trigger map without themselves being checked.
+    /// If no `--schema` is given and a single file is passed, it is analysed
+    /// in self-contained mode (DDL inside the file seeds its own schema).
     Check {
-        /// SQL file to check
-        file: String,
-        /// Optional schema DDL file for cross-file type checking
-        #[arg(long)]
-        schema: Option<String>,
+        /// SQL files to check (at least one required)
+        #[arg(required = true)]
+        files: Vec<String>,
+        /// Extra DDL/schema files that provide context (can be repeated)
+        #[arg(long = "schema")]
+        schemas: Vec<String>,
     },
 
     /// Lint a SQL file for style and best-practice violations.
@@ -88,34 +95,71 @@ fn read_file(path: &str) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("cannot read '{}': {}", path, e))
 }
 
-fn cmd_check(file: &str, schema: Option<&str>) -> i32 {
-    let sql = match read_file(file) {
-        Ok(s) => s,
-        Err(e) => { eprintln!("error: {}", e); return 1; }
-    };
-
+fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
     let config = pgsql_plugin::config::PgsqlConfig::load(
         &std::path::PathBuf::from("pgsql.toml")
     ).unwrap_or_default();
 
     let registry = pgsql_plugin::registry::PluginRegistry::new();
-    let mut composite = pgsql_checker::CompositeSchemaProvider::new();
 
-    if let Some(path) = schema {
-        let schema_sql = match read_file(path) {
+    // ── Parse context/schema files ─────────────────────────────────────────────
+    // Each file is kept with its raw SQL so we can detect its default schema.
+    let mut context_files: Vec<(String, Vec<Statement>)> = Vec::new(); // (sql, stmts)
+    for path in schemas {
+        let sql = match read_file(path) {
             Ok(s) => s,
             Err(e) => { eprintln!("error: {}", e); return 1; }
         };
-        match pgsql_checker::DdlSchemaProvider::from_sql(&schema_sql) {
-            Ok(p) => composite.add(Box::new(p)),
-            Err(e) => {
-                eprintln!("error: failed to load schema '{}': {}", path, e);
-                return 1;
+        match pgsql_parser::parse(&sql) {
+            Ok(s) => context_files.push((sql, s)),
+            Err(e) => eprintln!("warning: failed to parse schema '{}': {}", path, e),
+        }
+    }
+    let context_stmts: Vec<Statement> = context_files.iter()
+        .flat_map(|(_, s)| s.iter().cloned())
+        .collect();
+
+    // ── Parse target files ─────────────────────────────────────────────────────
+    let parsed_targets: Vec<(String, String, Vec<Statement>)> = { // (path, sql, stmts)
+        let mut out = Vec::new();
+        for file in files {
+            let sql = match read_file(file) {
+                Ok(s) => s,
+                Err(e) => { eprintln!("error: {}", e); return 1; }
+            };
+            match pgsql_parser::parse(&sql) {
+                Ok(s) => out.push((file.clone(), sql, s)),
+                Err(e) => {
+                    eprintln!("error: {}: parse error: {}", file, e);
+                    return 1;
+                }
             }
         }
-    } else {
-        let stmts = pgsql_parser::parse(&sql).unwrap_or_default();
-        composite.add(Box::new(pgsql_checker::DdlSchemaProvider::from_statements(&stmts)));
+        out
+    };
+
+    // ── Build global schema (per-file schema detection) ────────────────────────
+    let has_external_schema = !schemas.is_empty();
+    let mut composite = pgsql_checker::CompositeSchemaProvider::new();
+
+    if has_external_schema {
+        // Explicit --schema files are added first (highest priority).
+        for (sql, stmts) in &context_files {
+            let sp = pgsql_checker::detect_search_path(sql);
+            let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
+            composite.add(Box::new(
+                pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs)
+            ));
+        }
+    }
+    // Always include target files' own definitions so intra-file references
+    // (e.g. a function defined later in the same file) resolve correctly.
+    for (_, sql, stmts) in &parsed_targets {
+        let sp = pgsql_checker::detect_search_path(sql);
+        let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
+        composite.add(Box::new(
+            pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs)
+        ));
     }
 
     for provider in registry.collect_schema_providers(&config.plugins) {
@@ -127,31 +171,41 @@ fn cmd_check(file: &str, schema: Option<&str>) -> i32 {
         checker.add_rule(rule);
     }
 
-    let diagnostics = if schema.is_some() {
-        let stmts = match pgsql_parser::parse(&sql) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("error: parse error: {}", e);
-                return 1;
-            }
-        };
-        checker.run(&stmts, &composite)
-    } else {
-        pgsql_checker::check_sql_self_contained(&sql)
-    };
-
+    // ── Check each target file ─────────────────────────────────────────────────
     let mut has_errors = false;
-    for diag in &diagnostics {
-        use pgsql_checker::Severity;
-        let severity = match diag.severity {
-            Severity::Error => { has_errors = true; "error" }
-            Severity::Warning => "warning",
-            Severity::Info => "info",
-        };
-        if let Some(hint) = &diag.hint {
-            println!("{}: {}: {} (hint: {})", severity, diag.code, diag.message, hint);
+    let show_filename = parsed_targets.len() > 1 || has_external_schema;
+
+    for (file, sql, stmts) in &parsed_targets {
+        let diagnostics = if has_external_schema || parsed_targets.len() > 1 {
+            // Cross-file mode: trigger map built from context + ALL target files.
+            let all_other_stmts: Vec<Statement> = context_stmts.iter()
+                .chain(parsed_targets.iter().filter(|(f, _, _)| f != file).flat_map(|(_, _, s)| s.iter()))
+                .cloned()
+                .collect();
+            checker.run_with_context(stmts, &all_other_stmts, &composite)
         } else {
-            println!("{}: {}: {}", severity, diag.code, diag.message);
+            // Single file, no schema → self-contained mode with per-file schema detection.
+            let sp = pgsql_checker::detect_search_path(sql);
+            let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
+            pgsql_checker::check_statements(
+                stmts,
+                &pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs),
+            )
+        };
+
+        let prefix = if show_filename { format!("{}: ", file) } else { String::new() };
+        for diag in &diagnostics {
+            use pgsql_checker::Severity;
+            let severity = match diag.severity {
+                Severity::Error => { has_errors = true; "error" }
+                Severity::Warning => "warning",
+                Severity::Info => "info",
+            };
+            if let Some(hint) = &diag.hint {
+                println!("{}{}: {}: {} (hint: {})", prefix, severity, diag.code, diag.message, hint);
+            } else {
+                println!("{}{}: {}: {}", prefix, severity, diag.code, diag.message);
+            }
         }
     }
 
@@ -281,7 +335,7 @@ fn main() {
     let cli = Cli::parse();
 
     let exit_code = match cli.command {
-        Command::Check { file, schema } => cmd_check(&file, schema.as_deref()),
+        Command::Check { files, schemas } => cmd_check(&files, &schemas),
         Command::Lint { file } => cmd_lint(&file),
         Command::Migrate { action } => match action {
             MigrateAction::Diff { old, new } => cmd_migrate_diff(&old, &new),

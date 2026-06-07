@@ -60,18 +60,105 @@ pub trait RlsAwareSchemaProvider: SchemaProvider {
     fn table_has_rls(&self, table_name: &str) -> bool;
 }
 
+// ── Schema qualification helpers ──────────────────────────────────────────────
+
+/// Qualify an `ObjectName` with the given default schema.
+/// If the name already has 2+ parts (e.g. `public.users`), join them lowercased.
+/// If it has 1 part (e.g. `users`), prepend `default_schema`.
+pub fn qualify_object_name(name: &pgsql_ast::ObjectName, default_schema: &str) -> String {
+    if name.0.len() >= 2 {
+        name.0.iter().map(|i| i.value.to_lowercase()).collect::<Vec<_>>().join(".")
+    } else {
+        let local = name.0.first().map(|i| i.value.to_lowercase()).unwrap_or_default();
+        format!("{}.{}", default_schema.to_lowercase(), local)
+    }
+}
+
+/// Qualify a dotted name string with the given default schema.
+/// If `name` already contains a dot, return it lowercased unchanged.
+/// Otherwise, prepend `default_schema`.
+pub fn qualify_str(name: &str, default_schema: &str) -> String {
+    let lower = name.to_lowercase();
+    if lower.contains('.') { lower } else { format!("{}.{}", default_schema.to_lowercase(), lower) }
+}
+
+/// Parse the full `search_path` from raw SQL text.
+/// Recognises `SET search_path TO a, b, c` / `SET search_path = a, b, c`
+/// and the `-- @schema: a, b, c` comment override.
+/// `$user` entries are skipped (they are session-dependent).
+/// Returns `["public"]` when nothing is found.
+pub fn detect_search_path(sql: &str) -> Vec<String> {
+    for line in sql.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("-- @schema:") {
+            let schemas: Vec<String> = rest
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !schemas.is_empty() {
+                return schemas;
+            }
+        }
+        let lower = trimmed.to_lowercase();
+        if lower.starts_with("set search_path") {
+            let after_kw = if let Some(r) = lower.split_once("to") { r.1 }
+                           else if let Some(r) = lower.split_once('=') { r.1 }
+                           else { continue };
+            let schemas: Vec<String> = after_kw
+                .split(',')
+                .map(|s| s.trim().trim_matches(';').trim().to_string())
+                .filter(|s| !s.is_empty() && s != "$user")
+                .collect();
+            if !schemas.is_empty() {
+                return schemas;
+            }
+        }
+    }
+    vec!["public".to_string()]
+}
+
+/// Returns the first schema from `detect_search_path` — the schema new objects
+/// are created in when an unqualified name is used.
+pub fn detect_default_schema(sql: &str) -> String {
+    detect_search_path(sql).into_iter().next().unwrap_or_else(|| "public".to_string())
+}
+
 // ── DdlSchemaProvider ─────────────────────────────────────────────────────────
 
 /// Builds a schema from a slice of already-parsed AST statements.
+/// All objects are stored under a fully-qualified `"schema.name"` key so that
+/// lookups work regardless of whether the caller uses qualified or bare names.
+///
+/// Unqualified names are resolved by iterating `search_path` in order, matching
+/// PostgreSQL's own rule: first schema wins, new objects go into the first schema.
 pub struct DdlSchemaProvider {
     tables: HashMap<String, TableSchema>,
     functions: HashMap<String, FunctionSignature>,
-    /// Set of table names (lowercased) that have RLS enabled via ALTER TABLE.
     rls_enabled: std::collections::HashSet<String>,
+    /// Ordered list of schemas to search for unqualified names.
+    /// `search_path[0]` is also used as the schema for new object creation.
+    search_path: Vec<String>,
 }
 
 impl DdlSchemaProvider {
+    /// Build a schema with `["public"]` as the search path.
     pub fn from_statements(stmts: &[pgsql_ast::Statement]) -> Self {
+        Self::from_statements_with_search_path(stmts, &["public"])
+    }
+
+    /// Build a schema using a single `default_schema` for unqualified names.
+    pub fn from_statements_with_schema(stmts: &[pgsql_ast::Statement], default_schema: &str) -> Self {
+        Self::from_statements_with_search_path(stmts, &[default_schema])
+    }
+
+    /// Build a schema respecting the full `search_path` (PostgreSQL semantics):
+    /// - new unqualified objects are stored under `search_path[0]`
+    /// - lookups iterate `search_path` in order, returning the first match
+    pub fn from_statements_with_search_path(stmts: &[pgsql_ast::Statement], search_path: &[&str]) -> Self {
+        let search_path: Vec<String> = search_path.iter().map(|s| s.to_lowercase()).collect();
+        let creation_schema = search_path.first().map(String::as_str).unwrap_or("public");
+
         let mut tables: HashMap<String, TableSchema> = HashMap::new();
         let mut functions: HashMap<String, FunctionSignature> = HashMap::new();
         let mut rls_enabled: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -80,31 +167,19 @@ impl DdlSchemaProvider {
             if let pgsql_ast::Statement::Ddl(ddl) = stmt {
                 match ddl {
                     pgsql_ast::DdlStatement::CreateTable(ct) => {
+                        let key = qualify_object_name(&ct.name, creation_schema);
                         let table_name = object_name_to_string(&ct.name);
-                        let columns = ct
-                            .columns
-                            .iter()
-                            .map(|col| ColumnInfo {
-                                name: col.name.value.clone(),
-                                data_type: col.data_type.clone(),
-                                nullable: col.nullable,
-                            })
-                            .collect();
-                        tables.insert(
-                            table_name.to_lowercase(),
-                            TableSchema {
-                                name: table_name,
-                                columns,
-                            },
-                        );
+                        let columns = ct.columns.iter().map(|col| ColumnInfo {
+                            name: col.name.value.clone(),
+                            data_type: col.data_type.clone(),
+                            nullable: col.nullable,
+                        }).collect();
+                        tables.insert(key, TableSchema { name: table_name, columns });
                     }
                     pgsql_ast::DdlStatement::CreateFunction(cf) => {
+                        let key = qualify_object_name(&cf.name, creation_schema);
                         let func_name = object_name_to_string(&cf.name);
-                        let params: Vec<DataType> = cf
-                            .params
-                            .iter()
-                            .map(|p| p.data_type.clone())
-                            .collect();
+                        let params: Vec<DataType> = cf.params.iter().map(|p| p.data_type.clone()).collect();
                         let return_type = match &cf.return_type {
                             pgsql_ast::ReturnType::Scalar(dt) => dt.clone(),
                             pgsql_ast::ReturnType::SetOf(dt) => dt.clone(),
@@ -112,24 +187,17 @@ impl DdlSchemaProvider {
                             pgsql_ast::ReturnType::Trigger => DataType::Custom("TRIGGER".into()),
                             pgsql_ast::ReturnType::Void => DataType::Custom("VOID".into()),
                         };
-                        functions.insert(
-                            func_name.to_lowercase(),
-                            FunctionSignature {
-                                name: func_name,
-                                params,
-                                return_type,
-                            },
-                        );
+                        functions.insert(key, FunctionSignature { name: func_name, params, return_type });
                     }
                     pgsql_ast::DdlStatement::AlterTable(at) => {
-                        let table_name = object_name_to_string(&at.name).to_lowercase();
+                        let key = qualify_object_name(&at.name, creation_schema);
                         for op in &at.operations {
                             match op {
                                 pgsql_ast::AlterTableOp::EnableRowLevelSecurity => {
-                                    rls_enabled.insert(table_name.clone());
+                                    rls_enabled.insert(key.clone());
                                 }
                                 pgsql_ast::AlterTableOp::DisableRowLevelSecurity => {
-                                    rls_enabled.remove(&table_name);
+                                    rls_enabled.remove(&key);
                                 }
                                 _ => {}
                             }
@@ -140,52 +208,44 @@ impl DdlSchemaProvider {
             }
         }
 
-        Self { tables, functions, rls_enabled }
+        Self { tables, functions, rls_enabled, search_path }
     }
 
-    /// Parse `sql` and build the schema from the resulting DDL statements.
+    /// Parse `sql`, auto-detect its `search_path` from `SET search_path` /
+    /// `-- @schema:`, and build the schema from the resulting DDL statements.
     pub fn from_sql(sql: &str) -> Result<Self, String> {
+        let sp = detect_search_path(sql);
+        let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
         let stmts = pgsql_parser::parse(sql).map_err(|e| e.to_string())?;
-        Ok(Self::from_statements(&stmts))
+        Ok(Self::from_statements_with_search_path(&stmts, &sp_refs))
+    }
+
+    fn lookup_unqualified<'a, V>(
+        map: &'a HashMap<String, V>,
+        local: &str,
+        search_path: &[String],
+    ) -> Option<&'a V> {
+        search_path.iter().find_map(|schema| map.get(&format!("{}.{}", schema, local)))
     }
 }
 
 impl SchemaProvider for DdlSchemaProvider {
     fn get_table(&self, name: &str) -> Option<&TableSchema> {
         let lower = name.to_lowercase();
-        // 1. Exact match (handles both "users" and "public.users")
-        if let Some(t) = self.tables.get(&lower) {
-            return Some(t);
+        if lower.contains('.') {
+            self.tables.get(&lower)
+        } else {
+            Self::lookup_unqualified(&self.tables, &lower, &self.search_path)
         }
-        // 2. Unqualified name → try "public.<name>" (most tables in pg_dump are schema-qualified)
-        let with_public = format!("public.{}", lower);
-        if let Some(t) = self.tables.get(&with_public) {
-            return Some(t);
-        }
-        // 3. Qualified name → try the unqualified part after the dot
-        if let Some(dot) = lower.find('.') {
-            if let Some(t) = self.tables.get(&lower[dot + 1..]) {
-                return Some(t);
-            }
-        }
-        None
     }
 
     fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
         let lower = name.to_lowercase();
-        if let Some(f) = self.functions.get(&lower) {
-            return Some(f);
+        if lower.contains('.') {
+            self.functions.get(&lower)
+        } else {
+            Self::lookup_unqualified(&self.functions, &lower, &self.search_path)
         }
-        let with_public = format!("public.{}", lower);
-        if let Some(f) = self.functions.get(&with_public) {
-            return Some(f);
-        }
-        if let Some(dot) = lower.find('.') {
-            if let Some(f) = self.functions.get(&lower[dot + 1..]) {
-                return Some(f);
-            }
-        }
-        None
     }
 
     fn all_table_names(&self) -> Vec<&str> {
@@ -199,7 +259,14 @@ impl SchemaProvider for DdlSchemaProvider {
 
 impl RlsAwareSchemaProvider for DdlSchemaProvider {
     fn table_has_rls(&self, table_name: &str) -> bool {
-        self.rls_enabled.contains(&table_name.to_lowercase())
+        let lower = table_name.to_lowercase();
+        if lower.contains('.') {
+            self.rls_enabled.contains(&lower)
+        } else {
+            self.search_path.iter().any(|schema| {
+                self.rls_enabled.contains(&format!("{}.{}", schema, lower))
+            })
+        }
     }
 }
 

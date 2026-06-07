@@ -13,6 +13,6 @@ pub use diagnostic::{Diagnostic, Severity, Span};
 pub use schema::{
     ColumnInfo, CompositeSchemaProvider, DdlSchemaProvider, FunctionSignature,
     IntrospectionJsonProvider, RlsAwareSchemaProvider, SchemaProvider, TableSchema,
-    object_name_to_string,
+    detect_default_schema, detect_search_path, object_name_to_string, qualify_object_name, qualify_str,
 };
 

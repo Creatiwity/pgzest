@@ -1243,18 +1243,30 @@ impl Parser {
             return Ok(PlExpr::Not(Box::new(PlExpr::Found)));
         }
 
-        // NEW.col
+        // NEW.col  (stop at first non-identifier char after the dot)
         if upper.starts_with("NEW .") || upper.starts_with("NEW.") {
             let dot_pos = trimmed.find('.').unwrap_or(0);
-            let field = trimmed[dot_pos + 1..].trim();
-            return Ok(PlExpr::NewField(Ident::new(field)));
+            let after = trimmed[dot_pos + 1..].trim_start();
+            let field: String = after
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !field.is_empty() {
+                return Ok(PlExpr::NewField(Ident::new(field)));
+            }
         }
 
-        // OLD.col
+        // OLD.col  (stop at first non-identifier char after the dot)
         if upper.starts_with("OLD .") || upper.starts_with("OLD.") {
             let dot_pos = trimmed.find('.').unwrap_or(0);
-            let field = trimmed[dot_pos + 1..].trim();
-            return Ok(PlExpr::OldField(Ident::new(field)));
+            let after = trimmed[dot_pos + 1..].trim_start();
+            let field: String = after
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !field.is_empty() {
+                return Ok(PlExpr::OldField(Ident::new(field)));
+            }
         }
 
         // Detect patterns that cannot be PL/pgSQL variable names.

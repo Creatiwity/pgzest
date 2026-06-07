@@ -11,29 +11,48 @@
     "Programming Languages",
     "Linters"
   ],
+  "activationEvents": [
+    "onLanguage:pgsql",
+    "onLanguage:sql"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
-        "id": "sql",
+        "id": "pgsql",
         "aliases": [
-          "SQL",
-          "sql",
           "PostgreSQL",
+          "PL/pgSQL",
           "pgsql"
         ],
         "extensions": [
-          ".sql",
           ".pgsql"
         ],
+        "filenames": [],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "sql",
-        "scopeName": "source.sql",
+        "language": "pgsql",
+        "scopeName": "source.pgsql",
         "path": "./syntaxes/pgsql.tmLanguage.json"
+      },
+      {
+        "scopeName": "source.plpgsql",
+        "path": "./syntaxes/plpgsql.tmLanguage.json"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "scopes": {
+          "type":       ["entity.name.type.sql"],
+          "function":   ["entity.name.function.sql"],
+          "class":      ["entity.name.class.sql"],
+          "enumMember": ["variable.other.enummember.sql"],
+          "interface":  ["entity.name.type.interface.sql"],
+          "namespace":  ["entity.name.namespace.sql"]
+        }
       }
     ],
     "configuration": {
@@ -49,6 +68,14 @@
           "default": "",
           "description": "Path to a schema.sql file for type-checking"
         }
+      }
+    },
+    "configurationDefaults": {
+      "[pgsql]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "[sql]": {
+        "editor.semanticHighlighting.enabled": true
       }
     }
   },

@@ -112,34 +112,13 @@ fn tokenize(sql: &str) -> Vec<Tok> {
             continue;
         }
 
-        // Skip dollar-quoted strings: $tag$...$tag$
+        // Dollar sign — treat as Other (we intentionally DO NOT skip dollar-quoted
+        // string bodies here; the semantic tokenizer needs to see the SQL inside
+        // $$ function bodies to color FROM/JOIN aliases correctly).
         if bytes[i] == b'$' {
-            // Collect the tag
-            let tag_start = i;
+            tokens.push(Tok { kind: TokKind::Other, text: "$".into(), line, col: col!() });
             i += 1;
-            while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
-                i += 1;
-            }
-            if i < len && bytes[i] == b'$' {
-                i += 1;
-                let tag = &sql[tag_start..i]; // includes both $
-                // Search for closing tag
-                while i < len {
-                    if sql[i..].starts_with(tag) {
-                        i += tag.len();
-                        break;
-                    }
-                    if bytes[i] == b'\n' {
-                        line += 1;
-                        line_start = i + 1;
-                    }
-                    i += 1;
-                }
-                continue;
-            }
-            // Not a dollar-quote — treat the $ as Other, restart from tag_start+1
-            i = tag_start + 1;
-            // fall through to Other below
+            continue;
         }
 
         // Newline
@@ -363,7 +342,7 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
             if i < n && tokens[i].kind == TokKind::Ident && !terminates_binding(&tokens[i].text) {
                 let alias_tok = &tokens[i];
                 let alias = alias_tok.text.clone();
-                color_map.insert(alias.clone(), color);
+                let color = *color_map.entry(alias.clone()).or_insert(color);
                 spans.push(ColoredSpan {
                     line: alias_tok.line,
                     col: alias_tok.col,
@@ -381,7 +360,7 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
             // starts the next binding
             let alias_tok = &tokens[i];
             let alias = alias_tok.text.clone();
-            color_map.insert(alias.clone(), color);
+            let color = *color_map.entry(alias.clone()).or_insert(color);
             spans.push(ColoredSpan {
                 line: alias_tok.line,
                 col: alias_tok.col,

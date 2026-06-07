@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use pgsql_ast::ddl::{DdlStatement, FunctionParam, ReturnType};
+use pgsql_ast::ddl::{DdlStatement, FunctionParam, ReturnType, TriggerEvent, TriggerForEach};
 use pgsql_ast::plpgsql::{
     AssignTarget, Block, ElsIf, PlExpr, PlStatement, PlpgsqlBody, RaiseLevel,
 };
@@ -12,6 +12,24 @@ use crate::schema::{
     object_name_to_string, ColumnInfo, FunctionSignature, SchemaProvider, TableSchema,
 };
 
+// ── Trigger context ───────────────────────────────────────────────────────────
+
+/// Resolved trigger context for RETURNS TRIGGER functions.
+pub struct TriggerCtx {
+    /// Lowercase name of the table the trigger fires on.
+    pub table: String,
+    /// Combined events across all triggers pointing to this function.
+    pub events: Vec<TriggerEvent>,
+    /// Whether any trigger is statement-level (affects NEW/OLD semantics).
+    pub has_statement_level: bool,
+    /// Whether any trigger fires on INSERT (NEW defined, OLD undefined).
+    pub has_insert: bool,
+    /// Whether any trigger fires on DELETE (OLD defined, NEW undefined).
+    pub has_delete: bool,
+    /// Whether any trigger fires on UPDATE (both NEW and OLD defined).
+    pub has_update: bool,
+}
+
 // ── Type context ──────────────────────────────────────────────────────────────
 
 struct TypeContext<'a> {
@@ -19,8 +37,13 @@ struct TypeContext<'a> {
     vars: HashMap<String, DataType>,
     /// Function parameters
     params: HashMap<String, DataType>,
-    /// Trigger table (for NEW/OLD)
+    /// True when the function has RETURNS TRIGGER (even if the table is unknown).
+    is_trigger: bool,
+    /// Trigger table schema (None when trigger table is not in the schema).
     trigger_table: Option<&'a TableSchema>,
+    /// Resolved trigger context (events, row/statement level, …)
+    #[allow(dead_code)]
+    trigger_ctx: Option<TriggerCtx>,
     /// Temp tables created within the function body
     temp_tables: HashMap<String, TableSchema>,
     /// Schema access (global)
@@ -64,7 +87,7 @@ pub fn check_plpgsql_ast(
     body: &PlpgsqlBody,
     function_name: &str,
     return_type: &ReturnType,
-    trigger_table: Option<&str>,
+    trigger_ctx: Option<TriggerCtx>,
     fn_params: &[FunctionParam],
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
@@ -81,9 +104,10 @@ pub fn check_plpgsql_ast(
         return;
     }
 
-    // Resolve the trigger table schema if provided.
-    let trigger_table_schema: Option<&TableSchema> =
-        trigger_table.and_then(|t| schema.get_table(t));
+    // Resolve the trigger table schema from the trigger context.
+    let trigger_table_schema: Option<&TableSchema> = trigger_ctx
+        .as_ref()
+        .and_then(|tc| schema.get_table(&tc.table));
 
     // Build vars from DECLARE.
     let mut vars: HashMap<String, DataType> = HashMap::new();
@@ -101,12 +125,23 @@ pub fn check_plpgsql_ast(
 
     // First pass: collect any temp tables created in the body so embedded SQL
     // can reference them without false-positive E003 errors.
-    let temp_tables = collect_temp_tables(&body.block);
+    let mut temp_tables = collect_temp_tables(&body.block);
+
+    // Register NEW and OLD as table aliases so embedded SQL in trigger bodies
+    // (e.g. `WHERE NEW.id = p_id`) resolves without spurious E002 errors.
+    // Statement-level triggers use transition tables, not row variables —
+    // the semantics differ but registration is the same for column checking purposes.
+    if let Some(ts) = trigger_table_schema {
+        temp_tables.insert("new".into(), ts.clone());
+        temp_tables.insert("old".into(), ts.clone());
+    }
 
     let ctx = TypeContext {
         vars,
         params,
+        is_trigger: *return_type == ReturnType::Trigger,
         trigger_table: trigger_table_schema,
+        trigger_ctx,
         temp_tables,
         schema,
         return_type,
@@ -253,8 +288,7 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
 
         // SELECT … INTO: check the query (passing PL/pgSQL vars so they aren't flagged as columns).
         PlStatement::SelectInto { query, .. } => {
-            let sub_diags = super::select::check_select_with_plvars(query, ctx.schema, &plvars(ctx));
-            diags.extend(sub_diags);
+            diags.extend(check_select_in_ctx(query, ctx));
         }
 
         // IF statement.
@@ -313,8 +347,7 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
 
         // RETURN QUERY select.
         PlStatement::ReturnQuery(query) => {
-            let sub_diags = super::select::check_select_with_plvars(query, ctx.schema, &plvars(ctx));
-            diags.extend(sub_diags);
+            diags.extend(check_select_in_ctx(query, ctx));
         }
 
         // Direct SQL statement (INSERT, UPDATE, DELETE, CREATE TEMP TABLE, etc.)
@@ -352,8 +385,7 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
 
         // FOR … IN query.
         PlStatement::ForSelect { query, body, .. } => {
-            let sub_diags = super::select::check_select_with_plvars(query, ctx.schema, &plvars(ctx));
-            diags.extend(sub_diags);
+            diags.extend(check_select_in_ctx(query, ctx));
             check_block(body, ctx, diags);
         }
 
@@ -542,19 +574,48 @@ fn collect_temp_tables_in_block(block: &Block, out: &mut HashMap<String, TableSc
     }
 }
 
+/// Check a SELECT statement with the current body context — body schema, plvars,
+/// and phantom qualifiers (NEW/OLD when trigger table is unknown).
+fn check_select_in_ctx(sel: &pgsql_ast::stmt::SelectStmt, ctx: &TypeContext<'_>) -> Vec<Diagnostic> {
+    use super::select::{check_select_with_plvars, check_select_with_plvars_and_phantoms};
+    let body = BodySchemaProvider { temp_tables: &ctx.temp_tables, global: ctx.schema };
+    let pv = plvars(ctx);
+    if ctx.is_trigger && ctx.trigger_table.is_none() {
+        let ph: HashSet<String> = ["new".to_string(), "old".to_string()].into_iter().collect();
+        check_select_with_plvars_and_phantoms(sel, &body, &pv, &ph)
+    } else {
+        check_select_with_plvars(sel, &body, &pv)
+    }
+}
+
 /// Check a SQL statement embedded in a PL/pgSQL body.
 ///
 /// Uses the body schema (global + temp tables) and suppresses plvar names so
 /// variable references don't fire false-positive E001/E002 errors.
 fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
-    use super::select::check_select_with_plvars;
-
     let body = BodySchemaProvider { temp_tables: &ctx.temp_tables, global: ctx.schema };
     let pv = plvars(ctx);
 
+    // When the function is a trigger but we don't know the trigger table,
+    // treat NEW and OLD as phantom qualifiers (suppress E002, skip column checks)
+    // rather than firing false-positive errors.
+    let phantoms: HashSet<String> = if ctx.is_trigger && ctx.trigger_table.is_none() {
+        ["new".to_string(), "old".to_string()].into_iter().collect()
+    } else {
+        HashSet::new()
+    };
+    let check_sel = |sel: &pgsql_ast::stmt::SelectStmt, provider: &dyn crate::schema::SchemaProvider, out: &mut Vec<Diagnostic>| {
+        use super::select::{check_select_with_plvars, check_select_with_plvars_and_phantoms};
+        if phantoms.is_empty() {
+            out.extend(check_select_with_plvars(sel, provider, &pv));
+        } else {
+            out.extend(check_select_with_plvars_and_phantoms(sel, provider, &pv, &phantoms));
+        }
+    };
+
     match stmt {
         Statement::Select(sel) => {
-            diags.extend(check_select_with_plvars(sel, &body, &pv));
+            check_sel(sel, &body, diags);
         }
 
         Statement::Insert(ins) => {
@@ -566,7 +627,7 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
                 );
             }
             if let InsertSource::Select(sel) = &ins.source {
-                diags.extend(check_select_with_plvars(sel, &body, &pv));
+                check_sel(sel, &body, diags);
             }
         }
 

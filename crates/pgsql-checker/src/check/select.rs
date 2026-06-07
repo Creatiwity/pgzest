@@ -7,7 +7,7 @@ use crate::schema::{SchemaProvider, TableSchema};
 
 /// Check a single SELECT statement against the schema.
 pub fn check_select(stmt: &SelectStmt, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
-    check_select_inner(stmt, schema, &HashSet::new())
+    check_select_inner(stmt, schema, &HashSet::new(), &HashSet::new())
 }
 
 /// Like `check_select`, but treats any identifier in `plvars` (lower-cased) as a
@@ -18,13 +18,27 @@ pub fn check_select_with_plvars(
     schema: &dyn SchemaProvider,
     plvars: &HashSet<String>,
 ) -> Vec<Diagnostic> {
-    check_select_inner(stmt, schema, plvars)
+    check_select_inner(stmt, schema, plvars, &HashSet::new())
+}
+
+/// Like `check_select_with_plvars`, but also accepts `phantom_qualifiers`: a set
+/// of lowercase table qualifiers (e.g. `"new"`, `"old"`) that are known to be valid
+/// row-variable aliases in the current context but whose schema is unavailable.
+/// References to these qualifiers suppress E002 and skip column validation.
+pub fn check_select_with_plvars_and_phantoms(
+    stmt: &SelectStmt,
+    schema: &dyn SchemaProvider,
+    plvars: &HashSet<String>,
+    phantom_qualifiers: &HashSet<String>,
+) -> Vec<Diagnostic> {
+    check_select_inner(stmt, schema, plvars, phantom_qualifiers)
 }
 
 fn check_select_inner(
     stmt: &SelectStmt,
     schema: &dyn SchemaProvider,
     plvars: &HashSet<String>,
+    phantom_qualifiers: &HashSet<String>,
 ) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
 
@@ -51,7 +65,7 @@ fn check_select_inner(
                 // table.* — only fire E002 if the alias is genuinely absent from
                 // the FROM clause; if it's present but None (E003 already fired), skip.
                 let key = ident.value.to_lowercase();
-                if !ctx.contains_key(&key) {
+                if !ctx.contains_key(&key) && !phantom_qualifiers.contains(&key) {
                     diags.push(Diagnostic::error(
                         "E002",
                         format!("table or alias '{}' not found in FROM clause", ident.value),
@@ -59,29 +73,29 @@ fn check_select_inner(
                 }
             }
             SelectItem::Expr { expr, .. } => {
-                check_expr(expr, &ctx, schema, plvars, &mut diags);
+                check_expr(expr, &ctx, schema, plvars, phantom_qualifiers, &mut diags);
             }
         }
     }
 
     // Check WHERE clause.
     if let Some(where_expr) = &stmt.where_clause {
-        check_expr(where_expr, &ctx, schema, plvars, &mut diags);
+        check_expr(where_expr, &ctx, schema, plvars, phantom_qualifiers, &mut diags);
     }
 
     // Check GROUP BY.
     for expr in &stmt.group_by {
-        check_expr(expr, &ctx, schema, plvars, &mut diags);
+        check_expr(expr, &ctx, schema, plvars, phantom_qualifiers, &mut diags);
     }
 
     // Check HAVING.
     if let Some(having) = &stmt.having {
-        check_expr(having, &ctx, schema, plvars, &mut diags);
+        check_expr(having, &ctx, schema, plvars, phantom_qualifiers, &mut diags);
     }
 
     // Check ORDER BY.
     for order in &stmt.order_by {
-        check_expr(&order.expr, &ctx, schema, plvars, &mut diags);
+        check_expr(&order.expr, &ctx, schema, plvars, phantom_qualifiers, &mut diags);
     }
 
     diags
@@ -138,6 +152,7 @@ fn check_expr(
     ctx: &HashMap<String, Option<&TableSchema>>,
     schema: &dyn SchemaProvider,
     plvars: &HashSet<String>,
+    phantom_qualifiers: &HashSet<String>,
     diags: &mut Vec<Diagnostic>,
 ) {
     match expr {
@@ -175,13 +190,48 @@ fn check_expr(
                         // to avoid cascading noise on every `alias.col` reference.
                         Some(None) => {}
                         None => {
-                            diags.push(Diagnostic::error(
-                                "E002",
-                                format!(
-                                    "table or alias '{}' not found in FROM clause",
-                                    tbl_ident.value
-                                ),
-                            ));
+                            // Phantom qualifiers (e.g. NEW/OLD in trigger bodies without
+                            // a known trigger table) suppress both E002 and column checks.
+                            if phantom_qualifiers.contains(&tbl_key) {
+                                // Known alias but schema unavailable — skip silently.
+                            } else {
+                                // Not in the FROM-clause context — fall back to the schema
+                                // provider. This handles implicit row variables like NEW and
+                                // OLD in PL/pgSQL trigger bodies when the trigger table IS
+                                // known and registered via BodySchemaProvider.
+                                match schema.get_table(&tbl_key) {
+                                    Some(ts) => {
+                                        if ts.get_column(col_name).is_none() {
+                                            diags.push(
+                                                Diagnostic::error(
+                                                    "E001",
+                                                    format!(
+                                                        "column '{}' does not exist in table '{}'",
+                                                        col_name, tbl_ident.value
+                                                    ),
+                                                )
+                                                .with_hint(format!(
+                                                    "available columns: {}",
+                                                    ts.columns
+                                                        .iter()
+                                                        .map(|c| c.name.as_str())
+                                                        .collect::<Vec<_>>()
+                                                        .join(", ")
+                                                )),
+                                            );
+                                        }
+                                    }
+                                    None => {
+                                        diags.push(Diagnostic::error(
+                                            "E002",
+                                            format!(
+                                                "table or alias '{}' not found in FROM clause",
+                                                tbl_ident.value
+                                            ),
+                                        ));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -238,21 +288,21 @@ fn check_expr(
                 ));
             }
             for arg in args {
-                check_expr(arg, ctx, schema, plvars, diags);
+                check_expr(arg, ctx, schema, plvars, phantom_qualifiers, diags);
             }
         }
 
         Expr::BinaryOp { left, right, .. } => {
-            check_expr(left, ctx, schema, plvars, diags);
-            check_expr(right, ctx, schema, plvars, diags);
+            check_expr(left, ctx, schema, plvars, phantom_qualifiers, diags);
+            check_expr(right, ctx, schema, plvars, phantom_qualifiers, diags);
         }
 
         Expr::UnaryOp { expr, .. } => {
-            check_expr(expr, ctx, schema, plvars, diags);
+            check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
         }
 
         Expr::Cast { expr, .. } => {
-            check_expr(expr, ctx, schema, plvars, diags);
+            check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
         }
 
         Expr::Case {
@@ -261,41 +311,41 @@ fn check_expr(
             else_clause,
         } => {
             if let Some(op) = operand {
-                check_expr(op, ctx, schema, plvars, diags);
+                check_expr(op, ctx, schema, plvars, phantom_qualifiers, diags);
             }
             for (when, then) in when_clauses {
-                check_expr(when, ctx, schema, plvars, diags);
-                check_expr(then, ctx, schema, plvars, diags);
+                check_expr(when, ctx, schema, plvars, phantom_qualifiers, diags);
+                check_expr(then, ctx, schema, plvars, phantom_qualifiers, diags);
             }
             if let Some(el) = else_clause {
-                check_expr(el, ctx, schema, plvars, diags);
+                check_expr(el, ctx, schema, plvars, phantom_qualifiers, diags);
             }
         }
 
         Expr::Subquery(sub) => {
-            let sub_diags = check_select_inner(sub, schema, plvars);
+            let sub_diags = check_select_inner(sub, schema, plvars, phantom_qualifiers);
             diags.extend(sub_diags);
         }
 
         Expr::InSubquery { expr, subquery, .. } => {
-            check_expr(expr, ctx, schema, plvars, diags);
-            let sub_diags = check_select_inner(subquery, schema, plvars);
+            check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
+            let sub_diags = check_select_inner(subquery, schema, plvars, phantom_qualifiers);
             diags.extend(sub_diags);
         }
 
         Expr::InList { expr, list, .. } => {
-            check_expr(expr, ctx, schema, plvars, diags);
+            check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
             for item in list {
-                check_expr(item, ctx, schema, plvars, diags);
+                check_expr(item, ctx, schema, plvars, phantom_qualifiers, diags);
             }
         }
 
         Expr::Between {
             expr, low, high, ..
         } => {
-            check_expr(expr, ctx, schema, plvars, diags);
-            check_expr(low, ctx, schema, plvars, diags);
-            check_expr(high, ctx, schema, plvars, diags);
+            check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
+            check_expr(low, ctx, schema, plvars, phantom_qualifiers, diags);
+            check_expr(high, ctx, schema, plvars, phantom_qualifiers, diags);
         }
 
         // Literals and wildcards carry no references to resolve.

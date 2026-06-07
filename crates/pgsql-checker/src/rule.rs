@@ -1,4 +1,5 @@
-use pgsql_ast::ddl::{CreateFunction, CreateProcedure, CreatePolicy, CreateTable};
+use std::collections::HashMap;
+use pgsql_ast::ddl::{CreateFunction, CreateProcedure, CreatePolicy, CreateTable, CreateTrigger};
 use pgsql_ast::stmt::{SelectStmt, InsertStmt, UpdateStmt, DeleteStmt};
 use crate::diagnostic::Diagnostic;
 use crate::schema::SchemaProvider;
@@ -11,6 +12,9 @@ pub struct RuleCtx<'a> {
     pub diags: &'a mut Vec<Diagnostic>,
     /// Rule-specific options (from pgsql.toml), serde_json::Value::Null if absent.
     pub options: serde_json::Value,
+    /// All CREATE TRIGGER statements in the checked file, keyed by lowercase function name.
+    /// Used by function rules to resolve the trigger table for RETURNS TRIGGER functions.
+    pub trigger_map: &'a HashMap<String, Vec<&'a CreateTrigger>>,
 }
 
 /// A lint rule. Override only the methods relevant to this rule;

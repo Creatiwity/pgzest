@@ -1,0 +1,13 @@
+{
+  "pgsql-tools.schemaFile": "/Users/jblatecky/dev/lab/pgsql-tools/examples/schema/",
+  "files.associations": {
+    "*.sql": "pgsql",
+    "*.pgsql": "pgsql"
+  },
+  "editor.semanticHighlighting.enabled": true,
+  "mssql.ignorePlatformWarning": true,
+  "[pgsql]": {
+    "editor.semanticHighlighting.enabled": true,
+     "editor.suggest.showWords": false
+   }
+ }

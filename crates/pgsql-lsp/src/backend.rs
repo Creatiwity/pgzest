@@ -435,7 +435,7 @@ fn hover_query(
         for col in &cols {
             if col.name.to_lowercase() == word {
                 return Some(format!(
-                    "```sql\n-- {} : {}\n```",
+                    "(column) **{}**: `{}`",
                     col.name,
                     data_type_to_sql(&col.data_type)
                 ));
@@ -446,18 +446,9 @@ fn hover_query(
     // Table name via symbols
     if let Some(sym) = semantic.symbols.get_table(word) {
         if let Some(table) = schema.get_table(&sym.name) {
-            let cols: Vec<String> = table
-                .columns
-                .iter()
-                .map(|c| format!("  {}: {}", c.name, data_type_to_sql(&c.data_type)))
-                .collect();
-            return Some(format!(
-                "```sql\n-- table: {}\n{}\n```",
-                table.name,
-                cols.join("\n")
-            ));
+            return Some(fmt_table_hover(&table.name, word, table));
         }
-        return Some(format!("```sql\n-- table: {}\n```", sym.name));
+        return Some(format!("(table) **{}**", sym.name));
     }
 
     // Output columns (SELECT aliases)
@@ -465,7 +456,7 @@ fn hover_query(
         for col in cols {
             if col.name.as_deref().map(|n| n.to_lowercase()).as_deref() == Some(word) {
                 return Some(format!(
-                    "```sql\n-- {} : {}\n```",
+                    "(column) **{}**: `{}`",
                     col.name.as_deref().unwrap_or(word),
                     data_type_to_sql(&col.data_type)
                 ));
@@ -477,22 +468,47 @@ fn hover_query(
     lookup_hover(word, schema)
 }
 
+/// Format a qualified name so the hovered `word` is bold.
+/// e.g. word="users", qualified="public.users" → "public.**users**"
+fn fmt_qualified_bold(qualified: &str, word: &str) -> String {
+    if let Some(dot) = qualified.rfind('.') {
+        let (schema, name) = (&qualified[..dot], &qualified[dot + 1..]);
+        if name.eq_ignore_ascii_case(word) {
+            return format!("{}.**{}**", schema, name);
+        }
+    }
+    if qualified.eq_ignore_ascii_case(word) {
+        format!("**{}**", qualified)
+    } else {
+        qualified.to_string()
+    }
+}
+
+fn fmt_table_hover(
+    qualified_name: &str,
+    word: &str,
+    table: &pgsql_checker::schema::TableSchema,
+) -> String {
+    let header = fmt_qualified_bold(qualified_name, word);
+    let cols: Vec<String> = table
+        .columns
+        .iter()
+        .map(|c| {
+            let nn = if c.nullable { "" } else { " NOT NULL" };
+            format!("**{}** `{}`{}", c.name, data_type_to_sql(&c.data_type), nn)
+        })
+        .collect();
+    if cols.is_empty() {
+        format!("(table) {}", header)
+    } else {
+        format!("(table) {}\n\n{}", header, cols.join("  \n"))
+    }
+}
+
 fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
     // Table name?
     if let Some(table) = schema.get_table(word) {
-        let cols: Vec<String> = table
-            .columns
-            .iter()
-            .map(|c| {
-                let nn = if c.nullable { "" } else { " NOT NULL" };
-                format!("  {}: {}{}", c.name, data_type_to_sql(&c.data_type), nn)
-            })
-            .collect();
-        return Some(format!(
-            "```sql\n-- table: {}\n{}\n```",
-            table.name,
-            cols.join("\n")
-        ));
+        return Some(fmt_table_hover(&table.name, word, table));
     }
 
     // Column name anywhere
@@ -502,8 +518,9 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
             if let Some(col) = table.get_column(&lower) {
                 let nn = if col.nullable { "" } else { " NOT NULL" };
                 return Some(format!(
-                    "```sql\n-- {}.{} : {}{}\n```",
-                    table.name, col.name,
+                    "(column) {}.{}.**{}**: `{}`{}",
+                    tbl_schema(&table.name), tbl_local(&table.name),
+                    col.name,
                     data_type_to_sql(&col.data_type), nn
                 ));
             }
@@ -511,6 +528,14 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
     }
 
     None
+}
+
+fn tbl_schema(qualified: &str) -> &str {
+    qualified.rfind('.').map(|d| &qualified[..d]).unwrap_or("public")
+}
+
+fn tbl_local(qualified: &str) -> &str {
+    qualified.rfind('.').map(|d| &qualified[d + 1..]).unwrap_or(qualified)
 }
 
 // ── Newtype: let Arc<SchemaResolver> work as a SchemaProvider ─────────────────

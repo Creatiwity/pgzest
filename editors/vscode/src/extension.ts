@@ -39,12 +39,12 @@ export function activate(context: vscode.ExtensionContext) {
 
   const clientOptions: LanguageClientOptions = {
     documentSelector: [
+      { scheme: 'file', language: 'pgsql' },
       { scheme: 'file', language: 'sql' },
-      { scheme: 'file', pattern: '**/*.pgsql' },
     ],
     initializationOptions: { schemaFile },
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.sql'),
+      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{sql,pgsql}'),
     },
   };
 
