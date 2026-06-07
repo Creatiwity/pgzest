@@ -58,30 +58,51 @@ impl PgsqlBackend {
 
     /// Parse, type-check and lint `text`, then publish LSP diagnostics for `uri`.
     async fn run_diagnostics(&self, uri: &str, text: &str) {
-        // Schema definition files are not query files — skip diagnostics entirely.
-        if self.is_schema_file(uri).await {
-            if let Ok(url) = uri.parse::<Url>() {
-                self.client.publish_diagnostics(url, vec![], None).await;
-            }
-            return;
-        }
-
         let line_index = LineIndex::new(text);
 
         let schema_guard = self.schema_sql.lock().await;
-        let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
-            Some(sql) => match DdlSchemaProvider::from_sql(sql) {
-                Ok(p) => Box::new(p),
-                Err(_) => Box::new(EmptySchemaProvider),
-            },
-            None => Box::new(EmptySchemaProvider),
-        };
+        let external_sql = schema_guard.as_deref().map(|s| s.to_owned());
         drop(schema_guard);
 
-        // --- checker diagnostics ---
-        let checker_diags = pgsql_checker::check_sql(text, schema.as_ref());
+        let checker_diags = if self.is_schema_file(uri).await {
+            // ── Schema file: 2-pass full-file context ──────────────────────────
+            // Pass 1 (implicit via DdlSchemaProvider): collect ALL table/function
+            //   definitions from the file itself.
+            // Pass 2: check every reference in the file against that self-schema
+            //   merged with the external schema (if configured).
+            //
+            // This mirrors what TypeScript / oxc do: all declarations in a module
+            // are visible when checking any expression in that module.
+            let mut composite = pgsql_checker::CompositeSchemaProvider::new();
+            if let Ok(self_schema) = DdlSchemaProvider::from_sql(text) {
+                composite.add(Box::new(self_schema));
+            }
+            if let Some(ref sql) = external_sql {
+                if let Ok(ext) = DdlSchemaProvider::from_sql(sql) {
+                    composite.add(Box::new(ext));
+                }
+            }
+            let raw = pgsql_checker::check_sql(text, &composite);
 
-        // --- lint diagnostics (parse once, then lint) ---
+            // Filter cross-schema references (storage.*, auth.*, extensions.*…).
+            // These are external dependencies — analogous to untyped npm packages.
+            // Only suppress E003 where the schema prefix is unknown to us.
+            raw.into_iter()
+                .filter(|d| !is_external_schema_error(d, text))
+                .collect()
+        } else {
+            // ── Query file: check against external schema ───────────────────────
+            let schema: Box<dyn SchemaProvider> = match external_sql.as_deref() {
+                Some(sql) => match DdlSchemaProvider::from_sql(sql) {
+                    Ok(p) => Box::new(p),
+                    Err(_) => Box::new(EmptySchemaProvider),
+                },
+                None => Box::new(EmptySchemaProvider),
+            };
+            pgsql_checker::check_sql(text, schema.as_ref())
+        };
+
+        // --- lint diagnostics ---
         let lint_diags: Vec<Diagnostic> = match pgsql_parser::parse(text) {
             Ok(stmts) => {
                 let config = LintConfig::default();
@@ -90,7 +111,6 @@ impl PgsqlBackend {
             Err(_) => vec![],
         };
 
-        // Combine and convert to LSP type
         let lsp_diags: Vec<tower_lsp::lsp_types::Diagnostic> = checker_diags
             .iter()
             .chain(lint_diags.iter())
@@ -98,9 +118,7 @@ impl PgsqlBackend {
             .collect();
 
         if let Ok(url) = uri.parse::<Url>() {
-            self.client
-                .publish_diagnostics(url, lsp_diags, None)
-                .await;
+            self.client.publish_diagnostics(url, lsp_diags, None).await;
         }
     }
 
@@ -153,6 +171,34 @@ impl PgsqlBackend {
             data: None,
         }
     }
+}
+
+// ── Cross-schema error filter ─────────────────────────────────────────────────
+
+/// Returns true if `d` is an E003 "table does not exist" error where the table
+/// name has a non-`public` schema prefix (e.g. `storage.buckets`, `auth.users`).
+///
+/// These are external dependencies (Supabase, pg_catalog, extensions…) that the
+/// schema file legitimately references but whose DDL is not available locally.
+/// Suppressing them avoids noise analogous to "untyped package" warnings in TS.
+fn is_external_schema_error(d: &Diagnostic, _schema_sql: &str) -> bool {
+    if d.code != "E003" {
+        return false;
+    }
+    // Extract table name from messages like:
+    //   "table 'storage.buckets' does not exist"
+    //   "policy 'p' references table 'auth.users' which does not exist"
+    if let Some(start) = d.message.find('\'') {
+        let rest = &d.message[start + 1..];
+        if let Some(end) = rest.find('\'') {
+            let table = &rest[..end];
+            if let Some(dot) = table.find('.') {
+                let schema_prefix = &table[..dot];
+                return schema_prefix != "public";
+            }
+        }
+    }
+    false
 }
 
 // ── Schema loading ────────────────────────────────────────────────────────────
