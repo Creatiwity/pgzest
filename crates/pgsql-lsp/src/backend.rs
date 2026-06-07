@@ -9,6 +9,7 @@ use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
 
 use crate::completion::{analyze_cursor, build_completions};
 use crate::line_index::LineIndex;
+use crate::semantic;
 
 pub struct PgsqlBackend {
     client: Client,
@@ -292,6 +293,7 @@ impl LanguageServer for PgsqlBackend {
                     trigger_characters: Some(vec![".".to_string(), " ".to_string()]),
                     ..Default::default()
                 }),
+                semantic_tokens_provider: Some(semantic::server_capability()),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -454,5 +456,24 @@ impl LanguageServer for PgsqlBackend {
         let items = build_completions(&ctx, schema.as_ref());
 
         Ok(Some(CompletionResponse::Array(items)))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri.to_string();
+        let docs = self.documents.lock().await;
+        let text = match docs.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+        drop(docs);
+
+        let data = semantic::compute_semantic_tokens(&text);
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data,
+        })))
     }
 }
