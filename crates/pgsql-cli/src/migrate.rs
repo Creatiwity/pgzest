@@ -78,10 +78,15 @@ fn load_and_parse_dir(dir: &Path) -> Result<Vec<Statement>, String> {
         .map_err(|e| format!("cannot read {}: {}", dir.display(), e))?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.path().extension()
+            let p = e.path();
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // *.external.sql files provide type information for the checker
+            // but are not owned by the migration system — skip them.
+            p.extension()
                 .and_then(|x| x.to_str())
                 .map(|ext| ext.eq_ignore_ascii_case("sql"))
                 .unwrap_or(false)
+                && !name.ends_with(".external.sql")
         })
         .collect();
     entries.sort_by_key(|e| e.file_name());
