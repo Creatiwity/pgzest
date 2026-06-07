@@ -16,6 +16,10 @@ pub struct PgsqlBackend {
     documents: Mutex<HashMap<String, String>>,
     /// Optional schema SQL loaded from the workspace (e.g. a schema.sql file)
     schema_sql: Mutex<Option<String>>,
+    /// Canonical path of the configured schemaFile (file or directory).
+    /// Files inside this path are schema definitions and are not type-checked
+    /// as query files — opening them produces no diagnostics.
+    schema_path: Mutex<Option<String>>,
 }
 
 impl PgsqlBackend {
@@ -24,11 +28,43 @@ impl PgsqlBackend {
             client,
             documents: Mutex::new(HashMap::new()),
             schema_sql: Mutex::new(None),
+            schema_path: Mutex::new(None),
         }
+    }
+
+    /// Returns true if `file_uri` is the configured schema file / directory,
+    /// or lives inside it. Such files are pure DDL definitions and should not
+    /// be type-checked as query files.
+    async fn is_schema_file(&self, file_uri: &str) -> bool {
+        let guard = self.schema_path.lock().await;
+        let schema_path = match guard.as_deref() {
+            Some(p) if !p.is_empty() => p,
+            _ => return false,
+        };
+        // Strip the "file://" prefix that LSP URIs use
+        let file_path = file_uri.strip_prefix("file://").unwrap_or(file_uri);
+        let schema_canon = std::path::Path::new(schema_path)
+            .canonicalize()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| schema_path.to_string());
+        let file_canon = std::path::Path::new(file_path)
+            .canonicalize()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| file_path.to_string());
+        file_canon == schema_canon
+            || file_canon.starts_with(&format!("{}/", schema_canon))
     }
 
     /// Parse, type-check and lint `text`, then publish LSP diagnostics for `uri`.
     async fn run_diagnostics(&self, uri: &str, text: &str) {
+        // Schema definition files are not query files — skip diagnostics entirely.
+        if self.is_schema_file(uri).await {
+            if let Ok(url) = uri.parse::<Url>() {
+                self.client.publish_diagnostics(url, vec![], None).await;
+            }
+            return;
+        }
+
         let line_index = LineIndex::new(text);
 
         let schema_guard = self.schema_sql.lock().await;
@@ -230,6 +266,8 @@ impl LanguageServer for PgsqlBackend {
         if let Some(opts) = params.initialization_options {
             if let Some(path) = opts.get("schemaFile").and_then(|v| v.as_str()) {
                 if !path.is_empty() {
+                    // Remember the path so we can skip diagnostics on schema files.
+                    *self.schema_path.lock().await = Some(path.to_string());
                     match load_schema_from_path(path) {
                         Ok(sql) => *self.schema_sql.lock().await = Some(sql),
                         Err(e) => {

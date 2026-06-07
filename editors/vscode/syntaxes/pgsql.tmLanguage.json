@@ -34,9 +34,21 @@
       "patterns": [{ "name": "constant.character.escape.sql", "match": "''" }]
     },
     "dollar_quotes": {
-      "name": "string.quoted.dollar.sql",
-      "begin": "\\$\\$",
-      "end": "\\$\\$"
+      "name": "meta.embedded.block.plpgsql",
+      "begin": "\\$(?:[A-Za-z_][A-Za-z0-9_]*)?\\$",
+      "end": "\\$(?:[A-Za-z_][A-Za-z0-9_]*)?\\$",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.sql" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.sql" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#plpgsql_keywords" },
+        { "include": "#keywords" },
+        { "include": "#types" },
+        { "include": "#functions" },
+        { "include": "#numbers" },
+        { "include": "#operators" }
+      ]
     },
     "keywords": {
       "name": "keyword.other.sql",

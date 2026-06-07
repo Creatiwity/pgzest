@@ -152,11 +152,40 @@ impl DdlSchemaProvider {
 
 impl SchemaProvider for DdlSchemaProvider {
     fn get_table(&self, name: &str) -> Option<&TableSchema> {
-        self.tables.get(&name.to_lowercase())
+        let lower = name.to_lowercase();
+        // 1. Exact match (handles both "users" and "public.users")
+        if let Some(t) = self.tables.get(&lower) {
+            return Some(t);
+        }
+        // 2. Unqualified name → try "public.<name>" (most tables in pg_dump are schema-qualified)
+        let with_public = format!("public.{}", lower);
+        if let Some(t) = self.tables.get(&with_public) {
+            return Some(t);
+        }
+        // 3. Qualified name → try the unqualified part after the dot
+        if let Some(dot) = lower.find('.') {
+            if let Some(t) = self.tables.get(&lower[dot + 1..]) {
+                return Some(t);
+            }
+        }
+        None
     }
 
     fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
-        self.functions.get(&name.to_lowercase())
+        let lower = name.to_lowercase();
+        if let Some(f) = self.functions.get(&lower) {
+            return Some(f);
+        }
+        let with_public = format!("public.{}", lower);
+        if let Some(f) = self.functions.get(&with_public) {
+            return Some(f);
+        }
+        if let Some(dot) = lower.find('.') {
+            if let Some(f) = self.functions.get(&lower[dot + 1..]) {
+                return Some(f);
+            }
+        }
+        None
     }
 
     fn all_table_names(&self) -> Vec<&str> {

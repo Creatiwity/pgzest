@@ -1,3 +1,5 @@
+.DS_Store
 /target
 editors/vscode/node_modules/
 editors/vscode/out/
+examples/schema/
