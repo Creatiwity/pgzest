@@ -799,6 +799,7 @@ dependencies = [
  "pgsql-lint",
  "pgsql-parser",
  "pgsql-plugin",
+ "pgsql-plugin-wasm",
  "pgsql-semantic",
  "serde",
 ]
@@ -852,6 +853,7 @@ dependencies = [
  "pgsql-checker",
  "pgsql-lint",
  "pgsql-parser",
+ "pgsql-plugin-wasm",
  "pgsql-schema",
  "pgsql-semantic",
  "serde",

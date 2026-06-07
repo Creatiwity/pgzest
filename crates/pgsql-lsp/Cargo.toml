@@ -13,6 +13,7 @@ pgsql-parser = { path = "../pgsql-parser" }
 pgsql-checker = { path = "../pgsql-checker" }
 pgsql-schema = { path = "../pgsql-schema" }
 pgsql-lint = { path = "../pgsql-lint" }
+pgsql-plugin-wasm = { path = "../pgsql-plugin-wasm" }
 pgsql-semantic = { path = "../pgsql-semantic" }
 tower-lsp = { workspace = true }
 tokio = { workspace = true }

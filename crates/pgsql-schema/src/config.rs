@@ -99,6 +99,9 @@ pub struct LintProjectConfig {
 pub struct PluginsConfig {
     #[serde(default)]
     pub enabled: Vec<String>,
+    /// Paths to external WASM plugin files (relative to the config file).
+    #[serde(default)]
+    pub wasm: Vec<String>,
 }
 
 // ── Loading ───────────────────────────────────────────────────────────────────

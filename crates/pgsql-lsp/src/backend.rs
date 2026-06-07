@@ -5,6 +5,7 @@ use std::sync::Arc;
 use pgsql_checker::diagnostic::{Diagnostic, Severity};
 use pgsql_checker::schema::SchemaProvider;
 use pgsql_lint::config::LintConfig;
+use pgsql_plugin_wasm::{WasmCheckRule, WasmPlugin};
 use pgsql_schema::{check_ddl_role, FileRole, ProjectConfig, SchemaResolver};
 use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
@@ -28,6 +29,8 @@ pub struct PgsqlBackend {
     config: Mutex<Option<ProjectConfig>>,
     /// Fallback schema path from `schemaFile` init option (legacy, no config file).
     legacy_schema_path: Mutex<Option<String>>,
+    /// WASM plugins loaded from plugins.wasm in pgsql-tools.config.toml.
+    wasm_plugins: Mutex<Vec<Arc<WasmPlugin>>>,
 }
 
 impl PgsqlBackend {
@@ -39,6 +42,7 @@ impl PgsqlBackend {
             project_root: Mutex::new(None),
             config: Mutex::new(None),
             legacy_schema_path: Mutex::new(None),
+            wasm_plugins: Mutex::new(Vec::new()),
         }
     }
 
@@ -103,6 +107,24 @@ impl PgsqlBackend {
         *self.resolver.lock().await = Arc::new(new_resolver);
     }
 
+    /// Build a Checker with built-in rules + any loaded WASM plugins.
+    async fn make_checker(&self) -> pgsql_checker::Checker {
+        let mut checker = pgsql_checker::Checker::with_builtin_rules();
+        for plugin in self.wasm_plugins.lock().await.iter() {
+            checker.add_rule(Box::new(WasmCheckRule::new(plugin.clone())));
+        }
+        checker
+    }
+
+    /// Parse `sql` and run the checker (with WASM plugins) against `schema`.
+    async fn check_sql(&self, sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
+        let stmts = match pgsql_parser::parse(sql) {
+            Ok(s) => s,
+            Err(e) => return vec![Diagnostic::error("E000", format!("parse error: {e}"))],
+        };
+        self.make_checker().await.run(&stmts, schema)
+    }
+
     /// Parse, type-check, lint and publish diagnostics for `uri`.
     async fn run_diagnostics(&self, uri: &str, text: &str) {
         let line_index = LineIndex::new(text);
@@ -119,13 +141,14 @@ impl PgsqlBackend {
                 }
                 composite.add(Box::new(GlobalResolver(resolver.clone())));
 
-                pgsql_checker::check_sql(text, &composite)
+                self.check_sql(text, &composite)
+                    .await
                     .into_iter()
                     .filter(|d| !is_suppressable_schema_error(d))
                     .collect()
             }
             FileRole::Migration { .. } | FileRole::Query => {
-                pgsql_checker::check_sql(text, resolver.as_ref())
+                self.check_sql(text, resolver.as_ref()).await
             }
         };
 
@@ -213,6 +236,33 @@ impl LanguageServer for PgsqlBackend {
                 let resolver = SchemaResolver::from_source(&source);
                 *self.resolver.lock().await = Arc::new(resolver);
                 *self.project_root.lock().await = Some(project_root.clone());
+
+                // Load WASM plugins listed in [plugins] wasm = [...]
+                let mut loaded: Vec<Arc<WasmPlugin>> = Vec::new();
+                for rel_path in &config.plugins.wasm {
+                    let abs = project_root.join(rel_path);
+                    match WasmPlugin::from_file(&abs) {
+                        Ok(p) => {
+                            self.client
+                                .log_message(
+                                    MessageType::INFO,
+                                    format!("pgsql-lsp: loaded wasm plugin '{}' from {}", p.name(), abs.display()),
+                                )
+                                .await;
+                            loaded.push(Arc::new(p));
+                        }
+                        Err(e) => {
+                            self.client
+                                .log_message(
+                                    MessageType::WARNING,
+                                    format!("pgsql-lsp: failed to load wasm plugin '{}': {e}", abs.display()),
+                                )
+                                .await;
+                        }
+                    }
+                }
+                *self.wasm_plugins.lock().await = loaded;
+
                 *self.config.lock().await = Some(config);
                 self.client
                     .log_message(

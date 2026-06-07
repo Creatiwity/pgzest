@@ -170,6 +170,16 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
     for rule in registry.collect_rules(&config.plugins) {
         checker.add_rule(rule);
     }
+    // Load external WASM plugins listed in pgsql.toml
+    for wasm_path in &config.wasm_plugins {
+        match pgsql_plugin_wasm::WasmPlugin::from_file(std::path::Path::new(wasm_path)) {
+            Ok(plugin) => {
+                let rule = pgsql_plugin_wasm::WasmCheckRule::new(std::sync::Arc::new(plugin));
+                checker.add_rule(Box::new(rule));
+            }
+            Err(e) => eprintln!("warning: failed to load wasm plugin '{}': {}", wasm_path, e),
+        }
+    }
 
     // ── Check each target file ─────────────────────────────────────────────────
     let mut has_errors = false;
