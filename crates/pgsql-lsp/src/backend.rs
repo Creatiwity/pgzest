@@ -90,7 +90,7 @@ impl PgsqlBackend {
             // These are external dependencies — analogous to untyped npm packages.
             // Only suppress E003 where the schema prefix is unknown to us.
             raw.into_iter()
-                .filter(|d| !is_external_schema_error(d, text))
+                .filter(|d| !is_suppressable_schema_error(d))
                 .collect()
         } else {
             // ── Query file: check against external schema ───────────────────────
@@ -177,28 +177,34 @@ impl PgsqlBackend {
 
 // ── Cross-schema error filter ─────────────────────────────────────────────────
 
-/// Returns true if `d` is an E003 "table does not exist" error where the table
-/// name has a non-`public` schema prefix (e.g. `storage.buckets`, `auth.users`).
+/// Returns true if `d` should be suppressed for a schema DDL file.
 ///
-/// These are external dependencies (Supabase, pg_catalog, extensions…) that the
-/// schema file legitimately references but whose DDL is not available locally.
-/// Suppressing them avoids noise analogous to "untyped package" warnings in TS.
-fn is_external_schema_error(d: &Diagnostic, _schema_sql: &str) -> bool {
-    if d.code != "E003" {
-        return false;
-    }
-    // Extract table name from messages like:
-    //   "table 'storage.buckets' does not exist"
-    //   "policy 'p' references table 'auth.users' which does not exist"
-    if let Some(start) = d.message.find('\'') {
-        let rest = &d.message[start + 1..];
-        if let Some(end) = rest.find('\'') {
-            let table = &rest[..end];
-            if let Some(dot) = table.find('.') {
-                let schema_prefix = &table[..dot];
-                return schema_prefix != "public";
+/// Two categories:
+/// 1. E003 where the table has a non-`public` schema prefix — external dep
+///    (storage.*, auth.*, vault.*, extensions.*, …).
+/// 2. E002 whose message contains `[in <function>]` — false positive from the
+///    line-by-line text checker inside PL/pgSQL bodies.  That checker extracts
+///    single-line SQL fragments and can't see CTEs, record variables, or any
+///    multi-line FROM clause, so alias-not-found errors are nearly always wrong.
+fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
+    // E003 with a non-public schema prefix → external dependency.
+    if d.code == "E003" {
+        if let Some(start) = d.message.find('\'') {
+            let rest = &d.message[start + 1..];
+            if let Some(end) = rest.find('\'') {
+                let table = &rest[..end];
+                if let Some(dot) = table.find('.') {
+                    let schema_prefix = &table[..dot];
+                    if schema_prefix != "public" {
+                        return true;
+                    }
+                }
             }
         }
+    }
+    // E002 inside a function body (text checker produces many false positives).
+    if d.code == "E002" && d.message.contains("[in ") {
+        return true;
     }
     false
 }

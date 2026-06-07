@@ -455,6 +455,116 @@ fn is_create_function_sql(sql: &str) -> bool {
     full_upper.contains("FUNCTION") || full_upper.contains("PROCEDURE")
 }
 
+/// Replace each `CHECK (...)` body in a CREATE TABLE statement with `CHECK (true)`.
+///
+/// This allows pg_dump output to parse correctly even when the CHECK expression
+/// uses PostgreSQL-specific syntax not yet supported by our expression converter
+/// (e.g. `TRIM(BOTH FROM x)`, `ARRAY[...]`, `= ANY(...)`).
+/// The CHECK expression is irrelevant for schema information extraction.
+fn neutralize_check_constraints(sql: &str) -> String {
+    // All scanning uses byte indices over ASCII characters (parens, quotes, 'C','H','E','C','K').
+    // Non-ASCII bytes always have the high bit set, so they are never mistaken for ASCII
+    // control characters.  We copy through non-ASCII content verbatim by slicing `sql`.
+    let bytes = sql.as_bytes();
+    let len = bytes.len();
+    let mut result = String::with_capacity(len);
+    let mut i = 0;
+
+    // Copy a byte-range from `sql` (guaranteed valid UTF-8 slice) into result.
+    macro_rules! copy_range {
+        ($start:expr, $end:expr) => {
+            result.push_str(&sql[$start..$end]);
+        };
+    }
+
+    while i < len {
+        // Look for the ASCII word "CHECK" (case-insensitive via byte comparison).
+        if i + 5 <= len {
+            let b = &bytes[i..i + 5];
+            if (b[0] == b'C' || b[0] == b'c')
+                && (b[1] == b'H' || b[1] == b'h')
+                && (b[2] == b'E' || b[2] == b'e')
+                && (b[3] == b'C' || b[3] == b'c')
+                && (b[4] == b'K' || b[4] == b'k')
+            {
+                let before_ok = i == 0
+                    || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_');
+                let after_ok = i + 5 >= len
+                    || (!bytes[i + 5].is_ascii_alphanumeric() && bytes[i + 5] != b'_');
+                if before_ok && after_ok {
+                    // Emit "CHECK"
+                    copy_range!(i, i + 5);
+                    i += 5;
+                    // Copy any whitespace between CHECK and '('
+                    let ws_start = i;
+                    while i < len && bytes[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                    copy_range!(ws_start, i);
+                    // Scan a balanced paren group starting at '('
+                    if i < len && bytes[i] == b'(' {
+                        let paren_start = i;
+                        let mut depth = 0i32;
+                        while i < len {
+                            match bytes[i] {
+                                b'(' => { depth += 1; i += 1; }
+                                b')' => {
+                                    depth -= 1;
+                                    i += 1;
+                                    if depth <= 0 { break; }
+                                }
+                                b'\'' => {
+                                    // Skip single-quoted string (handles '' escaping)
+                                    i += 1;
+                                    while i < len {
+                                        if bytes[i] == b'\'' {
+                                            i += 1;
+                                            if i < len && bytes[i] == b'\'' {
+                                                i += 1;
+                                                continue;
+                                            }
+                                            break;
+                                        }
+                                        i += 1;
+                                    }
+                                }
+                                _ => { i += 1; }
+                            }
+                        }
+                        let body = &sql[paren_start..i];
+                        let inner = body
+                            .trim_start_matches('(')
+                            .trim_end_matches(')')
+                            .trim();
+                        if inner.eq_ignore_ascii_case("true")
+                            || inner.eq_ignore_ascii_case("false")
+                        {
+                            result.push_str(body);
+                        } else {
+                            result.push_str("(true)");
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+        // Advance by one UTF-8 char (so we never split a multi-byte sequence).
+        let ch_len = len - i; // remaining bytes
+        let step = if bytes[i] < 0x80 {
+            1
+        } else if bytes[i] < 0xE0 {
+            2usize.min(ch_len)
+        } else if bytes[i] < 0xF0 {
+            3usize.min(ch_len)
+        } else {
+            4usize.min(ch_len)
+        };
+        copy_range!(i, i + step);
+        i += step;
+    }
+    result
+}
+
 pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
     let dialect = PostgreSqlDialect {};
 
@@ -470,7 +580,9 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
             let (c, m) = preprocess_function_sql(stmt_sql);
             (c, Some(m))
         } else {
-            (stmt_sql.clone(), None)
+            // Neutralize complex CHECK constraint bodies so pg_dump schema files
+            // parse correctly regardless of the expression syntax used.
+            (neutralize_check_constraints(stmt_sql), None)
         };
 
         // Parse single statement; skip on syntax error (unsupported SQL).
