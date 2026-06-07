@@ -852,6 +852,7 @@ dependencies = [
  "pgsql-checker",
  "pgsql-lint",
  "pgsql-parser",
+ "pgsql-schema",
  "pgsql-semantic",
  "serde",
  "serde_json",
@@ -907,6 +908,17 @@ dependencies = [
  "serde_json",
  "thiserror",
  "wasmi",
+]
+
+[[package]]
+name = "pgsql-schema"
+version = "0.1.0"
+dependencies = [
+ "pgsql-ast",
+ "pgsql-checker",
+ "pgsql-parser",
+ "serde",
+ "toml",
 ]
 
 [[package]]

@@ -1,0 +1,11 @@
+[package]
+name = "pgsql-schema"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgsql-ast    = { path = "../pgsql-ast" }
+pgsql-parser = { path = "../pgsql-parser" }
+pgsql-checker = { path = "../pgsql-checker" }
+serde        = { workspace = true, features = ["derive"] }
+toml         = { workspace = true }

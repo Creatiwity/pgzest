@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use pgsql_checker::diagnostic::{Diagnostic, Severity};
-use pgsql_checker::schema::{DdlSchemaProvider, SchemaProvider};
+use pgsql_checker::schema::SchemaProvider;
 use pgsql_lint::config::LintConfig;
+use pgsql_schema::{check_ddl_role, FileRole, ProjectConfig, SchemaResolver};
 use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
@@ -13,16 +16,18 @@ use crate::completion::{analyze_cursor, build_completions};
 use crate::line_index::LineIndex;
 use crate::semantic;
 
+// ── Backend state ─────────────────────────────────────────────────────────────
+
 pub struct PgsqlBackend {
     client: Client,
-    /// URI → document text
     documents: Mutex<HashMap<String, String>>,
-    /// Optional schema SQL loaded from the workspace (e.g. a schema.sql file)
-    schema_sql: Mutex<Option<String>>,
-    /// Canonical path of the configured schemaFile (file or directory).
-    /// Files inside this path are schema definitions and are not type-checked
-    /// as query files — opening them produces no diagnostics.
-    schema_path: Mutex<Option<String>>,
+    /// Shared schema resolver — rebuilt when schema/migration files change.
+    /// Wrapped in Arc so it can be cloned out of the lock quickly.
+    resolver: Mutex<Arc<SchemaResolver>>,
+    /// Project root where pgsql-tools.toml was found (if any).
+    project_root: Mutex<Option<PathBuf>>,
+    /// Fallback schema path from `schemaFile` init option (legacy).
+    legacy_schema_path: Mutex<Option<String>>,
 }
 
 impl PgsqlBackend {
@@ -30,93 +35,122 @@ impl PgsqlBackend {
         Self {
             client,
             documents: Mutex::new(HashMap::new()),
-            schema_sql: Mutex::new(None),
-            schema_path: Mutex::new(None),
+            resolver: Mutex::new(Arc::new(SchemaResolver::empty())),
+            project_root: Mutex::new(None),
+            legacy_schema_path: Mutex::new(None),
         }
     }
 
-    /// Returns true if `file_uri` is the configured schema file / directory,
-    /// or lives inside it. Such files are pure DDL definitions and should not
-    /// be type-checked as query files.
-    async fn is_schema_file(&self, file_uri: &str) -> bool {
-        let guard = self.schema_path.lock().await;
-        let schema_path = match guard.as_deref() {
-            Some(p) if !p.is_empty() => p,
-            _ => return false,
-        };
-        // Strip the "file://" prefix that LSP URIs use
-        let file_path = file_uri.strip_prefix("file://").unwrap_or(file_uri);
-        let schema_canon = std::path::Path::new(schema_path)
-            .canonicalize()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| schema_path.to_string());
-        let file_canon = std::path::Path::new(file_path)
-            .canonicalize()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| file_path.to_string());
-        file_canon == schema_canon
-            || file_canon.starts_with(&format!("{}/", schema_canon))
+    /// Clone the current resolver out of the lock (cheap — Arc clone).
+    async fn resolver(&self) -> Arc<SchemaResolver> {
+        self.resolver.lock().await.clone()
     }
 
-    /// Parse, type-check and lint `text`, then publish LSP diagnostics for `uri`.
-    async fn run_diagnostics(&self, uri: &str, text: &str) {
-        let line_index = LineIndex::new(text);
+    /// Determine the `FileRole` of a URI.
+    async fn role_of(&self, uri: &str) -> FileRole {
+        let path = uri_to_path(uri);
+        let resolver = self.resolver().await;
 
-        let schema_guard = self.schema_sql.lock().await;
-        let external_sql = schema_guard.as_deref().map(|s| s.to_owned());
-        drop(schema_guard);
+        // Check the index first (files known to the schema source).
+        if let Some(role) = path
+            .as_deref()
+            .and_then(|p| resolver.index.role_of_path(p))
+        {
+            return role.clone();
+        }
 
-        let checker_diags = if self.is_schema_file(uri).await {
-            // ── Schema file: 2-pass full-file context ──────────────────────────
-            // Pass 1 (implicit via DdlSchemaProvider): collect ALL table/function
-            //   definitions from the file itself.
-            // Pass 2: check every reference in the file against that self-schema
-            //   merged with the external schema (if configured).
-            //
-            // This mirrors what TypeScript / oxc do: all declarations in a module
-            // are visible when checking any expression in that module.
-            let mut composite = pgsql_checker::CompositeSchemaProvider::new();
-            if let Ok(self_schema) = DdlSchemaProvider::from_sql(text) {
-                composite.add(Box::new(self_schema));
-            }
-            if let Some(ref sql) = external_sql {
-                if let Ok(ext) = DdlSchemaProvider::from_sql(sql) {
-                    composite.add(Box::new(ext));
+        // Fall back to heuristic detection from filename.
+        if let Some(p) = &path {
+            let detected = FileRole::detect(p);
+
+            // Legacy: if a `schemaFile` path was configured, files inside it are Schema.
+            if let Some(schema_path) = self.legacy_schema_path.lock().await.as_deref() {
+                if is_inside(p, schema_path) {
+                    return FileRole::Schema;
                 }
             }
-            let raw = pgsql_checker::check_sql(text, &composite);
 
-            // Filter cross-schema references (storage.*, auth.*, extensions.*…).
-            // These are external dependencies — analogous to untyped npm packages.
-            // Only suppress E003 where the schema prefix is unknown to us.
-            raw.into_iter()
-                .filter(|d| !is_suppressable_schema_error(d))
-                .collect()
-        } else {
-            // ── Query file: check against external schema ───────────────────────
-            let schema: Box<dyn SchemaProvider> = match external_sql.as_deref() {
-                Some(sql) => match DdlSchemaProvider::from_sql(sql) {
-                    Ok(p) => Box::new(p),
-                    Err(_) => Box::new(EmptySchemaProvider),
-                },
-                None => Box::new(EmptySchemaProvider),
-            };
-            pgsql_checker::check_sql(text, schema.as_ref())
-        };
+            return detected;
+        }
 
-        // --- lint diagnostics ---
-        let lint_diags: Vec<Diagnostic> = match pgsql_parser::parse(text) {
-            Ok(stmts) => {
-                let config = LintConfig::default();
-                pgsql_lint::lint_statements(&stmts, &config).diagnostics
+        FileRole::Query
+    }
+
+    /// Rebuild the resolver from the project config (or legacy path).
+    async fn rebuild_resolver(&self) {
+        let root = self.project_root.lock().await.clone();
+
+        let new_resolver = if let Some(ref root) = root {
+            let config_path = root.join(ProjectConfig::FILENAME);
+            match ProjectConfig::load(&config_path) {
+                Ok(config) => {
+                    let source = config.to_source(root);
+                    SchemaResolver::from_source(&source)
+                }
+                Err(e) => {
+                    self.client
+                        .log_message(
+                            MessageType::WARNING,
+                            format!("pgsql-lsp: failed to reload config: {e}"),
+                        )
+                        .await;
+                    return;
+                }
             }
-            Err(_) => vec![],
+        } else if let Some(ref path) = *self.legacy_schema_path.lock().await {
+            match load_schema_sql(path) {
+                Ok(sql) => SchemaResolver::from_sql(&sql).unwrap_or_else(|_| SchemaResolver::empty()),
+                Err(_) => return,
+            }
+        } else {
+            return;
         };
 
+        *self.resolver.lock().await = Arc::new(new_resolver);
+    }
+
+    /// Parse, type-check, lint and publish diagnostics for `uri`.
+    async fn run_diagnostics(&self, uri: &str, text: &str) {
+        let line_index = LineIndex::new(text);
+        let role = self.role_of(uri).await;
+        let resolver = self.resolver().await;
+
+        // ── Checker diagnostics ───────────────────────────────────────────────
+        let checker_diags: Vec<Diagnostic> = match role {
+            FileRole::Schema => {
+                // Schema file: 2-pass — check against self-schema merged with global.
+                let mut composite = pgsql_checker::CompositeSchemaProvider::new();
+                if let Ok(self_schema) = SchemaResolver::from_sql(text) {
+                    composite.add(Box::new(self_schema));
+                }
+                composite.add(Box::new(GlobalResolver(resolver.clone())));
+
+                pgsql_checker::check_sql(text, &composite)
+                    .into_iter()
+                    .filter(|d| !is_suppressable_schema_error(d))
+                    .collect()
+            }
+            FileRole::Migration { .. } | FileRole::Query => {
+                pgsql_checker::check_sql(text, resolver.as_ref())
+            }
+        };
+
+        // ── Lint diagnostics ──────────────────────────────────────────────────
+        let (lint_diags, role_diags) = match pgsql_parser::parse(text) {
+            Ok(stmts) => {
+                let lint = pgsql_lint::lint_statements(&stmts, &LintConfig::default()).diagnostics;
+                let role_lint = check_ddl_role(&stmts, &role);
+                (lint, role_lint)
+            }
+            Err(_) => (vec![], vec![]),
+        };
+
+        // ── Publish ───────────────────────────────────────────────────────────
         let lsp_diags: Vec<tower_lsp::lsp_types::Diagnostic> = checker_diags
             .iter()
             .chain(lint_diags.iter())
-            .map(|d| Self::to_lsp_diagnostic_with_index(d, &line_index))
+            .chain(role_diags.iter())
+            .map(|d| Self::to_lsp_diagnostic(d, &line_index))
             .collect();
 
         if let Ok(url) = uri.parse::<Url>() {
@@ -124,19 +158,13 @@ impl PgsqlBackend {
         }
     }
 
-    /// Convert a checker/lint `Diagnostic` to the LSP `Diagnostic` type using a LineIndex.
-    fn to_lsp_diagnostic_with_index(
-        d: &Diagnostic,
-        idx: &LineIndex,
-    ) -> tower_lsp::lsp_types::Diagnostic {
+    fn to_lsp_diagnostic(d: &Diagnostic, idx: &LineIndex) -> tower_lsp::lsp_types::Diagnostic {
         let severity = match d.severity {
-            Severity::Error => DiagnosticSeverity::ERROR,
+            Severity::Error   => DiagnosticSeverity::ERROR,
             Severity::Warning => DiagnosticSeverity::WARNING,
-            Severity::Info => DiagnosticSeverity::INFORMATION,
+            Severity::Info    => DiagnosticSeverity::INFORMATION,
         };
 
-        // Use span if present and non-zero; otherwise emit at (0,0).
-        // Infrastructure is ready for Phase E when parser emits real spans.
         let (start_line, start_char) = match &d.span {
             Some(span) if span.start != 0 || span.end != 0 => {
                 idx.offset_to_position(span.start as u32)
@@ -150,19 +178,11 @@ impl PgsqlBackend {
             _ => (0, 0),
         };
 
-        let range = Range {
-            start: Position {
-                line: start_line,
-                character: start_char,
-            },
-            end: Position {
-                line: end_line,
-                character: end_char,
-            },
-        };
-
         tower_lsp::lsp_types::Diagnostic {
-            range,
+            range: Range {
+                start: Position { line: start_line, character: start_char },
+                end:   Position { line: end_line,   character: end_char },
+            },
             severity: Some(severity),
             code: Some(NumberOrString::String(d.code.to_string())),
             source: Some("pgsql-lsp".to_string()),
@@ -175,271 +195,68 @@ impl PgsqlBackend {
     }
 }
 
-// ── Cross-schema error filter ─────────────────────────────────────────────────
-
-/// Returns true if `d` should be suppressed for a schema DDL file.
-///
-/// Two categories:
-/// 1. E003 where the table has a non-`public` schema prefix — external dep
-///    (storage.*, auth.*, vault.*, extensions.*, …).
-/// 2. E002 whose message contains `[in <function>]` — false positive from the
-///    line-by-line text checker inside PL/pgSQL bodies.  That checker extracts
-///    single-line SQL fragments and can't see CTEs, record variables, or any
-///    multi-line FROM clause, so alias-not-found errors are nearly always wrong.
-fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
-    // E003 with a non-public schema prefix → external dependency.
-    if d.code == "E003" {
-        if let Some(start) = d.message.find('\'') {
-            let rest = &d.message[start + 1..];
-            if let Some(end) = rest.find('\'') {
-                let table = &rest[..end];
-                if let Some(dot) = table.find('.') {
-                    let schema_prefix = &table[..dot];
-                    if schema_prefix != "public" {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    // E002 inside a function body (text checker produces many false positives).
-    if d.code == "E002" && d.message.contains("[in ") {
-        return true;
-    }
-    false
-}
-
-// ── Schema loading ────────────────────────────────────────────────────────────
-
-/// Load schema SQL from a file path or a directory.
-/// If the path is a directory, all `.sql` files are read in lexicographic order
-/// and concatenated.
-fn load_schema_from_path(path: &str) -> std::io::Result<String> {
-    let p = std::path::Path::new(path);
-    if p.is_file() {
-        return std::fs::read_to_string(p);
-    }
-    if p.is_dir() {
-        let mut entries: Vec<_> = std::fs::read_dir(p)?
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
-                    .unwrap_or(false)
-            })
-            .collect();
-        entries.sort_by_key(|e| e.file_name());
-        let mut parts = Vec::with_capacity(entries.len());
-        for entry in entries {
-            parts.push(std::fs::read_to_string(entry.path())?);
-        }
-        return Ok(parts.join("\n"));
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        format!("{path} is neither a file nor a directory"),
-    ))
-}
-
-// ── Empty schema provider (no schema loaded) ─────────────────────────────────
-
-struct EmptySchemaProvider;
-
-impl SchemaProvider for EmptySchemaProvider {
-    fn get_table(&self, _name: &str) -> Option<&pgsql_checker::schema::TableSchema> {
-        None
-    }
-
-    fn get_function(&self, _name: &str) -> Option<&pgsql_checker::schema::FunctionSignature> {
-        None
-    }
-
-    fn all_table_names(&self) -> Vec<&str> {
-        vec![]
-    }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/// Convert LSP (line, character) position to a byte offset in `text`.
-fn position_to_offset(text: &str, line: u32, character: u32) -> u32 {
-    let mut current_line = 0u32;
-    let mut offset = 0u32;
-    for (i, ch) in text.char_indices() {
-        if current_line == line {
-            return offset + character;
-        }
-        if ch == '\n' {
-            current_line += 1;
-            offset = (i + 1) as u32;
-        }
-    }
-    offset + character
-}
-
-/// Extract the SQL identifier (word) at a byte offset in `text`.
-/// Returns the word lowercased, or None if cursor is on whitespace/punctuation.
-fn word_at_offset(text: &str, offset: usize) -> Option<String> {
-    let bytes = text.as_bytes();
-    if offset >= bytes.len() {
-        return None;
-    }
-
-    // Find start of word (scan backward while alphanumeric or underscore)
-    let mut start = offset;
-    while start > 0 {
-        let b = bytes[start - 1];
-        if b.is_ascii_alphanumeric() || b == b'_' {
-            start -= 1;
-        } else {
-            break;
-        }
-    }
-    // Find end of word (scan forward)
-    let mut end = offset;
-    while end < bytes.len() {
-        let b = bytes[end];
-        if b.is_ascii_alphanumeric() || b == b'_' {
-            end += 1;
-        } else {
-            break;
-        }
-    }
-    if start == end {
-        return None;
-    }
-    Some(text[start..end].to_lowercase())
-}
-
-// ── Hover helpers ─────────────────────────────────────────────────────────────
-
-/// Hover for schema (DDL) files: build self-schema and look up the hovered word
-/// as a table or column name.
-fn hover_schema_file(text: &str, word: &str) -> Option<String> {
-    let provider = DdlSchemaProvider::from_sql(text).ok()?;
-
-    // Table name?
-    if let Some(table) = provider.get_table(word) {
-        let cols: Vec<String> = table
-            .columns
-            .iter()
-            .map(|c| {
-                let nn = if c.nullable { "" } else { " NOT NULL" };
-                format!("  {}: {}{}", c.name, data_type_to_sql(&c.data_type), nn)
-            })
-            .collect();
-        return Some(format!(
-            "```sql\n-- table: {}\n{}\n```",
-            table.name,
-            cols.join("\n")
-        ));
-    }
-
-    // Column name? Search all tables for a matching column.
-    let lower = word.to_lowercase();
-    for table_name in provider.all_table_names() {
-        if let Some(table) = provider.get_table(table_name) {
-            if let Some(col) = table.get_column(&lower) {
-                let nn = if col.nullable { "" } else { " NOT NULL" };
-                return Some(format!(
-                    "```sql\n-- {}.{} : {}{}\n```",
-                    table.name,
-                    col.name,
-                    data_type_to_sql(&col.data_type),
-                    nn
-                ));
-            }
-        }
-    }
-
-    None
-}
-
-/// Hover for query files: use semantic analysis to find the hovered word.
-fn hover_query(
-    stmts: &[pgsql_ast::Statement],
-    schema: &dyn SchemaProvider,
-    word: &str,
-) -> Option<String> {
-    let semantic = pgsql_semantic::analyze(stmts, schema);
-
-    // Search in all scopes for a matching column
-    for scope_id in 0..100u32 {
-        let sid = pgsql_semantic::ScopeId(scope_id);
-        let cols = semantic.scopes.available_columns(sid);
-        if cols.is_empty() {
-            break;
-        }
-        for col in &cols {
-            if col.name.to_lowercase() == word {
-                return Some(format!(
-                    "```sql\n-- {} : {}\n```",
-                    col.name,
-                    data_type_to_sql(&col.data_type)
-                ));
-            }
-        }
-    }
-
-    // Table name?
-    if let Some(sym) = semantic.symbols.get_table(word) {
-        if let Some(table) = schema.get_table(&sym.name) {
-            let cols: Vec<String> = table
-                .columns
-                .iter()
-                .map(|c| format!("  {}: {}", c.name, data_type_to_sql(&c.data_type)))
-                .collect();
-            return Some(format!(
-                "```sql\n-- table: {}\n{}\n```",
-                table.name,
-                cols.join("\n")
-            ));
-        }
-        return Some(format!("```sql\n-- table: {}\n```", sym.name));
-    }
-
-    // Output columns (SELECT aliases)
-    for cols in semantic.select_columns.values() {
-        for col in cols {
-            if col.name.as_deref().map(|n| n.to_lowercase()).as_deref() == Some(word) {
-                return Some(format!(
-                    "```sql\n-- {} : {}\n```",
-                    col.name.as_deref().unwrap_or(word),
-                    data_type_to_sql(&col.data_type)
-                ));
-            }
-        }
-    }
-
-    None
-}
-
 // ── LanguageServer implementation ─────────────────────────────────────────────
 
 #[tower_lsp::async_trait]
 impl LanguageServer for PgsqlBackend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        if let Some(opts) = params.initialization_options {
-            if let Some(path) = opts.get("schemaFile").and_then(|v| v.as_str()) {
-                if !path.is_empty() {
-                    // Remember the path so we can skip diagnostics on schema files.
-                    *self.schema_path.lock().await = Some(path.to_string());
-                    match load_schema_from_path(path) {
-                        Ok(sql) => *self.schema_sql.lock().await = Some(sql),
-                        Err(e) => {
-                            self.client
-                                .log_message(
-                                    MessageType::WARNING,
-                                    format!("pgsql-lsp: could not load schema at {path}: {e}"),
-                                )
-                                .await;
+        // 1. Try to discover pgsql-tools.toml from the workspace root.
+        let workspace_root = params
+            .workspace_folders
+            .as_deref()
+            .and_then(|f| f.first())
+            .and_then(|f| url_to_path(&f.uri.to_string()))
+            .or_else(|| {
+                params
+                    .root_uri
+                    .as_ref()
+                    .and_then(|u| url_to_path(&u.to_string()))
+            });
+
+        if let Some(ref root) = workspace_root {
+            if let Some((project_root, config)) = ProjectConfig::find_and_load(root) {
+                let source = config.to_source(&project_root);
+                let resolver = SchemaResolver::from_source(&source);
+                *self.resolver.lock().await = Arc::new(resolver);
+                *self.project_root.lock().await = Some(project_root.clone());
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!(
+                            "pgsql-lsp: loaded schema from {}",
+                            project_root.join(ProjectConfig::FILENAME).display()
+                        ),
+                    )
+                    .await;
+            }
+        }
+
+        // 2. Legacy fallback: schemaFile initialization option.
+        if self.project_root.lock().await.is_none() {
+            if let Some(opts) = &params.initialization_options {
+                if let Some(path) = opts.get("schemaFile").and_then(|v| v.as_str()) {
+                    if !path.is_empty() {
+                        *self.legacy_schema_path.lock().await = Some(path.to_string());
+                        match load_schema_sql(path) {
+                            Ok(sql) => {
+                                if let Ok(r) = SchemaResolver::from_sql(&sql) {
+                                    *self.resolver.lock().await = Arc::new(r);
+                                }
+                            }
+                            Err(e) => {
+                                self.client
+                                    .log_message(
+                                        MessageType::WARNING,
+                                        format!("pgsql-lsp: could not load schema at {path}: {e}"),
+                                    )
+                                    .await;
+                            }
                         }
                     }
                 }
             }
         }
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -482,13 +299,19 @@ impl LanguageServer for PgsqlBackend {
             let uri = params.text_document.uri.to_string();
             let text = change.text;
             self.documents.lock().await.insert(uri.clone(), text.clone());
+
+            // Rebuild schema if a schema/migration file changed.
+            let role = self.role_of(&uri).await;
+            if matches!(role, FileRole::Schema | FileRole::Migration { .. }) {
+                self.rebuild_resolver().await;
+            }
+
             self.run_diagnostics(&uri, &text).await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri.to_string();
-        self.documents.lock().await.remove(&uri);
+        self.documents.lock().await.remove(&params.text_document.uri.to_string());
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
@@ -511,27 +334,17 @@ impl LanguageServer for PgsqlBackend {
             None => return Ok(None),
         };
 
-        let hover_text: Option<String> = if self.is_schema_file(uri.as_str()).await {
-            // ── Schema file: hover against self-schema ────────────────────────
-            hover_schema_file(&text, &word)
-        } else {
-            // ── Query file: hover via semantic analysis ───────────────────────
-            let schema_guard = self.schema_sql.lock().await;
-            let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
-                Some(sql) => match DdlSchemaProvider::from_sql(sql) {
-                    Ok(p) => Box::new(p),
-                    Err(_) => Box::new(EmptySchemaProvider),
-                },
-                None => Box::new(EmptySchemaProvider),
-            };
-            drop(schema_guard);
+        let role = self.role_of(&uri).await;
+        let resolver = self.resolver().await;
 
+        let hover_text: Option<String> = if matches!(role, FileRole::Schema) {
+            hover_schema_file(&text, &word, resolver.as_ref())
+        } else {
             let stmts = match pgsql_parser::parse(&text) {
                 Ok(s) => s,
                 Err(_) => return Ok(None),
             };
-
-            hover_query(&stmts, schema.as_ref(), &word)
+            hover_query(&stmts, resolver.as_ref(), &word)
         };
 
         Ok(hover_text.map(|value| Hover {
@@ -554,19 +367,10 @@ impl LanguageServer for PgsqlBackend {
         };
         drop(docs);
 
-        let schema_guard = self.schema_sql.lock().await;
-        let schema: Box<dyn SchemaProvider> = match schema_guard.as_deref() {
-            Some(sql) => match DdlSchemaProvider::from_sql(sql) {
-                Ok(p) => Box::new(p),
-                Err(_) => Box::new(EmptySchemaProvider),
-            },
-            None => Box::new(EmptySchemaProvider),
-        };
-        drop(schema_guard);
-
+        let resolver = self.resolver().await;
         let cursor_offset = position_to_offset(&text, pos.line, pos.character) as usize;
         let ctx = analyze_cursor(&text, cursor_offset);
-        let items = build_completions(&ctx, schema.as_ref());
+        let items = build_completions(&ctx, resolver.as_ref());
 
         Ok(Some(CompletionResponse::Array(items)))
     }
@@ -589,4 +393,234 @@ impl LanguageServer for PgsqlBackend {
             data,
         })))
     }
+}
+
+// ── Cross-schema error filter ─────────────────────────────────────────────────
+
+fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
+    if d.code == "E003" {
+        if let Some(start) = d.message.find('\'') {
+            let rest = &d.message[start + 1..];
+            if let Some(end) = rest.find('\'') {
+                let table = &rest[..end];
+                if let Some(dot) = table.find('.') {
+                    if &table[..dot] != "public" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    // E002 inside PL/pgSQL function bodies — text extractor false positives.
+    // TODO: remove once proper PlpgsqlContext analysis is in place.
+    if d.code == "E002" && d.message.contains("[in ") {
+        return true;
+    }
+    false
+}
+
+// ── Hover helpers ─────────────────────────────────────────────────────────────
+
+fn hover_schema_file(text: &str, word: &str, global: &dyn SchemaProvider) -> Option<String> {
+    // Build self-schema first; fall back to global for cross-file references.
+    let self_schema = SchemaResolver::from_sql(text).ok()?;
+    let provider: &dyn SchemaProvider = &self_schema;
+
+    let result = lookup_hover(word, provider).or_else(|| lookup_hover(word, global));
+    result
+}
+
+fn hover_query(
+    stmts: &[pgsql_ast::Statement],
+    schema: &dyn SchemaProvider,
+    word: &str,
+) -> Option<String> {
+    let semantic = pgsql_semantic::analyze(stmts, schema);
+
+    // Column in any scope
+    for scope_id in 0..100u32 {
+        let sid = pgsql_semantic::ScopeId(scope_id);
+        let cols = semantic.scopes.available_columns(sid);
+        if cols.is_empty() { break; }
+        for col in &cols {
+            if col.name.to_lowercase() == word {
+                return Some(format!(
+                    "```sql\n-- {} : {}\n```",
+                    col.name,
+                    data_type_to_sql(&col.data_type)
+                ));
+            }
+        }
+    }
+
+    // Table name via symbols
+    if let Some(sym) = semantic.symbols.get_table(word) {
+        if let Some(table) = schema.get_table(&sym.name) {
+            let cols: Vec<String> = table
+                .columns
+                .iter()
+                .map(|c| format!("  {}: {}", c.name, data_type_to_sql(&c.data_type)))
+                .collect();
+            return Some(format!(
+                "```sql\n-- table: {}\n{}\n```",
+                table.name,
+                cols.join("\n")
+            ));
+        }
+        return Some(format!("```sql\n-- table: {}\n```", sym.name));
+    }
+
+    // Output columns (SELECT aliases)
+    for cols in semantic.select_columns.values() {
+        for col in cols {
+            if col.name.as_deref().map(|n| n.to_lowercase()).as_deref() == Some(word) {
+                return Some(format!(
+                    "```sql\n-- {} : {}\n```",
+                    col.name.as_deref().unwrap_or(word),
+                    data_type_to_sql(&col.data_type)
+                ));
+            }
+        }
+    }
+
+    // Direct schema lookup (table / column)
+    lookup_hover(word, schema)
+}
+
+fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
+    // Table name?
+    if let Some(table) = schema.get_table(word) {
+        let cols: Vec<String> = table
+            .columns
+            .iter()
+            .map(|c| {
+                let nn = if c.nullable { "" } else { " NOT NULL" };
+                format!("  {}: {}{}", c.name, data_type_to_sql(&c.data_type), nn)
+            })
+            .collect();
+        return Some(format!(
+            "```sql\n-- table: {}\n{}\n```",
+            table.name,
+            cols.join("\n")
+        ));
+    }
+
+    // Column name anywhere
+    let lower = word.to_lowercase();
+    for table_name in schema.all_table_names() {
+        if let Some(table) = schema.get_table(table_name) {
+            if let Some(col) = table.get_column(&lower) {
+                let nn = if col.nullable { "" } else { " NOT NULL" };
+                return Some(format!(
+                    "```sql\n-- {}.{} : {}{}\n```",
+                    table.name, col.name,
+                    data_type_to_sql(&col.data_type), nn
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+// ── Newtype: let Arc<SchemaResolver> work as a SchemaProvider ─────────────────
+
+/// Thin wrapper so we can pass Arc<SchemaResolver> where &dyn SchemaProvider is needed
+/// without cloning the entire map.
+struct GlobalResolver(Arc<SchemaResolver>);
+
+impl SchemaProvider for GlobalResolver {
+    fn get_table(&self, name: &str) -> Option<&pgsql_checker::schema::TableSchema> {
+        self.0.get_table(name)
+    }
+    fn get_function(&self, name: &str) -> Option<&pgsql_checker::schema::FunctionSignature> {
+        self.0.get_function(name)
+    }
+    fn all_table_names(&self) -> Vec<&str> {
+        self.0.all_table_names()
+    }
+}
+
+// ── Schema loading (legacy schemaFile path) ───────────────────────────────────
+
+fn load_schema_sql(path: &str) -> std::io::Result<String> {
+    let p = Path::new(path);
+    if p.is_file() {
+        return std::fs::read_to_string(p);
+    }
+    if p.is_dir() {
+        let mut entries: Vec<_> = std::fs::read_dir(p)?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        let parts: Vec<String> = entries
+            .into_iter()
+            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+            .collect();
+        return Ok(parts.join("\n"));
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!("{path} is neither a file nor a directory"),
+    ))
+}
+
+// ── URI / path helpers ────────────────────────────────────────────────────────
+
+fn uri_to_path(uri: &str) -> Option<PathBuf> {
+    let path_str = uri
+        .strip_prefix("file://")
+        .unwrap_or(uri);
+    let p = PathBuf::from(path_str);
+    p.canonicalize().ok().or(Some(p))
+}
+
+fn url_to_path(url: &str) -> Option<PathBuf> {
+    uri_to_path(url)
+}
+
+fn is_inside(child: &Path, parent_str: &str) -> bool {
+    let parent = Path::new(parent_str);
+    let parent_canon = parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
+    let child_canon = child.canonicalize().unwrap_or_else(|_| child.to_path_buf());
+    child_canon == parent_canon
+        || child_canon.starts_with(format!("{}/", parent_canon.display()))
+}
+
+fn position_to_offset(text: &str, line: u32, character: u32) -> u32 {
+    let mut current_line = 0u32;
+    let mut offset = 0u32;
+    for (i, ch) in text.char_indices() {
+        if current_line == line {
+            return offset + character;
+        }
+        if ch == '\n' {
+            current_line += 1;
+            offset = (i + 1) as u32;
+        }
+    }
+    offset + character
+}
+
+fn word_at_offset(text: &str, offset: usize) -> Option<String> {
+    let bytes = text.as_bytes();
+    if offset >= bytes.len() {
+        return None;
+    }
+    let mut start = offset;
+    while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+        start -= 1;
+    }
+    let mut end = offset;
+    while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+        end += 1;
+    }
+    if start == end { None } else { Some(text[start..end].to_lowercase()) }
 }
