@@ -1,13 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
-use pgsql_ast::ddl::{FunctionParam, ReturnType};
+use pgsql_ast::ddl::{DdlStatement, FunctionParam, ReturnType};
 use pgsql_ast::plpgsql::{
     AssignTarget, Block, ElsIf, PlExpr, PlStatement, PlpgsqlBody, RaiseLevel,
 };
+use pgsql_ast::stmt::{InsertSource, Statement};
 use pgsql_ast::types::DataType;
 
 use crate::diagnostic::Diagnostic;
-use crate::schema::{SchemaProvider, TableSchema};
+use crate::schema::{
+    object_name_to_string, ColumnInfo, FunctionSignature, SchemaProvider, TableSchema,
+};
 
 // ── Type context ──────────────────────────────────────────────────────────────
 
@@ -18,11 +21,40 @@ struct TypeContext<'a> {
     params: HashMap<String, DataType>,
     /// Trigger table (for NEW/OLD)
     trigger_table: Option<&'a TableSchema>,
-    /// Schema access
+    /// Temp tables created within the function body
+    temp_tables: HashMap<String, TableSchema>,
+    /// Schema access (global)
     schema: &'a dyn SchemaProvider,
     /// Declared return type (reserved for future type-compatibility checks)
     #[allow(dead_code)]
     return_type: &'a ReturnType,
+}
+
+// ── Body schema provider ──────────────────────────────────────────────────────
+
+/// Overlays function-local temp tables on the global schema provider.
+struct BodySchemaProvider<'a> {
+    temp_tables: &'a HashMap<String, TableSchema>,
+    global: &'a dyn SchemaProvider,
+}
+
+impl<'a> SchemaProvider for BodySchemaProvider<'a> {
+    fn get_table(&self, name: &str) -> Option<&TableSchema> {
+        let lower = name.to_lowercase();
+        self.temp_tables
+            .get(&lower)
+            .or_else(|| self.global.get_table(name))
+    }
+
+    fn get_function(&self, name: &str) -> Option<&FunctionSignature> {
+        self.global.get_function(name)
+    }
+
+    fn all_table_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.temp_tables.keys().map(String::as_str).collect();
+        names.extend(self.global.all_table_names());
+        names
+    }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -67,10 +99,15 @@ pub fn check_plpgsql_ast(
         }
     }
 
+    // First pass: collect any temp tables created in the body so embedded SQL
+    // can reference them without false-positive E003 errors.
+    let temp_tables = collect_temp_tables(&body.block);
+
     let ctx = TypeContext {
         vars,
         params,
         trigger_table: trigger_table_schema,
+        temp_tables,
         schema,
         return_type,
     };
@@ -115,12 +152,18 @@ pub fn check_plpgsql_body(
         }
 
         // --- Embedded SQL queries: attempt to parse and check them.
+        // E002 (table/alias not in FROM) is suppressed here — without knowing
+        // the declared variables, qualified refs like `v_rec.col` always fire
+        // false positives. E001 and E003 are kept as best-effort signals.
         if contains_dml_keyword(&upper) {
             if let Some(sql_fragment) = extract_sql_fragment(trimmed) {
                 match pgsql_parser::parse(sql_fragment) {
                     Ok(stmts) => {
                         let inner = super::check_statements(&stmts, schema);
                         for mut d in inner {
+                            if d.code == "E002" {
+                                continue;
+                            }
                             d.message = format!("[in {}] {}", function_name, d.message);
                             diags.push(d);
                         }
@@ -274,10 +317,9 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             diags.extend(sub_diags);
         }
 
-        // Direct SQL statement (INSERT, UPDATE, DELETE).
+        // Direct SQL statement (INSERT, UPDATE, DELETE, CREATE TEMP TABLE, etc.)
         PlStatement::Sql(sql_stmt) => {
-            let sub_diags = super::check_statements(&[sql_stmt.clone()], ctx.schema);
-            diags.extend(sub_diags);
+            check_sql_in_body(sql_stmt, ctx, diags);
         }
 
         // Nested block.
@@ -437,6 +479,123 @@ fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic
         PlExpr::And(l, r) | PlExpr::Or(l, r) | PlExpr::BinOp(l, _, r) => {
             check_plexpr(l, ctx, diags);
             check_plexpr(r, ctx, diags);
+        }
+    }
+}
+
+// ── AST checker helpers ───────────────────────────────────────────────────────
+
+/// First pass over a block: collect all `CREATE TEMP TABLE` statements so the
+/// rest of the body can reference them without false-positive E003 errors.
+fn collect_temp_tables(block: &Block) -> HashMap<String, TableSchema> {
+    let mut out: HashMap<String, TableSchema> = HashMap::new();
+    collect_temp_tables_in_block(block, &mut out);
+    out
+}
+
+fn collect_temp_tables_in_block(block: &Block, out: &mut HashMap<String, TableSchema>) {
+    for stmt in &block.statements {
+        if let PlStatement::Sql(Statement::Ddl(DdlStatement::CreateTable(ct))) = stmt {
+            if ct.temporary {
+                let name = object_name_to_string(&ct.name);
+                let columns = ct
+                    .columns
+                    .iter()
+                    .map(|col| ColumnInfo {
+                        name: col.name.value.clone(),
+                        data_type: col.data_type.clone(),
+                        nullable: col.nullable,
+                    })
+                    .collect();
+                out.insert(name.to_lowercase(), TableSchema { name, columns });
+            }
+        }
+        // Recurse into nested blocks.
+        match stmt {
+            PlStatement::If { then_block, elsif_clauses, else_block, .. } => {
+                collect_temp_tables_in_block(then_block, out);
+                for e in elsif_clauses {
+                    collect_temp_tables_in_block(&e.block, out);
+                }
+                if let Some(b) = else_block {
+                    collect_temp_tables_in_block(b, out);
+                }
+            }
+            PlStatement::While { body, .. }
+            | PlStatement::Loop(body)
+            | PlStatement::SubBlock(body) => {
+                collect_temp_tables_in_block(body, out);
+            }
+            PlStatement::ForSelect { body, .. }
+            | PlStatement::ForRange { body, .. }
+            | PlStatement::ForExecute { body, .. } => {
+                collect_temp_tables_in_block(body, out);
+            }
+            _ => {}
+        }
+    }
+    // Also recurse into exception handlers.
+    if let Some(exc) = &block.exception {
+        for handler in &exc.handlers {
+            collect_temp_tables_in_block(&handler.block, out);
+        }
+    }
+}
+
+/// Check a SQL statement embedded in a PL/pgSQL body.
+///
+/// Uses the body schema (global + temp tables) and suppresses plvar names so
+/// variable references don't fire false-positive E001/E002 errors.
+fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
+    use super::select::check_select_with_plvars;
+
+    let body = BodySchemaProvider { temp_tables: &ctx.temp_tables, global: ctx.schema };
+    let pv = plvars(ctx);
+
+    match stmt {
+        Statement::Select(sel) => {
+            diags.extend(check_select_with_plvars(sel, &body, &pv));
+        }
+
+        Statement::Insert(ins) => {
+            let name = object_name_to_string(&ins.table);
+            if body.get_table(&name).is_none() {
+                diags.push(
+                    Diagnostic::error("E003", format!("table '{}' does not exist", name))
+                        .with_hint("check the table name or provide a schema with that table"),
+                );
+            }
+            if let InsertSource::Select(sel) = &ins.source {
+                diags.extend(check_select_with_plvars(sel, &body, &pv));
+            }
+        }
+
+        Statement::Update(upd) => {
+            let name = object_name_to_string(&upd.table.name);
+            if body.get_table(&name).is_none() {
+                diags.push(Diagnostic::error(
+                    "E003",
+                    format!("table '{}' does not exist", name),
+                ));
+            }
+        }
+
+        Statement::Delete(del) => {
+            let name = object_name_to_string(&del.table.name);
+            if body.get_table(&name).is_none() {
+                diags.push(Diagnostic::error(
+                    "E003",
+                    format!("table '{}' does not exist", name),
+                ));
+            }
+        }
+
+        // CREATE TEMP TABLE is already tracked by collect_temp_tables — skip.
+        Statement::Ddl(DdlStatement::CreateTable(ct)) if ct.temporary => {}
+
+        // Other DDL (CREATE INDEX, etc.) — fall back to full checker with body schema.
+        _ => {
+            diags.extend(super::check_statements(&[stmt.clone()], &body));
         }
     }
 }

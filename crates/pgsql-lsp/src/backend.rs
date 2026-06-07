@@ -406,11 +406,6 @@ fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
             }
         }
     }
-    // E002 inside PL/pgSQL function bodies — text extractor false positives.
-    // TODO: remove once proper PlpgsqlContext analysis is in place.
-    if d.code == "E002" && d.message.contains("[in ") {
-        return true;
-    }
     false
 }
 

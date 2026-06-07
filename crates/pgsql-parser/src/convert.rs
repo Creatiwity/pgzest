@@ -1013,6 +1013,7 @@ fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> 
         span: Span::DUMMY,
         name,
         if_not_exists,
+        temporary: ct.temporary,
         columns,
         constraints,
     })

@@ -54,6 +54,7 @@ fn make_create_table(table_name: &str, cols: Vec<ColumnDef>) -> Statement {
         span: Span::DUMMY,
         name: ObjectName::unquoted(&[table_name]),
         if_not_exists: false,
+        temporary: false,
         columns: cols,
         constraints: vec![],
     }))

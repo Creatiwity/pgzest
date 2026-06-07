@@ -313,6 +313,78 @@ fn builtin_functions_no_warning() {
     );
 }
 
+/// INSERT into a temp table created within the same function body must not fire E003.
+#[test]
+fn plpgsql_temp_table_no_false_positive() {
+    let schema = org_schema();
+    let diags = check_sql(
+        r#"
+CREATE OR REPLACE FUNCTION fn_with_temp()
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  v_id UUID;
+BEGIN
+  CREATE TEMP TABLE tmp_results (id UUID, name TEXT);
+  INSERT INTO tmp_results SELECT id, name FROM organizations;
+END;
+$$"#,
+        &schema,
+    );
+    let e003: Vec<_> = diags.iter().filter(|d| d.code == "E003").collect();
+    assert!(
+        e003.is_empty(),
+        "unexpected E003 for temp table reference: {:#?}",
+        e003
+    );
+}
+
+/// SELECT inside a PL/pgSQL function that uses a declared variable in WHERE
+/// must not fire E002 for that variable reference.
+#[test]
+fn plpgsql_plvar_in_select_no_false_positive() {
+    let schema = org_schema();
+    let diags = check_sql(
+        r#"
+CREATE OR REPLACE FUNCTION fn_with_param(p_id UUID)
+RETURNS TEXT LANGUAGE plpgsql AS $$
+DECLARE
+  v_name TEXT;
+BEGIN
+  SELECT name INTO v_name FROM organizations WHERE id = p_id;
+  RETURN v_name;
+END;
+$$"#,
+        &schema,
+    );
+    let e002: Vec<_> = diags.iter().filter(|d| d.code == "E002").collect();
+    assert!(
+        e002.is_empty(),
+        "unexpected E002 for plvar reference: {:#?}",
+        e002
+    );
+}
+
+/// A function referencing a non-existent real table must still fire E003.
+#[test]
+fn plpgsql_unknown_real_table_fires_e003() {
+    let schema = org_schema();
+    let diags = check_sql(
+        r#"
+CREATE OR REPLACE FUNCTION fn_bad_table()
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO no_such_table (id) VALUES (gen_random_uuid());
+END;
+$$"#,
+        &schema,
+    );
+    assert!(
+        diags.iter().any(|d| d.code == "E003"),
+        "expected E003 for unknown table, got: {:#?}",
+        diags
+    );
+}
+
 /// A function with an empty $$ $$ body should emit a W002 warning.
 #[test]
 fn plpgsql_empty_body_is_warning() {

@@ -33,6 +33,7 @@ fn create_table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConst
         span: Span::DUMMY,
         name: ObjectName::unquoted(&[name]),
         if_not_exists: false,
+        temporary: false,
         columns,
         constraints,
     }))
@@ -44,6 +45,7 @@ fn quoted_table(name: &str) -> Statement {
         span: Span::DUMMY,
         name: ObjectName(vec![Ident { value: name.to_string(), quoted: true }]),
         if_not_exists: false,
+        temporary: false,
         columns: vec![],
         constraints: vec![TableConstraint::PrimaryKey { columns: vec![] }],
     }))

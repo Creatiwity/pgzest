@@ -23,6 +23,7 @@ pub struct CreateTable {
     pub span: Span,
     pub name: ObjectName,
     pub if_not_exists: bool,
+    pub temporary: bool,
     pub columns: Vec<ColumnDef>,
     pub constraints: Vec<TableConstraint>,
 }
