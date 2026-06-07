@@ -29,8 +29,10 @@ fn check_select_inner(
     let mut diags = Vec::new();
 
     // Build the column context from FROM + JOINs.
-    // Maps alias (or table name) → TableSchema.
-    let mut ctx: HashMap<String, &TableSchema> = HashMap::new();
+    // Maps alias (or table name) → Option<&TableSchema>.
+    // None means the table fired E003 (unknown) but the alias is still registered
+    // so qualified references like `p.col` don't cascade into a spurious E002.
+    let mut ctx: HashMap<String, Option<&TableSchema>> = HashMap::new();
 
     for table_ref in &stmt.from {
         resolve_table_ref(table_ref, schema, &mut ctx, &mut diags);
@@ -46,7 +48,8 @@ fn check_select_inner(
                 // SELECT * is always fine.
             }
             SelectItem::QualifiedWildcard(ident) => {
-                // table.* — verify the table alias/name exists in context.
+                // table.* — only fire E002 if the alias is genuinely absent from
+                // the FROM clause; if it's present but None (E003 already fired), skip.
                 let key = ident.value.to_lowercase();
                 if !ctx.contains_key(&key) {
                     diags.push(Diagnostic::error(
@@ -85,10 +88,14 @@ fn check_select_inner(
 }
 
 /// Resolve a table reference against the schema and add it to the context map.
+///
+/// If the table exists, inserts `Some(ts)` under its alias/name.
+/// If the table is unknown, emits E003 and inserts `None` — this prevents
+/// qualified references like `p.col` from also firing E002 (cascade noise).
 fn resolve_table_ref<'a>(
     table_ref: &TableRef,
     schema: &'a dyn SchemaProvider,
-    ctx: &mut HashMap<String, &'a TableSchema>,
+    ctx: &mut HashMap<String, Option<&'a TableSchema>>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let table_name = crate::schema::object_name_to_string(&table_ref.name);
@@ -102,10 +109,10 @@ fn resolve_table_ref<'a>(
                 .as_ref()
                 .map(|a| a.value.to_lowercase())
                 .unwrap_or_else(|| key.clone());
-            ctx.insert(alias_or_name, ts);
+            ctx.insert(alias_or_name, Some(ts));
             // Also register under unaliased table name for qualified references.
             if table_ref.alias.is_some() {
-                ctx.insert(key, ts);
+                ctx.insert(key, Some(ts));
             }
         }
         None => {
@@ -113,6 +120,14 @@ fn resolve_table_ref<'a>(
                 "E003",
                 format!("table '{}' does not exist", table_name),
             ));
+            // Register alias (or table name) as None so qualified refs don't
+            // cascade into E002 on top of the E003 already emitted.
+            let alias_or_name = table_ref
+                .alias
+                .as_ref()
+                .map(|a| a.value.to_lowercase())
+                .unwrap_or(key);
+            ctx.insert(alias_or_name, None);
         }
     }
 }
@@ -120,7 +135,7 @@ fn resolve_table_ref<'a>(
 /// Recursively check an expression for column/function validity.
 fn check_expr(
     expr: &Expr,
-    ctx: &HashMap<String, &TableSchema>,
+    ctx: &HashMap<String, Option<&TableSchema>>,
     schema: &dyn SchemaProvider,
     plvars: &HashSet<String>,
     diags: &mut Vec<Diagnostic>,
@@ -134,7 +149,7 @@ fn check_expr(
                     // Qualified reference: table.column
                     let tbl_key = tbl_ident.value.to_lowercase();
                     match ctx.get(&tbl_key) {
-                        Some(table_schema) => {
+                        Some(Some(table_schema)) => {
                             if table_schema.get_column(col_name).is_none() {
                                 diags.push(
                                     Diagnostic::error(
@@ -156,6 +171,9 @@ fn check_expr(
                                 );
                             }
                         }
+                        // Table alias is known but the table itself fired E003 — skip
+                        // to avoid cascading noise on every `alias.col` reference.
+                        Some(None) => {}
                         None => {
                             diags.push(Diagnostic::error(
                                 "E002",
@@ -174,15 +192,17 @@ fn check_expr(
                         return;
                     }
 
-                    // Search all tables in context.
+                    // Search all resolved tables in context.
                     let found = ctx
                         .values()
+                        .filter_map(|v| *v)
                         .any(|ts| ts.get_column(col_name).is_some());
 
-                    if !found && !ctx.is_empty() {
-                        // Build a hint listing all available columns across tables.
+                    if !found && ctx.values().any(|v| v.is_some()) {
+                        // Build a hint listing all available columns across resolved tables.
                         let all_cols: Vec<String> = ctx
                             .values()
+                            .filter_map(|v| *v)
                             .flat_map(|ts| ts.columns.iter().map(|c| c.name.clone()))
                             .collect();
                         let hint = if all_cols.is_empty() {

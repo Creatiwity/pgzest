@@ -471,7 +471,8 @@ impl Parser {
         };
 
         // Check for USING options (no message string)
-        if self.eat_keyword_ident("USING") {
+        if self.peek() == &Token::Keyword(Keyword::Using) {
+            self.advance();
             let options = self.parse_raise_options()?;
             self.eat_token(&Token::Semi);
             return Ok(PlStatement::Raise {
@@ -483,28 +484,40 @@ impl Parser {
         }
 
         // Message string literal
-        let (message, args) = if let Token::StringLit(_) = self.peek().clone() {
+        let (message, args, options) = if let Token::StringLit(_) = self.peek().clone() {
             let msg = match self.advance() {
                 Token::StringLit(s) => s,
                 _ => unreachable!(),
             };
             let mut args = Vec::new();
             while self.eat_token(&Token::Comma) {
-                // Could be a USING option after the args
-                if let Token::Keyword(_) = self.peek() {
-                    if self.eat_keyword_ident("USING") {
-                        // Parse raise options
-                        let _options = self.parse_raise_options()?;
-                        break;
-                    }
+                // A USING after a comma ends the arg list and begins options.
+                if self.peek() == &Token::Keyword(Keyword::Using) {
+                    self.advance();
+                    let opts = self.parse_raise_options()?;
+                    self.eat_token(&Token::Semi);
+                    return Ok(PlStatement::Raise {
+                        level,
+                        message: Some(msg),
+                        args,
+                        options: opts,
+                    });
                 }
                 let atom = self.parse_plexpr_atom()?;
                 args.push(atom);
             }
-            (Some(msg), args)
+            // USING can follow the message/args without a preceding comma:
+            //   RAISE exception 'msg' USING ERRCODE = '...';
+            let opts = if self.peek() == &Token::Keyword(Keyword::Using) {
+                self.advance();
+                self.parse_raise_options()?
+            } else {
+                vec![]
+            };
+            (Some(msg), args, opts)
         } else {
-            // Could be re-raise with no args (just RAISE;)
-            (None, vec![])
+            // Re-raise with no args (just RAISE;)
+            (None, vec![], vec![])
         };
 
         self.eat_token(&Token::Semi);
@@ -512,7 +525,7 @@ impl Parser {
             level,
             message,
             args,
-            options: Vec::new(),
+            options,
         })
     }
 
@@ -793,7 +806,11 @@ impl Parser {
     fn parse_dml_statement(&mut self) -> Result<PlStatement, PlParseError> {
         let fragment = self.extract_until_semi_balanced();
         self.eat_token(&Token::Semi);
-        match self.parse_sql_fragment(&fragment) {
+        // Strip `RETURNING ... INTO var` — PL/pgSQL captures RETURNING results
+        // into variables with `RETURNING cols INTO var`, but sqlparser only
+        // understands standard SQL `RETURNING cols`. Strip the `INTO var` tail.
+        let clean = strip_returning_into(&fragment);
+        match self.parse_sql_fragment(clean) {
             Ok(stmt) => Ok(PlStatement::Sql(stmt)),
             Err(e) => Err(PlParseError::Unsupported(format!(
                 "cannot parse DML: {} | fragment: {}",
@@ -1384,6 +1401,35 @@ impl Parser {
 }
 
 // ── Free functions ──────────────────────────────────────────────────────────
+
+/// Strip ` INTO <var>` that follows a `RETURNING` clause in PL/pgSQL DML.
+///
+/// `RETURNING cols INTO v_var` is valid PL/pgSQL but not standard SQL.
+/// sqlparser only understands `RETURNING cols`, so we strip the ` INTO var`
+/// tail before parsing. The variable capture is discarded — we only need the
+/// statement structure for type-checking, not the assignment target.
+fn strip_returning_into(fragment: &str) -> &str {
+    let upper = fragment.to_uppercase();
+    // Find RETURNING keyword position (last occurrence to skip INSERT INTO / FROM clauses)
+    let Some(ret_pos) = upper.rfind("RETURNING") else {
+        return fragment;
+    };
+    // Look for INTO after RETURNING
+    let after_ret = &upper[ret_pos..];
+    // Find `INTO` that is at word boundary and not preceded by INSERT
+    let mut search = ret_pos;
+    while let Some(rel) = upper[search..].find(" INTO ") {
+        let abs = search + rel;
+        // Everything before should be after RETURNING
+        if abs >= ret_pos {
+            return fragment[..abs].trim_end();
+        }
+        search = abs + 6;
+    }
+    // Also check for `INTO` at end of string (without trailing space)
+    let _ = after_ret; // suppress unused warning
+    fragment
+}
 
 /// Find the position of " INTO " in an uppercase string, not as part of
 /// "INSERT INTO".
