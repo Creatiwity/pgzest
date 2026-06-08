@@ -51,6 +51,8 @@ struct Tok {
     text: String,
     line: u32,
     col: u32,
+    /// Source span length in bytes (includes quotes for quoted identifiers).
+    len: u32,
 }
 
 fn tokenize(sql: &str) -> Vec<Tok> {
@@ -116,7 +118,7 @@ fn tokenize(sql: &str) -> Vec<Tok> {
         // string bodies here; the semantic tokenizer needs to see the SQL inside
         // $$ function bodies to color FROM/JOIN aliases correctly).
         if bytes[i] == b'$' {
-            tokens.push(Tok { kind: TokKind::Other, text: "$".into(), line, col: col!() });
+            tokens.push(Tok { kind: TokKind::Other, text: "$".into(), line, col: col!(), len: 1 });
             i += 1;
             continue;
         }
@@ -137,26 +139,26 @@ fn tokenize(sql: &str) -> Vec<Tok> {
 
         // Dot
         if bytes[i] == b'.' {
-            tokens.push(Tok { kind: TokKind::Dot, text: ".".into(), line, col: col!() });
+            tokens.push(Tok { kind: TokKind::Dot, text: ".".into(), line, col: col!(), len: 1 });
             i += 1;
             continue;
         }
 
         // Comma
         if bytes[i] == b',' {
-            tokens.push(Tok { kind: TokKind::Comma, text: ",".into(), line, col: col!() });
+            tokens.push(Tok { kind: TokKind::Comma, text: ",".into(), line, col: col!(), len: 1 });
             i += 1;
             continue;
         }
 
         // Parens
         if bytes[i] == b'(' {
-            tokens.push(Tok { kind: TokKind::LParen, text: "(".into(), line, col: col!() });
+            tokens.push(Tok { kind: TokKind::LParen, text: "(".into(), line, col: col!(), len: 1 });
             i += 1;
             continue;
         }
         if bytes[i] == b')' {
-            tokens.push(Tok { kind: TokKind::RParen, text: ")".into(), line, col: col!() });
+            tokens.push(Tok { kind: TokKind::RParen, text: ")".into(), line, col: col!(), len: 1 });
             i += 1;
             continue;
         }
@@ -175,8 +177,10 @@ fn tokenize(sql: &str) -> Vec<Tok> {
                 i += 1;
             }
             let text = sql[start..i].to_lowercase();
+            // +2 to include both the opening and closing double-quote in the span
+            let src_len = (text.len() + 2) as u32;
             if i < len { i += 1; } // closing "
-            tokens.push(Tok { kind: TokKind::Ident, text, line: t_line, col: t_col });
+            tokens.push(Tok { kind: TokKind::Ident, text, line: t_line, col: t_col, len: src_len });
             continue;
         }
 
@@ -189,12 +193,13 @@ fn tokenize(sql: &str) -> Vec<Tok> {
                 i += 1;
             }
             let text = sql[start..i].to_lowercase();
-            tokens.push(Tok { kind: TokKind::Ident, text, line: t_line, col: t_col });
+            let src_len = text.len() as u32;
+            tokens.push(Tok { kind: TokKind::Ident, text, line: t_line, col: t_col, len: src_len });
             continue;
         }
 
         // Everything else
-        tokens.push(Tok { kind: TokKind::Other, text: (bytes[i] as char).to_string(), line, col: col!() });
+        tokens.push(Tok { kind: TokKind::Other, text: (bytes[i] as char).to_string(), line, col: col!(), len: 1 });
         i += 1;
     }
 
@@ -302,7 +307,7 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
         let mut table_name = tokens[i].text.clone();
         let table_tok_line = tokens[i].line;
         let table_tok_col = tokens[i].col;
-        let table_tok_len = tokens[i].text.len() as u32;
+        let table_tok_len = tokens[i].len;
         i += 1;
 
         if i + 1 < n && tokens[i].kind == TokKind::Dot && tokens[i + 1].kind == TokKind::Ident {
@@ -313,7 +318,7 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
             spans.push(ColoredSpan {
                 line: tbl_tok.line,
                 col: tbl_tok.col,
-                len: tbl_tok.text.len() as u32,
+                len: tbl_tok.len,
                 color_index: color,
             });
             i += 2;
@@ -346,7 +351,7 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
                 spans.push(ColoredSpan {
                     line: alias_tok.line,
                     col: alias_tok.col,
-                    len: alias.len() as u32,
+                    len: alias_tok.len,
                     color_index: color,
                 });
                 i += 1;
@@ -364,7 +369,7 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
             spans.push(ColoredSpan {
                 line: alias_tok.line,
                 col: alias_tok.col,
-                len: alias.len() as u32,
+                len: alias_tok.len,
                 color_index: color,
             });
             i += 1;
@@ -393,13 +398,13 @@ fn second_pass(tokens: &[Tok], color_map: &HashMap<String, u32>) -> Vec<ColoredS
                 spans.push(ColoredSpan {
                     line: qualifier.line,
                     col: qualifier.col,
-                    len: qualifier.text.len() as u32,
+                    len: qualifier.len,
                     color_index: color,
                 });
                 spans.push(ColoredSpan {
                     line: column.line,
                     col: column.col,
-                    len: column.text.len() as u32,
+                    len: column.len,
                     color_index: color,
                 });
                 i += 3; // skip qualifier . column
