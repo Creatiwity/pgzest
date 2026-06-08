@@ -120,7 +120,7 @@ impl PgsqlBackend {
     async fn check_sql(&self, sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
         let stmts = match pgsql_parser::parse(sql) {
             Ok(s) => s,
-            Err(e) => return vec![Diagnostic::error("E000", format!("parse error: {e}"))],
+            Err(e) => return vec![Diagnostic::error(pgsql_checker::codes::PARSE_ERROR, format!("parse error: {e}"))],
         };
         self.make_checker().await.run(&stmts, schema)
     }
@@ -132,7 +132,7 @@ impl PgsqlBackend {
         let resolver = self.resolver().await;
 
         // ── Checker diagnostics ───────────────────────────────────────────────
-        let checker_diags: Vec<Diagnostic> = match role {
+        let mut checker_diags: Vec<Diagnostic> = match role {
             FileRole::Schema => {
                 // Schema file: 2-pass — check against self-schema merged with global.
                 let mut composite = pgsql_checker::CompositeSchemaProvider::new();
@@ -151,6 +151,17 @@ impl PgsqlBackend {
                 self.check_sql(text, resolver.as_ref()).await
             }
         };
+
+        // Apply per-rule severity overrides from project config.
+        if let Some(config) = self.config.lock().await.as_ref() {
+            let rule_overrides: std::collections::HashMap<String, String> = config
+                .lint
+                .rules
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            pgsql_checker::apply_rule_overrides(&mut checker_diags, &rule_overrides);
+        }
 
         // ── Lint diagnostics ──────────────────────────────────────────────────
         let (lint_diags, role_diags) = match pgsql_parser::parse(text) {
@@ -443,7 +454,7 @@ impl LanguageServer for PgsqlBackend {
 // ── Cross-schema error filter ─────────────────────────────────────────────────
 
 fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
-    if d.code == "E003" {
+    if d.code == pgsql_checker::codes::TABLE_NOT_FOUND {
         if let Some(start) = d.message.find('\'') {
             let rest = &d.message[start + 1..];
             if let Some(end) = rest.find('\'') {

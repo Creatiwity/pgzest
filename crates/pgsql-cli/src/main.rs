@@ -95,6 +95,16 @@ fn read_file(path: &str) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("cannot read '{}': {}", path, e))
 }
 
+fn offset_to_line_col(sql: &str, offset: usize) -> (usize, usize) {
+    let mut line = 1usize;
+    let mut col = 1usize;
+    for (i, ch) in sql.char_indices() {
+        if i >= offset { break; }
+        if ch == '\n' { line += 1; col = 1; } else { col += 1; }
+    }
+    (line, col)
+}
+
 fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
     let config = pgsql_plugin::config::PgsqlConfig::load(
         &std::path::PathBuf::from("pgsql.toml")
@@ -185,8 +195,13 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
     let mut has_errors = false;
     let show_filename = parsed_targets.len() > 1 || has_external_schema;
 
+    // Build rule overrides map from config.rules.
+    let rule_overrides: std::collections::HashMap<String, String> = config.rules.iter()
+        .map(|(k, v)| (k.clone(), v.level().to_string()))
+        .collect();
+
     for (file, sql, stmts) in &parsed_targets {
-        let diagnostics = if has_external_schema || parsed_targets.len() > 1 {
+        let mut diagnostics = if has_external_schema || parsed_targets.len() > 1 {
             // Cross-file mode: trigger map built from context + ALL target files.
             let all_other_stmts: Vec<Statement> = context_stmts.iter()
                 .chain(parsed_targets.iter().filter(|(f, _, _)| f != file).flat_map(|(_, _, s)| s.iter()))
@@ -203,18 +218,29 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
             )
         };
 
-        let prefix = if show_filename { format!("{}: ", file) } else { String::new() };
+        pgsql_checker::apply_rule_overrides(&mut diagnostics, &rule_overrides);
+
         for diag in &diagnostics {
             use pgsql_checker::Severity;
-            let severity = match diag.severity {
+            let sev_str = match diag.severity {
                 Severity::Error => { has_errors = true; "error" }
                 Severity::Warning => "warning",
                 Severity::Info => "info",
             };
-            if let Some(hint) = &diag.hint {
-                println!("{}{}: {}: {} (hint: {})", prefix, severity, diag.code, diag.message, hint);
+            let (line, col) = diag.span.as_ref()
+                .filter(|s| s.start > 0 || s.end > 0)
+                .map(|s| offset_to_line_col(sql, s.start as usize))
+                .unwrap_or((1, 1));
+            let location = if show_filename {
+                format!("{}:{}:{}", file, line, col)
             } else {
-                println!("{}{}: {}: {}", prefix, severity, diag.code, diag.message);
+                format!("{}:{}", line, col)
+            };
+            if let Some(hint) = &diag.hint {
+                println!("{}: {}[{}]: {}", location, sev_str, diag.code, diag.message);
+                println!("  hint: {}", hint);
+            } else {
+                println!("{}: {}[{}]: {}", location, sev_str, diag.code, diag.message);
             }
         }
     }
@@ -239,15 +265,21 @@ fn cmd_lint(file: &str) -> i32 {
     let mut has_errors = false;
     for diag in &result.diagnostics {
         use pgsql_checker::Severity;
-        let severity = match diag.severity {
+        let sev_str = match diag.severity {
             Severity::Error => { has_errors = true; "error" }
             Severity::Warning => "warning",
             Severity::Info => "info",
         };
+        let (line, col) = diag.span.as_ref()
+            .filter(|s| s.start > 0 || s.end > 0)
+            .map(|s| offset_to_line_col(&sql, s.start as usize))
+            .unwrap_or((1, 1));
+        let location = format!("{}:{}", line, col);
         if let Some(hint) = &diag.hint {
-            println!("{}: {}: {} (hint: {})", severity, diag.code, diag.message, hint);
+            println!("{}: {}[{}]: {}", location, sev_str, diag.code, diag.message);
+            println!("  hint: {}", hint);
         } else {
-            println!("{}: {}: {}", severity, diag.code, diag.message);
+            println!("{}: {}[{}]: {}", location, sev_str, diag.code, diag.message);
         }
     }
 

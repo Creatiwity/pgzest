@@ -1,4 +1,4 @@
-use pgsql_checker::{check_sql, check_sql_self_contained, check_statements, DdlSchemaProvider, IntrospectionJsonProvider, SchemaProvider};
+use pgsql_checker::{check_sql, check_sql_self_contained, check_statements, codes, DdlSchemaProvider, IntrospectionJsonProvider, SchemaProvider};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,7 +45,7 @@ fn missing_column_is_error() {
         .collect();
 
     assert_eq!(errors.len(), 1, "expected exactly 1 error, got: {:#?}", diags);
-    assert_eq!(errors[0].code, "E001");
+    assert_eq!(errors[0].code, codes::COLUMN_NOT_FOUND);
     assert!(
         errors[0].message.contains("nonexistent"),
         "error message should mention the column name, got: {}",
@@ -85,7 +85,7 @@ fn unknown_table_in_insert_is_error() {
         !errors.is_empty(),
         "expected an error for INSERT into unknown table"
     );
-    assert_eq!(errors[0].code, "E003");
+    assert_eq!(errors[0].code, codes::TABLE_NOT_FOUND);
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn json_provider_missing_column_is_error() {
         .collect();
 
     assert_eq!(errors.len(), 1, "expected exactly 1 error, got: {:#?}", diags);
-    assert_eq!(errors[0].code, "E001");
+    assert_eq!(errors[0].code, codes::COLUMN_NOT_FOUND);
 }
 
 // ── RLS policy checks ─────────────────────────────────────────────────────────
@@ -219,8 +219,8 @@ fn rls_policy_unknown_table_is_error() {
         diags
     );
     assert_eq!(
-        errors[0].code, "E003",
-        "expected code E003, got: {}",
+        errors[0].code, codes::TABLE_NOT_FOUND,
+        "expected code table-not-found, got: {}",
         errors[0].code
     );
     assert!(
@@ -305,10 +305,10 @@ fn builtin_functions_no_warning() {
         SELECT COUNT(*), ROUND(AVG(value), 2), NULLIF(MAX(value), 0) FROM metrics;
     ";
     let diags = pgsql_checker::check_sql_self_contained(sql);
-    let w001: Vec<_> = diags.iter().filter(|d| d.code == "W001").collect();
+    let w001: Vec<_> = diags.iter().filter(|d| d.code == codes::FUNCTION_NOT_FOUND).collect();
     assert!(
         w001.is_empty(),
-        "unexpected W001 for builtin functions: {:?}",
+        "unexpected function-not-found for builtin functions: {:?}",
         w001
     );
 }
@@ -330,10 +330,10 @@ END;
 $$"#,
         &schema,
     );
-    let e003: Vec<_> = diags.iter().filter(|d| d.code == "E003").collect();
+    let e003: Vec<_> = diags.iter().filter(|d| d.code == codes::TABLE_NOT_FOUND).collect();
     assert!(
         e003.is_empty(),
-        "unexpected E003 for temp table reference: {:#?}",
+        "unexpected table-not-found for temp table reference: {:#?}",
         e003
     );
 }
@@ -356,10 +356,10 @@ END;
 $$"#,
         &schema,
     );
-    let e002: Vec<_> = diags.iter().filter(|d| d.code == "E002").collect();
+    let e002: Vec<_> = diags.iter().filter(|d| d.code == codes::TABLE_NOT_IN_SCOPE).collect();
     assert!(
         e002.is_empty(),
-        "unexpected E002 for plvar reference: {:#?}",
+        "unexpected table-not-in-scope for plvar reference: {:#?}",
         e002
     );
 }
@@ -379,8 +379,8 @@ $$"#,
         &schema,
     );
     assert!(
-        diags.iter().any(|d| d.code == "E003"),
-        "expected E003 for unknown table, got: {:#?}",
+        diags.iter().any(|d| d.code == codes::TABLE_NOT_FOUND),
+        "expected table-not-found for unknown table, got: {:#?}",
         diags
     );
 }
@@ -405,8 +405,8 @@ fn plpgsql_empty_body_is_warning() {
         diags
     );
     assert!(
-        warnings.iter().any(|w| w.code == "W002"),
-        "expected W002 warning, got warnings: {:#?}",
+        warnings.iter().any(|w| w.code == codes::EMPTY_FUNCTION_BODY),
+        "expected empty-function-body warning, got warnings: {:#?}",
         warnings
     );
 }

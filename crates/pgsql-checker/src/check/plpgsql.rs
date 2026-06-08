@@ -7,6 +7,7 @@ use pgsql_ast::plpgsql::{
 use pgsql_ast::stmt::{InsertSource, Statement};
 use pgsql_ast::types::DataType;
 
+use crate::codes;
 use crate::diagnostic::Diagnostic;
 use crate::schema::{
     object_name_to_string, ColumnInfo, FunctionSignature, SchemaProvider, TableSchema,
@@ -92,11 +93,11 @@ pub fn check_plpgsql_ast(
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
 ) {
-    // W002 — empty block (no statements and no exception handlers).
+    // empty-function-body — empty block (no statements and no exception handlers).
     if body.block.statements.is_empty() && body.block.exception.is_none() {
         diags.push(
             Diagnostic::warning(
-                "W002",
+                codes::EMPTY_FUNCTION_BODY,
                 format!("function '{}' has an empty body", function_name),
             )
             .with_hint("add a BEGIN … END block or a RETURN statement"),
@@ -162,11 +163,11 @@ pub fn check_plpgsql_body(
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
 ) {
-    // W002 — empty body.
+    // empty-function-body — empty body.
     if body.trim().is_empty() {
         diags.push(
             Diagnostic::warning(
-                "W002",
+                codes::EMPTY_FUNCTION_BODY,
                 format!("function '{}' has an empty body", function_name),
             )
             .with_hint("add a BEGIN … END block or a RETURN statement"),
@@ -196,7 +197,7 @@ pub fn check_plpgsql_body(
                     Ok(stmts) => {
                         let inner = super::check_statements(&stmts, schema);
                         for mut d in inner {
-                            if d.code == "E002" {
+                            if d.code == codes::TABLE_NOT_IN_SCOPE {
                                 continue;
                             }
                             d.message = format!("[in {}] {}", function_name, d.message);
@@ -249,7 +250,7 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
                 if ts.get_column(&col.value).is_none() {
                     diags.push(
                         Diagnostic::error(
-                            "E001",
+                            codes::COLUMN_NOT_FOUND,
                             format!(
                                 "column '{}' does not exist on trigger table '{}'",
                                 col.value, ts.name
@@ -275,7 +276,7 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             value,
         } => {
             diags.push(Diagnostic::error(
-                "E003",
+                codes::ASSIGN_TO_OLD,
                 format!("cannot assign to OLD.{}", col.value),
             ));
             check_plexpr(value, ctx, diags);
@@ -437,7 +438,7 @@ fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic
                 if ts.get_column(&col.value).is_none() {
                     diags.push(
                         Diagnostic::error(
-                            "E001",
+                            codes::COLUMN_NOT_FOUND,
                             format!(
                                 "column '{}' does not exist on trigger table '{}'",
                                 col.value, ts.name
@@ -461,7 +462,7 @@ fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic
                 if ts.get_column(&col.value).is_none() {
                     diags.push(
                         Diagnostic::error(
-                            "E001",
+                            codes::COLUMN_NOT_FOUND,
                             format!(
                                 "column '{}' does not exist on trigger table '{}'",
                                 col.value, ts.name
@@ -488,11 +489,11 @@ fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic
                 && !ctx.params.contains_key(&lower)
                 && upper != "FOUND"
             {
-                // W005: variable may not be declared (warning, not error —
+                // undeclared-variable: variable may not be declared (warning, not error —
                 // could be an untracked parameter).
                 diags.push(
                     Diagnostic::warning(
-                        "W005",
+                        codes::UNDECLARED_VARIABLE,
                         format!("variable '{}' may not be declared", name),
                     )
                     .with_hint(
@@ -622,7 +623,7 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             let name = object_name_to_string(&ins.table);
             if body.get_table(&name).is_none() {
                 diags.push(
-                    Diagnostic::error("E003", format!("table '{}' does not exist", name))
+                    Diagnostic::error(codes::TABLE_NOT_FOUND, format!("table '{}' does not exist", name))
                         .with_hint("check the table name or provide a schema with that table"),
                 );
             }
@@ -635,7 +636,7 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             let name = object_name_to_string(&upd.table.name);
             if body.get_table(&name).is_none() {
                 diags.push(Diagnostic::error(
-                    "E003",
+                    codes::TABLE_NOT_FOUND,
                     format!("table '{}' does not exist", name),
                 ));
             }
@@ -645,7 +646,7 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             let name = object_name_to_string(&del.table.name);
             if body.get_table(&name).is_none() {
                 diags.push(Diagnostic::error(
-                    "E003",
+                    codes::TABLE_NOT_FOUND,
                     format!("table '{}' does not exist", name),
                 ));
             }
@@ -734,7 +735,7 @@ fn check_old_new_refs(
             if !col_name.is_empty() && trigger_table_schema.get_column(&col_name).is_none() {
                 diags.push(
                     Diagnostic::error(
-                        "E001",
+                        codes::COLUMN_NOT_FOUND,
                         format!(
                             "[in {}] column '{}' does not exist on trigger table '{}'",
                             function_name, col_name, trigger_table_schema.name

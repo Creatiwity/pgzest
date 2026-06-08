@@ -4,6 +4,7 @@ pub(crate) mod select;
 use pgsql_ast::ddl::CreatePolicy;
 use pgsql_ast::Statement;
 
+use crate::codes;
 use crate::diagnostic::Diagnostic;
 use crate::schema::{object_name_to_string, SchemaProvider};
 
@@ -11,7 +12,7 @@ use crate::schema::{object_name_to_string, SchemaProvider};
 pub fn check_sql(sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
     match pgsql_parser::parse(sql) {
         Ok(stmts) => check_statements(&stmts, schema),
-        Err(e) => vec![Diagnostic::error("E000", format!("parse error: {e}"))],
+        Err(e) => vec![Diagnostic::error(codes::PARSE_ERROR, format!("parse error: {e}"))],
     }
 }
 
@@ -21,7 +22,7 @@ pub fn check_sql(sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
 pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
     let stmts = match pgsql_parser::parse(sql) {
         Ok(s) => s,
-        Err(e) => return vec![Diagnostic::error("E000", format!("parse error: {e}"))],
+        Err(e) => return vec![Diagnostic::error(codes::PARSE_ERROR, format!("parse error: {e}"))],
     };
 
     // Première passe : construire le schéma depuis le DDL du fichier lui-même
@@ -50,7 +51,7 @@ pub(crate) fn check_create_policy_rule(
         None => {
             diags.push(
                 Diagnostic::error(
-                    "E003",
+                    codes::TABLE_NOT_FOUND,
                     format!(
                         "policy '{}' references table '{}' which does not exist",
                         policy.name.value, table_name
@@ -104,7 +105,7 @@ fn check_policy_expr(
             if table_schema.get_column(col_name).is_none() {
                 diags.push(
                     Diagnostic::error(
-                        "E001",
+                        codes::COLUMN_NOT_FOUND,
                         format!(
                             "policy '{}' {} clause references column '{}' which does not exist on table '{}'",
                             policy_name, clause, col_name, table_schema.name
@@ -125,19 +126,11 @@ fn check_policy_expr(
 
         Expr::FunctionCall { name, args, .. } => {
             let func_name = object_name_to_string(name);
-            // Schema-qualified calls (e.g. auth.uid()) are external — emit W003.
-            if name.0.len() > 1 {
+            // Schema-qualified calls (e.g. auth.uid()) are trusted silently.
+            if name.0.len() == 1 && schema.get_function(&func_name).is_none() {
+                // Unqualified unknown function — warning.
                 diags.push(Diagnostic::warning(
-                    "W003",
-                    format!(
-                        "policy '{}' {} clause calls '{}': external function, not validated",
-                        policy_name, clause, func_name
-                    ),
-                ));
-            } else if schema.get_function(&func_name).is_none() {
-                // Unqualified unknown function — also a W003 warning.
-                diags.push(Diagnostic::warning(
-                    "W003",
+                    codes::FUNCTION_NOT_FOUND,
                     format!(
                         "policy '{}' {} clause calls '{}': function not found in known schema, not validated",
                         policy_name, clause, func_name

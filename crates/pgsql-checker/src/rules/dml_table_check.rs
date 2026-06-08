@@ -1,3 +1,4 @@
+use crate::codes;
 use crate::rule::{CheckRule, RuleCtx};
 use pgsql_ast::stmt::{InsertStmt, UpdateStmt, DeleteStmt};
 
@@ -13,7 +14,7 @@ impl CheckRule for DmlTableCheck {
         if ctx.schema.get_table(&name).is_none() {
             ctx.diags.push(
                 crate::diagnostic::Diagnostic::error(
-                    "E003",
+                    codes::TABLE_NOT_FOUND,
                     format!("table '{}' does not exist", name),
                 )
                 .with_hint("check the table name or provide a schema with that table"),
@@ -25,7 +26,7 @@ impl CheckRule for DmlTableCheck {
         let name = crate::schema::object_name_to_string(&stmt.table.name);
         if ctx.schema.get_table(&name).is_none() {
             ctx.diags.push(crate::diagnostic::Diagnostic::error(
-                "E003",
+                codes::TABLE_NOT_FOUND,
                 format!("table '{}' does not exist", name),
             ));
         }
@@ -35,7 +36,7 @@ impl CheckRule for DmlTableCheck {
         let name = crate::schema::object_name_to_string(&stmt.table.name);
         if ctx.schema.get_table(&name).is_none() {
             ctx.diags.push(crate::diagnostic::Diagnostic::error(
-                "E003",
+                codes::TABLE_NOT_FOUND,
                 format!("table '{}' does not exist", name),
             ));
         }

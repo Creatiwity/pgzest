@@ -1,4 +1,5 @@
 use crate::check::plpgsql::TriggerCtx;
+use crate::codes;
 use crate::rule::{CheckRule, RuleCtx};
 use crate::schema::object_name_to_string;
 use pgsql_ast::ddl::{CreateFunction, CreateProcedure, FunctionBody, ReturnType, TriggerEvent, TriggerForEach};
@@ -19,7 +20,7 @@ impl CheckRule for FunctionBodyCheck {
             if tc.is_none() && !e005_fired {
                 ctx.diags.push(
                     crate::diagnostic::Diagnostic::warning(
-                        "W004",
+                        codes::TRIGGER_NO_CONTEXT,
                         format!(
                             "trigger function '{}' has no associated CREATE TRIGGER in the \
                              analyzed files: NEW/OLD schema cannot be verified",
@@ -116,7 +117,7 @@ fn resolve_trigger_ctx(func_name: &str, ctx: &mut RuleCtx) -> Option<TriggerCtx>
     if tables.len() > 1 {
         ctx.diags.push(
             crate::diagnostic::Diagnostic::error(
-                "E005",
+                codes::TRIGGER_AMBIGUOUS_TABLE,
                 format!(
                     "trigger function '{}' is used by triggers on different tables ({}): \
                      NEW/OLD schema is ambiguous",

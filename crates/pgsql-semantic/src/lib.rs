@@ -30,7 +30,7 @@ pub fn analyze_sql(
         Err(e) => {
             let dummy_schema = pgsql_checker::DdlSchemaProvider::from_statements(&[]);
             (
-                vec![pgsql_checker::Diagnostic::error("E000", format!("parse error: {e}"))],
+                vec![pgsql_checker::Diagnostic::error(pgsql_checker::codes::PARSE_ERROR, format!("parse error: {e}"))],
                 analyze(&[], &dummy_schema),
             )
         }

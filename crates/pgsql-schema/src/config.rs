@@ -91,6 +91,10 @@ fn default_log_target() -> String { "notify".into() }
 pub struct LintProjectConfig {
     #[serde(default)]
     pub disabled: Vec<String>,
+    /// Per-rule severity overrides. Key = rule ID (e.g. "column-not-found").
+    /// Values: "error", "warning", "info", "off".
+    #[serde(default)]
+    pub rules: std::collections::HashMap<String, String>,
 }
 
 // ── Plugins ───────────────────────────────────────────────────────────────────

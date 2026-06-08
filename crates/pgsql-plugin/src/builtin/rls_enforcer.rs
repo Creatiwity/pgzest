@@ -18,7 +18,7 @@ impl crate::plugin::Plugin for RlsEnforcerPlugin {
     }
 }
 
-/// W010: table does not have RLS enabled
+/// rls/table-without-rls: table does not have RLS enabled
 /// This is a warning (not error) because RLS can be enabled separately via ALTER TABLE.
 pub struct RequireRlsRule;
 
@@ -33,7 +33,7 @@ impl CheckRule for RequireRlsRule {
             if !provider.table_has_rls(&table_name) {
                 ctx.diags.push(
                     pgsql_checker::Diagnostic::warning(
-                        "W010",
+                        "rls/table-without-rls",
                         format!("table '{}' does not have RLS enabled", table_name),
                     )
                     .with_hint(
@@ -48,7 +48,7 @@ impl CheckRule for RequireRlsRule {
     }
 }
 
-/// W011: SELECT * in application queries
+/// rls/select-star: SELECT * in application queries
 pub struct NoSelectStarRule;
 
 impl CheckRule for NoSelectStarRule {
@@ -62,7 +62,7 @@ impl CheckRule for NoSelectStarRule {
             if matches!(item, SelectItem::Wildcard) {
                 ctx.diags.push(
                     pgsql_checker::Diagnostic::warning(
-                        "W011",
+                        "rls/select-star",
                         "SELECT * is not recommended in application queries".to_string(),
                     )
                     .with_hint(

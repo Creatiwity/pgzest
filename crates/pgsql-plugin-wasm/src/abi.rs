@@ -13,6 +13,12 @@
 // Imports fournis par l'hôte:
 //   env.pgsql_get_table(name_ptr: i32, name_len: i32) -> i32  // → JSON TableSchema ou null
 //   env.pgsql_log(ptr: i32, len: i32)                         // console log depuis le plugin
+//
+// Rule codes:
+//   Plugin rule codes must be prefixed with the plugin name and a `/`,
+//   e.g. `"my-plugin/my-rule"`. This namespacing prevents collisions with
+//   built-in rule IDs (e.g. "column-not-found") and makes the rule origin
+//   unambiguous in diagnostics and config overrides.
 
 use serde::{Deserialize, Serialize};
 

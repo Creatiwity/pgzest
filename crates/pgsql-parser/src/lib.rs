@@ -575,7 +575,7 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
     let raw_stmts = split_statements(sql);
     let mut result = Vec::new();
 
-    for stmt_sql in &raw_stmts {
+    for (stmt_sql, byte_offset) in &raw_stmts {
         let (cleaned, meta) = if is_create_function_sql(stmt_sql) {
             let (c, m) = preprocess_function_sql(stmt_sql);
             (c, Some(m))
@@ -643,17 +643,39 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                     }
                 }
             }
+            set_stmt_span(&mut stmt, *byte_offset, byte_offset + stmt_sql.len());
             result.push(stmt);
         }
     }
     Ok(result)
 }
 
+fn set_stmt_span(stmt: &mut Statement, start: usize, end: usize) {
+    use pgsql_ast::{DdlStatement, Statement::*};
+    let span = pgsql_ast::node::Span { start: start as u32, end: end as u32 };
+    match stmt {
+        Select(s) => s.span = span,
+        Insert(s) => s.span = span,
+        Update(s) => s.span = span,
+        Delete(s) => s.span = span,
+        Ddl(ddl) => match ddl {
+            DdlStatement::CreateFunction(cf) => cf.span = span,
+            DdlStatement::CreateProcedure(cp) => cp.span = span,
+            DdlStatement::CreatePolicy(p) => p.span = span,
+            DdlStatement::CreateTable(ct) => ct.span = span,
+            _ => {}
+        },
+    }
+}
+
 /// Split SQL into individual statement strings by ';', respecting dollar-quoted strings.
+/// The returned tuples are (statement_text, byte_offset) where byte_offset is the
+/// position of the first non-whitespace character of the statement in the original `sql`.
 /// The returned strings do NOT include the terminating ';'.
-fn split_statements(sql: &str) -> Vec<String> {
+fn split_statements(sql: &str) -> Vec<(String, usize)> {
     let mut stmts = Vec::new();
     let mut current = String::new();
+    let mut stmt_start: Option<usize> = None;
     let bytes = sql.as_bytes();
     let len = bytes.len();
     let mut i = 0;
@@ -669,6 +691,9 @@ fn split_statements(sql: &str) -> Vec<String> {
             if j < len && bytes[j] == b'$' {
                 // We have a valid dollar-quote opening tag: bytes[tag_start..=j]
                 let tag = &sql[tag_start..=j];
+                if stmt_start.is_none() {
+                    stmt_start = Some(i);
+                }
                 // Copy the opening tag into current
                 current.push_str(tag);
                 let content_start = j + 1;
@@ -687,6 +712,9 @@ fn split_statements(sql: &str) -> Vec<String> {
                 }
             } else {
                 // Not a dollar-quote, just a plain '$'
+                if stmt_start.is_none() {
+                    stmt_start = Some(i);
+                }
                 current.push(bytes[i] as char);
                 i += 1;
                 continue;
@@ -698,6 +726,9 @@ fn split_statements(sql: &str) -> Vec<String> {
         if bytes[i] == b'-' && i + 1 < len && bytes[i + 1] == b'-' {
             // Copy the comment characters and skip to end of line
             while i < len && bytes[i] != b'\n' {
+                if stmt_start.is_none() && !bytes[i].is_ascii_whitespace() {
+                    stmt_start = Some(i);
+                }
                 current.push(bytes[i] as char);
                 i += 1;
             }
@@ -706,6 +737,9 @@ fn split_statements(sql: &str) -> Vec<String> {
 
         if bytes[i] == b'\'' {
             // Single-quoted string — copy until closing quote (handling '')
+            if stmt_start.is_none() {
+                stmt_start = Some(i);
+            }
             current.push('\'');
             i += 1;
             while i < len {
@@ -730,20 +764,25 @@ fn split_statements(sql: &str) -> Vec<String> {
         if bytes[i] == b';' {
             let trimmed = current.trim().to_string();
             if !trimmed.is_empty() {
-                stmts.push(trimmed);
+                stmts.push((trimmed, stmt_start.unwrap_or(0)));
             }
             current.clear();
+            stmt_start = None;
             i += 1;
             continue;
         }
 
+        // Track the start of non-whitespace content
+        if stmt_start.is_none() && !bytes[i].is_ascii_whitespace() {
+            stmt_start = Some(i);
+        }
         current.push(bytes[i] as char);
         i += 1;
     }
 
     let trimmed = current.trim().to_string();
     if !trimmed.is_empty() {
-        stmts.push(trimmed);
+        stmts.push((trimmed, stmt_start.unwrap_or(0)));
     }
 
     stmts

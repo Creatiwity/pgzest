@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use pgsql_ast::{Expr, SelectItem, SelectStmt, TableRef};
 
+use crate::codes;
 use crate::diagnostic::Diagnostic;
 use crate::schema::{SchemaProvider, TableSchema};
 
@@ -67,7 +68,7 @@ fn check_select_inner(
                 let key = ident.value.to_lowercase();
                 if !ctx.contains_key(&key) && !phantom_qualifiers.contains(&key) {
                     diags.push(Diagnostic::error(
-                        "E002",
+                        codes::TABLE_NOT_IN_SCOPE,
                         format!("table or alias '{}' not found in FROM clause", ident.value),
                     ));
                 }
@@ -131,11 +132,11 @@ fn resolve_table_ref<'a>(
         }
         None => {
             diags.push(Diagnostic::error(
-                "E003",
+                codes::TABLE_NOT_FOUND,
                 format!("table '{}' does not exist", table_name),
             ));
             // Register alias (or table name) as None so qualified refs don't
-            // cascade into E002 on top of the E003 already emitted.
+            // cascade into table-not-in-scope on top of the table-not-found already emitted.
             let alias_or_name = table_ref
                 .alias
                 .as_ref()
@@ -168,7 +169,7 @@ fn check_expr(
                             if table_schema.get_column(col_name).is_none() {
                                 diags.push(
                                     Diagnostic::error(
-                                        "E001",
+                                        codes::COLUMN_NOT_FOUND,
                                         format!(
                                             "column '{}' does not exist in table '{}'",
                                             col_name, tbl_ident.value
@@ -204,7 +205,7 @@ fn check_expr(
                                         if ts.get_column(col_name).is_none() {
                                             diags.push(
                                                 Diagnostic::error(
-                                                    "E001",
+                                                    codes::COLUMN_NOT_FOUND,
                                                     format!(
                                                         "column '{}' does not exist in table '{}'",
                                                         col_name, tbl_ident.value
@@ -223,7 +224,7 @@ fn check_expr(
                                     }
                                     None => {
                                         diags.push(Diagnostic::error(
-                                            "E002",
+                                            codes::TABLE_NOT_IN_SCOPE,
                                             format!(
                                                 "table or alias '{}' not found in FROM clause",
                                                 tbl_ident.value
@@ -261,7 +262,7 @@ fn check_expr(
                             Some(format!("available columns: {}", all_cols.join(", ")))
                         };
                         let mut d = Diagnostic::error(
-                            "E001",
+                            codes::COLUMN_NOT_FOUND,
                             format!("column '{}' does not exist", col_name),
                         );
                         if let Some(h) = hint {
@@ -283,7 +284,7 @@ fn check_expr(
                 && schema.get_function(&func_name).is_none()
             {
                 diags.push(Diagnostic::warning(
-                    "W001",
+                    codes::FUNCTION_NOT_FOUND,
                     format!("function '{}' is not defined in the known schema", func_name),
                 ));
             }
