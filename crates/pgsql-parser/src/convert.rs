@@ -1205,6 +1205,7 @@ fn convert_create_function(cf: sp::CreateFunction) -> Result<CreateFunction, Par
     Ok(CreateFunction {
         id: crate::next_node_id(),
         span: Span::DUMMY,
+        body_start: 0,
         name,
         or_replace,
         params,
@@ -1392,6 +1393,7 @@ fn convert_create_procedure(
     Ok(CreateProcedure {
         id: crate::next_node_id(),
         span: Span::DUMMY,
+        body_start: 0,
         name: pname,
         or_replace,
         params: params_out,

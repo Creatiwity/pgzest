@@ -103,8 +103,16 @@ fn stmt_span(stmt: &Statement) -> Option<crate::diagnostic::Span> {
         Update(s)  => (s.span.start, s.span.end),
         Delete(s)  => (s.span.start, s.span.end),
         Ddl(ddl)   => match ddl {
-            DdlStatement::CreateFunction(cf)  => (cf.span.start, cf.span.end),
-            DdlStatement::CreateProcedure(cp) => (cp.span.start, cp.span.end),
+            // For functions/procedures, prefer body_start so inner diagnostics
+            // are shown at the body ($$) rather than the CREATE keyword.
+            DdlStatement::CreateFunction(cf)  => (
+                if cf.body_start > 0 { cf.body_start } else { cf.span.start },
+                cf.span.end,
+            ),
+            DdlStatement::CreateProcedure(cp) => (
+                if cp.body_start > 0 { cp.body_start } else { cp.span.start },
+                cp.span.end,
+            ),
             DdlStatement::CreatePolicy(p)     => (p.span.start,  p.span.end),
             DdlStatement::CreateTable(ct)     => (ct.span.start, ct.span.end),
             _ => return None,

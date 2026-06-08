@@ -235,7 +235,54 @@ fn terminates_binding(s: &str) -> bool {
     )
 }
 
-// ── First pass: FROM/JOIN table + alias discovery ─────────────────────────────
+// ── Color assignment ──────────────────────────────────────────────────────────
+
+fn assign_color(name: &str, next_color: &mut u32, color_map: &mut HashMap<String, u32>) -> u32 {
+    if let Some(&c) = color_map.get(name) {
+        return c;
+    }
+    let c = *next_color % N_COLORS as u32;
+    *next_color += 1;
+    color_map.insert(name.to_string(), c);
+    c
+}
+
+// ── Table name parser (schema.table or plain table) ──────────────────────────
+
+/// Consume a table reference starting at `tokens[i]`, push a colored span, and
+/// return the local table name (after the dot for schema-qualified names).
+/// Advances `i` past the consumed tokens.
+fn consume_table(
+    tokens: &[Tok],
+    i: &mut usize,
+    next_color: &mut u32,
+    color_map: &mut HashMap<String, u32>,
+    spans: &mut Vec<ColoredSpan>,
+) -> Option<String> {
+    let n = tokens.len();
+    if *i >= n || tokens[*i].kind != TokKind::Ident { return None; }
+
+    let mut table_name = tokens[*i].text.clone();
+    let table_line = tokens[*i].line;
+    let table_col  = tokens[*i].col;
+    let table_len  = tokens[*i].len;
+    *i += 1;
+
+    if *i + 1 < n && tokens[*i].kind == TokKind::Dot && tokens[*i + 1].kind == TokKind::Ident {
+        // schema.table — color only the table part
+        table_name = tokens[*i + 1].text.clone();
+        let tbl = &tokens[*i + 1];
+        let color = assign_color(&table_name, next_color, color_map);
+        spans.push(ColoredSpan { line: tbl.line, col: tbl.col, len: tbl.len, color_index: color });
+        *i += 2;
+    } else {
+        let color = assign_color(&table_name, next_color, color_map);
+        spans.push(ColoredSpan { line: table_line, col: table_col, len: table_len, color_index: color });
+    }
+    Some(table_name)
+}
+
+// ── First pass: table/alias discovery (FROM/JOIN/INSERT/UPDATE) ───────────────
 
 /// Returns (color_map, spans).
 /// color_map maps lowercased table names and aliases → color index.
@@ -246,17 +293,6 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
 
     let n = tokens.len();
     let mut i = 0;
-
-    // Assigns a color to `name` (reusing existing assignment if present).
-    let assign_color = |name: &str, next_color: &mut u32, color_map: &mut HashMap<String, u32>| -> u32 {
-        if let Some(&c) = color_map.get(name) {
-            return c;
-        }
-        let c = *next_color % N_COLORS as u32;
-        *next_color += 1;
-        color_map.insert(name.to_string(), c);
-        c
-    };
 
     while i < n {
         let tok = &tokens[i];
@@ -271,110 +307,138 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
             continue;
         }
 
-        if !is_from_or_join(&tok.text) {
+        // ── FROM / JOIN ───────────────────────────────────────────────────────
+        if is_from_or_join(&tok.text) {
             i += 1;
-            continue;
-        }
+            if i >= n || tokens[i].kind != TokKind::Ident { continue; }
 
-        // Advance past the FROM/JOIN keyword
-        i += 1;
-
-        // Expect an identifier (possibly schema.table)
-        if i >= n || tokens[i].kind != TokKind::Ident {
-            continue;
-        }
-
-        // Skip subqueries starting with (
-        // (already filtered by tokenizer — LParen will be next tok)
-        if i < n && tokens[i].kind == TokKind::LParen {
-            // subquery — skip until matching )
-            let mut depth = 0i32;
-            while i < n {
-                match tokens[i].kind {
-                    TokKind::LParen => { depth += 1; i += 1; }
-                    TokKind::RParen => { depth -= 1; i += 1; if depth <= 0 { break; } }
-                    _ => { i += 1; }
+            // Skip subqueries starting with (
+            if tokens[i].kind == TokKind::LParen {
+                let mut depth = 0i32;
+                while i < n {
+                    match tokens[i].kind {
+                        TokKind::LParen => { depth += 1; i += 1; }
+                        TokKind::RParen => { depth -= 1; i += 1; if depth <= 0 { break; } }
+                        _ => { i += 1; }
+                    }
                 }
+                continue;
             }
-            continue;
-        }
 
-        if i >= n || tokens[i].kind != TokKind::Ident {
-            continue;
-        }
+            let table_name = match consume_table(tokens, &mut i, &mut next_color, &mut color_map, &mut spans) {
+                Some(n) => n,
+                None => continue,
+            };
 
-        // Collect schema.table (two idents separated by a dot)
-        let mut table_name = tokens[i].text.clone();
-        let table_tok_line = tokens[i].line;
-        let table_tok_col = tokens[i].col;
-        let table_tok_len = tokens[i].len;
-        i += 1;
+            let color = *color_map.get(&table_name).unwrap();
 
-        if i + 1 < n && tokens[i].kind == TokKind::Dot && tokens[i + 1].kind == TokKind::Ident {
-            // schema.table — use only the table part as the color key
-            table_name = tokens[i + 1].text.clone();
-            let tbl_tok = &tokens[i + 1];
-            let color = assign_color(&table_name, &mut next_color, &mut color_map);
-            spans.push(ColoredSpan {
-                line: tbl_tok.line,
-                col: tbl_tok.col,
-                len: tbl_tok.len,
-                color_index: color,
-            });
-            i += 2;
-        } else {
-            // Plain table name
-            let color = assign_color(&table_name, &mut next_color, &mut color_map);
-            spans.push(ColoredSpan {
-                line: table_tok_line,
-                col: table_tok_col,
-                len: table_tok_len,
-                color_index: color,
-            });
-        }
+            if i >= n { continue; }
+            let maybe_as = &tokens[i];
 
-        let color = *color_map.get(&table_name).unwrap();
-
-        // Now look for an alias.
-        // Skip if next token terminates the clause or is another join keyword.
-        if i >= n { continue; }
-
-        let maybe_as = &tokens[i];
-
-        if maybe_as.kind == TokKind::Ident && maybe_as.text == "as" {
-            // Explicit AS alias
-            i += 1;
-            if i < n && tokens[i].kind == TokKind::Ident && !terminates_binding(&tokens[i].text) {
+            if maybe_as.kind == TokKind::Ident && maybe_as.text == "as" {
+                i += 1;
+                if i < n && tokens[i].kind == TokKind::Ident && !terminates_binding(&tokens[i].text) {
+                    let alias_tok = &tokens[i];
+                    let alias = alias_tok.text.clone();
+                    let color = *color_map.entry(alias.clone()).or_insert(color);
+                    spans.push(ColoredSpan { line: alias_tok.line, col: alias_tok.col, len: alias_tok.len, color_index: color });
+                    i += 1;
+                }
+            } else if maybe_as.kind == TokKind::Ident
+                && !terminates_binding(&maybe_as.text)
+                && !is_from_or_join(&maybe_as.text)
+                && !is_join_modifier(&maybe_as.text)
+            {
                 let alias_tok = &tokens[i];
                 let alias = alias_tok.text.clone();
                 let color = *color_map.entry(alias.clone()).or_insert(color);
-                spans.push(ColoredSpan {
-                    line: alias_tok.line,
-                    col: alias_tok.col,
-                    len: alias_tok.len,
-                    color_index: color,
-                });
+                spans.push(ColoredSpan { line: alias_tok.line, col: alias_tok.col, len: alias_tok.len, color_index: color });
                 i += 1;
             }
-        } else if maybe_as.kind == TokKind::Ident
-            && !terminates_binding(&maybe_as.text)
-            && !is_from_or_join(&maybe_as.text)
-            && !is_join_modifier(&maybe_as.text)
-        {
-            // Implicit alias — but must not be a join modifier or from keyword that
-            // starts the next binding
-            let alias_tok = &tokens[i];
-            let alias = alias_tok.text.clone();
-            let color = *color_map.entry(alias.clone()).or_insert(color);
-            spans.push(ColoredSpan {
-                line: alias_tok.line,
-                col: alias_tok.col,
-                len: alias_tok.len,
-                color_index: color,
-            });
-            i += 1;
+            continue;
         }
-        // If neither, the table has no alias; table_name itself is in the map already.
+
+        // ── INSERT [INTO] table ────────────────────────────────────────────────
+        if tok.text == "insert" {
+            i += 1;
+            // Skip optional INTO keyword
+            if i < n && tokens[i].kind == TokKind::Ident && tokens[i].text == "into" {
+                i += 1;
+            }
+            // Skip subqueries
+            if i < n && tokens[i].kind == TokKind::LParen {
+                i += 1;
+                continue;
+            }
+            consume_table(tokens, &mut i, &mut next_color, &mut color_map, &mut spans);
+            continue;
+        }
+
+        // ── UPDATE table ──────────────────────────────────────────────────────
+        if tok.text == "update" {
+            i += 1;
+            consume_table(tokens, &mut i, &mut next_color, &mut color_map, &mut spans);
+            continue;
+        }
+
+        i += 1;
+    }
+
+    (color_map, spans)
+}
+
+// ── PL/pgSQL DECLARE pass: variable declaration coloring ─────────────────────
+
+/// Returns (var_color_map, spans).
+/// Scans DECLARE...BEGIN sections and colors declared variable names.
+fn declare_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
+    let mut color_map: HashMap<String, u32> = HashMap::new();
+    let mut spans: Vec<ColoredSpan> = Vec::new();
+    let mut next_color: u32 = 0;
+    let n = tokens.len();
+    let mut i = 0;
+
+    while i < n {
+        let tok = &tokens[i];
+        if tok.kind != TokKind::Ident || tok.text != "declare" {
+            i += 1;
+            continue;
+        }
+        i += 1;
+
+        // Inside DECLARE section: first ident on each declaration is the variable name.
+        // A new declaration starts after DECLARE or after a semicolon (Other ";").
+        let mut at_decl_start = true;
+
+        while i < n {
+            let t = &tokens[i];
+            match t.kind {
+                TokKind::Ident => {
+                    if t.text == "begin" || t.text == "end" {
+                        break;
+                    }
+                    // Skip modifier keywords that prefix a declaration
+                    if matches!(t.text.as_str(), "constant" | "not" | "null" | "default") {
+                        at_decl_start = false;
+                        i += 1;
+                        continue;
+                    }
+                    if at_decl_start {
+                        let color = assign_color(&t.text, &mut next_color, &mut color_map);
+                        spans.push(ColoredSpan { line: t.line, col: t.col, len: t.len, color_index: color });
+                        at_decl_start = false;
+                    }
+                    i += 1;
+                }
+                TokKind::Other => {
+                    if t.text == ";" {
+                        at_decl_start = true;
+                    }
+                    i += 1;
+                }
+                _ => { i += 1; }
+            }
+        }
     }
 
     (color_map, spans)
@@ -422,9 +486,16 @@ fn second_pass(tokens: &[Tok], color_map: &HashMap<String, u32>) -> Vec<ColoredS
 pub fn compute_semantic_tokens(sql: &str) -> Vec<SemanticToken> {
     let tokens = tokenize(sql);
 
-    let (color_map, mut spans) = first_pass(&tokens);
-    let second = second_pass(&tokens, &color_map);
+    let (mut color_map, mut spans) = first_pass(&tokens);
+    let (var_color_map, var_spans) = declare_pass(&tokens);
 
+    // Merge variable colors into the main map (table names win on conflict).
+    for (k, v) in var_color_map {
+        color_map.entry(k).or_insert(v);
+    }
+    spans.extend(var_spans);
+
+    let second = second_pass(&tokens, &color_map);
     spans.extend(second);
 
     // Sort by position (line asc, col asc). Deduplicate overlapping spans from

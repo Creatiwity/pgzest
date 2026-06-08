@@ -136,6 +136,9 @@ pub enum ReturnType {
 pub struct CreateFunction {
     pub id: NodeId,
     pub span: Span,
+    /// Byte offset in the source file where the body (AS $$) begins.
+    /// Set to 0 when unknown (e.g. non-dollar-quoted bodies).
+    pub body_start: u32,
     pub name: ObjectName,
     pub or_replace: bool,
     pub params: Vec<FunctionParam>,
@@ -159,6 +162,8 @@ pub enum Volatility {
 pub struct CreateProcedure {
     pub id: NodeId,
     pub span: Span,
+    /// Byte offset in the source file where the body (AS $$) begins.
+    pub body_start: u32,
     pub name: ObjectName,
     pub or_replace: bool,
     pub params: Vec<FunctionParam>,

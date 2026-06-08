@@ -40,6 +40,7 @@ pub fn generate_updated_at_trigger(table_name: &str) -> Vec<Statement> {
     let function = Statement::Ddl(DdlStatement::CreateFunction(CreateFunction {
         id: NodeId::DUMMY,
         span: Span::DUMMY,
+        body_start: 0,
         name: ObjectName::unquoted(&[&fn_name]),
         or_replace: true,
         params: vec![],

@@ -632,6 +632,7 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                         let proc = CreateProcedure {
                             id: cf.id,
                             span: cf.span,
+                            body_start: 0,
                             name: cf.name,
                             or_replace: cf.or_replace,
                             params: cf.params,
@@ -644,6 +645,23 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                 }
             }
             set_stmt_span(&mut stmt, *byte_offset, byte_offset + stmt_sql.len());
+            // Set body_start for CREATE FUNCTION/PROCEDURE so inner diagnostics
+            // point to the body ($$) rather than the CREATE keyword.
+            if meta.is_some() {
+                let body_in_stmt = find_body_start(stmt_sql);
+                if body_in_stmt < stmt_sql.len() {
+                    let global_body_start = (*byte_offset + body_in_stmt) as u32;
+                    match &mut stmt {
+                        Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) => {
+                            cf.body_start = global_body_start;
+                        }
+                        Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(cp)) => {
+                            cp.body_start = global_body_start;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             result.push(stmt);
         }
     }

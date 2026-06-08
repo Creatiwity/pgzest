@@ -393,15 +393,19 @@ impl LanguageServer for PgsqlBackend {
         let role = self.role_of(&uri).await;
         let resolver = self.resolver().await;
 
-        let hover_text: Option<String> = if matches!(role, FileRole::Schema) {
-            hover_schema_file(&text, &word, resolver.as_ref())
-        } else {
-            let stmts = match pgsql_parser::parse(&text) {
-                Ok(s) => s,
-                Err(_) => return Ok(None),
-            };
-            hover_query(&stmts, resolver.as_ref(), &word)
-        };
+        // Parse once — needed for both PL/pgSQL var lookup and query hover.
+        let stmts = pgsql_parser::parse(&text).unwrap_or_default();
+
+        let hover_text: Option<String> =
+            // PL/pgSQL declared variables / parameters take priority in any file type.
+            hover_plpgsql_var(&stmts, offset as usize, &word)
+            .or_else(|| {
+                if matches!(role, FileRole::Schema) {
+                    hover_schema_file(&text, &word, resolver.as_ref())
+                } else {
+                    hover_query(&stmts, resolver.as_ref(), &word)
+                }
+            });
 
         Ok(hover_text.map(|value| Hover {
             contents: HoverContents::Markup(MarkupContent {
@@ -572,8 +576,28 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
         return Some(fmt_table_hover(&table.name, word, table));
     }
 
-    // Column name anywhere
     let lower = word.to_lowercase();
+
+    // Function signature?
+    let func_candidates = [
+        format!("public.{}", lower),
+        lower.clone(),
+    ];
+    for key in &func_candidates {
+        if let Some(sig) = schema.get_function(key) {
+            let params_str = sig.params.iter()
+                .map(|dt| format!("`{}`", data_type_to_sql(dt)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Some(format!(
+                "(function) **{}**({}): `{}`",
+                sig.name, params_str,
+                data_type_to_sql(&sig.return_type)
+            ));
+        }
+    }
+
+    // Column name anywhere
     for table_name in schema.all_table_names() {
         if let Some(table) = schema.get_table(table_name) {
             if let Some(col) = table.get_column(&lower) {
@@ -584,6 +608,72 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
                     col.name,
                     data_type_to_sql(&col.data_type), nn
                 ));
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if `word` (lowercased) is a declared variable or parameter in any
+/// function/procedure whose span contains `cursor_offset`.
+fn hover_plpgsql_var(
+    stmts: &[pgsql_ast::Statement],
+    cursor_offset: usize,
+    word: &str,
+) -> Option<String> {
+    use pgsql_ast::ddl::FunctionBody;
+    use pgsql_ast::Statement;
+    let lower = word.to_lowercase();
+
+    for stmt in stmts {
+        let (span, params, declare) = match stmt {
+            Statement::Ddl(pgsql_ast::DdlStatement::CreateFunction(cf)) => {
+                let decls = match &cf.body {
+                    FunctionBody::Parsed(b) => Some(b.declare.as_slice()),
+                    _ => None,
+                };
+                (cf.span, cf.params.as_slice(), decls)
+            }
+            Statement::Ddl(pgsql_ast::DdlStatement::CreateProcedure(cp)) => {
+                let decls = match &cp.body {
+                    FunctionBody::Parsed(b) => Some(b.declare.as_slice()),
+                    _ => None,
+                };
+                (cp.span, cp.params.as_slice(), decls)
+            }
+            _ => continue,
+        };
+
+        // Only consider functions whose span actually contains the cursor.
+        if span.end == 0 { continue; }
+        if !(span.start as usize <= cursor_offset && cursor_offset < span.end as usize) {
+            continue;
+        }
+
+        // DECLARE variables
+        if let Some(decls) = declare {
+            for decl in decls {
+                if decl.name.value.to_lowercase() == lower {
+                    return Some(format!(
+                        "(variable) **{}**: `{}`",
+                        decl.name.value,
+                        data_type_to_sql(&decl.data_type)
+                    ));
+                }
+            }
+        }
+
+        // Function / procedure parameters
+        for param in params {
+            if let Some(name) = &param.name {
+                if name.value.to_lowercase() == lower {
+                    return Some(format!(
+                        "(parameter) **{}**: `{}`",
+                        name.value,
+                        data_type_to_sql(&param.data_type)
+                    ));
+                }
             }
         }
     }
