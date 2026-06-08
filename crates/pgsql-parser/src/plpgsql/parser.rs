@@ -17,12 +17,21 @@ use super::{
 // ── Public entry point ──────────────────────────────────────────────────────
 
 pub fn parse_plpgsql_body(body: &str) -> Result<PlpgsqlBody, PlParseError> {
+    parse_plpgsql_body_at(body, 0)
+}
+
+/// Like `parse_plpgsql_body` but takes the byte offset of the body string
+/// within the full source file. Used to produce file-accurate diagnostic spans
+/// for SQL fragments embedded in PL/pgSQL bodies.
+pub fn parse_plpgsql_body_at(body: &str, file_body_offset: usize) -> Result<PlpgsqlBody, PlParseError> {
     let mut lexer = Lexer::new(body);
-    let tokens = lexer.tokenize_all();
+    let (tokens, token_offsets) = lexer.tokenize_all_with_offsets();
     let mut parser = Parser {
         tokens,
         pos: 0,
         source: body.to_string(),
+        token_offsets,
+        file_body_offset,
     };
     parser.parse_body()
 }
@@ -34,6 +43,11 @@ struct Parser {
     pos: usize,
     #[allow(dead_code)]
     source: String,
+    /// Byte offset of each token within the body string.
+    token_offsets: Vec<usize>,
+    /// Byte offset of the body string within the full source file.
+    /// Used to shift SQL fragment spans to their file-absolute positions.
+    file_body_offset: usize,
 }
 
 impl Parser {
@@ -595,9 +609,10 @@ impl Parser {
 
         // RETURN QUERY
         if self.eat_keyword(Keyword::ReturnQuery) {
+            let frag_start = self.pos;
             let fragment = self.extract_until_semi_balanced();
             self.eat_token(&Token::Semi);
-            match self.parse_sql_fragment(&fragment) {
+            match self.parse_sql_fragment(&fragment, frag_start) {
                 Ok(pgsql_ast::Statement::Select(sel)) => {
                     return Ok(PlStatement::ReturnQuery(sel));
                 }
@@ -714,9 +729,10 @@ impl Parser {
             Ok(PlStatement::Assign { target, value })
         } else {
             // Not an assignment — treat as a raw SQL fragment
+            let frag_start = self.pos;
             let fragment = self.extract_until_semi_balanced();
             self.eat_token(&Token::Semi);
-            match self.parse_sql_fragment(&fragment) {
+            match self.parse_sql_fragment(&fragment, frag_start) {
                 Ok(stmt) => Ok(PlStatement::Sql(stmt)),
                 Err(e) => Err(PlParseError::Unsupported(format!(
                     "cannot parse SQL statement: {} (fragment: {})",
@@ -730,6 +746,7 @@ impl Parser {
     // ── SELECT INTO / PERFORM ─────────────────────────────────────────────
 
     fn parse_select_into_or_perform(&mut self) -> Result<PlStatement, PlParseError> {
+        let frag_start = self.pos;
         let fragment = self.extract_until_semi_balanced();
         self.eat_token(&Token::Semi);
 
@@ -780,7 +797,7 @@ impl Parser {
                 let select_without_into =
                     format!("{} {}", before_into.trim(), rest.trim()).trim().to_string();
 
-                if let Ok(stmt) = self.parse_sql_fragment(&select_without_into) {
+                if let Ok(stmt) = self.parse_sql_fragment(&select_without_into, frag_start) {
                     if let pgsql_ast::Statement::Select(sel) = stmt {
                         return Ok(PlStatement::SelectInto {
                             strict,
@@ -793,7 +810,7 @@ impl Parser {
         }
 
         // Fallback: regular SQL statement
-        match self.parse_sql_fragment(&fragment) {
+        match self.parse_sql_fragment(&fragment, frag_start) {
             Ok(stmt) => Ok(PlStatement::Sql(stmt)),
             Err(e) => Err(PlParseError::Unsupported(format!(
                 "cannot parse SQL fragment: {} | fragment: {}",
@@ -804,13 +821,14 @@ impl Parser {
     }
 
     fn parse_dml_statement(&mut self) -> Result<PlStatement, PlParseError> {
+        let frag_start = self.pos;
         let fragment = self.extract_until_semi_balanced();
         self.eat_token(&Token::Semi);
         // Strip `RETURNING ... INTO var` — PL/pgSQL captures RETURNING results
         // into variables with `RETURNING cols INTO var`, but sqlparser only
         // understands standard SQL `RETURNING cols`. Strip the `INTO var` tail.
         let clean = strip_returning_into(&fragment);
-        match self.parse_sql_fragment(clean) {
+        match self.parse_sql_fragment(clean, frag_start) {
             Ok(stmt) => Ok(PlStatement::Sql(stmt)),
             Err(e) => Err(PlParseError::Unsupported(format!(
                 "cannot parse DML: {} | fragment: {}",
@@ -865,7 +883,7 @@ impl Parser {
         // Check if this is a range FOR (expr .. expr) or query FOR
         // Peek ahead to detect ".." after an expression
         // Strategy: collect tokens until LOOP, looking for DotDot
-        let _saved_pos = self.pos;
+        let saved_pos = self.pos;
         let range_body = self.collect_until_loop();
 
         // Check if range body contains ".."
@@ -930,7 +948,7 @@ impl Parser {
             self.expect_keyword(Keyword::Loop)?;
             self.eat_token(&Token::Semi);
 
-            match self.parse_sql_fragment(&query_str) {
+            match self.parse_sql_fragment(&query_str, saved_pos) {
                 Ok(pgsql_ast::Statement::Select(sel)) => Ok(PlStatement::ForSelect {
                     var,
                     query: sel,
@@ -1401,14 +1419,66 @@ impl Parser {
 
     // ── SQL fragment parser ───────────────────────────────────────────────
 
-    fn parse_sql_fragment(&self, sql: &str) -> Result<pgsql_ast::Statement, PlParseError> {
+    /// Parse a SQL fragment string. `token_start` is the `self.pos` value
+    /// captured immediately before the extraction that produced `sql`; it's
+    /// used to compute the fragment's byte offset within the source file so
+    /// that diagnostic spans point to the correct line.
+    fn parse_sql_fragment(&self, sql: &str, token_start: usize) -> Result<pgsql_ast::Statement, PlParseError> {
         let trimmed = sql.trim().trim_end_matches(';');
         let full = format!("{};", trimmed);
         match crate::parse(&full) {
-            Ok(stmts) if !stmts.is_empty() => Ok(stmts.into_iter().next().unwrap()),
+            Ok(stmts) if !stmts.is_empty() => {
+                let mut stmt = stmts.into_iter().next().unwrap();
+                // Shift the statement span from fragment-relative (start=0) to
+                // the actual byte position in the source file.
+                let body_offset = self.token_offsets
+                    .get(token_start)
+                    .copied()
+                    .unwrap_or(0);
+                let file_offset = self.file_body_offset + body_offset;
+                if file_offset > 0 {
+                    shift_stmt_span(&mut stmt, file_offset);
+                }
+                Ok(stmt)
+            }
             Ok(_) => Err(PlParseError::Unsupported("empty parse result".to_string())),
             Err(e) => Err(PlParseError::Unsupported(e.to_string())),
         }
+    }
+}
+
+/// Add `offset` to the byte-level span of a statement.
+fn shift_stmt_span(stmt: &mut pgsql_ast::Statement, offset: usize) {
+    use pgsql_ast::{DdlStatement, Statement::*};
+    let off = offset as u32;
+    match stmt {
+        Select(s) => {
+            s.span.start = s.span.start.saturating_add(off);
+            s.span.end   = s.span.end.saturating_add(off);
+        }
+        Insert(s) => {
+            s.span.start = s.span.start.saturating_add(off);
+            s.span.end   = s.span.end.saturating_add(off);
+        }
+        Update(s) => {
+            s.span.start = s.span.start.saturating_add(off);
+            s.span.end   = s.span.end.saturating_add(off);
+        }
+        Delete(s) => {
+            s.span.start = s.span.start.saturating_add(off);
+            s.span.end   = s.span.end.saturating_add(off);
+        }
+        Ddl(ddl) => match ddl {
+            DdlStatement::CreateTable(ct) => {
+                ct.span.start = ct.span.start.saturating_add(off);
+                ct.span.end   = ct.span.end.saturating_add(off);
+            }
+            DdlStatement::CreateFunction(cf) => {
+                cf.span.start = cf.span.start.saturating_add(off);
+                cf.span.end   = cf.span.end.saturating_add(off);
+            }
+            _ => {}
+        },
     }
 }
 

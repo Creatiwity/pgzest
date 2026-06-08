@@ -201,6 +201,9 @@ pub fn check_plpgsql_body(
                                 continue;
                             }
                             d.message = format!("[in {}] {}", function_name, d.message);
+                            // Clear fragment-relative spans so the outer checker can
+                            // backfill them with the function body offset (body_start).
+                            d.span = None;
                             diags.push(d);
                         }
                     }

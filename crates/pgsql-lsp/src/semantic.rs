@@ -358,7 +358,7 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
             continue;
         }
 
-        // ── INSERT [INTO] table ────────────────────────────────────────────────
+        // ── INSERT [INTO] table [(col1, col2, ...)] ───────────────────────────
         if tok.text == "insert" {
             i += 1;
             // Skip optional INTO keyword
@@ -370,14 +370,57 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
                 i += 1;
                 continue;
             }
-            consume_table(tokens, &mut i, &mut next_color, &mut color_map, &mut spans);
+            if let Some(table_name) = consume_table(tokens, &mut i, &mut next_color, &mut color_map, &mut spans) {
+                let color = *color_map.get(&table_name).unwrap();
+                // Color the explicit column list: INSERT INTO t (col1, col2, ...)
+                if i < n && tokens[i].kind == TokKind::LParen {
+                    i += 1; // consume (
+                    while i < n {
+                        match tokens[i].kind {
+                            TokKind::RParen => { i += 1; break; }
+                            TokKind::Ident => {
+                                let t = &tokens[i];
+                                spans.push(ColoredSpan { line: t.line, col: t.col, len: t.len, color_index: color });
+                                i += 1;
+                            }
+                            _ => { i += 1; }
+                        }
+                    }
+                }
+            }
             continue;
         }
 
-        // ── UPDATE table ──────────────────────────────────────────────────────
+        // ── UPDATE table SET col1 = ..., col2 = ... ───────────────────────────
         if tok.text == "update" {
             i += 1;
-            consume_table(tokens, &mut i, &mut next_color, &mut color_map, &mut spans);
+            if let Some(table_name) = consume_table(tokens, &mut i, &mut next_color, &mut color_map, &mut spans) {
+                let color = *color_map.get(&table_name).unwrap();
+                // Skip optional alias (same logic as FROM/JOIN) then find SET
+                while i < n && !(tokens[i].kind == TokKind::Ident && tokens[i].text == "set") {
+                    i += 1;
+                }
+                if i < n { i += 1; } // consume SET
+                // Color the target column in each `col = expr` assignment.
+                // Stop at WHERE / FROM / RETURNING / JOIN which end the SET clause.
+                while i < n {
+                    let t = &tokens[i];
+                    if t.kind == TokKind::Ident
+                        && matches!(t.text.as_str(), "where" | "from" | "join" | "returning")
+                    {
+                        break;
+                    }
+                    // `col =` or `alias.col =`: color the ident immediately before `=`
+                    if t.kind == TokKind::Ident
+                        && i + 1 < n
+                        && tokens[i + 1].kind == TokKind::Other
+                        && tokens[i + 1].text == "="
+                    {
+                        spans.push(ColoredSpan { line: t.line, col: t.col, len: t.len, color_index: color });
+                    }
+                    i += 1;
+                }
+            }
             continue;
         }
 
@@ -391,10 +434,12 @@ fn first_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
 
 /// Returns (var_color_map, spans).
 /// Scans DECLARE...BEGIN sections and colors declared variable names.
+/// All variables in the DECLARE section share a single color (the last slot)
+/// so they don't add visual noise when multiple tables are already colorized.
 fn declare_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
     let mut color_map: HashMap<String, u32> = HashMap::new();
     let mut spans: Vec<ColoredSpan> = Vec::new();
-    let mut next_color: u32 = 0;
+    const VAR_COLOR: u32 = (N_COLORS - 1) as u32;
     let n = tokens.len();
     let mut i = 0;
 
@@ -424,8 +469,8 @@ fn declare_pass(tokens: &[Tok]) -> (HashMap<String, u32>, Vec<ColoredSpan>) {
                         continue;
                     }
                     if at_decl_start {
-                        let color = assign_color(&t.text, &mut next_color, &mut color_map);
-                        spans.push(ColoredSpan { line: t.line, col: t.col, len: t.len, color_index: color });
+                        color_map.insert(t.text.clone(), VAR_COLOR);
+                        spans.push(ColoredSpan { line: t.line, col: t.col, len: t.len, color_index: VAR_COLOR });
                         at_decl_start = false;
                     }
                     i += 1;

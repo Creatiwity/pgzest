@@ -219,6 +219,23 @@ impl<'a> Lexer<'a> {
         }
         tokens
     }
+
+    /// Tokenize the entire input and return `(tokens, byte_offsets)` where
+    /// `byte_offsets[i]` is the byte position in the input string at which
+    /// `tokens[i]` starts (after skipping whitespace/comments).
+    pub fn tokenize_all_with_offsets(&mut self) -> (Vec<Token>, Vec<usize>) {
+        let mut tokens = Vec::new();
+        let mut offsets = Vec::new();
+        loop {
+            self.skip_whitespace_and_comments();
+            let start = self.pos;
+            let t = self.next_token();
+            if t == Token::Eof { break; }
+            tokens.push(t);
+            offsets.push(start);
+        }
+        (tokens, offsets)
+    }
 }
 
 #[cfg(test)]

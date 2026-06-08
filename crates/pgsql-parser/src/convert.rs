@@ -1311,15 +1311,9 @@ fn convert_function_body(
         }
     };
 
-    // For LANGUAGE plpgsql, attempt to parse the body with the PL/pgSQL parser
-    if matches!(language, FunctionLanguage::PlPgSql) {
-        match crate::plpgsql::parse_plpgsql_body(&raw) {
-            Ok(parsed) => return Ok(FunctionBody::Parsed(Box::new(parsed))),
-            Err(e) => {
-                eprintln!("PL/pgSQL parse warning: {}", e);
-            }
-        }
-    }
+    // PL/pgSQL bodies are parsed later in lib.rs::parse() after the file-level
+    // byte offset is known, so that inner SQL fragment spans point to the correct
+    // source line. For now, leave them as Raw; lib.rs upgrades them to Parsed.
 
     // For LANGUAGE sql, try to parse as a SelectStmt
     if matches!(language, FunctionLanguage::Sql) {
@@ -1382,13 +1376,8 @@ fn convert_create_procedure(
         .collect::<Vec<_>>()
         .join("; ");
 
-    let parsed_body = match crate::plpgsql::parse_plpgsql_body(&raw_body) {
-        Ok(parsed) => FunctionBody::Parsed(Box::new(parsed)),
-        Err(e) => {
-            eprintln!("PL/pgSQL procedure parse warning: {}", e);
-            FunctionBody::Raw(raw_body)
-        }
-    };
+    // PL/pgSQL parsing is deferred to lib.rs (with correct file offset).
+    let parsed_body = FunctionBody::Raw(raw_body);
 
     Ok(CreateProcedure {
         id: crate::next_node_id(),

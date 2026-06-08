@@ -645,18 +645,41 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                 }
             }
             set_stmt_span(&mut stmt, *byte_offset, byte_offset + stmt_sql.len());
-            // Set body_start for CREATE FUNCTION/PROCEDURE so inner diagnostics
-            // point to the body ($$) rather than the CREATE keyword.
+            // Set body_start and re-parse the PL/pgSQL body with the file offset
+            // so that inner SQL fragment spans point to the correct source line.
             if meta.is_some() {
                 let body_in_stmt = find_body_start(stmt_sql);
                 if body_in_stmt < stmt_sql.len() {
                     let global_body_start = (*byte_offset + body_in_stmt) as u32;
+                    // Find the end of the opening delimiter (e.g. $$ or $body$)
+                    // to get the offset of the body content itself.
+                    let body_bytes = stmt_sql.as_bytes();
+                    let mut delim_end = body_in_stmt + 1;
+                    while delim_end < stmt_sql.len() && body_bytes[delim_end] != b'$' {
+                        delim_end += 1;
+                    }
+                    if delim_end < stmt_sql.len() { delim_end += 1; } // skip closing $
+                    let content_file_offset = *byte_offset + delim_end;
+
                     match &mut stmt {
                         Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) => {
                             cf.body_start = global_body_start;
+                            // Re-parse with exact file offset for precise inner spans.
+                            if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cf.body {
+                                let raw = raw.clone();
+                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset) {
+                                    cf.body = pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                }
+                            }
                         }
                         Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(cp)) => {
                             cp.body_start = global_body_start;
+                            if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cp.body {
+                                let raw = raw.clone();
+                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset) {
+                                    cp.body = pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                }
+                            }
                         }
                         _ => {}
                     }
