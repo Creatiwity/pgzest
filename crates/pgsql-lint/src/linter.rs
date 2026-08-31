@@ -1,5 +1,5 @@
 use pgsql_ast::stmt::Statement;
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 use crate::config::LintConfig;
 use crate::rules;
@@ -13,7 +13,7 @@ pub struct LintResult {
 impl LintResult {
     /// Returns `true` if any diagnostic has `Severity::Error`.
     pub fn has_errors(&self) -> bool {
-        use pgsql_checker::diagnostic::Severity;
+        use pgsql_diagnostics::Severity;
         self.diagnostics
             .iter()
             .any(|d| matches!(d.severity, Severity::Error))

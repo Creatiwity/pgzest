@@ -1,8 +1,8 @@
-use crate::diagnostic::Diagnostic;
 use crate::rule::{CheckRule, RuleCtx};
-use crate::schema::SchemaProvider;
 use pgsql_ast::Statement;
 use pgsql_ast::ddl::CreateTrigger;
+use pgsql_diagnostics::Diagnostic;
+use pgsql_schema::provider::SchemaProvider;
 use std::collections::HashMap;
 
 pub struct Checker {
@@ -100,7 +100,7 @@ impl Checker {
 /// Extract the byte-offset span from any Statement variant.
 /// Returns `None` for statements whose AST node doesn't carry a span or
 /// whose span is the sentinel DUMMY value (start == 0 && end == 0).
-fn stmt_span(stmt: &Statement) -> Option<crate::diagnostic::Span> {
+fn stmt_span(stmt: &Statement) -> Option<pgsql_diagnostics::Span> {
     use pgsql_ast::{DdlStatement, Statement::*};
     let (start, end) = match stmt {
         Select(s) => (s.span.start, s.span.end),
@@ -135,7 +135,7 @@ fn stmt_span(stmt: &Statement) -> Option<crate::diagnostic::Span> {
     if start == 0 && end == 0 {
         return None;
     }
-    Some(crate::diagnostic::Span {
+    Some(pgsql_diagnostics::Span {
         start: start as usize,
         end: end as usize,
     })
@@ -149,8 +149,8 @@ fn build_trigger_map(stmts: &[Statement]) -> HashMap<String, Vec<&CreateTrigger>
     let mut map: HashMap<String, Vec<&CreateTrigger>> = HashMap::new();
     for stmt in stmts {
         if let Ddl(DdlStatement::CreateTrigger(trig)) = stmt {
-            let func_key = crate::schema::qualify_str(
-                &crate::schema::object_name_to_string(&trig.function),
+            let func_key = pgsql_schema::provider::qualify_str(
+                &pgsql_schema::provider::object_name_to_string(&trig.function),
                 "public",
             );
             map.entry(func_key).or_default().push(trig);

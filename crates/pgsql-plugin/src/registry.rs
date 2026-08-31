@@ -1,6 +1,6 @@
 use crate::plugin::Plugin;
-use pgsql_checker::SchemaProvider;
 use pgsql_checker::rule::CheckRule;
+use pgsql_schema::provider::SchemaProvider;
 use std::collections::HashMap;
 
 /// Central registry of available plugins.

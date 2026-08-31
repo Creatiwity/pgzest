@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use pgsql_ast::{AlterTableOp, DdlStatement, Statement};
-use pgsql_checker::schema::{
+use crate::provider::{
     ColumnInfo, FunctionSignature, RlsAwareSchemaProvider, SchemaProvider, TableSchema,
     object_name_to_string,
 };
+use pgsql_ast::{AlterTableOp, DdlStatement, Statement};
 
 use crate::index::{SchemaIndex, qualify};
 use crate::source::{SchemaSource, SqlChunk};

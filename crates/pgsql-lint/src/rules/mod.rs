@@ -9,7 +9,7 @@ pub mod require_pk;
 pub mod unused_join;
 
 use pgsql_ast::stmt::Statement;
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 use crate::config::LintConfig;
 

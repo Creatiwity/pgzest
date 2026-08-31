@@ -1,7 +1,7 @@
 use pgsql_ast::ddl::ReturnType;
 use pgsql_ast::types::DataType;
 use pgsql_ast::{DdlStatement, Statement};
-use pgsql_checker::object_name_to_string;
+use pgsql_schema::provider::object_name_to_string;
 use pgsql_semantic::{OutputColumn, SemanticResult};
 
 /// Generate TypeScript interface declarations from SQL statements + semantic analysis.
@@ -89,7 +89,7 @@ pub fn generate_ts_types_from_sql(sql: &str) -> String {
         Ok(s) => s,
         Err(e) => return format!("// parse error: {}\n", e),
     };
-    let schema = pgsql_checker::DdlSchemaProvider::from_statements(&stmts);
+    let schema = pgsql_schema::provider::DdlSchemaProvider::from_statements(&stmts);
     let semantic = pgsql_semantic::analyze(&stmts, &schema);
     generate_ts_types(sql, &stmts, &semantic)
 }

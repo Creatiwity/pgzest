@@ -1,4 +1,4 @@
-use pgsql_checker::schema::SchemaProvider;
+use pgsql_schema::provider::SchemaProvider;
 use pgsql_semantic::data_type_to_ts;
 use tower_lsp::lsp_types::*;
 

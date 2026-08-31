@@ -1,9 +1,9 @@
-use pgsql_checker::DdlSchemaProvider;
+use pgsql_schema::provider::DdlSchemaProvider;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct CheckResult {
-    inner: Vec<pgsql_checker::Diagnostic>,
+    inner: Vec<pgsql_diagnostics::Diagnostic>,
 }
 
 #[wasm_bindgen]
@@ -15,20 +15,20 @@ impl CheckResult {
     pub fn has_errors(&self) -> bool {
         self.inner
             .iter()
-            .any(|d| d.severity == pgsql_checker::Severity::Error)
+            .any(|d| d.severity == pgsql_diagnostics::Severity::Error)
     }
 
     pub fn error_count(&self) -> usize {
         self.inner
             .iter()
-            .filter(|d| d.severity == pgsql_checker::Severity::Error)
+            .filter(|d| d.severity == pgsql_diagnostics::Severity::Error)
             .count()
     }
 
     pub fn warning_count(&self) -> usize {
         self.inner
             .iter()
-            .filter(|d| d.severity == pgsql_checker::Severity::Warning)
+            .filter(|d| d.severity == pgsql_diagnostics::Severity::Warning)
             .count()
     }
 }

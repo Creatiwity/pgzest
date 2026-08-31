@@ -218,16 +218,19 @@ cargo build --release -p pgsql-lsp # release
 
 ```
 crates/
-  pgsql-ast/       AST types (Statement, Expr, DDL nodes, Span, NodeId)
-  pgsql-parser/    sqlparser-rs + PL/pgSQL extension → pgsql-ast
-  pgsql-checker/   Type-checker, SchemaProvider trait, check rules
-  pgsql-semantic/  Symbol table, scope tree, type inference
-  pgsql-lint/      Linting rules, LintConfig
-  pgsql-codegen/   SQL emitter, schema diff engine, TypeScript codegen
-  pgsql-lsp/       tower-lsp server (diagnostics, hover, completion)
-  pgsql-plugin/    Plugin system + PostGIS plugin
-  pgsql-plugin-wasm/ WASM plugin host (wasmi)
-  pgsql-cli/       pgsql binary (check, lint, migrate, emit, codegen)
+  pgsql-ast/         Types AST (Statement, Expr, nœuds DDL, Span, NodeId)
+  pgsql-diagnostics/ Diagnostic, Severity, Span, codes — socle sans dépendance
+  pgsql-parser/      sqlparser-rs + extension PL/pgSQL → pgsql-ast
+  pgsql-schema/      SchemaProvider + types de schéma, resolver, index, config
+  pgsql-semantic/    Table de symboles, arbre de scopes, inférence de types
+  pgsql-checker/     Type-checker (passe linéaire), CheckRule, règles
+  pgsql-lint/        Règles de lint, LintConfig
+  pgsql-codegen/     Émetteur SQL, moteur de diff, codegen TypeScript
+  pgsql-analysis/    Façade d'orchestration : parse → semantic → check → lint
+  pgsql-plugin/      Système de plugins + plugin PostGIS
+  pgsql-plugin-wasm/ Hôte de plugins WASM (wasmi)
+  pgsql-lsp/         Serveur tower-lsp (diagnostics, hover, complétion)
+  pgsql-cli/         Binaire pgsql (check, lint, migrate, emit, codegen)
 
 bindings/
   wasm/            wasm-bindgen bindings
@@ -244,6 +247,32 @@ editors/
 The AST is reordered to **logical evaluation order** (`FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY`) before type-checking. This makes the type-checker a single linear pass with no backtracking.
 
 The `SchemaProvider` trait is the single entry point for schema information. Plugins implement it to add types and functions (e.g. PostGIS spatial operators). The `CompositeSchemaProvider` merges multiple providers — first match wins.
+
+### Règle de couches
+
+Les dépendances internes forment un DAG strict, du bas vers le haut :
+
+```
+pgsql-ast · pgsql-diagnostics        (aucune dépendance interne)
+  └── pgsql-parser
+       └── pgsql-schema              (SchemaProvider vit ici)
+            ├── pgsql-semantic       ┐
+            ├── pgsql-checker        │ passes indépendantes,
+            ├── pgsql-lint           │ qui ne se connaissent pas
+            └── pgsql-codegen        ┘
+                 └── pgsql-analysis  (façade : enchaîne les passes)
+                      └── pgsql-cli · pgsql-lsp · bindings/*
+```
+
+Deux invariants à ne pas casser :
+
+1. **`pgsql-diagnostics` et `pgsql-schema` ne dépendent de personne d'utile.**
+   `Diagnostic` et `SchemaProvider` sont des contrats partagés ; ils vivaient
+   dans `pgsql-checker`, ce qui obligeait le linter à compiler le
+   type-checker et inversait la dépendance de `pgsql-schema`.
+2. **Une passe n'appelle jamais une autre passe.** `pgsql-semantic` n'appelle
+   pas le checker, `pgsql-lint` ne connaît pas le checker. Tout enchaînement
+   vit dans `pgsql-analysis`, au-dessus.
 
 See `SPECS.md` for full design decisions, `ARCHITECTURE.md` for internals, and `ROADMAP.md` for what's planned.
 

@@ -4,7 +4,7 @@
 /// which is almost never the intended behaviour. Use `NOT EXISTS (...)` instead.
 use pgsql_ast::expr::{BinaryOp, Expr};
 use pgsql_ast::stmt::{InsertSource, SelectStmt, Statement};
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
 

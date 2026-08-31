@@ -6,7 +6,7 @@
 /// existing tables.
 use pgsql_ast::ddl::{AlterTableOp, ColumnConstraint, DdlStatement};
 use pgsql_ast::stmt::Statement;
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
 

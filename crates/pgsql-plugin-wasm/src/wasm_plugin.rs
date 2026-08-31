@@ -1,6 +1,6 @@
 use crate::abi::WasmDiagnostic;
-use pgsql_checker::Diagnostic;
-use pgsql_checker::schema::SchemaProvider;
+use pgsql_diagnostics::Diagnostic;
+use pgsql_schema::provider::SchemaProvider;
 use std::path::Path;
 use wasmi::{AsContext, Engine, Linker, Module, Store};
 

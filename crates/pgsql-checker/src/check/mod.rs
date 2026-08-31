@@ -4,9 +4,9 @@ pub(crate) mod select;
 use pgsql_ast::Statement;
 use pgsql_ast::ddl::CreatePolicy;
 
-use crate::codes;
-use crate::diagnostic::Diagnostic;
-use crate::schema::{SchemaProvider, object_name_to_string};
+use pgsql_diagnostics::Diagnostic;
+use pgsql_diagnostics::codes;
+use pgsql_schema::provider::{SchemaProvider, object_name_to_string};
 
 /// Parse `sql` and type-check all resulting statements.
 pub fn check_sql(sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
@@ -34,7 +34,7 @@ pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
     };
 
     // Première passe : construire le schéma depuis le DDL du fichier lui-même
-    let schema = crate::schema::DdlSchemaProvider::from_statements(&stmts);
+    let schema = pgsql_schema::provider::DdlSchemaProvider::from_statements(&stmts);
 
     // Deuxième passe : checker tous les statements contre ce schéma
     check_statements(&stmts, &schema)
@@ -101,7 +101,7 @@ fn check_policy_expr(
     expr: &pgsql_ast::Expr,
     clause: &str,
     policy_name: &str,
-    table_schema: &crate::schema::TableSchema,
+    table_schema: &pgsql_schema::provider::TableSchema,
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
 ) {

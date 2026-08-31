@@ -1,4 +1,4 @@
-use pgsql_checker::DdlSchemaProvider;
+use pgsql_schema::provider::DdlSchemaProvider;
 use pgsql_semantic::analyze;
 
 #[test]

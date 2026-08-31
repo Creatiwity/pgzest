@@ -2,7 +2,7 @@ fn main() {
     let schema_sql = std::fs::read_to_string("examples/schema.sql").expect("read schema");
     // Parse what we can (CREATE EXTENSION will fail, that's OK)
     let stmts = pgsql_parser::parse(&schema_sql).unwrap_or_default();
-    let schema = pgsql_checker::DdlSchemaProvider::from_statements(&stmts);
+    let schema = pgsql_schema::provider::DdlSchemaProvider::from_statements(&stmts);
     let result = pgsql_semantic::analyze(&stmts, &schema);
 
     println!("=== pgsql-semantic demo ===");

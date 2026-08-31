@@ -1,6 +1,6 @@
 /// DDL role-aware lint rules.
 use pgsql_ast::{AlterTableOp, DdlStatement, Statement};
-use pgsql_checker::diagnostic::{Diagnostic, Severity};
+use pgsql_diagnostics::{Diagnostic, Severity};
 
 use crate::role::FileRole;
 

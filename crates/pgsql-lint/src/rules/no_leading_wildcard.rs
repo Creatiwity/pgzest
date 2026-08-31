@@ -4,7 +4,7 @@
 /// Use a full-text index (GIN + tsvector) or a trigram index (pg_trgm) instead.
 use pgsql_ast::expr::{BinaryOp, Expr, Literal};
 use pgsql_ast::stmt::{InsertSource, SelectStmt, Statement};
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
 

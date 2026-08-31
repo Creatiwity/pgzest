@@ -1,5 +1,5 @@
 use crate::plugin::Plugin;
-use pgsql_checker::schema::SchemaProvider;
+use pgsql_schema::provider::SchemaProvider;
 
 pub struct PrismaPlugin;
 

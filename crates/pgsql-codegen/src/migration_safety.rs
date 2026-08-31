@@ -4,7 +4,7 @@
 //! and produce diagnostics about unsafe operations.
 
 use crate::diff::{DiffOp, MigrationDiff};
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 /// Check a migration diff for potentially dangerous operations.
 /// Returns a list of warnings/errors to show to the user before applying.

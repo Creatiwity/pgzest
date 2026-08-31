@@ -1,6 +1,6 @@
 use pgsql_ast::types::DataType;
 use pgsql_ast::{DdlStatement, NodeId, SelectItem, Span, Statement};
-use pgsql_checker::schema::{SchemaProvider, object_name_to_string};
+use pgsql_schema::provider::{SchemaProvider, object_name_to_string};
 use std::collections::HashMap;
 
 use crate::infer::{OutputColumn, infer_expr_type};

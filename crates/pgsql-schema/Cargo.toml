@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 pgsql-ast    = { path = "../pgsql-ast" }
+pgsql-diagnostics = { workspace = true }
 pgsql-parser = { path = "../pgsql-parser" }
-pgsql-checker = { path = "../pgsql-checker" }
 serde        = { workspace = true, features = ["derive"] }
+serde_json   = { workspace = true }
 toml         = { workspace = true }

@@ -3,7 +3,7 @@ use pgsql_ast::expr::{Ident, ObjectName};
 use pgsql_ast::node::{NodeId, Span};
 use pgsql_ast::stmt::{SelectItem, SelectStmt, Statement};
 use pgsql_ast::types::DataType;
-use pgsql_checker::diagnostic::Severity;
+use pgsql_diagnostics::Severity;
 use pgsql_lint::config::LintConfig;
 use pgsql_lint::lint_statements;
 
@@ -68,7 +68,7 @@ fn simple_col(name: &str) -> ColumnDef {
     }
 }
 
-fn col_codes(diags: &[pgsql_checker::diagnostic::Diagnostic]) -> Vec<&str> {
+fn col_codes(diags: &[pgsql_diagnostics::Diagnostic]) -> Vec<&str> {
     diags.iter().map(|d| d.code).collect()
 }
 

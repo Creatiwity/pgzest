@@ -796,12 +796,27 @@ dependencies = [
  "pgsql-ast",
  "pgsql-checker",
  "pgsql-codegen",
+ "pgsql-diagnostics",
  "pgsql-lint",
  "pgsql-parser",
  "pgsql-plugin",
  "pgsql-plugin-wasm",
+ "pgsql-schema",
  "pgsql-semantic",
  "serde",
+]
+
+[[package]]
+name = "pgsql-analysis"
+version = "0.1.0"
+dependencies = [
+ "pgsql-ast",
+ "pgsql-checker",
+ "pgsql-diagnostics",
+ "pgsql-lint",
+ "pgsql-parser",
+ "pgsql-schema",
+ "pgsql-semantic",
 ]
 
 [[package]]
@@ -816,7 +831,9 @@ name = "pgsql-checker"
 version = "0.1.0"
 dependencies = [
  "pgsql-ast",
+ "pgsql-diagnostics",
  "pgsql-parser",
+ "pgsql-schema",
  "serde",
  "serde_json",
  "thiserror",
@@ -827,11 +844,19 @@ name = "pgsql-codegen"
 version = "0.1.0"
 dependencies = [
  "pgsql-ast",
- "pgsql-checker",
+ "pgsql-diagnostics",
  "pgsql-parser",
+ "pgsql-schema",
  "pgsql-semantic",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "pgsql-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -839,7 +864,7 @@ name = "pgsql-lint"
 version = "0.1.0"
 dependencies = [
  "pgsql-ast",
- "pgsql-checker",
+ "pgsql-diagnostics",
  "pgsql-parser",
  "serde",
  "thiserror",
@@ -851,6 +876,7 @@ version = "0.1.0"
 dependencies = [
  "pgsql-ast",
  "pgsql-checker",
+ "pgsql-diagnostics",
  "pgsql-lint",
  "pgsql-parser",
  "pgsql-plugin-wasm",
@@ -871,8 +897,10 @@ dependencies = [
  "napi-derive",
  "pgsql-checker",
  "pgsql-codegen",
+ "pgsql-diagnostics",
  "pgsql-lint",
  "pgsql-parser",
+ "pgsql-schema",
  "serde",
  "serde_json",
 ]
@@ -893,6 +921,8 @@ version = "0.1.0"
 dependencies = [
  "pgsql-ast",
  "pgsql-checker",
+ "pgsql-diagnostics",
+ "pgsql-schema",
  "serde",
  "serde_json",
  "thiserror",
@@ -905,7 +935,9 @@ version = "0.1.0"
 dependencies = [
  "pgsql-ast",
  "pgsql-checker",
+ "pgsql-diagnostics",
  "pgsql-plugin",
+ "pgsql-schema",
  "serde",
  "serde_json",
  "thiserror",
@@ -917,9 +949,10 @@ name = "pgsql-schema"
 version = "0.1.0"
 dependencies = [
  "pgsql-ast",
- "pgsql-checker",
+ "pgsql-diagnostics",
  "pgsql-parser",
  "serde",
+ "serde_json",
  "toml",
 ]
 
@@ -928,8 +961,9 @@ name = "pgsql-semantic"
 version = "0.1.0"
 dependencies = [
  "pgsql-ast",
- "pgsql-checker",
+ "pgsql-diagnostics",
  "pgsql-parser",
+ "pgsql-schema",
  "serde",
  "serde_json",
 ]
@@ -940,8 +974,10 @@ version = "0.1.0"
 dependencies = [
  "pgsql-checker",
  "pgsql-codegen",
+ "pgsql-diagnostics",
  "pgsql-lint",
  "pgsql-parser",
+ "pgsql-schema",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

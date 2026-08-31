@@ -1,7 +1,7 @@
-use crate::diagnostic::Diagnostic;
-use crate::schema::SchemaProvider;
 use pgsql_ast::ddl::{CreateFunction, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger};
 use pgsql_ast::stmt::{DeleteStmt, InsertStmt, SelectStmt, UpdateStmt};
+use pgsql_diagnostics::Diagnostic;
+use pgsql_schema::provider::SchemaProvider;
 use std::collections::HashMap;
 
 /// Context passed to every rule invocation.

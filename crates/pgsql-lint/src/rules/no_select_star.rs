@@ -3,7 +3,7 @@
 /// SELECT * makes schema changes silently break downstream consumers.
 /// Prefer explicitly listing columns.
 use pgsql_ast::stmt::{SelectItem, SelectStmt, Statement};
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
 

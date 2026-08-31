@@ -1,10 +1,10 @@
 use crate::check::plpgsql::TriggerCtx;
-use crate::codes;
 use crate::rule::{CheckRule, RuleCtx};
-use crate::schema::object_name_to_string;
 use pgsql_ast::ddl::{
     CreateFunction, CreateProcedure, FunctionBody, ReturnType, TriggerEvent, TriggerForEach,
 };
+use pgsql_diagnostics::codes;
+use pgsql_schema::provider::object_name_to_string;
 
 pub struct FunctionBodyCheck;
 
@@ -21,7 +21,7 @@ impl CheckRule for FunctionBodyCheck {
             let e005_fired = ctx.diags.len() > diags_before;
             if tc.is_none() && !e005_fired {
                 ctx.diags.push(
-                    crate::diagnostic::Diagnostic::warning(
+                    pgsql_diagnostics::Diagnostic::warning(
                         codes::TRIGGER_NO_CONTEXT,
                         format!(
                             "trigger function '{}' has no associated CREATE TRIGGER in the \
@@ -95,7 +95,7 @@ impl CheckRule for FunctionBodyCheck {
 /// Emits E005 if multiple triggers reference the same function but point to
 /// different tables — the checker cannot determine which schema to use for NEW/OLD.
 fn resolve_trigger_ctx(func_name: &str, ctx: &mut RuleCtx) -> Option<TriggerCtx> {
-    let func_key = crate::schema::qualify_str(func_name, "public");
+    let func_key = pgsql_schema::provider::qualify_str(func_name, "public");
     let triggers = ctx.trigger_map.get(&func_key)?;
 
     // Collect distinct trigger tables.
@@ -103,14 +103,16 @@ fn resolve_trigger_ctx(func_name: &str, ctx: &mut RuleCtx) -> Option<TriggerCtx>
         let mut seen = std::collections::HashSet::new();
         triggers
             .iter()
-            .map(|t| crate::schema::qualify_str(&object_name_to_string(&t.table), "public"))
+            .map(|t| {
+                pgsql_schema::provider::qualify_str(&object_name_to_string(&t.table), "public")
+            })
             .filter(|t| seen.insert(t.clone()))
             .collect()
     };
 
     if tables.len() > 1 {
         ctx.diags.push(
-            crate::diagnostic::Diagnostic::error(
+            pgsql_diagnostics::Diagnostic::error(
                 codes::TRIGGER_AMBIGUOUS_TABLE,
                 format!(
                     "trigger function '{}' is used by triggers on different tables ({}): \

@@ -3,7 +3,7 @@ use crate::symbol::SymbolTable;
 use pgsql_ast::NodeId;
 use pgsql_ast::expr::{BinaryOp, Expr, Literal};
 use pgsql_ast::types::DataType;
-use pgsql_checker::schema::SchemaProvider;
+use pgsql_schema::provider::SchemaProvider;
 
 /// A resolved output column from a SELECT.
 #[derive(Debug, Clone)]

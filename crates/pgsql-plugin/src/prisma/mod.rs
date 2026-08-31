@@ -1,5 +1,5 @@
 use pgsql_ast::types::DataType;
-use pgsql_checker::schema::{ColumnInfo, FunctionSignature, SchemaProvider, TableSchema};
+use pgsql_schema::provider::{ColumnInfo, FunctionSignature, SchemaProvider, TableSchema};
 use std::collections::HashMap;
 use std::path::Path;
 

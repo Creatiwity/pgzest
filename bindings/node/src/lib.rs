@@ -9,8 +9,8 @@ pub struct JsDiagnostic {
 
 #[napi]
 pub fn check(sql: String, schema_sql: String) -> Vec<JsDiagnostic> {
-    let schema = pgsql_checker::DdlSchemaProvider::from_sql(&schema_sql)
-        .unwrap_or_else(|_| pgsql_checker::DdlSchemaProvider::from_statements(&[]));
+    let schema = pgsql_schema::provider::DdlSchemaProvider::from_sql(&schema_sql)
+        .unwrap_or_else(|_| pgsql_schema::provider::DdlSchemaProvider::from_statements(&[]));
     let diagnostics = pgsql_checker::check_sql(&sql, &schema);
     diagnostics
         .into_iter()

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use pgsql_ast::expr::Expr;
 use pgsql_ast::stmt::{JoinConstraint, SelectItem, SelectStmt, Statement};
-use pgsql_checker::diagnostic::Diagnostic;
+use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
 

@@ -9,6 +9,8 @@ crate-type = ["cdylib"]
 [dependencies]
 pgsql-parser = { path = "../../crates/pgsql-parser" }
 pgsql-checker = { path = "../../crates/pgsql-checker" }
+pgsql-diagnostics = { workspace = true }
+pgsql-schema = { path = "../../crates/pgsql-schema" }
 pgsql-lint = { path = "../../crates/pgsql-lint" }
 pgsql-codegen = { path = "../../crates/pgsql-codegen" }
 napi = { workspace = true }

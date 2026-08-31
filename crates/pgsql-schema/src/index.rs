@@ -57,7 +57,7 @@ impl SchemaIndex {
     }
 
     fn index_statement(&mut self, stmt: &Statement, chunk: &SqlChunk) {
-        use pgsql_checker::schema::object_name_to_string;
+        use crate::provider::object_name_to_string;
 
         let make_entry = |chunk: &SqlChunk| IndexEntry {
             origin: SourceOrigin {

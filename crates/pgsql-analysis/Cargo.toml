@@ -1,0 +1,13 @@
+[package]
+name = "pgsql-analysis"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgsql-ast = { path = "../pgsql-ast" }
+pgsql-diagnostics = { workspace = true }
+pgsql-parser = { path = "../pgsql-parser" }
+pgsql-schema = { path = "../pgsql-schema" }
+pgsql-semantic = { path = "../pgsql-semantic" }
+pgsql-checker = { path = "../pgsql-checker" }
+pgsql-lint = { path = "../pgsql-lint" }

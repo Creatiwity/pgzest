@@ -1,7 +1,6 @@
-use pgsql_checker::{
-    DdlSchemaProvider, IntrospectionJsonProvider, check_sql, check_sql_self_contained,
-    check_statements, codes,
-};
+use pgsql_checker::{check_sql, check_sql_self_contained, check_statements};
+use pgsql_diagnostics::codes;
+use pgsql_schema::provider::{DdlSchemaProvider, IntrospectionJsonProvider};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,7 +43,7 @@ fn missing_column_is_error() {
 
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert_eq!(
@@ -68,7 +67,7 @@ fn select_from_unknown_table_is_error() {
 
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert!(
@@ -86,7 +85,7 @@ fn unknown_table_in_insert_is_error() {
 
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert!(
@@ -105,7 +104,7 @@ fn valid_insert_passes() {
     );
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
     assert!(errors.is_empty(), "expected no errors, got: {:#?}", diags);
 }
@@ -119,7 +118,7 @@ fn unknown_table_in_update_is_error() {
 
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert!(
@@ -135,7 +134,7 @@ fn unknown_table_in_delete_is_error() {
 
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert!(
@@ -155,7 +154,7 @@ fn ddl_passes_through_without_errors() {
     );
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -206,7 +205,7 @@ fn json_provider_missing_column_is_error() {
     let diags = check_sql("SELECT id, nonexistent FROM organizations", &schema);
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert_eq!(
@@ -231,7 +230,7 @@ fn rls_policy_unknown_table_is_error() {
 
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert!(
@@ -264,7 +263,7 @@ fn rls_policy_valid_column_passes() {
 
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
 
     assert!(
@@ -317,7 +316,7 @@ fn self_contained_schema_resolves_policies() {
     let diags = check_sql_self_contained(sql);
     let errors: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Error))
         .collect();
     assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
 }
@@ -430,7 +429,7 @@ fn plpgsql_empty_body_is_warning() {
 
     let warnings: Vec<_> = diags
         .iter()
-        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Warning))
+        .filter(|d| matches!(d.severity, pgsql_diagnostics::Severity::Warning))
         .collect();
 
     assert!(

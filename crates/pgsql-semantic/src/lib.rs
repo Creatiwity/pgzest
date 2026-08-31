@@ -12,28 +12,3 @@ pub use symbol::{Symbol, SymbolKind, SymbolTable};
 pub(crate) fn schema_name(name: &pgsql_ast::expr::ObjectName) -> String {
     name.0.last().map(|i| i.value.clone()).unwrap_or_default()
 }
-
-/// Analyze and return both diagnostics and the semantic result.
-/// Useful for tooling that needs both (LSP, codegen, type generation).
-pub fn analyze_sql(
-    sql: &str,
-    schema: &dyn pgsql_checker::SchemaProvider,
-) -> (Vec<pgsql_checker::Diagnostic>, SemanticResult) {
-    match pgsql_parser::parse(sql) {
-        Ok(stmts) => {
-            let semantic = analyze(&stmts, schema);
-            let diags = pgsql_checker::check_statements(&stmts, schema);
-            (diags, semantic)
-        }
-        Err(e) => {
-            let dummy_schema = pgsql_checker::DdlSchemaProvider::from_statements(&[]);
-            (
-                vec![pgsql_checker::Diagnostic::error(
-                    pgsql_checker::codes::PARSE_ERROR,
-                    format!("parse error: {e}"),
-                )],
-                analyze(&[], &dummy_schema),
-            )
-        }
-    }
-}

@@ -31,9 +31,9 @@ pub struct WasmDiagnostic {
     pub hint: Option<String>,
 }
 
-impl From<WasmDiagnostic> for pgsql_checker::Diagnostic {
+impl From<WasmDiagnostic> for pgsql_diagnostics::Diagnostic {
     fn from(d: WasmDiagnostic) -> Self {
-        use pgsql_checker::Severity;
+        use pgsql_diagnostics::Severity;
         // Leak the code string to produce a &'static str.
         // This is intentional: WASM plugin diagnostic codes live for the
         // duration of the process (the set of distinct codes is bounded).
@@ -44,9 +44,9 @@ impl From<WasmDiagnostic> for pgsql_checker::Diagnostic {
             _ => Severity::Warning,
         };
         let mut diag = match sev {
-            Severity::Error => pgsql_checker::Diagnostic::error(code, d.message),
-            Severity::Warning => pgsql_checker::Diagnostic::warning(code, d.message),
-            Severity::Info => pgsql_checker::Diagnostic::info(code, d.message),
+            Severity::Error => pgsql_diagnostics::Diagnostic::error(code, d.message),
+            Severity::Warning => pgsql_diagnostics::Diagnostic::warning(code, d.message),
+            Severity::Info => pgsql_diagnostics::Diagnostic::info(code, d.message),
         };
         if let Some(h) = d.hint {
             diag = diag.with_hint(h);

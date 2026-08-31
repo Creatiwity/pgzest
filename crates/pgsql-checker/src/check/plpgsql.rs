@@ -7,9 +7,9 @@ use pgsql_ast::plpgsql::{
 use pgsql_ast::stmt::{InsertSource, Statement};
 use pgsql_ast::types::DataType;
 
-use crate::codes;
-use crate::diagnostic::Diagnostic;
-use crate::schema::{
+use pgsql_diagnostics::Diagnostic;
+use pgsql_diagnostics::codes;
+use pgsql_schema::provider::{
     ColumnInfo, FunctionSignature, SchemaProvider, TableSchema, object_name_to_string,
 };
 
@@ -627,7 +627,7 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
         HashSet::new()
     };
     let check_sel = |sel: &pgsql_ast::stmt::SelectStmt,
-                     provider: &dyn crate::schema::SchemaProvider,
+                     provider: &dyn pgsql_schema::provider::SchemaProvider,
                      out: &mut Vec<Diagnostic>| {
         use super::select::{check_select_with_plvars, check_select_with_plvars_and_phantoms};
         if phantoms.is_empty() {

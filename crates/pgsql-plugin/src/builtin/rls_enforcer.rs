@@ -1,7 +1,7 @@
 use pgsql_ast::ddl::CreateTable;
 use pgsql_ast::stmt::SelectStmt;
-use pgsql_checker::object_name_to_string;
 use pgsql_checker::rule::{CheckRule, RuleCtx};
+use pgsql_schema::provider::object_name_to_string;
 
 pub struct RlsEnforcerPlugin;
 
@@ -30,7 +30,7 @@ impl CheckRule for RequireRlsRule {
             && !provider.table_has_rls(&table_name)
         {
             ctx.diags.push(
-                pgsql_checker::Diagnostic::warning(
+                pgsql_diagnostics::Diagnostic::warning(
                     "rls/table-without-rls",
                     format!("table '{}' does not have RLS enabled", table_name),
                 )
@@ -56,7 +56,7 @@ impl CheckRule for NoSelectStarRule {
         for item in &stmt.columns {
             if matches!(item, SelectItem::Wildcard) {
                 ctx.diags.push(
-                    pgsql_checker::Diagnostic::warning(
+                    pgsql_diagnostics::Diagnostic::warning(
                         "rls/select-star",
                         "SELECT * is not recommended in application queries".to_string(),
                     )

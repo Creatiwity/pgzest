@@ -164,25 +164,29 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
 
     // ── Build global schema (per-file schema detection) ────────────────────────
     let has_external_schema = !schemas.is_empty();
-    let mut composite = pgsql_checker::CompositeSchemaProvider::new();
+    let mut composite = pgsql_schema::provider::CompositeSchemaProvider::new();
 
     if has_external_schema {
         // Explicit --schema files are added first (highest priority).
         for (sql, stmts) in &context_files {
-            let sp = pgsql_checker::detect_search_path(sql);
+            let sp = pgsql_schema::provider::detect_search_path(sql);
             let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
             composite.add(Box::new(
-                pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs),
+                pgsql_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
+                    stmts, &sp_refs,
+                ),
             ));
         }
     }
     // Always include target files' own definitions so intra-file references
     // (e.g. a function defined later in the same file) resolve correctly.
     for (_, sql, stmts) in &parsed_targets {
-        let sp = pgsql_checker::detect_search_path(sql);
+        let sp = pgsql_schema::provider::detect_search_path(sql);
         let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
         composite.add(Box::new(
-            pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs),
+            pgsql_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
+                stmts, &sp_refs,
+            ),
         ));
     }
 
@@ -232,20 +236,20 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
             checker.run_with_context(stmts, &all_other_stmts, &composite)
         } else {
             // Single file, no schema → self-contained mode with per-file schema detection.
-            let sp = pgsql_checker::detect_search_path(sql);
+            let sp = pgsql_schema::provider::detect_search_path(sql);
             let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
             pgsql_checker::check_statements(
                 stmts,
-                &pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(
+                &pgsql_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
                     stmts, &sp_refs,
                 ),
             )
         };
 
-        pgsql_checker::apply_rule_overrides(&mut diagnostics, &rule_overrides);
+        pgsql_diagnostics::apply_rule_overrides(&mut diagnostics, &rule_overrides);
 
         for diag in &diagnostics {
-            use pgsql_checker::Severity;
+            use pgsql_diagnostics::Severity;
             let sev_str = match diag.severity {
                 Severity::Error => {
                     has_errors = true;
@@ -299,7 +303,7 @@ fn cmd_lint(file: &str) -> i32 {
 
     let mut has_errors = false;
     for diag in &result.diagnostics {
-        use pgsql_checker::Severity;
+        use pgsql_diagnostics::Severity;
         let sev_str = match diag.severity {
             Severity::Error => {
                 has_errors = true;

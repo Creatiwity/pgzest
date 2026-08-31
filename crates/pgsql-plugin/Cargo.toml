@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 pgsql-checker = { path = "../pgsql-checker" }
 pgsql-ast = { path = "../pgsql-ast" }
+pgsql-diagnostics = { workspace = true }
+pgsql-schema = { path = "../pgsql-schema" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

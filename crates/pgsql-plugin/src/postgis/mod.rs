@@ -2,7 +2,7 @@
 //! to the schema provider so the checker and linter understand them.
 
 use pgsql_ast::types::DataType;
-use pgsql_checker::schema::{FunctionSignature, SchemaProvider, TableSchema};
+use pgsql_schema::provider::{FunctionSignature, SchemaProvider, TableSchema};
 use std::collections::HashMap;
 
 /// Inferred return type for a PostGIS binary operator.

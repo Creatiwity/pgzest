@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use pgsql_checker::diagnostic::{Diagnostic, Severity};
-use pgsql_checker::schema::SchemaProvider;
+use pgsql_diagnostics::{Diagnostic, Severity};
 use pgsql_lint::config::LintConfig;
 use pgsql_plugin_wasm::{WasmCheckRule, WasmPlugin};
+use pgsql_schema::provider::SchemaProvider;
 use pgsql_schema::{FileRole, ProjectConfig, SchemaResolver, check_ddl_role};
 use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
@@ -126,7 +126,7 @@ impl PgsqlBackend {
             Ok(s) => s,
             Err(e) => {
                 return vec![Diagnostic::error(
-                    pgsql_checker::codes::PARSE_ERROR,
+                    pgsql_diagnostics::codes::PARSE_ERROR,
                     format!("parse error: {e}"),
                 )];
             }
@@ -144,7 +144,7 @@ impl PgsqlBackend {
         let mut checker_diags: Vec<Diagnostic> = match role {
             FileRole::Schema => {
                 // Schema file: 2-pass — check against self-schema merged with global.
-                let mut composite = pgsql_checker::CompositeSchemaProvider::new();
+                let mut composite = pgsql_schema::provider::CompositeSchemaProvider::new();
                 if let Ok(self_schema) = SchemaResolver::from_sql(text) {
                     composite.add(Box::new(self_schema));
                 }
@@ -169,7 +169,7 @@ impl PgsqlBackend {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            pgsql_checker::apply_rule_overrides(&mut checker_diags, &rule_overrides);
+            pgsql_diagnostics::apply_rule_overrides(&mut checker_diags, &rule_overrides);
         }
 
         // ── Lint diagnostics ──────────────────────────────────────────────────
@@ -491,7 +491,7 @@ impl LanguageServer for PgsqlBackend {
 // ── Cross-schema error filter ─────────────────────────────────────────────────
 
 fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
-    if d.code == pgsql_checker::codes::TABLE_NOT_FOUND
+    if d.code == pgsql_diagnostics::codes::TABLE_NOT_FOUND
         && let Some(start) = d.message.find('\'')
     {
         let rest = &d.message[start + 1..];
@@ -586,7 +586,7 @@ fn fmt_qualified_bold(qualified: &str, word: &str) -> String {
 fn fmt_table_hover(
     qualified_name: &str,
     word: &str,
-    table: &pgsql_checker::schema::TableSchema,
+    table: &pgsql_schema::provider::TableSchema,
 ) -> String {
     let header = fmt_qualified_bold(qualified_name, word);
     let cols: Vec<String> = table
@@ -740,10 +740,10 @@ fn tbl_local(qualified: &str) -> &str {
 struct GlobalResolver(Arc<SchemaResolver>);
 
 impl SchemaProvider for GlobalResolver {
-    fn get_table(&self, name: &str) -> Option<&pgsql_checker::schema::TableSchema> {
+    fn get_table(&self, name: &str) -> Option<&pgsql_schema::provider::TableSchema> {
         self.0.get_table(name)
     }
-    fn get_function(&self, name: &str) -> Option<&pgsql_checker::schema::FunctionSignature> {
+    fn get_function(&self, name: &str) -> Option<&pgsql_schema::provider::FunctionSignature> {
         self.0.get_function(name)
     }
     fn all_table_names(&self) -> Vec<&str> {

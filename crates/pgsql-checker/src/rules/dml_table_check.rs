@@ -1,6 +1,6 @@
-use crate::codes;
 use crate::rule::{CheckRule, RuleCtx};
 use pgsql_ast::stmt::{DeleteStmt, InsertStmt, UpdateStmt};
+use pgsql_diagnostics::codes;
 
 pub struct DmlTableCheck;
 
@@ -10,10 +10,10 @@ impl CheckRule for DmlTableCheck {
     }
 
     fn check_insert(&self, stmt: &InsertStmt, ctx: &mut RuleCtx) {
-        let name = crate::schema::object_name_to_string(&stmt.table);
+        let name = pgsql_schema::provider::object_name_to_string(&stmt.table);
         if ctx.schema.get_table(&name).is_none() {
             ctx.diags.push(
-                crate::diagnostic::Diagnostic::error(
+                pgsql_diagnostics::Diagnostic::error(
                     codes::TABLE_NOT_FOUND,
                     format!("table '{}' does not exist", name),
                 )
@@ -23,9 +23,9 @@ impl CheckRule for DmlTableCheck {
     }
 
     fn check_update(&self, stmt: &UpdateStmt, ctx: &mut RuleCtx) {
-        let name = crate::schema::object_name_to_string(&stmt.table.name);
+        let name = pgsql_schema::provider::object_name_to_string(&stmt.table.name);
         if ctx.schema.get_table(&name).is_none() {
-            ctx.diags.push(crate::diagnostic::Diagnostic::error(
+            ctx.diags.push(pgsql_diagnostics::Diagnostic::error(
                 codes::TABLE_NOT_FOUND,
                 format!("table '{}' does not exist", name),
             ));
@@ -33,9 +33,9 @@ impl CheckRule for DmlTableCheck {
     }
 
     fn check_delete(&self, stmt: &DeleteStmt, ctx: &mut RuleCtx) {
-        let name = crate::schema::object_name_to_string(&stmt.table.name);
+        let name = pgsql_schema::provider::object_name_to_string(&stmt.table.name);
         if ctx.schema.get_table(&name).is_none() {
-            ctx.diags.push(crate::diagnostic::Diagnostic::error(
+            ctx.diags.push(pgsql_diagnostics::Diagnostic::error(
                 codes::TABLE_NOT_FOUND,
                 format!("table '{}' does not exist", name),
             ));

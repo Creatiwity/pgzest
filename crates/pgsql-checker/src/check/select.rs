@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use pgsql_ast::{Expr, SelectItem, SelectStmt, TableRef};
 
-use crate::codes;
-use crate::diagnostic::Diagnostic;
-use crate::schema::{SchemaProvider, TableSchema};
+use pgsql_diagnostics::Diagnostic;
+use pgsql_diagnostics::codes;
+use pgsql_schema::provider::{SchemaProvider, TableSchema};
 
 /// Check a single SELECT statement against the schema.
 pub fn check_select(stmt: &SelectStmt, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
@@ -127,7 +127,7 @@ fn resolve_table_ref<'a>(
     ctx: &mut HashMap<String, Option<&'a TableSchema>>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let table_name = crate::schema::object_name_to_string(&table_ref.name);
+    let table_name = pgsql_schema::provider::object_name_to_string(&table_ref.name);
     let key = table_name.to_lowercase();
 
     match schema.get_table(&key) {
@@ -289,7 +289,7 @@ fn check_expr(
         }
 
         Expr::FunctionCall { name, args, .. } => {
-            let func_name = crate::schema::object_name_to_string(name);
+            let func_name = pgsql_schema::provider::object_name_to_string(name);
             // Emit a warning for unknown functions (but only for single-part names;
             // schema-qualified calls like pg_catalog.now() are trusted).
             // Built-in PostgreSQL / SQL-standard functions never require a declaration.
