@@ -2,6 +2,21 @@
   "name": "@pgsql-tools/native",
   "version": "0.1.0",
   "main": "index.js",
-  "scripts": { "build": "cargo-cp-artifact -ac pgsql-node pgsql-node.node -- cargo build --message-format=json-render-diagnostics" },
-  "devDependencies": { "@napi-rs/cli": "^2" }
+  "types": "index.d.ts",
+  "napi": {
+    "name": "pgsql-node"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
+  "license": "MIT"
 }

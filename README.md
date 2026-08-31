@@ -2,20 +2,65 @@
 
 PostgreSQL language toolchain in Rust. Parser, type-checker, linter, migration engine, LSP server, and VS Code extension — all sharing the same AST.
 
-## What works today
+> **État : v0.1, utilisable mais l'analyse n'est pas complète.** Les briques
+> ci-dessous compilent et sont testées, mais le type-checker fait de la
+> vérification d'existence et de l'inférence partielle — pas encore de
+> vérification de compatibilité de types complète. Faux positifs attendus.
 
-| Feature | Status |
-|---------|--------|
-| SQL + PL/pgSQL parser | Working |
-| Type-checker (column existence, type inference) | Working |
-| Linter (9 rules) | Working |
-| Migration diff engine | Working |
-| Snapshot-based migration generation | Working |
-| Codegen (TypeScript types from SQL) | Working |
-| LSP server (diagnostics, hover, completion) | Working |
-| VS Code extension | Working |
-| WASM + Node.js bindings | Working |
-| PostGIS plugin | Working |
+## Démarrage rapide
+
+Prérequis : [Rust](https://rustup.rs) (la version est épinglée par
+`rust-toolchain.toml`) et Node.js ≥ 18.
+
+```bash
+make bootstrap   # installe les dépendances Rust + npm, vérifie l'outillage
+make demo        # compile et lance la CLI sur examples/ — voir l'outil en action
+make help        # liste toutes les cibles
+```
+
+`make demo` est le point d'entrée si tu découvres le projet : il exécute
+`check`, `lint`, `codegen` et `emit` sur `examples/` et affiche les
+diagnostics réels.
+
+Pour l'IDE :
+
+```bash
+make lsp             # compile le serveur LSP
+code editors/vscode  # puis F5 — l'extension auto-détecte target/debug/pgsql-lsp
+```
+
+## État par composant
+
+| Composant | État | Détail |
+|---|:---:|---|
+| Parser SQL + PL/pgSQL | ✅ | sqlparser-rs forké + lexer/parser PL/pgSQL dédié |
+| AST + NodeId/Span | ✅ | Spans en byte offsets, traits `Visit`/`VisitMut` |
+| Normalisation ordre logique | ✅ | FROM → JOIN → WHERE → GROUP BY → SELECT |
+| Type-checker | 🟡 | Existence des tables/colonnes OK ; inférence partielle, pas de compat de types complète |
+| Linter (L001–L009, M001–M003) | ✅ | Règles de style + sûreté de migration |
+| Moteur de diff / migrations | ✅ | Diff + snapshots + génération de fichiers |
+| Codegen TypeScript | 🟡 | Fonctionne sur les SELECT nommés ; couverture des types à étendre |
+| Serveur LSP | 🟡 | Diagnostics + hover + complétion + semantic tokens ; peu testé en usage réel |
+| Extension VS Code | ✅ | Grammaire TextMate + client LSP, lancement F5 |
+| Bindings WASM | 🟡 | Compilent (nécessite `wasm-pack`), vérifiés en CI, pas de tests |
+| Bindings Node (napi-rs) | 🟡 | Compilent ; pas de tests, pas de paquet publié |
+| Paquet npm `pgsql-tools` | 🟡 | ~1000 lignes ; seuls `policy` et `prisma` ont des tests |
+| Plugin PostGIS | 🟡 | Types + signatures spatiales, couverture partielle |
+| Plugins WASM (wasmi) | 🟡 | Hôte fonctionnel, un exemple dans `examples/wasm-plugin` |
+| Extension JetBrains | ❌ | Squelette (2 fichiers Kotlin), non compilé en CI |
+
+Légende : ✅ fonctionne et testé · 🟡 fonctionne, couverture ou périmètre partiel · ❌ non livré
+
+Tests : 71 tests Rust, 8 tests TypeScript. `make ci` reproduit ce que vérifie
+la CI GitHub Actions.
+
+## Limites connues
+
+- Le type-checker signale `trigger-ambiguous-table` quand une même fonction
+  trigger (ex. `set_updated_at`) sert plusieurs tables. C'est un motif
+  PostgreSQL idiomatique — donc un **faux positif** à traiter.
+- Pas de vérification de compatibilité de types entre opérandes.
+- Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
 
 ---
 
@@ -206,8 +251,25 @@ See `SPECS.md` for full design decisions, `ARCHITECTURE.md` for internals, and `
 
 ## Building everything
 
+Tout passe par le `Makefile` :
+
 ```bash
-cargo build              # all crates
-cargo test               # all tests
-cargo clippy             # lints
+make bootstrap   # dépendances Rust + npm (à faire une fois)
+make all         # Rust + TypeScript + extension VS Code
+make test        # tests Rust + TypeScript
+make ci          # build + test + clippy + typecheck (ce que vérifie la CI)
+make clean       # supprime les artefacts
 ```
+
+Cibles Rust seules : `make build`, `make release`, `make test-rust`,
+`make clippy`, `make fmt`. `make wasm` nécessite `cargo install wasm-pack`.
+
+### Dette connue sur l'outillage
+
+- Le code n'a jamais été passé à `rustfmt` (~6800 lignes de diff en attente).
+  `make fmt-check` échoue donc ; la CI ne bloque pas dessus pour le moment.
+- ~85 lints clippy de style restent à traiter (dont 34 `collapsible_if`),
+  en grande partie corrigeables via `cargo clippy --fix`.
+
+Les deux étapes de la CI correspondantes sont en `continue-on-error` ; il
+suffit de retirer ce drapeau une fois la dette payée.

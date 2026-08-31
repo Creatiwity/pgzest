@@ -57,6 +57,7 @@ impl Parser {
         self.tokens.get(self.pos).unwrap_or(&Token::Eof)
     }
 
+    #[allow(dead_code)] // helper de lookahead, conservé pour les règles à venir
     fn peek2(&self) -> &Token {
         self.tokens.get(self.pos + 1).unwrap_or(&Token::Eof)
     }
@@ -69,6 +70,7 @@ impl Parser {
         t
     }
 
+    #[allow(dead_code)]
     fn current_keyword(&self) -> Option<Keyword> {
         match self.peek() {
             Token::Keyword(k) => Some(k.clone()),
@@ -107,6 +109,7 @@ impl Parser {
         }
     }
 
+    #[allow(dead_code)]
     fn expect_semi(&mut self) -> Result<(), PlParseError> {
         if self.eat_token(&Token::Semi) {
             Ok(())

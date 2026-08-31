@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pilote la version installée.
+      - name: Install Rust
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Non bloquant pour l'instant : le codebase n'a jamais été rustfmt'é.
+      # Passer en `cargo fmt --all --check` une fois la normalisation faite.
+      - name: Format (informatif)
+        continue-on-error: true
+        run: cargo fmt --all --check
+
+      # Non bloquant : ~85 lints de style restants. Retirer continue-on-error
+      # puis ajouter `-- -D warnings` quand ils sont traités.
+      - name: Clippy (informatif)
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets
+
+  typescript:
+    name: TypeScript (paquet npm + extension)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install (paquet npm)
+        run: npm install --no-fund --no-audit
+        working-directory: npm/pgsql-tools
+
+      - name: Typecheck (paquet npm)
+        run: npx tsc --noEmit
+        working-directory: npm/pgsql-tools
+
+      - name: Build (paquet npm)
+        run: npx tsc
+        working-directory: npm/pgsql-tools
+
+      - name: Test (paquet npm)
+        run: node --test "dist/**/*.test.js"
+        working-directory: npm/pgsql-tools
+
+      - name: Install (extension VS Code)
+        run: npm install --no-fund --no-audit
+        working-directory: editors/vscode
+
+      - name: Build (extension VS Code)
+        run: npx tsc -p ./
+        working-directory: editors/vscode
+
+  wasm:
+    name: WASM bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        run: wasm-pack build --target bundler --out-dir pkg
+        working-directory: bindings/wasm
+
+  demo:
+    name: Smoke CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build CLI
+        run: cargo build -p pgsql
+
+      # examples/test.sql référence une table absente du schéma : on attend
+      # un exit code 1. Ce test verrouille le contrat "check sort 1 si erreur".
+      - name: check détecte l'erreur attendue
+        run: |
+          if ./target/debug/pgsql check examples/test.sql; then
+            echo "::error::pgsql check aurait dû sortir en erreur sur examples/test.sql"
+            exit 1
+          fi
+
+      - name: lint tourne sans planter
+        run: ./target/debug/pgsql lint examples/schema.sql
+
+      - name: codegen produit une interface TS
+        run: |
+          out=$(./target/debug/pgsql codegen --input examples/schema.sql)
+          echo "$out"
+          echo "$out" | grep -q "export interface" \
+            || { echo "::error::codegen n'a produit aucune interface"; exit 1; }

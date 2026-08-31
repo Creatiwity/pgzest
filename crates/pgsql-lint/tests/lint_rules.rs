@@ -5,7 +5,7 @@ use pgsql_ast::stmt::{SelectItem, SelectStmt, Statement};
 use pgsql_ast::types::DataType;
 use pgsql_checker::diagnostic::Severity;
 use pgsql_lint::config::LintConfig;
-use pgsql_lint::{lint_statements, rules};
+use pgsql_lint::lint_statements;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

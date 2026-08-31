@@ -49,6 +49,7 @@ impl<'a> Lexer<'a> {
         self.input[self.pos..].chars().next()
     }
 
+    #[allow(dead_code)] // helper de lookahead, conservé pour les règles à venir
     fn peek2(&self) -> Option<char> {
         let mut chars = self.input[self.pos..].chars();
         chars.next();

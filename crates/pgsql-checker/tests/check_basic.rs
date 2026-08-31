@@ -1,4 +1,4 @@
-use pgsql_checker::{check_sql, check_sql_self_contained, check_statements, codes, DdlSchemaProvider, IntrospectionJsonProvider, SchemaProvider};
+use pgsql_checker::{check_sql, check_sql_self_contained, check_statements, codes, DdlSchemaProvider, IntrospectionJsonProvider};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

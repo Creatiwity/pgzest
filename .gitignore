@@ -1,5 +1,14 @@
 .DS_Store
 /target
-editors/vscode/node_modules/
+
+# Node
+node_modules/
+npm/pgsql-tools/dist/
 editors/vscode/out/
+
+# WASM
+bindings/wasm/pkg/
+
+# Générés / locaux
 examples/schema/
+.schema-snapshots/

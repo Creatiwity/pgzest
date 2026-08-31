@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use pgsql_ast::ddl::{DdlStatement, FunctionParam, ReturnType, TriggerEvent, TriggerForEach};
+use pgsql_ast::ddl::{DdlStatement, FunctionParam, ReturnType, TriggerEvent};
 use pgsql_ast::plpgsql::{
     AssignTarget, Block, ElsIf, PlExpr, PlStatement, PlpgsqlBody, RaiseLevel,
 };
@@ -16,6 +16,11 @@ use crate::schema::{
 // ── Trigger context ───────────────────────────────────────────────────────────
 
 /// Resolved trigger context for RETURNS TRIGGER functions.
+///
+/// The per-event flags below are populated by trigger resolution but not yet
+/// consumed by the checker; they are the groundwork for narrowing NEW/OLD
+/// availability per event (INSERT: NEW only, DELETE: OLD only, UPDATE: both).
+#[allow(dead_code)]
 pub struct TriggerCtx {
     /// Lowercase name of the table the trigger fires on.
     pub table: String,

@@ -1,0 +1,144 @@
+# pgsql-tools — développement
+#
+# Point d'entrée unique. `make help` liste les cibles.
+# Démarrage à froid :  make bootstrap && make demo
+
+SHELL := /bin/bash
+CARGO ?= cargo
+NPM   ?= npm
+
+NPM_PKG   := npm/pgsql-tools
+VSCODE    := editors/vscode
+CLI       := ./target/debug/pgsql
+EXAMPLES  := examples
+
+.DEFAULT_GOAL := help
+
+# ── Aide ─────────────────────────────────────────────────────────────────────
+
+.PHONY: help
+help: ## Affiche cette aide
+	@echo "pgsql-tools — cibles disponibles :"
+	@echo
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	  | sort \
+	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+	@echo
+	@echo "Démarrage à froid :  make bootstrap && make demo"
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
+
+.PHONY: bootstrap
+bootstrap: ## Installe toutes les dépendances (Rust + npm) et vérifie l'outillage
+	@echo "==> Vérification de l'outillage"
+	@command -v $(CARGO) >/dev/null || { echo "cargo introuvable — installe Rust: https://rustup.rs"; exit 1; }
+	@$(CARGO) --version
+	@command -v $(NPM) >/dev/null || { echo "npm introuvable — installe Node.js >= 18"; exit 1; }
+	@$(NPM) --version
+	@command -v wasm-pack >/dev/null \
+	  || echo "  (!) wasm-pack absent — 'make wasm' échouera. Installe-le: cargo install wasm-pack"
+	@echo "==> npm install : $(NPM_PKG)"
+	@cd $(NPM_PKG) && $(NPM) install --no-fund --no-audit
+	@echo "==> npm install : $(VSCODE)"
+	@cd $(VSCODE) && $(NPM) install --no-fund --no-audit
+	@echo "==> Bootstrap terminé. Prochaine étape : make demo"
+
+# ── Build ────────────────────────────────────────────────────────────────────
+
+.PHONY: build
+build: ## Compile tous les crates Rust (debug)
+	$(CARGO) build --workspace
+
+.PHONY: release
+release: ## Compile tous les crates Rust (release)
+	$(CARGO) build --workspace --release
+
+.PHONY: ts
+ts: ## Compile le paquet npm pgsql-tools -> dist/
+	cd $(NPM_PKG) && npx tsc
+
+.PHONY: vscode
+vscode: ## Compile l'extension VS Code -> out/
+	cd $(VSCODE) && npx tsc -p ./
+
+.PHONY: wasm
+wasm: ## Compile les bindings WASM (nécessite wasm-pack)
+	cd bindings/wasm && ./build.sh
+
+.PHONY: all
+all: build ts vscode ## Compile Rust + TypeScript + extension
+
+# ── Tests & qualité ──────────────────────────────────────────────────────────
+
+.PHONY: test
+test: test-rust test-ts ## Lance tous les tests
+
+.PHONY: test-rust
+test-rust: ## Tests Rust
+	$(CARGO) test --workspace
+
+.PHONY: test-ts
+test-ts: ts ## Tests TypeScript du paquet npm
+	cd $(NPM_PKG) && node --test "dist/**/*.test.js"
+
+.PHONY: clippy
+clippy: ## Lints Rust
+	$(CARGO) clippy --workspace --all-targets
+
+.PHONY: fmt
+fmt: ## Formate le code Rust
+	$(CARGO) fmt --all
+
+.PHONY: fmt-check
+fmt-check: ## Vérifie le formatage sans modifier
+	$(CARGO) fmt --all --check
+
+.PHONY: typecheck
+typecheck: ## Typecheck TypeScript sans émettre
+	cd $(NPM_PKG) && npx tsc --noEmit
+	cd $(VSCODE) && npx tsc -p ./ --noEmit
+
+.PHONY: ci
+ci: build test clippy typecheck ## Ce que la CI vérifie
+
+# ── Démo / smoke ─────────────────────────────────────────────────────────────
+
+.PHONY: demo
+demo: build ## Exécute la CLI sur examples/ — montre l'outil en action
+	@echo
+	@echo "════ pgsql check examples/test.sql ════"
+	@echo "   (erreur attendue : table inexistante)"
+	@$(CLI) check $(EXAMPLES)/test.sql || true
+	@echo
+	@echo "════ pgsql check examples/schema.sql ════"
+	@$(CLI) check $(EXAMPLES)/schema.sql || true
+	@echo
+	@echo "════ pgsql lint examples/schema.sql ════"
+	@$(CLI) lint $(EXAMPLES)/schema.sql || true
+	@echo
+	@echo "════ pgsql codegen --input examples/schema.sql ════"
+	@$(CLI) codegen --input $(EXAMPLES)/schema.sql || true
+	@echo
+	@echo "════ pgsql emit examples/test.sql ════"
+	@$(CLI) emit $(EXAMPLES)/test.sql || true
+	@echo
+	@echo "Démo terminée. La CLI est dans $(CLI) — voir 'make help'."
+
+.PHONY: lsp
+lsp: ## Compile le serveur LSP et rappelle comment le lancer dans VS Code
+	$(CARGO) build -p pgsql-lsp
+	@echo
+	@echo "Binaire LSP : ./target/debug/pgsql-lsp"
+	@echo "Pour l'essayer :  code $(VSCODE)   puis F5"
+	@echo "L'extension auto-détecte target/debug/pgsql-lsp."
+
+# ── Nettoyage ────────────────────────────────────────────────────────────────
+
+.PHONY: clean
+clean: ## Supprime les artefacts de build
+	$(CARGO) clean
+	rm -rf $(NPM_PKG)/dist $(VSCODE)/out bindings/wasm/pkg
+
+.PHONY: distclean
+distclean: clean ## clean + supprime les node_modules
+	rm -rf $(NPM_PKG)/node_modules $(VSCODE)/node_modules

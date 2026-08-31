@@ -11,10 +11,10 @@ pgsql-parser = { path = "../../crates/pgsql-parser" }
 pgsql-checker = { path = "../../crates/pgsql-checker" }
 pgsql-lint = { path = "../../crates/pgsql-lint" }
 pgsql-codegen = { path = "../../crates/pgsql-codegen" }
-napi = { version = "2", features = ["napi6"] }
-napi-derive = "2"
+napi = { workspace = true }
+napi-derive = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [build-dependencies]
-napi-build = "2"
+napi-build = { workspace = true }

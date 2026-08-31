@@ -134,17 +134,17 @@
 ## Phase F — Extensions et polish
 
 **Durée estimée** : continue  
-**Statut** : ✅ Livrée  
+**Statut** : 🟡 Partiellement livrée  
 **Dépendances** : Phases C + E  
 
 ### Livrables
 
 - **Plugin PostGIS** : types GEOMETRY/GEOGRAPHY, fonctions spatiales ST_*
 - **Lint rules avancées** : index manquant sur FK, unused JOINs, LIKE '%...', agrégats sans GROUP BY, NOT NULL sans DEFAULT sur migration
-- **Syntaxe simplifiée** : desugar vers SQL standard (patterns upsert, soft delete déclaratif, etc.)
-- **Extension JetBrains** : port de l'extension VS Code
+- **Syntaxe simplifiée** : ❌ non commencée — desugar vers SQL standard (patterns upsert, soft delete déclaratif, etc.)
+- **Extension JetBrains** : ❌ squelette seulement (2 fichiers Kotlin, non compilé en CI)
 - **Règles de migration sécurisée** (inspiré Squawk) : ADD COLUMN NOT NULL, DROP COLUMN, RENAME sans lock, etc.
-- **Introspection live** : connexion à une DB PostgreSQL pour enrichir le SchemaProvider
+- **Introspection live** : ❌ non commencée — connexion à une DB PostgreSQL pour enrichir le SchemaProvider
 
 ---
 
@@ -171,7 +171,7 @@ F (Extensions) ← dépend de C + E, continu
 | C — LSP + Extension VS Code | juin 2026 | Hover, completion, go-to-definition, grammar TextMate |
 | D — Génération types TypeScript | juin 2026 | codegen SELECT → interfaces TS, CLI `pgsql codegen` |
 | E — Framework npm pgsql-tools | juin 2026 | db.ts, migrate.ts, policy.ts, backends/, plugin Prisma |
-| F — Extensions et polish | juin 2026 | Lint L005-L009, migration safety M001-M003, PostGIS plugin, JetBrains skeleton |
+| F — Extensions et polish | juin 2026 (partiel) | Lint L005-L009, migration safety M001-M003, PostGIS plugin. Reste : JetBrains, introspection live, syntaxe simplifiée |
 
 ---
 
