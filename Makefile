@@ -82,8 +82,8 @@ test-ts: ts ## Tests TypeScript du paquet npm
 	cd $(NPM_PKG) && node --test "dist/**/*.test.js"
 
 .PHONY: clippy
-clippy: ## Lints Rust
-	$(CARGO) clippy --workspace --all-targets
+clippy: ## Lints Rust — bloquant, comme en CI
+	$(CARGO) clippy --workspace --all-targets -- -D warnings
 
 .PHONY: fmt
 fmt: ## Formate le code Rust
@@ -99,7 +99,7 @@ typecheck: ## Typecheck TypeScript sans émettre
 	cd $(VSCODE) && npx tsc -p ./ --noEmit
 
 .PHONY: ci
-ci: build test clippy typecheck ## Ce que la CI vérifie
+ci: build test fmt-check clippy typecheck ## Ce que la CI vérifie, à l'identique
 
 # ── Démo / smoke ─────────────────────────────────────────────────────────────
 
@@ -129,8 +129,35 @@ lsp: ## Compile le serveur LSP et rappelle comment le lancer dans VS Code
 	$(CARGO) build -p pgsql-lsp
 	@echo
 	@echo "Binaire LSP : ./target/debug/pgsql-lsp"
-	@echo "Pour l'essayer :  code $(VSCODE)   puis F5"
-	@echo "L'extension auto-détecte target/debug/pgsql-lsp."
+	@echo "Pour l'essayer :  make vscode-dev"
+
+.PHONY: vscode-dev
+vscode-dev: lsp vscode ## Prépare tout pour tester dans VS Code, puis explique F5
+	@echo
+	@echo "════════════════════════════════════════════════════════════════"
+	@echo " Tout est compilé. Pour tester dans VS Code :"
+	@echo
+	@echo "   code $(VSCODE)"
+	@echo "   puis F5  →  « Run Extension (playground) »"
+	@echo
+	@echo " Une fenêtre s'ouvre sur examples/playground/ :"
+	@echo "   queries/01-ok.sql          doit être propre"
+	@echo "   queries/02-erreurs.sql     colonnes/tables inexistantes"
+	@echo "   queries/03-directives.sql  directives ESLint-style"
+	@echo "   queries/04-tolerance-*.sql statement illisible en warning"
+	@echo "   queries/05-lint.sql        règles de lint (LSP uniquement)"
+	@echo
+	@echo " Détails : examples/playground/README.md"
+	@echo "════════════════════════════════════════════════════════════════"
+
+.PHONY: playground
+playground: build ## Lance la CLI sur le projet de démonstration
+	@cd $(EXAMPLES)/playground && for f in queries/*.sql; do \
+	  echo "════ pgsql check $$f ════"; \
+	  ../../$(CLI) check "$$f" || true; \
+	done; \
+	echo "════ pgsql lint queries/05-lint.sql ════"; \
+	../../$(CLI) lint queries/05-lint.sql || true
 
 # ── Nettoyage ────────────────────────────────────────────────────────────────
 

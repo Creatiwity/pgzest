@@ -120,28 +120,56 @@ impl PgsqlBackend {
         checker
     }
 
-    /// Parse `sql` and run the checker (with WASM plugins) against `schema`.
-    async fn check_sql(&self, sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
-        let stmts = match pgsql_parser::parse(sql) {
-            Ok(s) => s,
-            Err(e) => {
-                return vec![Diagnostic::error(
-                    pgsql_diagnostics::codes::PARSE_ERROR,
-                    format!("parse error: {e}"),
-                )];
-            }
-        };
-        self.make_checker().await.run(&stmts, schema)
+    /// Type-check des statements déjà parsés contre `schema`.
+    async fn check_stmts(
+        &self,
+        stmts: &[pgsql_ast::Statement],
+        schema: &dyn SchemaProvider,
+    ) -> Vec<Diagnostic> {
+        self.make_checker().await.run(stmts, schema)
     }
 
-    /// Parse, type-check, lint and publish diagnostics for `uri`.
+    /// Parse, type-check, lint et publie les diagnostics de `uri`.
+    ///
+    /// Doit produire exactement ce que produit `pgsql check` sur le même
+    /// fichier : même politique de tolérance du parser, mêmes directives en
+    /// commentaire, mêmes surcharges de sévérité. Toute divergence ici se
+    /// traduit par un fichier vert dans l'éditeur et rouge en CI.
     async fn run_diagnostics(&self, uri: &str, text: &str) {
         let line_index = LineIndex::new(text);
         let role = self.role_of(uri).await;
         let resolver = self.resolver().await;
+        let suppressions = pgsql_diagnostics::Suppressions::scan(text);
 
-        // ── Checker diagnostics ───────────────────────────────────────────────
-        let mut checker_diags: Vec<Diagnostic> = match role {
+        // Un seul parse pour le checker, le lint et les règles de rôle.
+        let outcome = match pgsql_parser::parse_with_outcome(text) {
+            Ok(o) => o,
+            Err(e) => {
+                let mut diags = vec![Diagnostic::error(
+                    pgsql_diagnostics::codes::PARSE_ERROR,
+                    format!("parse error: {e}"),
+                )];
+                suppressions.apply(&mut diags);
+                self.publish(uri, &diags, &line_index).await;
+                return;
+            }
+        };
+        let stmts = outcome.statements;
+
+        // Config projet : tolérance du parser + surcharges de sévérité.
+        let (parse_cfg, rule_overrides) = {
+            let guard = self.config.lock().await;
+            match guard.as_ref() {
+                Some(c) => (c.parse.clone(), c.lint.rules.clone()),
+                None => (Default::default(), Default::default()),
+            }
+        };
+
+        // ── Statements écartés par le parser ──────────────────────────────────
+        let mut diags = pgsql_analysis::skipped_to_diagnostics(&outcome.skipped, &parse_cfg);
+
+        // ── Checker ───────────────────────────────────────────────────────────
+        let checker_diags: Vec<Diagnostic> = match role {
             FileRole::Schema => {
                 // Schema file: 2-pass — check against self-schema merged with global.
                 let mut composite = pgsql_schema::provider::CompositeSchemaProvider::new();
@@ -150,46 +178,37 @@ impl PgsqlBackend {
                 }
                 composite.add(Box::new(GlobalResolver(resolver.clone())));
 
-                self.check_sql(text, &composite)
+                self.check_stmts(&stmts, &composite)
                     .await
                     .into_iter()
                     .filter(|d| !is_suppressable_schema_error(d))
                     .collect()
             }
             FileRole::Migration { .. } | FileRole::Query => {
-                self.check_sql(text, resolver.as_ref()).await
+                self.check_stmts(&stmts, resolver.as_ref()).await
             }
         };
+        diags.extend(checker_diags);
 
-        // Apply per-rule severity overrides from project config.
-        if let Some(config) = self.config.lock().await.as_ref() {
-            let rule_overrides: std::collections::HashMap<String, String> = config
-                .lint
-                .rules
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            pgsql_diagnostics::apply_rule_overrides(&mut checker_diags, &rule_overrides);
-        }
+        // ── Lint + règles de rôle ─────────────────────────────────────────────
+        diags.extend(pgsql_lint::lint_statements(&stmts, &LintConfig::default()).diagnostics);
+        diags.extend(check_ddl_role(&stmts, &role));
 
-        // ── Lint diagnostics ──────────────────────────────────────────────────
-        let (lint_diags, role_diags) = match pgsql_parser::parse(text) {
-            Ok(stmts) => {
-                let lint = pgsql_lint::lint_statements(&stmts, &LintConfig::default()).diagnostics;
-                let role_lint = check_ddl_role(&stmts, &role);
-                (lint, role_lint)
-            }
-            Err(_) => (vec![], vec![]),
-        };
+        // Les surcharges s'appliquent à tout, checker comme lint : une règle
+        // mise à "off" dans la config doit être muette d'où qu'elle vienne.
+        pgsql_diagnostics::apply_rule_overrides(&mut diags, &rule_overrides);
 
-        // ── Publish ───────────────────────────────────────────────────────────
-        let lsp_diags: Vec<tower_lsp::lsp_types::Diagnostic> = checker_diags
+        // Directives en commentaire, en dernier : elles ont le dernier mot.
+        suppressions.apply(&mut diags);
+
+        self.publish(uri, &diags, &line_index).await;
+    }
+
+    async fn publish(&self, uri: &str, diags: &[Diagnostic], line_index: &LineIndex) {
+        let lsp_diags: Vec<tower_lsp::lsp_types::Diagnostic> = diags
             .iter()
-            .chain(lint_diags.iter())
-            .chain(role_diags.iter())
-            .map(|d| Self::to_lsp_diagnostic(d, &line_index))
+            .map(|d| Self::to_lsp_diagnostic(d, line_index))
             .collect();
-
         if let Ok(url) = uri.parse::<Url>() {
             self.client.publish_diagnostics(url, lsp_diags, None).await;
         }

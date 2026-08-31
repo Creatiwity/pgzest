@@ -2,7 +2,23 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension",
+      // F5 : compile l'extension, ouvre une fenêtre VS Code de développement
+      // et y charge directement examples/playground/ — un vrai projet avec
+      // schema/, migrations/ et pgsql-tools.config.toml, pour ne pas avoir à
+      // chercher un dossier à la main.
+      "name": "Run Extension (playground)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}/../../examples/playground"
+      ],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "npm: compile"
+    },
+    {
+      // Variante : fenêtre vide, à toi d'ouvrir le dossier que tu veux tester.
+      "name": "Run Extension (fenêtre vide)",
       "type": "extensionHost",
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],

@@ -648,6 +648,13 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
     for (stmt_sql, byte_offset) in &raw_stmts {
         // Position du statement dans le document englobant, pas dans le fragment.
         let stmt_offset = base_offset + *byte_offset;
+        // `split_statements` découpe sur `;`, donc les commentaires qui précèdent
+        // un statement lui restent collés. Le span doit démarrer sur le SQL, pas
+        // sur ces commentaires : sinon le soulignement se pose sur le bloc de
+        // commentaires, et une directive `-- pgsql-disable-next-line` placée juste
+        // avant ne couvre pas le statement qu'elle vise.
+        let trivia = leading_trivia_len(stmt_sql);
+        let sql_offset = stmt_offset + trivia;
         let (cleaned, meta) = if is_create_function_sql(stmt_sql) {
             let (c, m) = preprocess_function_sql(stmt_sql);
             (c, Some(m))
@@ -663,10 +670,9 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
         let sp_stmts = match SqlParser::parse_sql(&dialect, &cleaned) {
             Ok(s) => s,
             Err(e) => {
-                let trivia = leading_trivia_len(stmt_sql);
                 skipped.push(SkippedStatement {
                     sql: stmt_sql[trivia..].to_string(),
-                    start: stmt_offset + trivia,
+                    start: sql_offset,
                     end: stmt_offset + stmt_sql.len(),
                     reason: SkipReason::Unparsable(e.to_string()),
                 });
@@ -678,10 +684,9 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
             let mut stmt = match convert::convert_statement(sp_stmt) {
                 Ok(s) => s,
                 Err(ParseError::Unsupported(what)) => {
-                    let trivia = leading_trivia_len(stmt_sql);
                     skipped.push(SkippedStatement {
                         sql: stmt_sql[trivia..].to_string(),
-                        start: stmt_offset + trivia,
+                        start: sql_offset,
                         end: stmt_offset + stmt_sql.len(),
                         reason: SkipReason::Unsupported(what),
                     });
@@ -737,7 +742,7 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
                     stmt = Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(proc));
                 }
             }
-            set_stmt_span(&mut stmt, stmt_offset, stmt_offset + stmt_sql.len());
+            set_stmt_span(&mut stmt, sql_offset, stmt_offset + stmt_sql.len());
             // Set body_start and re-parse the PL/pgSQL body with the file offset
             // so that inner SQL fragment spans point to the correct source line.
             if meta.is_some() {
@@ -860,9 +865,26 @@ fn set_stmt_span(stmt: &mut Statement, start: usize, end: usize) {
 /// The returned tuples are (statement_text, byte_offset) where byte_offset is the
 /// position of the first non-whitespace character of the statement in the original `sql`.
 /// The returned strings do NOT include the terminating ';'.
+/// Convertit le tampon d'octets en `String` et retire les blancs de bord.
+///
+/// Les octets copiés sont des sous-séquences contiguës d'une source déjà
+/// valide en UTF-8, et seuls des octets ASCII sont jamais omis : le résultat
+/// est donc toujours valide. `from_utf8_lossy` est une ceinture de sécurité,
+/// pas un chemin attendu.
+fn flush(buf: &[u8]) -> String {
+    String::from_utf8_lossy(buf).trim().to_string()
+}
+
 fn split_statements(sql: &str) -> Vec<(String, usize)> {
     let mut stmts = Vec::new();
-    let mut current = String::new();
+    // Accumulation en octets, pas en `char` : `bytes[i] as char` réinterprète
+    // chaque octet UTF-8 comme un code point Latin-1, donc `→` (3 octets)
+    // devenait 3 caractères de 2 octets. Le texte était corrompu et, pire,
+    // la longueur changeait — décalant les spans de tous les statements
+    // suivants dès qu'un commentaire ou un littéral contenait un accent.
+    // La boucle ne décide que sur des octets ASCII, jamais sur une
+    // continuation UTF-8, donc le parcours octet par octet reste correct.
+    let mut current: Vec<u8> = Vec::new();
     let mut stmt_start: Option<usize> = None;
     let bytes = sql.as_bytes();
     let len = bytes.len();
@@ -883,18 +905,18 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
                     stmt_start = Some(i);
                 }
                 // Copy the opening tag into current
-                current.push_str(tag);
+                current.extend_from_slice(tag.as_bytes());
                 let content_start = j + 1;
                 // Now scan for the closing tag
                 if let Some(close_pos) = sql[content_start..].find(tag) {
                     let abs_close = content_start + close_pos;
                     // Copy everything up to and including closing tag
-                    current.push_str(&sql[content_start..abs_close + tag.len()]);
+                    current.extend_from_slice(&bytes[content_start..abs_close + tag.len()]);
                     i = abs_close + tag.len();
                     continue;
                 } else {
                     // No closing tag found — copy the rest verbatim
-                    current.push_str(&sql[content_start..]);
+                    current.extend_from_slice(&bytes[content_start..]);
                     i = len;
                     continue;
                 }
@@ -903,7 +925,7 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
                 if stmt_start.is_none() {
                     stmt_start = Some(i);
                 }
-                current.push(bytes[i] as char);
+                current.push(bytes[i]);
                 i += 1;
                 continue;
             }
@@ -917,7 +939,7 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
                 if stmt_start.is_none() && !bytes[i].is_ascii_whitespace() {
                     stmt_start = Some(i);
                 }
-                current.push(bytes[i] as char);
+                current.push(bytes[i]);
                 i += 1;
             }
             continue;
@@ -928,21 +950,21 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
             if stmt_start.is_none() {
                 stmt_start = Some(i);
             }
-            current.push('\'');
+            current.push(b'\'');
             i += 1;
             while i < len {
                 if bytes[i] == b'\'' {
-                    current.push('\'');
+                    current.push(b'\'');
                     i += 1;
                     if i < len && bytes[i] == b'\'' {
                         // Escaped quote
-                        current.push('\'');
+                        current.push(b'\'');
                         i += 1;
                     } else {
                         break;
                     }
                 } else {
-                    current.push(bytes[i] as char);
+                    current.push(bytes[i]);
                     i += 1;
                 }
             }
@@ -950,7 +972,7 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
         }
 
         if bytes[i] == b';' {
-            let trimmed = current.trim().to_string();
+            let trimmed = flush(&current);
             if !trimmed.is_empty() {
                 stmts.push((trimmed, stmt_start.unwrap_or(0)));
             }
@@ -964,11 +986,11 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
         if stmt_start.is_none() && !bytes[i].is_ascii_whitespace() {
             stmt_start = Some(i);
         }
-        current.push(bytes[i] as char);
+        current.push(bytes[i]);
         i += 1;
     }
 
-    let trimmed = current.trim().to_string();
+    let trimmed = flush(&current);
     if !trimmed.is_empty() {
         stmts.push((trimmed, stmt_start.unwrap_or(0)));
     }
@@ -1116,5 +1138,109 @@ mod parse_at_tests {
         let (s2, _) = span_of(&stmts[1]);
         assert_eq!(s1, base as u32);
         assert_eq!(s2, base as u32 + 10, "2e statement après le \\n");
+    }
+}
+
+#[cfg(test)]
+mod utf8_span_tests {
+    use super::*;
+
+    fn stmt_span(stmt: &Statement) -> (usize, usize) {
+        use pgsql_ast::{DdlStatement, Statement::*};
+        let sp = match stmt {
+            Select(s) => &s.span,
+            Insert(s) => &s.span,
+            Update(s) => &s.span,
+            Delete(s) => &s.span,
+            Ddl(d) => match d {
+                DdlStatement::CreateTable(c) => &c.span,
+                DdlStatement::CreateFunction(c) => &c.span,
+                DdlStatement::CreateProcedure(c) => &c.span,
+                DdlStatement::CreatePolicy(c) => &c.span,
+                _ => return (0, 0),
+            },
+        };
+        (sp.start as usize, sp.end as usize)
+    }
+
+    /// Régression : `split_statements` faisait `bytes[i] as char`, réinterprétant
+    /// chaque octet UTF-8 comme un code point Latin-1. `→` (3 octets) devenait
+    /// 3 caractères de 2 octets, gonflant la longueur de 3 et décalant les spans
+    /// de tous les statements suivants. Un simple accent dans un commentaire
+    /// suffisait à faire pointer les diagnostics à côté.
+    #[test]
+    fn un_accent_ne_decale_pas_les_spans_suivants() {
+        let sql = "-- café → thé\nSELECT nope FROM t;";
+        let stmts = parse(sql).unwrap();
+        assert_eq!(stmts.len(), 1);
+        let (start, _) = stmt_span(&stmts[0]);
+        assert_eq!(
+            &sql[start..start + 6],
+            "SELECT",
+            "le span doit démarrer sur SELECT, pas dériver dans le mot"
+        );
+    }
+
+    #[test]
+    fn le_texte_non_ascii_nest_pas_corrompu() {
+        // Un littéral avec des accents doit traverser le parse intact.
+        let sql = "SELECT 'café crème' AS x;";
+        let stmts = parse(sql).unwrap();
+        assert_eq!(stmts.len(), 1);
+        let (start, end) = stmt_span(&stmts[0]);
+        assert_eq!(
+            &sql[start..end],
+            "SELECT 'café crème' AS x",
+            "le texte doit être identique à la source"
+        );
+    }
+
+    #[test]
+    fn plusieurs_statements_apres_du_non_ascii() {
+        let sql = "-- entête « accentuée »\nSELECT 1;\n-- deuxième — tiret cadratin\nSELECT 2;";
+        let stmts = parse(sql).unwrap();
+        assert_eq!(stmts.len(), 2);
+        for st in &stmts {
+            let (start, _) = stmt_span(st);
+            assert_eq!(
+                &sql[start..start + 6],
+                "SELECT",
+                "chaque span doit démarrer sur SELECT"
+            );
+        }
+    }
+
+    /// Le span démarre sur le SQL, pas sur les commentaires qui le précèdent.
+    /// `split_statements` découpe sur `;`, donc les commentaires restent collés
+    /// au statement suivant — sans ce saut, une directive placée juste avant ne
+    /// couvrait pas le statement qu'elle visait.
+    #[test]
+    fn le_span_saute_les_commentaires_en_tete() {
+        let sql = "CREATE TABLE t (a INT);\n-- un commentaire\n-- et un autre\nSELECT a FROM t;";
+        let stmts = parse(sql).unwrap();
+        assert_eq!(stmts.len(), 2);
+        let (start, _) = stmt_span(&stmts[1]);
+        assert_eq!(&sql[start..start + 6], "SELECT");
+    }
+
+    #[test]
+    fn le_span_saute_aussi_les_commentaires_bloc() {
+        let sql = "CREATE TABLE t (a INT);\n/* bloc\n   multiligne */\nSELECT a FROM t;";
+        let stmts = parse(sql).unwrap();
+        let (start, _) = stmt_span(&stmts[1]);
+        assert_eq!(&sql[start..start + 6], "SELECT");
+    }
+
+    #[test]
+    fn un_dollar_quote_avec_accents_reste_intact() {
+        let sql = "CREATE FUNCTION f() RETURNS TEXT LANGUAGE sql AS $$ SELECT 'éà' $$;";
+        let stmts = parse(sql).unwrap();
+        assert_eq!(stmts.len(), 1);
+        let (start, end) = stmt_span(&stmts[0]);
+        assert!(
+            sql[start..end].contains("'éà'"),
+            "le corps dollar-quoté doit rester intact, obtenu: {:?}",
+            &sql[start..end]
+        );
     }
 }

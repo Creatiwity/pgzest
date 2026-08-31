@@ -875,6 +875,7 @@ dependencies = [
 name = "pgsql-lsp"
 version = "0.1.0"
 dependencies = [
+ "pgsql-analysis",
  "pgsql-ast",
  "pgsql-checker",
  "pgsql-diagnostics",

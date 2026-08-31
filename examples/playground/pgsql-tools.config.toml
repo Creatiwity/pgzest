@@ -1,0 +1,20 @@
+# Projet de démonstration pour pgsql-tools.
+# Ouvert automatiquement par F5 depuis editors/vscode/.
+
+[schema]
+# Parcouru récursivement : schema/tables/ et schema/functions/ sont inclus.
+directory = "schema"
+
+[migrations]
+directory = "migrations"
+
+[parse]
+# Un statement illisible remonte en warning : visible, sans casser le build.
+# Passe à "error" pour durcir, "ignore" le temps d'une migration.
+unparsable = "warn"
+unsupported = "ignore"
+
+[lint.rules]
+# Surcharge de sévérité par règle. Décommente pour voir l'effet.
+# "L001" = "off"        # SELECT *
+# "L005" = "error"      # index manquant sur FK

@@ -22,12 +22,19 @@ make help        # liste toutes les cibles
 `check`, `lint`, `codegen` et `emit` sur `examples/` et affiche les
 diagnostics réels.
 
-Pour l'IDE :
+Pour tester dans VS Code :
 
 ```bash
-make lsp             # compile le serveur LSP
-code editors/vscode  # puis F5 — l'extension auto-détecte target/debug/pgsql-lsp
+make vscode-dev      # compile le LSP + l'extension, puis explique la suite
+code editors/vscode  # puis F5 → « Run Extension (playground) »
 ```
+
+F5 ouvre une fenêtre sur `examples/playground/` — un vrai projet avec
+`schema/`, `migrations/` et `pgsql-tools.config.toml`, dont chaque fichier
+illustre une capacité (erreurs, directives, tolérance du parser, lint).
+Voir `examples/playground/README.md`.
+
+`make playground` fait la même démonstration en CLI.
 
 ## État par composant
 
