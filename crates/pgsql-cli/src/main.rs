@@ -58,6 +58,10 @@ enum Command {
         /// Overrides `[parse] unsupported`.
         #[arg(long = "on-unsupported", value_enum)]
         on_unsupported: Option<CliSkipLevel>,
+        /// Ignore pgsql-tools.config.toml: do not index the project, use only
+        /// `--schema` and the target files themselves.
+        #[arg(long = "no-project")]
+        no_project: bool,
     },
 
     /// Lint a SQL file for style and best-practice violations.
@@ -146,6 +150,7 @@ fn cmd_check(
     schemas: &[String],
     on_unparsable: Option<pgsql_schema::SkipLevel>,
     on_unsupported: Option<pgsql_schema::SkipLevel>,
+    no_project: bool,
 ) -> i32 {
     let config = pgsql_plugin::config::PgsqlConfig::load(&std::path::PathBuf::from("pgsql.toml"))
         .unwrap_or_default();
@@ -173,16 +178,25 @@ fn cmd_check(
         .flat_map(|(_, s)| s.iter().cloned())
         .collect();
 
-    // ── Politique de tolérance du parser ───────────────────────────────────────
-    // Lue depuis pgsql-tools.config.toml ([parse]), surchargeable en ligne de
-    // commande. Défaut : les statements illisibles remontent en warning, pour
-    // que le silence ne soit plus indiscernable du succès.
-    let parse_cfg = {
-        let mut cfg = std::path::Path::new(".")
+    // ── Découverte du projet ───────────────────────────────────────────────────
+    // Même mécanisme que le LSP : on remonte jusqu'à pgsql-tools.config.toml.
+    // Sans ça, l'éditeur et la CI ne voient pas le même schéma pour un même
+    // fichier — l'un indexe tout le projet, l'autre exige des --schema
+    // explicites, et les diagnostics divergent.
+    let project = if no_project {
+        None
+    } else {
+        std::path::Path::new(".")
             .canonicalize()
             .ok()
             .and_then(|d| pgsql_schema::ProjectConfig::find_and_load(&d))
-            .map(|(_, c)| c.parse)
+    };
+
+    // ── Politique de tolérance du parser ───────────────────────────────────────
+    let parse_cfg = {
+        let mut cfg = project
+            .as_ref()
+            .map(|(_, c)| c.parse.clone())
             .unwrap_or_default();
         if let Some(level) = on_unparsable {
             cfg.unparsable = level;
@@ -228,7 +242,14 @@ fn cmd_check(
     };
 
     // ── Build global schema (per-file schema detection) ────────────────────────
+    // Index du projet : tables et fonctions de tous les fichiers du scope,
+    // indexés sans être checkés. C'est la même construction que côté LSP.
+    let project_resolver = project
+        .as_ref()
+        .map(|(root, cfg)| pgsql_schema::SchemaResolver::from_source(&cfg.to_source(root)));
+
     let has_external_schema = !schemas.is_empty();
+    let has_project_schema = project_resolver.is_some();
     let mut composite = pgsql_schema::provider::CompositeSchemaProvider::new();
 
     if has_external_schema {
@@ -253,6 +274,25 @@ fn cmd_check(
                 stmts, &sp_refs,
             ),
         ));
+    }
+
+    // Index du projet, après les sources explicites (CompositeSchemaProvider est
+    // « premier trouvé gagne » : un --schema ou le fichier courant l'emporte).
+    if let Some(resolver) = project_resolver {
+        // Un statement illisible dans un fichier du scope retire sa table de
+        // l'index, ce qui produit ensuite des `does not exist` qui sont des
+        // faux positifs. On le dit plutôt que de laisser croire à un index complet.
+        if !resolver.skipped.is_empty() && parse_cfg.unparsable != pgsql_schema::SkipLevel::Ignore {
+            for (path, sk) in &resolver.skipped {
+                eprintln!(
+                    "warning: {}: statement non indexé, les objets qu'il définit \
+                     seront introuvables ({:?})",
+                    path.display(),
+                    sk.reason
+                );
+            }
+        }
+        composite.add(Box::new(resolver));
     }
 
     for provider in registry.collect_schema_providers(&config.plugins) {
@@ -286,30 +326,31 @@ fn cmd_check(
         .collect();
 
     for (file, sql, stmts, skipped) in &parsed_targets {
-        let mut diagnostics = if has_external_schema || parsed_targets.len() > 1 {
-            // Cross-file mode: trigger map built from context + ALL target files.
-            let all_other_stmts: Vec<Statement> = context_stmts
-                .iter()
-                .chain(
-                    parsed_targets
-                        .iter()
-                        .filter(|(f, _, _, _)| f != file)
-                        .flat_map(|(_, _, s, _)| s.iter()),
+        let mut diagnostics =
+            if has_external_schema || has_project_schema || parsed_targets.len() > 1 {
+                // Cross-file mode: trigger map built from context + ALL target files.
+                let all_other_stmts: Vec<Statement> = context_stmts
+                    .iter()
+                    .chain(
+                        parsed_targets
+                            .iter()
+                            .filter(|(f, _, _, _)| f != file)
+                            .flat_map(|(_, _, s, _)| s.iter()),
+                    )
+                    .cloned()
+                    .collect();
+                checker.run_with_context(stmts, &all_other_stmts, &composite)
+            } else {
+                // Single file, no schema → self-contained mode with per-file schema detection.
+                let sp = pgsql_schema::provider::detect_search_path(sql);
+                let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
+                pgsql_checker::check_statements(
+                    stmts,
+                    &pgsql_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
+                        stmts, &sp_refs,
+                    ),
                 )
-                .cloned()
-                .collect();
-            checker.run_with_context(stmts, &all_other_stmts, &composite)
-        } else {
-            // Single file, no schema → self-contained mode with per-file schema detection.
-            let sp = pgsql_schema::provider::detect_search_path(sql);
-            let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
-            pgsql_checker::check_statements(
-                stmts,
-                &pgsql_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
-                    stmts, &sp_refs,
-                ),
-            )
-        };
+            };
 
         // Statements écartés par le parser → diagnostics selon la config.
         let mut all = pgsql_analysis::skipped_to_diagnostics(skipped, &analysis_opts.parse);
@@ -520,11 +561,13 @@ fn main() {
             schemas,
             on_unparsable,
             on_unsupported,
+            no_project,
         } => cmd_check(
             &files,
             &schemas,
             on_unparsable.map(Into::into),
             on_unsupported.map(Into::into),
+            no_project,
         ),
         Command::Lint { file } => cmd_lint(&file),
         Command::Migrate { action } => match action {

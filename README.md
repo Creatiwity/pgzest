@@ -112,6 +112,42 @@ CREATE TABLE … ;
 `span` du diagnostic. Les rares règles qui n'en produisent pas encore (elles
 remontent en `1:1`) ne peuvent être tues que par `pgsql-disable-file`.
 
+## Scope du projet
+
+`pgsql check` et le serveur LSP partagent le même modèle : les fichiers du
+scope sont **indexés sans être checkés** (tables, fonctions, RLS), puis seul
+le fichier courant est analysé contre cet index.
+
+Le scope est découvert en remontant jusqu'à `pgsql-tools.config.toml` :
+
+```toml
+[migrations]
+directory = "migrations"     # indexé, chaque fichier avec sa séquence
+
+[schema]
+directory = "schema"         # indexé récursivement
+include = ["db/functions"]   # répertoires supplémentaires
+```
+
+Si `[schema] directory` est absent, **tout le projet** est le scope — cohérent
+avec la classification, qui traite alors tout fichier non-migration comme
+Schema. `node_modules/`, `target/`, `dist/`, `.schema-snapshots/` et les
+répertoires cachés ne sont jamais parcourus.
+
+Priorité de résolution, premier trouvé gagne : `--schema` explicite → DDL du
+fichier analysé → index du projet → plugins.
+
+```bash
+pgsql check queries/q.sql              # utilise l'index du projet
+pgsql check queries/q.sql --no-project # ignore la config, mode isolé
+pgsql check q.sql --schema other.sql   # ajoute une source explicite
+```
+
+Si un fichier du scope contient un statement illisible, les objets qu'il
+définit sont absents de l'index — donc des `table-not-found` en cascade qui
+sont des faux positifs. La CLI le signale au lieu de laisser croire à un index
+complet.
+
 ## Limites connues
 
 Par ordre d'importance :
