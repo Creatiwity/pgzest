@@ -816,6 +816,7 @@ dependencies = [
  "pgsql-checker",
  "pgsql-diagnostics",
  "pgsql-lint",
+ "pgsql-macro",
  "pgsql-parser",
  "pgsql-schema",
  "pgsql-semantic",
@@ -895,6 +896,7 @@ dependencies = [
 name = "pgsql-macro"
 version = "0.1.0"
 dependencies = [
+ "pgsql-ast",
  "pgsql-diagnostics",
  "pgsql-parser",
 ]

@@ -53,9 +53,10 @@ fn convert_index_column(ic: sp::IndexColumn) -> Result<Ident, ParseError> {
 pub fn convert_statement_at(
     stmt: sp::Statement,
     source: &str,
-    base: usize,
+    stmt_offset: usize,
+    offsets: crate::Offsets,
 ) -> Result<Statement, ParseError> {
-    let _guard = enter_span_ctx(source, base);
+    let _guard = enter_span_ctx(source, stmt_offset, offsets);
     convert_statement(stmt)
 }
 
@@ -1779,12 +1780,14 @@ struct SpanCtx {
     line_starts: Vec<usize>,
     /// Texte soumis, pour convertir une colonne-caractère en offset octet.
     source: String,
-    /// Offset du texte soumis dans le document complet.
-    base: usize,
+    /// Offset du statement dans le texte soumis au parser.
+    stmt_offset: usize,
+    /// Comment traduire un offset local vers le repère du document.
+    offsets: crate::Offsets,
 }
 
 impl SpanCtx {
-    fn new(source: &str, base: usize) -> Self {
+    fn new(source: &str, stmt_offset: usize, offsets: crate::Offsets) -> Self {
         let mut line_starts = vec![0usize];
         for (i, b) in source.bytes().enumerate() {
             if b == b'\n' {
@@ -1794,13 +1797,15 @@ impl SpanCtx {
         Self {
             line_starts,
             source: source.to_string(),
-            base,
+            stmt_offset,
+            offsets,
         }
     }
 
     /// `Location` (ligne/colonne 1-basées, colonne en caractères) → offset octet
-    /// dans le document.
-    fn offset_of(&self, line: u64, column: u64) -> Option<usize> {
+    /// **local au texte soumis**. La traduction vers le document se fait dans
+    /// [`Self::resolve`], qui dispose de la plage complète.
+    fn local_offset_of(&self, line: u64, column: u64) -> Option<usize> {
         if line == 0 {
             // sqlparser utilise la ligne 0 pour un span vide.
             return None;
@@ -1822,7 +1827,25 @@ impl SpanCtx {
             .map(|(b, _)| b)
             .unwrap_or_else(|| line_text.len());
 
-        Some(self.base + line_start + byte_in_line)
+        Some(self.stmt_offset + line_start + byte_in_line)
+    }
+
+    /// Plage sqlparser → span dans le repère du document.
+    fn resolve(&self, sp_span: sqlparser::tokenizer::Span) -> Span {
+        let Some(start) = self.local_offset_of(sp_span.start.line, sp_span.start.column) else {
+            return Span::DUMMY;
+        };
+        let Some(end) = self.local_offset_of(sp_span.end.line, sp_span.end.column) else {
+            return Span::DUMMY;
+        };
+        if end < start {
+            return Span::DUMMY;
+        }
+        let (s, e) = self.offsets.span(start, end);
+        Span {
+            start: s as u32,
+            end: e as u32,
+        }
     }
 }
 
@@ -1840,8 +1863,8 @@ impl Drop for SpanCtxGuard {
     }
 }
 
-fn enter_span_ctx(source: &str, base: usize) -> SpanCtxGuard {
-    SPAN_CTX.with(|c| *c.borrow_mut() = Some(SpanCtx::new(source, base)));
+fn enter_span_ctx(source: &str, stmt_offset: usize, offsets: crate::Offsets) -> SpanCtxGuard {
+    SPAN_CTX.with(|c| *c.borrow_mut() = Some(SpanCtx::new(source, stmt_offset, offsets)));
     SpanCtxGuard
 }
 
@@ -1856,18 +1879,9 @@ fn sp_expr_span(expr: &sp::Expr) -> Span {
     use sqlparser::ast::Spanned;
     let sp_span = expr.span();
     SPAN_CTX.with(|c| {
-        let borrow = c.borrow();
-        let Some(ctx) = borrow.as_ref() else {
-            return Span::DUMMY;
-        };
-        let start = ctx.offset_of(sp_span.start.line, sp_span.start.column);
-        let end = ctx.offset_of(sp_span.end.line, sp_span.end.column);
-        match (start, end) {
-            (Some(s), Some(e)) if e >= s => Span {
-                start: s as u32,
-                end: e as u32,
-            },
-            _ => Span::DUMMY,
-        }
+        c.borrow()
+            .as_ref()
+            .map(|ctx| ctx.resolve(sp_span))
+            .unwrap_or(Span::DUMMY)
     })
 }

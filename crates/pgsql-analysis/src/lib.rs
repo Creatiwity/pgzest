@@ -432,3 +432,120 @@ mod lint_tests {
         let _ = diags; // le seul contrat est : ça ne panique pas
     }
 }
+
+// ── Sources contenant des macros ──────────────────────────────────────────────
+
+/// Une source prête à analyser : le SQL, et d'où vient chaque fragment.
+pub struct PreparedSource {
+    /// SQL à analyser — la source elle-même si elle ne contenait aucune macro.
+    pub sql: String,
+    /// Provenance de chaque fragment de `sql`. `None` si `sql` **est** la
+    /// source, auquel cas les positions sont déjà les bonnes.
+    pub map: Option<pgsql_ast::SourceMap>,
+    /// Diagnostics du désucrage, déjà positionnés dans la source.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl PreparedSource {
+    /// Parse en ramenant les spans dans le repère de la source d'origine.
+    ///
+    /// C'est ici que la correspondance est consommée : le parser assigne des
+    /// spans **déjà traduits**, donc l'AST rendu désigne le fichier édité. Tout
+    /// ce qui le lit ensuite — checker, linter, hover, go-to-definition,
+    /// codegen — obtient des positions justes sans rien savoir des macros.
+    pub fn parse(&self) -> Result<Vec<pgsql_ast::Statement>, pgsql_parser::ParseError> {
+        match &self.map {
+            Some(map) => pgsql_parser::parse_mapped(&self.sql, map),
+            None => pgsql_parser::parse(&self.sql),
+        }
+    }
+
+    /// Variante conservant la trace des statements écartés.
+    pub fn parse_with_outcome(
+        &self,
+    ) -> Result<pgsql_parser::ParseOutcome, pgsql_parser::ParseError> {
+        match &self.map {
+            Some(map) => pgsql_parser::parse_mapped_with_outcome(&self.sql, map),
+            None => pgsql_parser::parse_with_outcome(&self.sql),
+        }
+    }
+}
+
+/// Vrai si le chemin désigne un fichier pouvant contenir des macros.
+pub fn is_macro_source(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("pgsql"))
+}
+
+/// Désucre `source` si elle contient des macros, sinon la renvoie telle quelle.
+///
+/// Le désucrage est tenté sur tout fichier, quelle qu'en soit l'extension : une
+/// source sans macro est recopiée à l'identique, donc la vérification est
+/// gratuite et aucun fichier n'échappe au traitement à cause de son nom.
+/// [`is_macro_source`] sert à décider quels fichiers *présenter* comme sources
+/// de macros, pas à décider s'il faut désucrer.
+pub fn prepare_source(source: &str, macros: &pgsql_macro::MacroSet) -> PreparedSource {
+    let expansion = pgsql_macro::expand_source(source, macros);
+
+    if expansion.is_passthrough() {
+        return PreparedSource {
+            sql: source.to_string(),
+            map: None,
+            diagnostics: expansion.diagnostics,
+        };
+    }
+
+    PreparedSource {
+        sql: expansion.sql,
+        map: Some(expansion.map),
+        diagnostics: expansion.diagnostics,
+    }
+}
+
+/// Analyse une source pouvant contenir des macros.
+///
+/// Les positions sont dans le repère du fichier édité, portées par l'AST plutôt
+/// que corrigées après coup : voir [`PreparedSource::parse`].
+pub fn analyze_source_with_macros(
+    source: &str,
+    macros: &pgsql_macro::MacroSet,
+    schema: &dyn SchemaProvider,
+    opts: &AnalysisOptions,
+) -> AnalysisResult {
+    let prepared = prepare_source(source, macros);
+    let suppressions = Suppressions::scan(source);
+
+    let outcome = match prepared.parse_with_outcome() {
+        Ok(o) => o,
+        Err(e) => {
+            let mut diagnostics = vec![Diagnostic::error(
+                codes::PARSE_ERROR,
+                format!("parse error: {e}"),
+            )];
+            diagnostics.extend(prepared.diagnostics);
+            suppressions.apply(&mut diagnostics);
+            let empty = DdlSchemaProvider::from_statements(&[]);
+            return AnalysisResult {
+                diagnostics,
+                semantic: analyze(&[], &empty),
+                skipped: Vec::new(),
+                suppressions,
+            };
+        }
+    };
+
+    let semantic = analyze(&outcome.statements, schema);
+    let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
+    diagnostics.extend(pgsql_checker::check_statements(&outcome.statements, schema));
+    // Les diagnostics de macro sont déjà dans le repère source.
+    diagnostics.extend(prepared.diagnostics.clone());
+    suppressions.apply(&mut diagnostics);
+
+    AnalysisResult {
+        diagnostics,
+        semantic,
+        skipped: outcome.skipped,
+        suppressions,
+    }
+}

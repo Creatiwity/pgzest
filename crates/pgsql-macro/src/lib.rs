@@ -28,8 +28,9 @@
 pub mod def;
 pub mod expand;
 pub mod header;
-pub mod source_map;
 
 pub use def::{MacroDef, MacroSet};
 pub use expand::{Expansion, expand_source};
-pub use source_map::SourceMap;
+/// Réexport : la correspondance de positions vit dans `pgsql-ast`, aux côtés
+/// de `Span`, pour que le parser y accède sans dépendre de ce crate.
+pub use pgsql_ast::SourceMap;

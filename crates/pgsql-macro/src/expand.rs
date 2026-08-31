@@ -7,7 +7,7 @@
 use pgsql_diagnostics::{Diagnostic, Severity, Span};
 
 use crate::def::{Keywords, MacroDef, MacroSet};
-use crate::source_map::SourceMap;
+use pgsql_ast::SourceMap;
 
 /// Code de diagnostic des erreurs de macro.
 pub const MACRO_ERROR: &str = "macro-error";

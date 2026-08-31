@@ -28,6 +28,23 @@ pub fn parse_plpgsql_body_at(
     body: &str,
     file_body_offset: usize,
 ) -> Result<PlpgsqlBody, PlParseError> {
+    parse_plpgsql_body_mapped(body, file_body_offset, &crate::Offsets::Shift(0))
+}
+
+/// Comme [`parse_plpgsql_body_at`], mais la position finale de chaque statement
+/// interne passe par `offsets`.
+///
+/// `body_offset_in_input` situe le corps dans le texte soumis au parser, **non
+/// traduit** : c'est la position de chaque statement interne qui est traduite,
+/// parce qu'elle tombe dans un fragment recopié, là où la position du `$$` est
+/// du texte engendré sans antécédent.
+pub fn parse_plpgsql_body_mapped(
+    body: &str,
+    body_offset_in_input: usize,
+    offsets: &crate::Offsets,
+) -> Result<PlpgsqlBody, PlParseError> {
+    let file_body_offset = body_offset_in_input;
+    let offsets = offsets.clone();
     let mut lexer = Lexer::new(body);
     let (tokens, token_offsets) = lexer.tokenize_all_with_offsets();
     let mut parser = Parser {
@@ -36,6 +53,7 @@ pub fn parse_plpgsql_body_at(
         source: body.to_string(),
         token_offsets,
         file_body_offset,
+        offsets,
     };
     parser.parse_body()
 }
@@ -52,6 +70,8 @@ struct Parser {
     /// Byte offset of the body string within the full source file.
     /// Used to shift SQL fragment spans to their file-absolute positions.
     file_body_offset: usize,
+    /// Traduction des positions vers le repère du document.
+    offsets: crate::Offsets,
 }
 
 impl Parser {
@@ -1444,7 +1464,9 @@ impl Parser {
                 // Shift the statement span from fragment-relative (start=0) to
                 // the actual byte position in the source file.
                 let body_offset = self.token_offsets.get(token_start).copied().unwrap_or(0);
-                let file_offset = self.file_body_offset + body_offset;
+                // Position dans le texte soumis, puis traduite : elle tombe
+                // dans un fragment recopié, donc l'antécédent est exact.
+                let file_offset = self.offsets.point(self.file_body_offset + body_offset);
                 if file_offset > 0 {
                     shift_stmt_span(&mut stmt, file_offset);
                 }

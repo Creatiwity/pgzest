@@ -6,8 +6,12 @@ edition = "2024"
 [dependencies]
 pgsql-ast = { path = "../pgsql-ast" }
 pgsql-diagnostics = { workspace = true }
+pgsql-macro = { path = "../pgsql-macro" }
 pgsql-parser = { path = "../pgsql-parser" }
 pgsql-schema = { path = "../pgsql-schema" }
 pgsql-semantic = { path = "../pgsql-semantic" }
 pgsql-checker = { path = "../pgsql-checker" }
 pgsql-lint = { path = "../pgsql-lint" }
+
+[dev-dependencies]
+pgsql-parser = { path = "../pgsql-parser" }

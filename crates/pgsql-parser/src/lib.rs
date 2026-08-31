@@ -617,24 +617,85 @@ pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
     parse_at_with_outcome(sql, 0)
 }
 
+/// Comment traduire un offset du texte soumis vers le repère du document.
+///
+/// Le parser assigne les spans **déjà traduits**, plutôt que de laisser un
+/// consommateur les retraduire après coup. Conséquence : tout ce qui lit l'AST
+/// — checker, linter, hover, go-to-definition, codegen — obtient des positions
+/// justes, pas seulement les diagnostics.
+/// Possédé plutôt qu'emprunté : la correspondance doit traverser un
+/// thread-local (spans d'expression) et le parser PL/pgSQL, qui ne peuvent pas
+/// porter de durée de vie. Le clone est un `Vec` de segments, négligeable
+/// devant un parse.
+#[derive(Clone)]
+pub enum Offsets {
+    /// Décalage constant : le texte soumis est un fragment contigu du document.
+    Shift(usize),
+    /// Correspondance quelconque : le texte soumis a été engendré depuis le
+    /// document (expansion de macro, prétraitement).
+    Mapped(pgsql_ast::SourceMap),
+}
+
+impl Offsets {
+    /// Traduit un offset ponctuel.
+    pub(crate) fn point(&self, offset: usize) -> usize {
+        match self {
+            Self::Shift(base) => base + offset,
+            // Un point sans antécédent est rabattu sur le fragment recopié le
+            // plus proche : mieux vaut une position approchée qu'aucune.
+            Self::Mapped(map) => map.nearest_source(offset).unwrap_or(offset),
+        }
+    }
+
+    /// Traduit une plage. La fin est bornée au segment du début, sinon une plage
+    /// chevauchant du texte engendré s'étendrait absurdement dans la source.
+    pub(crate) fn span(&self, start: usize, end: usize) -> (usize, usize) {
+        match self {
+            Self::Shift(base) => (base + start, base + end),
+            Self::Mapped(map) => map
+                .remap(start, end)
+                .unwrap_or_else(|| (self.point(start), self.point(end))),
+        }
+    }
+}
+
 /// Parse un fragment SQL extrait d'un document plus grand.
 ///
 /// `base_offset` est l'offset octet du début de `sql` dans le document
 /// englobant. Tous les spans produits — statements, statements écartés, corps
-/// PL/pgSQL — sont exprimés dans le repère du document, pas du fragment.
+/// PL/pgSQL, expressions — sont exprimés dans le repère du document.
 ///
 /// C'est ce qui permet d'analyser du SQL qui ne vit pas dans un fichier `.sql` :
-/// littéral de template dans un fichier TypeScript, bloc dans un Markdown,
-/// sortie d'une expansion de macro. Sans cela les diagnostics pointeraient sur
-/// des positions relatives au fragment, donc à côté dans l'éditeur.
+/// littéral de template dans un fichier TypeScript, bloc dans un Markdown.
 ///
 /// [`parse`] et [`parse_with_outcome`] sont le cas `base_offset = 0`.
 pub fn parse_at(sql: &str, base_offset: usize) -> Result<Vec<Statement>, ParseError> {
-    Ok(parse_at_with_outcome(sql, base_offset)?.statements)
+    Ok(parse_with_offsets(sql, Offsets::Shift(base_offset))?.statements)
 }
 
 /// Comme [`parse_at`], en conservant la trace des statements écartés.
 pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutcome, ParseError> {
+    parse_with_offsets(sql, Offsets::Shift(base_offset))
+}
+
+/// Parse du SQL **engendré** depuis un autre texte, spans ramenés à la source.
+///
+/// `map` décrit la provenance de chaque fragment de `sql`. Les spans de l'AST
+/// désignent donc directement le fichier édité — un `.pgsql` par exemple — et
+/// aucun consommateur n'a de retraduction à faire.
+pub fn parse_mapped(sql: &str, map: &pgsql_ast::SourceMap) -> Result<Vec<Statement>, ParseError> {
+    Ok(parse_with_offsets(sql, Offsets::Mapped(map.clone()))?.statements)
+}
+
+/// Comme [`parse_mapped`], en conservant la trace des statements écartés.
+pub fn parse_mapped_with_outcome(
+    sql: &str,
+    map: &pgsql_ast::SourceMap,
+) -> Result<ParseOutcome, ParseError> {
+    parse_with_offsets(sql, Offsets::Mapped(map.clone()))
+}
+
+fn parse_with_offsets(sql: &str, offsets: Offsets) -> Result<ParseOutcome, ParseError> {
     let dialect = PostgreSqlDialect {};
 
     // Split into individual statement strings (respecting dollar-quotes).
@@ -646,8 +707,9 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
     let mut skipped: Vec<SkippedStatement> = Vec::new();
 
     for (stmt_sql, byte_offset) in &raw_stmts {
-        // Position du statement dans le document englobant, pas dans le fragment.
-        let stmt_offset = base_offset + *byte_offset;
+        // Offsets locaux au texte soumis ; la traduction vers le repère du
+        // document se fait au moment d'assigner chaque span, ci-dessous.
+        let stmt_offset = *byte_offset;
         // `split_statements` découpe sur `;`, donc les commentaires qui précèdent
         // un statement lui restent collés. Le span doit démarrer sur le SQL, pas
         // sur ces commentaires : sinon le soulignement se pose sur le bloc de
@@ -670,10 +732,11 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
         let sp_stmts = match SqlParser::parse_sql(&dialect, &cleaned) {
             Ok(s) => s,
             Err(e) => {
+                let (start, end) = offsets.span(sql_offset, stmt_offset + stmt_sql.len());
                 skipped.push(SkippedStatement {
                     sql: stmt_sql[trivia..].to_string(),
-                    start: sql_offset,
-                    end: stmt_offset + stmt_sql.len(),
+                    start,
+                    end,
                     reason: SkipReason::Unparsable(e.to_string()),
                 });
                 continue;
@@ -689,17 +752,18 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
 
         for sp_stmt in sp_stmts {
             let converted = if positions_exactes {
-                convert::convert_statement_at(sp_stmt, &cleaned, stmt_offset)
+                convert::convert_statement_at(sp_stmt, &cleaned, stmt_offset, offsets.clone())
             } else {
                 convert::convert_statement(sp_stmt)
             };
             let mut stmt = match converted {
                 Ok(s) => s,
                 Err(ParseError::Unsupported(what)) => {
+                    let (start, end) = offsets.span(sql_offset, stmt_offset + stmt_sql.len());
                     skipped.push(SkippedStatement {
                         sql: stmt_sql[trivia..].to_string(),
-                        start: sql_offset,
-                        end: stmt_offset + stmt_sql.len(),
+                        start,
+                        end,
                         reason: SkipReason::Unsupported(what),
                     });
                     continue;
@@ -754,13 +818,14 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
                     stmt = Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(proc));
                 }
             }
-            set_stmt_span(&mut stmt, sql_offset, stmt_offset + stmt_sql.len());
+            let (span_start, span_end) = offsets.span(sql_offset, stmt_offset + stmt_sql.len());
+            set_stmt_span(&mut stmt, span_start, span_end);
             // Set body_start and re-parse the PL/pgSQL body with the file offset
             // so that inner SQL fragment spans point to the correct source line.
             if meta.is_some() {
                 let body_in_stmt = find_body_start(stmt_sql);
                 if body_in_stmt < stmt_sql.len() {
-                    let global_body_start = (stmt_offset + body_in_stmt) as u32;
+                    let global_body_start = offsets.point(stmt_offset + body_in_stmt) as u32;
                     // Find the end of the opening delimiter (e.g. $$ or $body$)
                     // to get the offset of the body content itself.
                     let body_bytes = stmt_sql.as_bytes();
@@ -771,6 +836,11 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
                     if delim_end < stmt_sql.len() {
                         delim_end += 1;
                     } // skip closing $
+                    // Offset du corps dans le texte SOUMIS, non traduit : la
+                    // position du `$$` est du texte engendré, sans antécédent,
+                    // et la traduire donnerait n'importe quoi. Le parser
+                    // PL/pgSQL traduira la position de chaque statement
+                    // interne, qui tombe elle dans un fragment recopié.
                     let content_file_offset = stmt_offset + delim_end;
 
                     match &mut stmt {
@@ -779,9 +849,11 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
                             // Re-parse with exact file offset for precise inner spans.
                             if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cf.body {
                                 let raw = raw.clone();
-                                if let Ok(parsed) =
-                                    crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset)
-                                {
+                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_mapped(
+                                    &raw,
+                                    content_file_offset,
+                                    &offsets,
+                                ) {
                                     cf.body =
                                         pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
                                 }
@@ -791,9 +863,11 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
                             cp.body_start = global_body_start;
                             if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cp.body {
                                 let raw = raw.clone();
-                                if let Ok(parsed) =
-                                    crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset)
-                                {
+                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_mapped(
+                                    &raw,
+                                    content_file_offset,
+                                    &offsets,
+                                ) {
                                     cp.body =
                                         pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
                                 }
