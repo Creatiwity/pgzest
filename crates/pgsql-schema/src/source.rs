@@ -177,6 +177,63 @@ impl SchemaSource for InlineSource {
     }
 }
 
+// ── FragmentSource ────────────────────────────────────────────────────────────
+
+/// Un fragment SQL extrait d'un document qui n'est pas un fichier `.sql`.
+///
+/// C'est le point de branchement pour tout ce qui héberge du SQL sans être du
+/// SQL : littéral de template dans un `.ts`, bloc dans un Markdown, résultat
+/// d'une expansion de macro. À la différence de [`FileSource`] et
+/// [`InlineSource`] — qui posent `byte_range: 0..len` parce que le fichier
+/// *est* le SQL — celui-ci porte l'offset réel du fragment dans son document.
+///
+/// Cet offset traverse [`crate::SchemaResolver`] jusqu'à
+/// `pgsql_parser::parse_at_with_outcome`, donc les spans des diagnostics sont
+/// exprimés dans le repère du document hôte : l'éditeur souligne le bon endroit
+/// dans le `.ts`, pas une position relative au fragment.
+///
+/// ```ignore
+/// // const q = sql`SELECT id FROM users`;
+/// //               ^-- offset 14 dans le .ts
+/// FragmentSource::new("app/query.ts", "SELECT id FROM users", 14, FileRole::Query)
+/// ```
+pub struct FragmentSource {
+    pub path: PathBuf,
+    pub sql: String,
+    /// Offset octet du début de `sql` dans le document désigné par `path`.
+    pub offset: usize,
+    pub role: FileRole,
+}
+
+impl FragmentSource {
+    pub fn new(
+        path: impl Into<PathBuf>,
+        sql: impl Into<String>,
+        offset: usize,
+        role: FileRole,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            sql: sql.into(),
+            offset,
+            role,
+        }
+    }
+}
+
+impl SchemaSource for FragmentSource {
+    fn chunks(&self) -> Vec<SqlChunk> {
+        vec![SqlChunk {
+            origin: SourceOrigin {
+                path: self.path.clone(),
+                byte_range: self.offset..self.offset + self.sql.len(),
+            },
+            sql: self.sql.clone(),
+            role: self.role.clone(),
+        }]
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn sorted_sql_files(dir: &Path) -> Vec<PathBuf> {

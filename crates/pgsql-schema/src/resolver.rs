@@ -23,6 +23,12 @@ pub struct SchemaResolver {
     functions: HashMap<String, FunctionSignature>,
     rls_enabled: HashSet<String>,
     pub index: SchemaIndex,
+    /// Statements écartés pendant l'indexation, avec le fichier d'origine.
+    ///
+    /// Non vide = l'index est incomplet, donc des `table-not-found` peuvent
+    /// être des faux positifs. Les consommateurs devraient le signaler plutôt
+    /// que de laisser croire à un schéma complet.
+    pub skipped: Vec<(std::path::PathBuf, pgsql_parser::SkippedStatement)>,
 }
 
 impl SchemaResolver {
@@ -38,12 +44,33 @@ impl SchemaResolver {
         let mut functions: HashMap<String, FunctionSignature> = HashMap::new();
         let mut rls_enabled: HashSet<String> = HashSet::new();
 
+        let mut skipped = Vec::new();
+
         for chunk in chunks {
-            let stmts = match pgsql_parser::parse(&chunk.sql) {
-                Ok(s) => s,
+            // `origin.byte_range.start` situe le chunk dans son document : un
+            // fichier `.sql` commence à 0, mais un littéral SQL extrait d'un
+            // `.ts` commence plus loin. Passer l'offset garde les spans
+            // exprimés dans le repère du document.
+            let outcome = match pgsql_parser::parse_at_with_outcome(
+                &chunk.sql,
+                chunk.origin.byte_range.start,
+            ) {
+                Ok(o) => o,
                 Err(_) => continue,
             };
-            apply_statements(&stmts, &mut tables, &mut functions, &mut rls_enabled);
+            // Un statement écarté dans un fichier de schéma, c'est une table ou
+            // une fonction absente de l'index — donc une cascade de faux
+            // « does not exist » sur les fichiers qui s'en servent. On conserve
+            // l'info au lieu de la jeter silencieusement.
+            for sk in outcome.skipped {
+                skipped.push((chunk.origin.path.clone(), sk));
+            }
+            apply_statements(
+                &outcome.statements,
+                &mut tables,
+                &mut functions,
+                &mut rls_enabled,
+            );
         }
 
         let index = SchemaIndex::from_chunks(chunks);
@@ -52,6 +79,7 @@ impl SchemaResolver {
             functions,
             rls_enabled,
             index,
+            skipped,
         }
     }
 
@@ -62,6 +90,7 @@ impl SchemaResolver {
             functions: HashMap::new(),
             rls_enabled: HashSet::new(),
             index: SchemaIndex::default(),
+            skipped: Vec::new(),
         }
     }
 
@@ -77,6 +106,7 @@ impl SchemaResolver {
             functions,
             rls_enabled,
             index: SchemaIndex::default(),
+            skipped: Vec::new(),
         })
     }
 }

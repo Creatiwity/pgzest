@@ -614,6 +614,27 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
 
 /// Parse `sql` en conservant la trace des statements écartés.
 pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
+    parse_at_with_outcome(sql, 0)
+}
+
+/// Parse un fragment SQL extrait d'un document plus grand.
+///
+/// `base_offset` est l'offset octet du début de `sql` dans le document
+/// englobant. Tous les spans produits — statements, statements écartés, corps
+/// PL/pgSQL — sont exprimés dans le repère du document, pas du fragment.
+///
+/// C'est ce qui permet d'analyser du SQL qui ne vit pas dans un fichier `.sql` :
+/// littéral de template dans un fichier TypeScript, bloc dans un Markdown,
+/// sortie d'une expansion de macro. Sans cela les diagnostics pointeraient sur
+/// des positions relatives au fragment, donc à côté dans l'éditeur.
+///
+/// [`parse`] et [`parse_with_outcome`] sont le cas `base_offset = 0`.
+pub fn parse_at(sql: &str, base_offset: usize) -> Result<Vec<Statement>, ParseError> {
+    Ok(parse_at_with_outcome(sql, base_offset)?.statements)
+}
+
+/// Comme [`parse_at`], en conservant la trace des statements écartés.
+pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutcome, ParseError> {
     let dialect = PostgreSqlDialect {};
 
     // Split into individual statement strings (respecting dollar-quotes).
@@ -625,6 +646,8 @@ pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
     let mut skipped: Vec<SkippedStatement> = Vec::new();
 
     for (stmt_sql, byte_offset) in &raw_stmts {
+        // Position du statement dans le document englobant, pas dans le fragment.
+        let stmt_offset = base_offset + *byte_offset;
         let (cleaned, meta) = if is_create_function_sql(stmt_sql) {
             let (c, m) = preprocess_function_sql(stmt_sql);
             (c, Some(m))
@@ -643,8 +666,8 @@ pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
                 let trivia = leading_trivia_len(stmt_sql);
                 skipped.push(SkippedStatement {
                     sql: stmt_sql[trivia..].to_string(),
-                    start: byte_offset + trivia,
-                    end: byte_offset + stmt_sql.len(),
+                    start: stmt_offset + trivia,
+                    end: stmt_offset + stmt_sql.len(),
                     reason: SkipReason::Unparsable(e.to_string()),
                 });
                 continue;
@@ -658,8 +681,8 @@ pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
                     let trivia = leading_trivia_len(stmt_sql);
                     skipped.push(SkippedStatement {
                         sql: stmt_sql[trivia..].to_string(),
-                        start: byte_offset + trivia,
-                        end: byte_offset + stmt_sql.len(),
+                        start: stmt_offset + trivia,
+                        end: stmt_offset + stmt_sql.len(),
                         reason: SkipReason::Unsupported(what),
                     });
                     continue;
@@ -714,13 +737,13 @@ pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
                     stmt = Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(proc));
                 }
             }
-            set_stmt_span(&mut stmt, *byte_offset, byte_offset + stmt_sql.len());
+            set_stmt_span(&mut stmt, stmt_offset, stmt_offset + stmt_sql.len());
             // Set body_start and re-parse the PL/pgSQL body with the file offset
             // so that inner SQL fragment spans point to the correct source line.
             if meta.is_some() {
                 let body_in_stmt = find_body_start(stmt_sql);
                 if body_in_stmt < stmt_sql.len() {
-                    let global_body_start = (*byte_offset + body_in_stmt) as u32;
+                    let global_body_start = (stmt_offset + body_in_stmt) as u32;
                     // Find the end of the opening delimiter (e.g. $$ or $body$)
                     // to get the offset of the body content itself.
                     let body_bytes = stmt_sql.as_bytes();
@@ -731,7 +754,7 @@ pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
                     if delim_end < stmt_sql.len() {
                         delim_end += 1;
                     } // skip closing $
-                    let content_file_offset = *byte_offset + delim_end;
+                    let content_file_offset = stmt_offset + delim_end;
 
                     match &mut stmt {
                         Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) => {
@@ -1004,5 +1027,94 @@ mod skip_tests {
         let out = parse_with_outcome(sql).unwrap();
         assert_eq!(out.statements.len(), 2);
         assert_eq!(out.skipped.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod parse_at_tests {
+    use super::*;
+
+    /// Span d'un statement, quel que soit son type.
+    fn span_of(stmt: &Statement) -> (u32, u32) {
+        use pgsql_ast::{DdlStatement, Statement::*};
+        let sp = match stmt {
+            Select(s) => &s.span,
+            Insert(s) => &s.span,
+            Update(s) => &s.span,
+            Delete(s) => &s.span,
+            Ddl(d) => match d {
+                DdlStatement::CreateFunction(c) => &c.span,
+                DdlStatement::CreateProcedure(c) => &c.span,
+                DdlStatement::CreatePolicy(c) => &c.span,
+                DdlStatement::CreateTable(c) => &c.span,
+                _ => return (0, 0),
+            },
+        };
+        (sp.start, sp.end)
+    }
+
+    #[test]
+    fn base_offset_zero_equivaut_a_parse() {
+        let sql = "SELECT 1;";
+        let a = parse_at(sql, 0).unwrap();
+        let b = parse(sql).unwrap();
+        assert_eq!(span_of(&a[0]), span_of(&b[0]));
+    }
+
+    #[test]
+    fn les_spans_sont_decales_du_base_offset() {
+        let fragment = "SELECT 1;";
+        let base = 100;
+        let at_zero = parse_at(fragment, 0).unwrap();
+        let at_base = parse_at(fragment, base).unwrap();
+
+        let (s0, e0) = span_of(&at_zero[0]);
+        let (sb, eb) = span_of(&at_base[0]);
+        assert_eq!(sb, s0 + base as u32, "start décalé");
+        assert_eq!(eb, e0 + base as u32, "end décalé");
+    }
+
+    #[test]
+    fn le_span_pointe_dans_le_document_englobant() {
+        // Simule du SQL extrait d'un fichier TypeScript.
+        let doc = "const q = sql`\nSELECT id FROM users;\n`;\n";
+        let start = doc.find("SELECT").unwrap();
+        let fragment = "SELECT id FROM users;";
+
+        let stmts = parse_at(fragment, start).unwrap();
+        let (s, e) = span_of(&stmts[0]);
+
+        // Le span doit permettre de retrouver le texte dans le document complet.
+        assert_eq!(
+            &doc[s as usize..e as usize],
+            "SELECT id FROM users",
+            "le span doit indexer le document, pas le fragment"
+        );
+    }
+
+    #[test]
+    fn les_statements_ecartes_sont_aussi_decales() {
+        let doc = "// du TS\nSELCT oops;";
+        let start = doc.find("SELCT").unwrap();
+        let out = parse_at_with_outcome("SELCT oops;", start).unwrap();
+        assert_eq!(out.skipped.len(), 1);
+        let sk = &out.skipped[0];
+        assert_eq!(
+            &doc[sk.start..sk.end],
+            "SELCT oops",
+            "l'écart doit pointer dans le document englobant"
+        );
+    }
+
+    #[test]
+    fn plusieurs_statements_gardent_leurs_positions_relatives() {
+        let fragment = "SELECT 1;\nSELECT 2;";
+        let base = 50;
+        let stmts = parse_at(fragment, base).unwrap();
+        assert_eq!(stmts.len(), 2);
+        let (s1, _) = span_of(&stmts[0]);
+        let (s2, _) = span_of(&stmts[1]);
+        assert_eq!(s1, base as u32);
+        assert_eq!(s2, base as u32 + 10, "2e statement après le \\n");
     }
 }

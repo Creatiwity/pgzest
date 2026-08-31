@@ -18,6 +18,6 @@ pub use provider::{
 pub use resolver::SchemaResolver;
 pub use role::{FileRole, sequence_from_path};
 pub use source::{
-    DirSource, FileSource, InlineSource, MigrationDirSource, MultiSource, SchemaSource,
-    SourceOrigin, SqlChunk,
+    DirSource, FileSource, FragmentSource, InlineSource, MigrationDirSource, MultiSource,
+    SchemaSource, SourceOrigin, SqlChunk,
 };
