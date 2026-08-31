@@ -163,7 +163,37 @@ fn resolve_table_ref<'a>(
 }
 
 /// Recursively check an expression for column/function validity.
+///
+/// Attache à chaque diagnostic la position de l'expression concernée. La
+/// récursion se dénouant de l'intérieur vers l'extérieur, un nœud enfant a déjà
+/// posé son span — plus précis — quand le parent complète : on ne remplit donc
+/// que ce qui manque, et le diagnostic pointe l'expression la plus fine
+/// possible plutôt que le début du statement.
 fn check_expr(
+    expr: &Expr,
+    ctx: &HashMap<String, Option<&TableSchema>>,
+    schema: &dyn SchemaProvider,
+    plvars: &HashSet<String>,
+    phantom_qualifiers: &HashSet<String>,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let first_new = diags.len();
+    check_expr_inner(expr, ctx, schema, plvars, phantom_qualifiers, diags);
+
+    if let Some(span) = expr.real_span() {
+        let diag_span = pgsql_diagnostics::Span {
+            start: span.start as usize,
+            end: span.end as usize,
+        };
+        for d in &mut diags[first_new..] {
+            if d.span.is_none() {
+                d.span = Some(diag_span.clone());
+            }
+        }
+    }
+}
+
+fn check_expr_inner(
     expr: &Expr,
     ctx: &HashMap<String, Option<&TableSchema>>,
     schema: &dyn SchemaProvider,

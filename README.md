@@ -120,9 +120,10 @@ Type-checker et linter en produisent tous les deux, à la granularité du
 statement — la même que celle du type-checker. Un diagnostic qui n'en aurait
 pas (aucun aujourd'hui) ne serait couvert que par `pgsql-disable-file`.
 
-Précision disponible : la **ligne du statement**, pas la colonne exacte de
-l'expression fautive. `Expr`, `Ident` et `ColumnRef` ne portent pas encore de
-span dans l'AST — c'est le prochain palier.
+Précision : le **type-checker vise l'expression fautive** (`SELECT id, nope`
+souligne `nope`, pas le `SELECT`), y compris dans une sous-expression. Les
+règles de **lint** visent le statement — leurs nœuds d'intérêt ne sont pas
+toujours des expressions.
 
 ## Scope du projet
 

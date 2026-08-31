@@ -56,10 +56,12 @@ rester cohérents — ici `last_seen_at` figure dans les deux.
 
 ## Limites que tu vas voir
 
-- Les diagnostics pointent la **ligne du statement**, pas la colonne exacte de
-  l'expression fautive : `SELECT nope FROM users` est signalé au début du
-  `SELECT`, pas sur `nope`. `Expr`/`Ident` ne portent pas encore de span dans
-  l'AST.
+- Les diagnostics du **type-checker** visent l'expression fautive (`nope` est
+  souligné, pas tout le `SELECT`). Les règles de **lint** visent le statement
+  entier — leurs nœuds d'intérêt ne sont pas toujours des expressions.
+- Une expression synthétisée par l'outil n'a pas de position : le `true` issu
+  du désucrage de `IS TRUE`, par exemple. Un diagnostic dessus retombe sur le
+  statement.
 - `table-not-in-scope` (référence à une table absente du `FROM`) ne se
   déclenche pas encore au niveau top-level.
 - Une même fonction trigger servant plusieurs tables produit un faux positif

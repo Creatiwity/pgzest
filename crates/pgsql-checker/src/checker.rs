@@ -87,7 +87,12 @@ impl Checker {
         // Backfill the statement-level span on every diagnostic that was emitted
         // without an explicit span — this places squiggles on the correct statement
         // rather than defaulting to position 0 in the file.
-        if let Some(span) = stmt_span(stmt) {
+        // `pgsql_ast::stmt_span` est le helper partagé ; ce module en avait une
+        // copie privée identique.
+        if let Some(span) = pgsql_ast::stmt_span(stmt).map(|sp| pgsql_diagnostics::Span {
+            start: sp.start as usize,
+            end: sp.end as usize,
+        }) {
             for d in &mut diags[first_new..] {
                 if d.span.is_none() {
                     d.span = Some(span.clone());
@@ -95,50 +100,6 @@ impl Checker {
             }
         }
     }
-}
-
-/// Extract the byte-offset span from any Statement variant.
-/// Returns `None` for statements whose AST node doesn't carry a span or
-/// whose span is the sentinel DUMMY value (start == 0 && end == 0).
-fn stmt_span(stmt: &Statement) -> Option<pgsql_diagnostics::Span> {
-    use pgsql_ast::{DdlStatement, Statement::*};
-    let (start, end) = match stmt {
-        Select(s) => (s.span.start, s.span.end),
-        Insert(s) => (s.span.start, s.span.end),
-        Update(s) => (s.span.start, s.span.end),
-        Delete(s) => (s.span.start, s.span.end),
-        Ddl(ddl) => match ddl {
-            // For functions/procedures, prefer body_start so inner diagnostics
-            // are shown at the body ($$) rather than the CREATE keyword.
-            DdlStatement::CreateFunction(cf) => (
-                if cf.body_start > 0 {
-                    cf.body_start
-                } else {
-                    cf.span.start
-                },
-                cf.span.end,
-            ),
-            DdlStatement::CreateProcedure(cp) => (
-                if cp.body_start > 0 {
-                    cp.body_start
-                } else {
-                    cp.span.start
-                },
-                cp.span.end,
-            ),
-            DdlStatement::CreatePolicy(p) => (p.span.start, p.span.end),
-            DdlStatement::CreateTable(ct) => (ct.span.start, ct.span.end),
-            _ => return None,
-        },
-    };
-    // Span { 0, 0 } is the DUMMY sentinel — only skip when both are 0.
-    if start == 0 && end == 0 {
-        return None;
-    }
-    Some(pgsql_diagnostics::Span {
-        start: start as usize,
-        end: end as usize,
-    })
 }
 
 /// Scan all statements for CREATE TRIGGER and return a map from
