@@ -73,6 +73,28 @@ fn hint_for(reason: &SkipReason) -> &'static str {
     }
 }
 
+// ── Lint ──────────────────────────────────────────────────────────────────────
+
+/// Parse `sql` puis le lint, directives en commentaire appliquées.
+///
+/// Cette fonction vit ici et pas dans `pgsql-lint` : le linter ne dépend
+/// volontairement pas du parser, pour rester une passe indépendante. Ce qui
+/// enchaîne parse et lint appartient donc à la façade.
+///
+/// Remplace l'ancien `pgsql_lint::lint_sql`, qui était un `unimplemented!()`
+/// exporté publiquement — un panic garanti pour qui l'appelait.
+pub fn lint_sql(sql: &str, config: &pgsql_lint::LintConfig) -> Vec<Diagnostic> {
+    let Ok(stmts) = pgsql_parser::parse(sql) else {
+        return vec![Diagnostic::error(
+            codes::PARSE_ERROR,
+            "parse error".to_string(),
+        )];
+    };
+    let mut diags = pgsql_lint::lint_statements(&stmts, config).diagnostics;
+    Suppressions::scan(sql).apply(&mut diags);
+    diags
+}
+
 // ── Analyse complète ──────────────────────────────────────────────────────────
 
 /// Options d'une analyse.
@@ -371,5 +393,42 @@ mod tolerance_tests {
             r.diagnostics
         );
         assert!(r.skipped.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod lint_tests {
+    use super::*;
+
+    #[test]
+    fn lint_sql_parse_et_lint() {
+        let diags = lint_sql(
+            "CREATE TABLE t (a INT PRIMARY KEY);\nSELECT * FROM t;",
+            &pgsql_lint::LintConfig::default(),
+        );
+        assert!(
+            diags.iter().any(|d| d.code == "L001"),
+            "L001 attendu, obtenu: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn lint_sql_applique_les_directives() {
+        let diags = lint_sql(
+            "CREATE TABLE t (a INT PRIMARY KEY);\n-- pgsql-disable-next-line L001\nSELECT * FROM t;",
+            &pgsql_lint::LintConfig::default(),
+        );
+        assert!(
+            !diags.iter().any(|d| d.code == "L001"),
+            "la directive doit taire L001, obtenu: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn lint_sql_ne_panique_pas_sur_du_sql_invalide() {
+        // L'ancien pgsql_lint::lint_sql était un unimplemented!() : tout appel
+        // paniquait. Ici on doit obtenir un diagnostic, pas un crash.
+        let diags = lint_sql("!!! pas du sql !!!", &pgsql_lint::LintConfig::default());
+        let _ = diags; // le seul contrat est : ça ne panique pas
     }
 }

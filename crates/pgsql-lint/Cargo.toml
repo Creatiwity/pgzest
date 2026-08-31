@@ -10,5 +10,6 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+pgsql-diagnostics = { workspace = true }
 pgsql-ast = { path = "../pgsql-ast" }
 pgsql-parser = { path = "../pgsql-parser" }

@@ -3,4 +3,4 @@ pub mod linter;
 pub mod rules;
 
 pub use config::{LintConfig, RuleLevel, RulesConfig};
-pub use linter::{LintResult, lint_sql, lint_statements};
+pub use linter::{LintResult, lint_statements};

@@ -18,8 +18,10 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
         return vec![];
     }
 
-    // Collect all (table_name_lower, column_name_lower) pairs that are FK columns
-    let mut fk_cols: Vec<(String, String)> = Vec::new();
+    // (table, colonne, span du CREATE TABLE qui la déclare).
+    // Le span est conservé pour situer le diagnostic : cette règle est
+    // cross-statement, donc le driver ne peut pas le lui attacher.
+    let mut fk_cols: Vec<(String, String, pgsql_ast::Span)> = Vec::new();
 
     // Collect all indexed (table_name_lower, first_col_lower) pairs from CREATE INDEX
     let mut indexed: HashSet<(String, String)> = HashSet::new();
@@ -38,7 +40,7 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                 for col in &ct.columns {
                     for constraint in &col.constraints {
                         if matches!(constraint, ColumnConstraint::References { .. }) {
-                            fk_cols.push((table.clone(), col.name.value.to_lowercase()));
+                            fk_cols.push((table.clone(), col.name.value.to_lowercase(), ct.span));
                         }
                     }
                 }
@@ -46,7 +48,7 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                 for tc in &ct.constraints {
                     if let TableConstraint::ForeignKey { columns, .. } = tc {
                         for col in columns {
-                            fk_cols.push((table.clone(), col.value.to_lowercase()));
+                            fk_cols.push((table.clone(), col.value.to_lowercase(), ct.span));
                         }
                     }
                 }
@@ -99,7 +101,7 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
     }
 
     let mut diags = Vec::new();
-    for (table, col) in &fk_cols {
+    for (table, col, span) in &fk_cols {
         if !indexed.contains(&(table.clone(), col.clone()))
             && !pk_cols.contains(&(table.clone(), col.clone()))
         {
@@ -107,11 +109,17 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                 "Column '{}.{}' is a foreign key but has no covering index",
                 table, col
             );
-            let d = match config.rules.missing_fk_index {
+            let mut d = match config.rules.missing_fk_index {
                 RuleLevel::Error => Diagnostic::error(CODE, msg),
                 _ => Diagnostic::warning(CODE, msg),
             }
             .with_hint(format!("Add: CREATE INDEX ON {}({});", table, col));
+            if *span != pgsql_ast::Span::DUMMY {
+                d = d.with_span(pgsql_diagnostics::Span {
+                    start: span.start as usize,
+                    end: span.end as usize,
+                });
+            }
             diags.push(d);
         }
     }

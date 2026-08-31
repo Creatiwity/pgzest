@@ -115,9 +115,14 @@ justification peut suivre un second `--` et est ignorée :
 CREATE TABLE … ;
 ```
 
-**Limite assumée** : la suppression est positionnelle, donc elle a besoin du
-`span` du diagnostic. Les rares règles qui n'en produisent pas encore (elles
-remontent en `1:1`) ne peuvent être tues que par `pgsql-disable-file`.
+La suppression est positionnelle : elle s'appuie sur le `span` du diagnostic.
+Type-checker et linter en produisent tous les deux, à la granularité du
+statement — la même que celle du type-checker. Un diagnostic qui n'en aurait
+pas (aucun aujourd'hui) ne serait couvert que par `pgsql-disable-file`.
+
+Précision disponible : la **ligne du statement**, pas la colonne exacte de
+l'expression fautive. `Expr`, `Ident` et `ColumnRef` ne portent pas encore de
+span dans l'AST — c'est le prochain palier.
 
 ## Scope du projet
 

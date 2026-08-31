@@ -163,3 +163,36 @@ pub struct DeleteStmt {
 // Suppress unused import warning — DataType is part of the public API surface
 // and may be needed by consumers of this module.
 const _: Option<DataType> = None;
+
+/// Span du statement, quel que soit son type.
+///
+/// Seuls les nœuds de niveau statement portent un span : `Expr`, `Ident` et
+/// `ColumnRef` n'en ont pas. C'est donc la granularité maximale disponible
+/// aujourd'hui pour situer un diagnostic, et celle qu'utilise le type-checker.
+///
+/// Renvoie `None` pour les DDL qui n'ont pas de span (les variants autres que
+/// CREATE TABLE / FUNCTION / PROCEDURE / POLICY), et pour un span resté à
+/// [`Span::DUMMY`] — un span nul pointerait en 1:1, ce qu'on cherche à éviter.
+pub fn stmt_span(stmt: &Statement) -> Option<Span> {
+    use crate::ddl::DdlStatement;
+
+    let span = match stmt {
+        Statement::Select(s) => s.span,
+        Statement::Insert(s) => s.span,
+        Statement::Update(s) => s.span,
+        Statement::Delete(s) => s.span,
+        Statement::Ddl(ddl) => match ddl {
+            DdlStatement::CreateTable(c) => c.span,
+            DdlStatement::CreateFunction(c) => c.span,
+            DdlStatement::CreateProcedure(c) => c.span,
+            DdlStatement::CreatePolicy(c) => c.span,
+            _ => return None,
+        },
+    };
+
+    if span == Span::DUMMY {
+        None
+    } else {
+        Some(span)
+    }
+}

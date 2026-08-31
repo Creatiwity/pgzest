@@ -413,10 +413,15 @@ fn cmd_lint(file: &str) -> i32 {
     };
 
     let config = pgsql_lint::LintConfig::default();
-    let result = pgsql_lint::lint_statements(&stmts, &config);
+    let mut diagnostics = pgsql_lint::lint_statements(&stmts, &config).diagnostics;
+
+    // Mêmes directives en commentaire que `check` : une règle tue là-bas doit
+    // l'être ici aussi, sinon `-- pgsql-disable-next-line L001` marcherait dans
+    // l'éditeur et pas en CLI.
+    pgsql_diagnostics::Suppressions::scan(&sql).apply(&mut diagnostics);
 
     let mut has_errors = false;
-    for diag in &result.diagnostics {
+    for diag in &diagnostics {
         use pgsql_diagnostics::Severity;
         let sev_str = match diag.severity {
             Severity::Error => {
@@ -441,7 +446,7 @@ fn cmd_lint(file: &str) -> i32 {
         }
     }
 
-    if result.diagnostics.is_empty() {
+    if diagnostics.is_empty() {
         println!("no issues found");
     }
 

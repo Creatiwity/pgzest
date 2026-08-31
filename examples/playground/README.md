@@ -56,10 +56,10 @@ rester cohérents — ici `last_seen_at` figure dans les deux.
 
 ## Limites que tu vas voir
 
-- Les diagnostics de **lint** se rapportent en `1:1` (début de fichier) : ces
-  règles ne produisent pas encore de span précis. Le type-checker, lui, pointe
-  la bonne ligne. C'est aussi pourquoi une directive `-- pgsql-disable-next-line`
-  ne peut pas cibler une règle de lint — il faut `-- pgsql-disable-file`.
+- Les diagnostics pointent la **ligne du statement**, pas la colonne exacte de
+  l'expression fautive : `SELECT nope FROM users` est signalé au début du
+  `SELECT`, pas sur `nope`. `Expr`/`Ident` ne portent pas encore de span dans
+  l'AST.
 - `table-not-in-scope` (référence à une table absente du `FROM`) ne se
   déclenche pas encore au niveau top-level.
 - Une même fonction trigger servant plusieurs tables produit un faux positif
