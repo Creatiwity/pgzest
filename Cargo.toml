@@ -3,6 +3,7 @@ members = [
     "crates/pgsql-ast",
     "crates/pgsql-diagnostics",
     "crates/pgsql-analysis",
+    "crates/pgsql-macro",
     "crates/pgsql-parser",
     "crates/pgsql-checker",
     "crates/pgsql-schema",

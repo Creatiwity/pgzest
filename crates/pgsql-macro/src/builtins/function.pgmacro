@@ -1,0 +1,35 @@
+# @function — supprime le boilerplate d'une fonction PL/pgSQL.
+#
+#   @function user_count(target_org UUID): INTEGER {
+#       DECLARE total INTEGER;
+#       SELECT count(*) INTO total FROM users WHERE org_id = target_org;
+#       RETURN total;
+#   }
+
+macro function
+header {name:ident}({params:parens})[: {ret:type}][ {attrs:keywords}]
+
+# Sans `: TYPE`, la fonction ne retourne rien. Rien n'est deviné.
+default ret = VOID
+
+option language = plpgsql -> LANGUAGE {}
+option cost -> COST {}
+option rows -> ROWS {}
+
+flag immutable -> IMMUTABLE
+flag stable -> STABLE
+flag volatile -> VOLATILE
+flag security_definer -> SECURITY DEFINER
+flag strict -> STRICT
+flag leakproof -> LEAKPROOF
+
+template
+CREATE OR REPLACE FUNCTION {name}({params})
+RETURNS {ret}
+{options}
+AS $pgsql_macro$
+{declares}BEGIN
+{body}
+END;
+$pgsql_macro$;
+end

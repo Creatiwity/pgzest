@@ -1,0 +1,10 @@
+[package]
+name = "pgsql-macro"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgsql-diagnostics = { workspace = true }
+
+[dev-dependencies]
+pgsql-parser = { path = "../pgsql-parser" }
