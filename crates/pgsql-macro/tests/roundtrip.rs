@@ -189,3 +189,56 @@ fn loperateur_valeur_absolue_reste_intact_apres_un_statement() {
     assert_eq!(e.expanded, 0, "aucune expansion attendue");
     assert_eq!(e.sql, src);
 }
+
+// ── Localisation d'une expansion ──────────────────────────────────────────────
+
+#[test]
+fn expansion_at_retrouve_la_macro_sous_le_curseur() {
+    let src = "\
+CREATE TABLE t (a INT);
+
+@function un(): INT {
+    RETURN 1;
+}
+
+@function deux(): INT {
+    RETURN 2;
+}
+";
+    let e = expand_source(src, &MacroSet::builtin());
+    assert_eq!(e.regions.len(), 2);
+
+    // Curseur dans la première macro.
+    let in_first = src.find("RETURN 1").unwrap();
+    let first = e.expansion_at(in_first).expect("expansion attendue");
+    assert!(first.contains("FUNCTION un()"), "obtenu:\n{first}");
+    assert!(
+        !first.contains("FUNCTION deux()"),
+        "ne doit pas déborder sur la macro suivante:\n{first}"
+    );
+
+    // Curseur dans la seconde.
+    let in_second = src.find("RETURN 2").unwrap();
+    let second = e.expansion_at(in_second).expect("expansion attendue");
+    assert!(second.contains("FUNCTION deux()"), "obtenu:\n{second}");
+    assert!(!second.contains("FUNCTION un()"));
+}
+
+#[test]
+fn expansion_at_ne_repond_rien_hors_macro() {
+    let src = "CREATE TABLE t (a INT);\n\n@function f(): INT {\n RETURN 1;\n}\n";
+    let e = expand_source(src, &MacroSet::builtin());
+    let in_table = src.find("CREATE TABLE").unwrap();
+    assert!(
+        e.expansion_at(in_table).is_none(),
+        "le curseur hors macro ne doit rien retourner"
+    );
+}
+
+#[test]
+fn la_region_nomme_la_macro() {
+    let src = "@trigger t before update on users for each row {\n RETURN NEW;\n}\n";
+    let e = expand_source(src, &MacroSet::builtin());
+    assert_eq!(e.regions[0].macro_name, "trigger");
+    assert!(e.regions[0].source.contains(&0));
+}

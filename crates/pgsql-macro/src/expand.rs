@@ -12,6 +12,20 @@ use pgsql_ast::SourceMap;
 /// Code de diagnostic des erreurs de macro.
 pub const MACRO_ERROR: &str = "macro-error";
 
+/// Une invocation désucrée, et où elle se trouve de part et d'autre.
+///
+/// Permet de retrouver l'expansion correspondant à une position du curseur,
+/// exactement plutôt que par heuristique textuelle.
+#[derive(Debug, Clone)]
+pub struct ExpandedRegion {
+    /// Nom de la macro, sans le `@`.
+    pub macro_name: String,
+    /// Plage de l'invocation dans la source.
+    pub source: std::ops::Range<usize>,
+    /// Plage du SQL engendré correspondant.
+    pub generated: std::ops::Range<usize>,
+}
+
 /// Résultat d'un désucrage.
 pub struct Expansion {
     /// SQL standard produit.
@@ -22,6 +36,23 @@ pub struct Expansion {
     pub diagnostics: Vec<Diagnostic>,
     /// Nombre d'invocations désucrées.
     pub expanded: usize,
+    /// Une entrée par invocation, dans l'ordre du fichier.
+    pub regions: Vec<ExpandedRegion>,
+}
+
+impl Expansion {
+    /// L'expansion de l'invocation contenant `source_offset`.
+    pub fn region_at(&self, source_offset: usize) -> Option<&ExpandedRegion> {
+        self.regions
+            .iter()
+            .find(|r| r.source.contains(&source_offset))
+    }
+
+    /// Le SQL engendré par l'invocation contenant `source_offset`.
+    pub fn expansion_at(&self, source_offset: usize) -> Option<&str> {
+        self.region_at(source_offset)
+            .map(|r| self.sql[r.generated.clone()].trim())
+    }
 }
 
 impl Expansion {
@@ -41,6 +72,7 @@ pub fn expand_source(source: &str, macros: &MacroSet) -> Expansion {
     let mut map = SourceMap::new();
     let mut diagnostics = Vec::new();
     let mut expanded = 0usize;
+    let mut regions: Vec<ExpandedRegion> = Vec::new();
     let mut i = 0usize;
 
     while i < source.len() {
@@ -53,7 +85,15 @@ pub fn expand_source(source: &str, macros: &MacroSet) -> Expansion {
                 copy(&mut out, &mut map, source, i, at);
                 match parse_invocation(source, at, macros) {
                     Ok(inv) => {
+                        let gen_start = out.len();
+                        let name = inv.def.name.clone();
+                        let src_range = at..inv.end;
                         render(&inv, &mut out, &mut map);
+                        regions.push(ExpandedRegion {
+                            macro_name: name,
+                            source: src_range,
+                            generated: gen_start..out.len(),
+                        });
                         expanded += 1;
                         i = inv.end;
                     }
@@ -78,6 +118,7 @@ pub fn expand_source(source: &str, macros: &MacroSet) -> Expansion {
         map,
         diagnostics,
         expanded,
+        regions,
     }
 }
 

@@ -145,11 +145,16 @@ Les macros vivent dans des `.pgsql` ; `pgsql build` produit du `.sql` standard,
 lisible par psql et pg_dump — aucun verrouillage.
 
 ```bash
+pgsql check q.pgsql                # analyse directement, sans compiler
 pgsql macros                       # les macros disponibles
 pgsql macros --verbose             # trous, drapeaux et options de chacune
 pgsql build q.pgsql                # affiche le SQL généré
 pgsql build q.pgsql --out-dir gen  # écrit gen/q.sql
 ```
+
+`check` et le serveur LSP désucrent d'eux-mêmes : **`build` n'est nécessaire
+que pour produire un `.sql` destiné à psql ou à un déploiement**. Les
+diagnostics pointent la bonne ligne du `.pgsql`, pas du SQL engendré.
 
 ### Fournies
 
@@ -181,6 +186,19 @@ C'est le vrai gain : avec une fonction partagée, le checker ne sait pas
 résoudre `NEW` et se contente d'un `trigger-ambiguous-table` — le faux positif
 qu'on observe sur `examples/schema.sql`. Ici il vérifie réellement la colonne
 sur chaque table, et signale celle qui manque sur l'une d'elles.
+
+### Voir l'expansion dans VS Code
+
+Le curseur dans une macro, puis **⌘⌥E** (`Ctrl+Alt+E` ailleurs) — ou le lien
+« Voir l'expansion » affiché au-dessus de chaque macro, ou le menu contextuel.
+Le SQL engendré s'ouvre dans un onglet **en lecture seule** à côté : le
+modifier n'aurait aucun effet sur le `.pgsql`, laisser croire le contraire
+serait un piège.
+
+Curseur hors macro : tout le fichier est désucré.
+
+Sous le capot, une requête LSP custom `pgsql/expandMacro` — même mécanique que
+« Expand macro recursively » de Rust Analyzer.
 
 ### En déclarer une
 

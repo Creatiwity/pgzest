@@ -17,6 +17,31 @@ use crate::completion::{analyze_cursor, build_completions};
 use crate::line_index::LineIndex;
 use crate::semantic;
 
+// ── Requête custom : expansion des macros ─────────────────────────────────────
+
+/// Paramètres de `pgsql/expandMacro`.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpandMacroParams {
+    /// Document à désucrer.
+    pub text_document: TextDocumentIdentifier,
+    /// Position du curseur. Si elle tombe dans une macro, seule celle-ci est
+    /// rendue ; sinon tout le fichier l'est.
+    pub position: Option<Position>,
+}
+
+/// Réponse de `pgsql/expandMacro`.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpandMacroResult {
+    /// SQL standard produit.
+    pub sql: String,
+    /// Nombre de macros désucrées dans ce qui a été rendu.
+    pub expanded: usize,
+    /// Message à afficher quand il n'y a rien à montrer.
+    pub note: Option<String>,
+}
+
 // ── Backend state ─────────────────────────────────────────────────────────────
 
 pub struct PgsqlBackend {
@@ -49,6 +74,62 @@ impl PgsqlBackend {
             legacy_schema_path: Mutex::new(None),
             wasm_plugins: Mutex::new(Vec::new()),
             macros: Mutex::new(Arc::new(pgsql_macro::MacroSet::builtin())),
+        }
+    }
+
+    /// Désucre un document, ou seulement la macro sous le curseur.
+    ///
+    /// Sert la commande « Voir l'expansion » de l'extension : le résultat est
+    /// affiché dans un onglet en lecture seule, comme le fait Rust Analyzer
+    /// pour ses macros.
+    pub async fn expand_macro(&self, params: ExpandMacroParams) -> Result<ExpandMacroResult> {
+        let uri = params.text_document.uri.to_string();
+        let Some(text) = self.documents.lock().await.get(&uri).cloned() else {
+            return Ok(ExpandMacroResult {
+                sql: String::new(),
+                expanded: 0,
+                note: Some("document non ouvert côté serveur".into()),
+            });
+        };
+
+        let macros = self.macros().await;
+        let full = pgsql_macro::expand_source(&text, &macros);
+
+        if full.is_passthrough() {
+            return Ok(ExpandMacroResult {
+                sql: String::new(),
+                expanded: 0,
+                note: Some("aucune macro dans ce fichier".into()),
+            });
+        }
+
+        // Sans position, on rend tout le fichier désucré.
+        let Some(pos) = params.position else {
+            return Ok(ExpandMacroResult {
+                sql: full.sql,
+                expanded: full.expanded,
+                note: None,
+            });
+        };
+
+        // Avec une position : isoler la macro qui la contient. On retrouve la
+        // plage engendrée dont l'antécédent couvre le curseur, en s'appuyant sur
+        // la même correspondance que les diagnostics.
+        let index = LineIndex::new(&text);
+        let offset = index.offset_at(pos.line as usize, pos.character as usize);
+
+        match full.expansion_at(offset) {
+            Some(sql) => Ok(ExpandMacroResult {
+                sql: sql.to_string(),
+                expanded: 1,
+                note: None,
+            }),
+            // Curseur hors d'une macro : le fichier entier, plutôt que rien.
+            None => Ok(ExpandMacroResult {
+                sql: full.sql,
+                expanded: full.expanded,
+                note: Some("curseur hors d'une macro — fichier entier désucré".into()),
+            }),
         }
     }
 

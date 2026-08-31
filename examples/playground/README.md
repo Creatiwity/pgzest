@@ -29,7 +29,7 @@ pgsql lint  queries/05-lint.sql
 | `queries/03-directives.sql` | Les directives en commentaire, à la ESLint. Seul le dernier `SELECT` doit être souligné. |
 | `queries/04-tolerance-parser.sql` | Un statement illisible remonte en warning sans interrompre l'analyse du reste. |
 | `queries/05-lint.sql` | Règles de lint. **Invisibles avec `pgsql check`** : le linter est une commande séparée. Visibles dans VS Code, où le LSP lance les deux. |
-| `queries/06-macros.pgsql` | Les macros. `pgsql build queries/06-macros.pgsql` pour voir le SQL généré. Contient un trigger multi-tables et une macro maison (`macros/audited.pgmacro`). |
+| `queries/06-macros.pgsql` | Les macros. Analysé directement par `check` et par le LSP — pas besoin de `build`. Curseur dans une macro + **⌘⌥E** pour voir son expansion. Contient un trigger multi-tables et une macro maison (`macros/audited.pgmacro`). |
 
 Essaie aussi :
 

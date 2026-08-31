@@ -8,6 +8,8 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 
+import { registerExpandMacro } from './expand';
+
 let client: LanguageClient | undefined;
 
 function resolveServerPath(configured: string, extensionPath: string): string {
@@ -57,6 +59,10 @@ export function activate(context: vscode.ExtensionContext) {
 
   client.start();
   context.subscriptions.push({ dispose: () => client?.stop() });
+
+  // Commande « Voir l'expansion » : le client est passé par accesseur car
+  // `activate` s'achève avant que le serveur soit prêt.
+  registerExpandMacro(context, () => client);
 }
 
 export function deactivate(): Thenable<void> | undefined {

@@ -9,6 +9,10 @@ use backend::PgsqlBackend;
 async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    let (service, socket) = LspService::new(PgsqlBackend::new);
+    // `pgsql/expandMacro` n'est pas dans le protocole standard : on l'enregistre
+    // comme méthode custom, à la manière de `rust-analyzer/expandMacro`.
+    let (service, socket) = LspService::build(PgsqlBackend::new)
+        .custom_method("pgsql/expandMacro", PgsqlBackend::expand_macro)
+        .finish();
     Server::new(stdin, stdout, socket).serve(service).await;
 }

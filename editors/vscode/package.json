@@ -30,6 +30,16 @@
         ],
         "filenames": [],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "pgmacro",
+        "aliases": [
+          "pgsql-tools macro"
+        ],
+        "extensions": [
+          ".pgmacro"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -46,12 +56,24 @@
     "semanticTokenScopes": [
       {
         "scopes": {
-          "type":       ["entity.name.type.sql"],
-          "function":   ["entity.name.function.sql"],
-          "class":      ["entity.name.class.sql"],
-          "enumMember": ["variable.other.enummember.sql"],
-          "interface":  ["entity.name.type.interface.sql"],
-          "namespace":  ["entity.name.namespace.sql"]
+          "type": [
+            "entity.name.type.sql"
+          ],
+          "function": [
+            "entity.name.function.sql"
+          ],
+          "class": [
+            "entity.name.class.sql"
+          ],
+          "enumMember": [
+            "variable.other.enummember.sql"
+          ],
+          "interface": [
+            "entity.name.type.interface.sql"
+          ],
+          "namespace": [
+            "entity.name.namespace.sql"
+          ]
         }
       }
     ],
@@ -77,6 +99,30 @@
       "[sql]": {
         "editor.semanticHighlighting.enabled": true
       }
+    },
+    "commands": [
+      {
+        "command": "pgsql-tools.expandMacro",
+        "title": "Voir l'expansion de la macro",
+        "category": "pgsql-tools"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "pgsql-tools.expandMacro",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e",
+        "when": "editorTextFocus && (editorLangId == pgsql || editorLangId == sql)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "pgsql-tools.expandMacro",
+          "when": "editorLangId == pgsql || editorLangId == sql",
+          "group": "pgsql-tools"
+        }
+      ]
     }
   },
   "scripts": {
