@@ -783,7 +783,6 @@ impl Parser {
         // Detect SELECT ... INTO [STRICT] var FROM ...
         // We look for INTO that is not part of INSERT INTO
         if let Some(into_pos) = find_into_position(&upper) {
-            let after_into = fragment[into_pos + 5..].trim(); // " INTO " is 6 chars but "INTO" is 4 + leading space
             let after_into_trimmed = fragment[into_pos..].trim_start();
             // Skip "INTO" keyword
             let after_kw = after_into_trimmed[4..].trim_start();
@@ -812,20 +811,33 @@ impl Parser {
                 .collect();
 
             if !targets.is_empty() {
-                // Reconstruct SELECT without INTO clause for sqlparser
-                let before_into = &fragment[..into_pos];
-                // Find what comes after the targets (FROM clause etc.)
-                let _rest_pos =
-                    into_pos + 5 + (after_into.len() - targets_str_start.len()) + targets_end;
-                // Be more careful: find the actual rest
-                let rest = if targets_end < targets_str_start.len() {
-                    &targets_str_start[targets_end..]
-                } else {
-                    ""
-                };
-                let select_without_into = format!("{} {}", before_into.trim(), rest.trim())
-                    .trim()
-                    .to_string();
+                // sqlparser ne connaît pas la clause INTO de PL/pgSQL : on la
+                // neutralise avant de lui soumettre la requête.
+                //
+                // On la **blanchit** — remplacée par autant d'espaces — au lieu
+                // de la retirer. Retirer le texte décalait tout ce qui suit de
+                // la longueur de « INTO n », et comme `parse_sql_fragment`
+                // applique un décalage *constant*, les spans du reste de la
+                // requête tombaient à côté : un `WHERE col_inexistante` était
+                // rapporté à une position arbitraire, souvent sur la première
+                // ligne du fichier. Blanchir préserve longueur et offsets, donc
+                // le décalage constant redevient exact.
+                //
+                // `targets_str_start` dérive de `fragment` par des opérations de
+                // suffixe uniquement, donc son offset se déduit des longueurs.
+                let targets_offset = fragment.len() - targets_str_start.len();
+                let into_end = (targets_offset + targets_end).min(fragment.len());
+
+                let mut select_without_into = String::with_capacity(fragment.len());
+                select_without_into.push_str(&fragment[..into_pos]);
+                select_without_into
+                    .extend(std::iter::repeat_n(' ', into_end.saturating_sub(into_pos)));
+                select_without_into.push_str(&fragment[into_end..]);
+                debug_assert_eq!(
+                    select_without_into.len(),
+                    fragment.len(),
+                    "le blanchiment doit préserver la longueur"
+                );
 
                 if let Ok(stmt) = self.parse_sql_fragment(&select_without_into, frag_start)
                     && let pgsql_ast::Statement::Select(sel) = stmt
@@ -1456,60 +1468,30 @@ impl Parser {
         sql: &str,
         token_start: usize,
     ) -> Result<pgsql_ast::Statement, PlParseError> {
+        // Position du fragment dans le document, avant de parser — et non un
+        // décalage appliqué après.
+        //
+        // `shift_stmt_span` ne corrigeait que le span du statement, jamais ceux
+        // des expressions imbriquées, qui restaient relatifs au fragment et
+        // fuyaient tels quels : un `WHERE col_inexistante` dans un corps de
+        // fonction était rapporté sur la première ligne du fichier. En parsant
+        // à la bonne position, tous les spans sont justes d'emblée.
+        let leading = sql.len() - sql.trim_start().len();
         let trimmed = sql.trim().trim_end_matches(';');
         let full = format!("{};", trimmed);
-        match crate::parse(&full) {
-            Ok(stmts) if !stmts.is_empty() => {
-                let mut stmt = stmts.into_iter().next().unwrap();
-                // Shift the statement span from fragment-relative (start=0) to
-                // the actual byte position in the source file.
-                let body_offset = self.token_offsets.get(token_start).copied().unwrap_or(0);
-                // Position dans le texte soumis, puis traduite : elle tombe
-                // dans un fragment recopié, donc l'antécédent est exact.
-                let file_offset = self.offsets.point(self.file_body_offset + body_offset);
-                if file_offset > 0 {
-                    shift_stmt_span(&mut stmt, file_offset);
-                }
-                Ok(stmt)
-            }
+
+        let body_offset = self.token_offsets.get(token_start).copied().unwrap_or(0);
+        // Le début du fragment tombe dans un fragment recopié, donc son
+        // antécédent est exact même sous une correspondance non affine.
+        let file_offset = self
+            .offsets
+            .point(self.file_body_offset + body_offset + leading);
+
+        match crate::parse_at(&full, file_offset) {
+            Ok(stmts) if !stmts.is_empty() => Ok(stmts.into_iter().next().unwrap()),
             Ok(_) => Err(PlParseError::Unsupported("empty parse result".to_string())),
             Err(e) => Err(PlParseError::Unsupported(e.to_string())),
         }
-    }
-}
-
-/// Add `offset` to the byte-level span of a statement.
-fn shift_stmt_span(stmt: &mut pgsql_ast::Statement, offset: usize) {
-    use pgsql_ast::{DdlStatement, Statement::*};
-    let off = offset as u32;
-    match stmt {
-        Select(s) => {
-            s.span.start = s.span.start.saturating_add(off);
-            s.span.end = s.span.end.saturating_add(off);
-        }
-        Insert(s) => {
-            s.span.start = s.span.start.saturating_add(off);
-            s.span.end = s.span.end.saturating_add(off);
-        }
-        Update(s) => {
-            s.span.start = s.span.start.saturating_add(off);
-            s.span.end = s.span.end.saturating_add(off);
-        }
-        Delete(s) => {
-            s.span.start = s.span.start.saturating_add(off);
-            s.span.end = s.span.end.saturating_add(off);
-        }
-        Ddl(ddl) => match ddl {
-            DdlStatement::CreateTable(ct) => {
-                ct.span.start = ct.span.start.saturating_add(off);
-                ct.span.end = ct.span.end.saturating_add(off);
-            }
-            DdlStatement::CreateFunction(cf) => {
-                cf.span.start = cf.span.start.saturating_add(off);
-                cf.span.end = cf.span.end.saturating_add(off);
-            }
-            _ => {}
-        },
     }
 }
 

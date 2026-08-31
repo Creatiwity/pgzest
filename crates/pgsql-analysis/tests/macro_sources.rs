@@ -42,22 +42,14 @@ fn find<'a>(diags: &'a [Diagnostic], code: &str) -> &'a Diagnostic {
 
 const SCHEMA: &str = "CREATE TABLE users (id UUID PRIMARY KEY, email TEXT);\n";
 
-/// Écart connu, préexistant et indépendant des macros : les diagnostics émis
-/// depuis un corps PL/pgSQL portent des positions relatives au fragment, qui
-/// fuient telles quelles. Reproductible sur un `.sql` sans aucune macro :
-///
-/// ```text
-/// CREATE TABLE users (id UUID PRIMARY KEY, email TEXT);
-/// CREATE OR REPLACE FUNCTION f() ... $$ ... WHERE nope = 1; ... $$;
-/// → 1:37, alors que `nope` est bien plus loin
-/// ```
-///
-/// Le correctif demande de faire descendre l'offset du corps dans
-/// `check_plpgsql_body` / `check_plpgsql_ast` et d'y parser le fragment avec
-/// `parse_at`. Tant que ce n'est pas fait, la retraduction ne peut rien
-/// rattraper : la position d'entrée est déjà fausse.
+/// Régression : les diagnostics émis depuis un corps PL/pgSQL portaient des
+/// positions relatives au fragment, qui fuyaient telles quelles — un
+/// `WHERE col_inexistante` dans une fonction était rapporté sur la première
+/// ligne du fichier. Deux causes cumulées, corrigées :
+/// la clause `INTO` était *retirée* du fragment (décalant tout ce qui suit), et
+/// `shift_stmt_span` ne corrigeait que le span du statement, jamais ceux des
+/// expressions imbriquées.
 #[test]
-#[ignore = "spans relatifs au fragment dans les corps PL/pgSQL (bug préexistant)"]
 fn une_erreur_dans_un_corps_de_macro_pointe_le_fichier_source() {
     let src = format!(
         "{SCHEMA}\n\
