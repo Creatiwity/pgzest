@@ -42,6 +42,23 @@ fn convert_index_column(ic: sp::IndexColumn) -> Result<Ident, ParseError> {
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
+/// Convertit un statement en attachant aux expressions leur position dans le
+/// document.
+///
+/// `source` est le texte exact soumis à sqlparser et `base` son offset dans le
+/// document. Les deux doivent correspondre : si le texte a été réécrit avant le
+/// parse (neutralisation des CHECK, prétraitement des fonctions), les positions
+/// ne sont plus celles du document et l'appelant doit utiliser
+/// [`convert_statement`], qui laisse les spans à `DUMMY`.
+pub fn convert_statement_at(
+    stmt: sp::Statement,
+    source: &str,
+    base: usize,
+) -> Result<Statement, ParseError> {
+    let _guard = enter_span_ctx(source, base);
+    convert_statement(stmt)
+}
+
 pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
     match stmt {
         sp::Statement::Query(q) => {
@@ -1742,11 +1759,115 @@ fn convert_object_name(name: sp::ObjectName) -> ObjectName {
     )
 }
 
+// ── Résolution des positions ──────────────────────────────────────────────────
+
+/// Contexte de conversion des positions sqlparser en offsets octets.
+///
+/// sqlparser rend les positions en `Location { line, column }`, 1-basées et
+/// comptées en **caractères**, relatives au texte qui lui a été soumis. Pour en
+/// faire un offset octet dans le document il faut ce texte et l'offset du
+/// statement dans le document.
+///
+/// Ce contexte est ambiant (thread-local) plutôt que passé en paramètre :
+/// `convert_expr` est atteint depuis 11 fonctions et 212 sites d'appel internes
+/// à ce module, et l'information n'intéresse aucun des intermédiaires. Il est
+/// posé par [`convert_statement_at`] et retiré par un garde RAII, donc il ne
+/// peut pas fuir d'un statement au suivant. Étant thread-local, un parse
+/// parallèle reste correct.
+struct SpanCtx {
+    /// Offset octet du début de chaque ligne du texte soumis à sqlparser.
+    line_starts: Vec<usize>,
+    /// Texte soumis, pour convertir une colonne-caractère en offset octet.
+    source: String,
+    /// Offset du texte soumis dans le document complet.
+    base: usize,
+}
+
+impl SpanCtx {
+    fn new(source: &str, base: usize) -> Self {
+        let mut line_starts = vec![0usize];
+        for (i, b) in source.bytes().enumerate() {
+            if b == b'\n' {
+                line_starts.push(i + 1);
+            }
+        }
+        Self {
+            line_starts,
+            source: source.to_string(),
+            base,
+        }
+    }
+
+    /// `Location` (ligne/colonne 1-basées, colonne en caractères) → offset octet
+    /// dans le document.
+    fn offset_of(&self, line: u64, column: u64) -> Option<usize> {
+        if line == 0 {
+            // sqlparser utilise la ligne 0 pour un span vide.
+            return None;
+        }
+        let line_start = *self.line_starts.get((line - 1) as usize)?;
+        let line_end = self
+            .line_starts
+            .get(line as usize)
+            .copied()
+            .unwrap_or(self.source.len());
+        let line_text = self.source.get(line_start..line_end)?;
+
+        // Avancer de (column - 1) caractères, pas d'octets : une colonne after
+        // un accent ne correspond pas au même nombre d'octets.
+        let char_offset = (column.saturating_sub(1)) as usize;
+        let byte_in_line = line_text
+            .char_indices()
+            .nth(char_offset)
+            .map(|(b, _)| b)
+            .unwrap_or_else(|| line_text.len());
+
+        Some(self.base + line_start + byte_in_line)
+    }
+}
+
+thread_local! {
+    static SPAN_CTX: std::cell::RefCell<Option<SpanCtx>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Garde RAII : retire le contexte de position à la sortie de portée.
+struct SpanCtxGuard;
+
+impl Drop for SpanCtxGuard {
+    fn drop(&mut self) {
+        SPAN_CTX.with(|c| *c.borrow_mut() = None);
+    }
+}
+
+fn enter_span_ctx(source: &str, base: usize) -> SpanCtxGuard {
+    SPAN_CTX.with(|c| *c.borrow_mut() = Some(SpanCtx::new(source, base)));
+    SpanCtxGuard
+}
+
 /// Span d'une expression sqlparser, en offsets octets dans le document.
 ///
-/// Étape A : renvoie [`Span::DUMMY`]. sqlparser expose bien `Spanned` mais en
-/// `Location { line, column }` ; la conversion en offset octet demande le texte
-/// source, câblé à l'étape suivante.
-fn sp_expr_span(_expr: &sp::Expr) -> Span {
-    Span::DUMMY
+/// Renvoie [`Span::DUMMY`] hors contexte de position — c'est-à-dire quand
+/// l'appelant a utilisé [`convert_statement`] plutôt que
+/// [`convert_statement_at`], ou quand le texte soumis à sqlparser a été réécrit
+/// avant le parse et que les positions ne correspondent plus au document.
+/// Mieux vaut pas de span qu'un span faux.
+fn sp_expr_span(expr: &sp::Expr) -> Span {
+    use sqlparser::ast::Spanned;
+    let sp_span = expr.span();
+    SPAN_CTX.with(|c| {
+        let borrow = c.borrow();
+        let Some(ctx) = borrow.as_ref() else {
+            return Span::DUMMY;
+        };
+        let start = ctx.offset_of(sp_span.start.line, sp_span.start.column);
+        let end = ctx.offset_of(sp_span.end.line, sp_span.end.column);
+        match (start, end) {
+            (Some(s), Some(e)) if e >= s => Span {
+                start: s as u32,
+                end: e as u32,
+            },
+            _ => Span::DUMMY,
+        }
+    })
 }

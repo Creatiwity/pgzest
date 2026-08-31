@@ -680,8 +680,20 @@ pub fn parse_at_with_outcome(sql: &str, base_offset: usize) -> Result<ParseOutco
             }
         };
 
+        // Les positions rendues par sqlparser portent sur `cleaned`. Elles ne
+        // valent pour le document que si `cleaned` est le texte d'origine : la
+        // neutralisation des CHECK et le prétraitement des fonctions réécrivent
+        // le texte, et les offsets ne correspondent plus. Dans ce cas on
+        // renonce aux spans d'expression plutôt que d'en produire de faux.
+        let positions_exactes = cleaned == *stmt_sql;
+
         for sp_stmt in sp_stmts {
-            let mut stmt = match convert::convert_statement(sp_stmt) {
+            let converted = if positions_exactes {
+                convert::convert_statement_at(sp_stmt, &cleaned, stmt_offset)
+            } else {
+                convert::convert_statement(sp_stmt)
+            };
+            let mut stmt = match converted {
                 Ok(s) => s,
                 Err(ParseError::Unsupported(what)) => {
                     skipped.push(SkippedStatement {
