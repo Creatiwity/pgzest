@@ -56,11 +56,27 @@ la CI GitHub Actions.
 
 ## Limites connues
 
-- Le type-checker signale `trigger-ambiguous-table` quand une même fonction
-  trigger (ex. `set_updated_at`) sert plusieurs tables. C'est un motif
-  PostgreSQL idiomatique — donc un **faux positif** à traiter.
-- Pas de vérification de compatibilité de types entre opérandes.
-- Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
+Par ordre d'importance :
+
+1. **Le SQL invalide passe silencieusement.** `pgsql-parser/src/lib.rs:595`
+   fait `Err(_) => continue` sur les erreurs de sqlparser-rs, pour tolérer le
+   SQL non supporté des dumps `pg_dump`. Mais il avale aussi les vraies
+   erreurs de syntaxe : `SELCT * FRM;` renvoie `Ok(0 statements)` et
+   `pgsql check` conclut « aucune erreur », code de sortie 0. Le code
+   `PARSE_ERROR` est de ce fait inatteignable.
+   Piste : distinguer « statement ignoré » de « syntaxe invalide » et
+   remonter les statements ignorés en warning, pour que le silence ne soit
+   plus indiscernable du succès. Tracé par le test `#[ignore]`
+   `erreur_de_parse_signalee` dans `pgsql-analysis`.
+
+2. **Faux positif `trigger-ambiguous-table`.** Le checker signale une erreur
+   quand une même fonction trigger (ex. `set_updated_at`) sert plusieurs
+   tables — c'est un motif PostgreSQL idiomatique. Visible sur
+   `examples/schema.sql`, qui ne passe donc pas `check`.
+
+3. Pas de vérification de compatibilité de types entre opérandes.
+
+4. Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
 
 ---
 
