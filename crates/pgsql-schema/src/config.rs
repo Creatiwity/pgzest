@@ -10,6 +10,8 @@ use crate::source::{DirSource, MigrationDirSource, MultiSource, SchemaSource};
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProjectConfig {
     #[serde(default)]
+    pub parse: ParseConfig,
+    #[serde(default)]
     pub migrations: MigrationsConfig,
     #[serde(default)]
     pub schema: SchemaConfig,
@@ -19,6 +21,59 @@ pub struct ProjectConfig {
     pub lint: LintProjectConfig,
     #[serde(default)]
     pub plugins: PluginsConfig,
+}
+
+// ── Parse ─────────────────────────────────────────────────────────────────────
+
+/// Que faire d'un statement que le parser n'a pas mis dans l'AST.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SkipLevel {
+    /// Ne rien dire. À réserver aux migrations progressives vers l'outil :
+    /// le silence redevient indiscernable du succès.
+    Ignore,
+    /// Signaler sans faire échouer (`check` sort 0).
+    #[default]
+    Warn,
+    /// Signaler et faire échouer (`check` sort 1).
+    Error,
+}
+
+/// Politique de tolérance du parser.
+///
+/// Par défaut, un statement illisible produit un **warning** : il reste visible
+/// sans casser le build, ce qui permet d'adopter l'outil sur une base
+/// existante. Passer `unparsable = "error"` quand le projet est propre, ou
+/// `"ignore"` le temps de la migration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ParseConfig {
+    /// Statement que sqlparser-rs n'a pas su lire. Peut être du PostgreSQL
+    /// valide hors périmètre (GRANT, CREATE EXTENSION) *ou* une faute de
+    /// syntaxe — les deux sont indiscernables à ce niveau, d'où le défaut
+    /// `warn` plutôt que `error`.
+    #[serde(default = "default_unparsable")]
+    pub unparsable: SkipLevel,
+    /// Statement valide mais volontairement pas modélisé dans l'AST.
+    /// Ici aucune ambiguïté : on sait que le SQL est bon, d'où le défaut
+    /// `ignore`.
+    #[serde(default = "default_unsupported")]
+    pub unsupported: SkipLevel,
+}
+
+impl Default for ParseConfig {
+    fn default() -> Self {
+        Self {
+            unparsable: default_unparsable(),
+            unsupported: default_unsupported(),
+        }
+    }
+}
+
+fn default_unparsable() -> SkipLevel {
+    SkipLevel::Warn
+}
+fn default_unsupported() -> SkipLevel {
+    SkipLevel::Ignore
 }
 
 // ── Migrations ────────────────────────────────────────────────────────────────

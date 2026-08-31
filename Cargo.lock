@@ -793,6 +793,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
+ "pgsql-analysis",
  "pgsql-ast",
  "pgsql-checker",
  "pgsql-codegen",

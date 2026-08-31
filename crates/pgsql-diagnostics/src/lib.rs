@@ -7,9 +7,11 @@
 
 pub mod codes;
 pub mod diagnostic;
+pub mod directive;
 
 pub use codes::*;
 pub use diagnostic::{Diagnostic, Severity, Span};
+pub use directive::{Directive, DirectiveKind, Suppressions};
 
 /// Applique les surcharges de sévérité par règle à une liste de diagnostics.
 /// Les règles à "off" sont retirées ; les autres voient leur sévérité mise à jour.

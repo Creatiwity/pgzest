@@ -14,6 +14,27 @@ struct Cli {
     command: Command,
 }
 
+/// Miroir clap de `pgsql_schema::SkipLevel`, pour exposer les niveaux en CLI.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliSkipLevel {
+    /// Ne rien signaler.
+    Ignore,
+    /// Signaler sans faire échouer.
+    Warn,
+    /// Signaler et faire échouer.
+    Error,
+}
+
+impl From<CliSkipLevel> for pgsql_schema::SkipLevel {
+    fn from(v: CliSkipLevel) -> Self {
+        match v {
+            CliSkipLevel::Ignore => pgsql_schema::SkipLevel::Ignore,
+            CliSkipLevel::Warn => pgsql_schema::SkipLevel::Warn,
+            CliSkipLevel::Error => pgsql_schema::SkipLevel::Error,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Type-check SQL files, printing diagnostics. Exits 1 if any errors are found.
@@ -29,6 +50,14 @@ enum Command {
         /// Extra DDL/schema files that provide context (can be repeated)
         #[arg(long = "schema")]
         schemas: Vec<String>,
+        /// How to report statements the parser could not read.
+        /// Overrides `[parse] unparsable` from pgsql-tools.config.toml.
+        #[arg(long = "on-unparsable", value_enum)]
+        on_unparsable: Option<CliSkipLevel>,
+        /// How to report valid statements the AST does not model.
+        /// Overrides `[parse] unsupported`.
+        #[arg(long = "on-unsupported", value_enum)]
+        on_unsupported: Option<CliSkipLevel>,
     },
 
     /// Lint a SQL file for style and best-practice violations.
@@ -112,7 +141,12 @@ fn offset_to_line_col(sql: &str, offset: usize) -> (usize, usize) {
     (line, col)
 }
 
-fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
+fn cmd_check(
+    files: &[String],
+    schemas: &[String],
+    on_unparsable: Option<pgsql_schema::SkipLevel>,
+    on_unsupported: Option<pgsql_schema::SkipLevel>,
+) -> i32 {
     let config = pgsql_plugin::config::PgsqlConfig::load(&std::path::PathBuf::from("pgsql.toml"))
         .unwrap_or_default();
 
@@ -139,9 +173,40 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
         .flat_map(|(_, s)| s.iter().cloned())
         .collect();
 
+    // ── Politique de tolérance du parser ───────────────────────────────────────
+    // Lue depuis pgsql-tools.config.toml ([parse]), surchargeable en ligne de
+    // commande. Défaut : les statements illisibles remontent en warning, pour
+    // que le silence ne soit plus indiscernable du succès.
+    let parse_cfg = {
+        let mut cfg = std::path::Path::new(".")
+            .canonicalize()
+            .ok()
+            .and_then(|d| pgsql_schema::ProjectConfig::find_and_load(&d))
+            .map(|(_, c)| c.parse)
+            .unwrap_or_default();
+        if let Some(level) = on_unparsable {
+            cfg.unparsable = level;
+        }
+        if let Some(level) = on_unsupported {
+            cfg.unsupported = level;
+        }
+        cfg
+    };
+    let analysis_opts = pgsql_analysis::AnalysisOptions {
+        parse: parse_cfg.clone(),
+    };
+
     // ── Parse target files ─────────────────────────────────────────────────────
-    let parsed_targets: Vec<(String, String, Vec<Statement>)> = {
-        // (path, sql, stmts)
+    // `parse_with_outcome` conserve la trace des statements écartés au lieu de
+    // les perdre : c'est ce qui permet de les signaler plus bas.
+    type Target = (
+        String,
+        String,
+        Vec<Statement>,
+        Vec<pgsql_parser::SkippedStatement>,
+    );
+    let parsed_targets: Vec<Target> = {
+        // (path, sql, stmts, skipped)
         let mut out = Vec::new();
         for file in files {
             let sql = match read_file(file) {
@@ -151,8 +216,8 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
                     return 1;
                 }
             };
-            match pgsql_parser::parse(&sql) {
-                Ok(s) => out.push((file.clone(), sql, s)),
+            match pgsql_parser::parse_with_outcome(&sql) {
+                Ok(o) => out.push((file.clone(), sql, o.statements, o.skipped)),
                 Err(e) => {
                     eprintln!("error: {}: parse error: {}", file, e);
                     return 1;
@@ -180,7 +245,7 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
     }
     // Always include target files' own definitions so intra-file references
     // (e.g. a function defined later in the same file) resolve correctly.
-    for (_, sql, stmts) in &parsed_targets {
+    for (_, sql, stmts, _) in &parsed_targets {
         let sp = pgsql_schema::provider::detect_search_path(sql);
         let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
         composite.add(Box::new(
@@ -220,7 +285,7 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
         .map(|(k, v)| (k.clone(), v.level().to_string()))
         .collect();
 
-    for (file, sql, stmts) in &parsed_targets {
+    for (file, sql, stmts, skipped) in &parsed_targets {
         let mut diagnostics = if has_external_schema || parsed_targets.len() > 1 {
             // Cross-file mode: trigger map built from context + ALL target files.
             let all_other_stmts: Vec<Statement> = context_stmts
@@ -228,8 +293,8 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
                 .chain(
                     parsed_targets
                         .iter()
-                        .filter(|(f, _, _)| f != file)
-                        .flat_map(|(_, _, s)| s.iter()),
+                        .filter(|(f, _, _, _)| f != file)
+                        .flat_map(|(_, _, s, _)| s.iter()),
                 )
                 .cloned()
                 .collect();
@@ -246,7 +311,15 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
             )
         };
 
+        // Statements écartés par le parser → diagnostics selon la config.
+        let mut all = pgsql_analysis::skipped_to_diagnostics(skipped, &analysis_opts.parse);
+        all.append(&mut diagnostics);
+        let mut diagnostics = all;
+
         pgsql_diagnostics::apply_rule_overrides(&mut diagnostics, &rule_overrides);
+
+        // Directives en commentaire (-- pgsql-disable-next-line, …).
+        pgsql_diagnostics::Suppressions::scan(sql).apply(&mut diagnostics);
 
         for diag in &diagnostics {
             use pgsql_diagnostics::Severity;
@@ -442,7 +515,17 @@ fn main() {
     let cli = Cli::parse();
 
     let exit_code = match cli.command {
-        Command::Check { files, schemas } => cmd_check(&files, &schemas),
+        Command::Check {
+            files,
+            schemas,
+            on_unparsable,
+            on_unsupported,
+        } => cmd_check(
+            &files,
+            &schemas,
+            on_unparsable.map(Into::into),
+            on_unsupported.map(Into::into),
+        ),
         Command::Lint { file } => cmd_lint(&file),
         Command::Migrate { action } => match action {
             MigrateAction::Diff { old, new } => cmd_migrate_diff(&old, &new),

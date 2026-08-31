@@ -4,6 +4,13 @@
 [schema]
 # file = "schema.sql"  # optional external schema file
 
+# Parser tolerance — see README "Tolérance du parser et suppressions".
+# Lives in pgsql-tools.config.toml, not here; shown for discoverability.
+# [parse]
+# unparsable  = "warn"    # "error" | "warn" | "ignore"
+# unsupported = "ignore"  # "error" | "warn" | "ignore"
+
+
 [plugins]
 # rls-enforcer = {}    # enable built-in RLS enforcement plugin
 # prisma = { schema = "prisma/schema.prisma" }  # future Prisma plugin

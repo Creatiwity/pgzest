@@ -13,3 +13,10 @@ pub const FUNCTION_NOT_FOUND: &str = "function-not-found";
 pub const EMPTY_FUNCTION_BODY: &str = "empty-function-body";
 pub const TRIGGER_NO_CONTEXT: &str = "trigger-no-context";
 pub const UNDECLARED_VARIABLE: &str = "undeclared-variable";
+
+/// Statement que le parser n'a pas su lire : soit du PostgreSQL valide hors
+/// périmètre, soit une faute de syntaxe. Niveau piloté par `[parse] unparsable`.
+pub const UNPARSABLE_STATEMENT: &str = "unparsable-statement";
+/// Statement valide mais volontairement pas modélisé dans l'AST (GRANT, …).
+/// Niveau piloté par `[parse] unsupported`.
+pub const UNSUPPORTED_STATEMENT: &str = "unsupported-statement";

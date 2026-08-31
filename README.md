@@ -54,29 +54,76 @@ Légende : ✅ fonctionne et testé · 🟡 fonctionne, couverture ou périmètr
 Tests : 71 tests Rust, 8 tests TypeScript. `make ci` reproduit ce que vérifie
 la CI GitHub Actions.
 
+## Tolérance du parser et suppressions
+
+Un statement que l'analyse n'a pas pu traiter n'est plus avalé
+silencieusement — il est signalé, à un niveau que tu contrôles.
+
+Deux catégories, distinguées :
+
+| Catégorie | Signification | Défaut |
+|---|---|---|
+| `unparsable-statement` | sqlparser-rs n'a pas su lire le statement. Peut être du PostgreSQL valide hors périmètre **ou** une faute de syntaxe — indiscernables à ce niveau. | `warn` |
+| `unsupported-statement` | Statement valide, volontairement pas modélisé dans l'AST (`GRANT`, …). Aucune ambiguïté. | `ignore` |
+
+Le défaut `warn` sur `unparsable` rend le problème visible sans casser le
+build (`check` sort 0 sur un warning), ce qui permet d'adopter l'outil sur une
+base existante puis de durcir.
+
+### Config projet
+
+```toml
+# pgsql-tools.config.toml
+[parse]
+unparsable  = "warn"    # "error" | "warn" | "ignore"
+unsupported = "ignore"  # "error" | "warn" | "ignore"
+```
+
+Surcharge ponctuelle en ligne de commande :
+
+```bash
+pgsql check q.sql --on-unparsable error     # durcir en CI
+pgsql check q.sql --on-unparsable ignore    # le temps d'une migration
+```
+
+### Directives en commentaire
+
+À la ESLint, en commentaire ligne (`--`) ou bloc (`/* */`) :
+
+```sql
+-- pgsql-disable-next-line                          -- toutes les règles
+-- pgsql-disable-next-line column-not-found         -- une seule
+-- pgsql-disable-next-line column-not-found, L001   -- plusieurs
+-- pgsql-enable-next-line L001                      -- réactive ponctuellement
+-- pgsql-disable                                    -- début de bloc
+-- pgsql-enable                                     -- fin de bloc
+-- pgsql-disable-file                               -- tout le fichier
+```
+
+Un `-- pgsql-disable` non refermé porte jusqu'à la fin du fichier. Une
+justification peut suivre un second `--` et est ignorée :
+
+```sql
+-- pgsql-disable-next-line unparsable-statement -- syntaxe PG 18, cf. #214
+CREATE TABLE … ;
+```
+
+**Limite assumée** : la suppression est positionnelle, donc elle a besoin du
+`span` du diagnostic. Les rares règles qui n'en produisent pas encore (elles
+remontent en `1:1`) ne peuvent être tues que par `pgsql-disable-file`.
+
 ## Limites connues
 
 Par ordre d'importance :
 
-1. **Le SQL invalide passe silencieusement.** `pgsql-parser/src/lib.rs:595`
-   fait `Err(_) => continue` sur les erreurs de sqlparser-rs, pour tolérer le
-   SQL non supporté des dumps `pg_dump`. Mais il avale aussi les vraies
-   erreurs de syntaxe : `SELCT * FRM;` renvoie `Ok(0 statements)` et
-   `pgsql check` conclut « aucune erreur », code de sortie 0. Le code
-   `PARSE_ERROR` est de ce fait inatteignable.
-   Piste : distinguer « statement ignoré » de « syntaxe invalide » et
-   remonter les statements ignorés en warning, pour que le silence ne soit
-   plus indiscernable du succès. Tracé par le test `#[ignore]`
-   `erreur_de_parse_signalee` dans `pgsql-analysis`.
-
-2. **Faux positif `trigger-ambiguous-table`.** Le checker signale une erreur
+1. **Faux positif `trigger-ambiguous-table`.** Le checker signale une erreur
    quand une même fonction trigger (ex. `set_updated_at`) sert plusieurs
    tables — c'est un motif PostgreSQL idiomatique. Visible sur
    `examples/schema.sql`, qui ne passe donc pas `check`.
 
-3. Pas de vérification de compatibilité de types entre opérandes.
+2. Pas de vérification de compatibilité de types entre opérandes.
 
-4. Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
+3. Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
 
 ---
 

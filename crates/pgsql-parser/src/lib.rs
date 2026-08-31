@@ -571,7 +571,49 @@ fn neutralize_check_constraints(sql: &str) -> String {
     result
 }
 
+/// Raison pour laquelle un statement n'a pas fini dans l'AST.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SkipReason {
+    /// sqlparser-rs n'a pas su parser le statement. À ce niveau on ne peut PAS
+    /// distinguer « du PostgreSQL valide que nous ne supportons pas » (GRANT,
+    /// CREATE EXTENSION, …) d'une vraie faute de syntaxe. C'est au consommateur
+    /// de décider quoi en faire — voir la config `[parse] unparsable`.
+    Unparsable(String),
+    /// Parsé par sqlparser mais volontairement pas modélisé dans notre AST.
+    /// Ici on sait que le SQL est valide, seulement hors périmètre.
+    Unsupported(String),
+}
+
+/// Un statement écarté pendant le parse, avec sa position dans la source.
+#[derive(Debug, Clone)]
+pub struct SkippedStatement {
+    /// Texte du statement (sans le `;` final).
+    pub sql: String,
+    /// Offset octet du début du statement dans la source complète.
+    pub start: usize,
+    /// Offset octet de fin (exclusif).
+    pub end: usize,
+    pub reason: SkipReason,
+}
+
+/// Résultat complet d'un parse : ce qui a été compris, et ce qui a été écarté.
+#[derive(Debug, Clone, Default)]
+pub struct ParseOutcome {
+    pub statements: Vec<Statement>,
+    pub skipped: Vec<SkippedStatement>,
+}
+
+/// Parse `sql` et ne renvoie que les statements compris.
+///
+/// Les statements non parsables ou non supportés sont écartés silencieusement.
+/// Préférer [`parse_with_outcome`] pour savoir ce qui a été écarté — sans quoi
+/// un fichier invalide est indiscernable d'un fichier propre.
 pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
+    Ok(parse_with_outcome(sql)?.statements)
+}
+
+/// Parse `sql` en conservant la trace des statements écartés.
+pub fn parse_with_outcome(sql: &str) -> Result<ParseOutcome, ParseError> {
     let dialect = PostgreSqlDialect {};
 
     // Split into individual statement strings (respecting dollar-quotes).
@@ -580,6 +622,7 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
     // does not abort the entire parse — it is silently skipped instead.
     let raw_stmts = split_statements(sql);
     let mut result = Vec::new();
+    let mut skipped: Vec<SkippedStatement> = Vec::new();
 
     for (stmt_sql, byte_offset) in &raw_stmts {
         let (cleaned, meta) = if is_create_function_sql(stmt_sql) {
@@ -591,16 +634,36 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
             (neutralize_check_constraints(stmt_sql), None)
         };
 
-        // Parse single statement; skip on syntax error (unsupported SQL).
+        // Statement non parsable : on l'écarte de l'AST mais on le signale,
+        // au lieu de le perdre. C'est ce qui permet à `check` de distinguer
+        // « fichier propre » de « fichier que je n'ai pas su lire ».
         let sp_stmts = match SqlParser::parse_sql(&dialect, &cleaned) {
             Ok(s) => s,
-            Err(_) => continue,
+            Err(e) => {
+                let trivia = leading_trivia_len(stmt_sql);
+                skipped.push(SkippedStatement {
+                    sql: stmt_sql[trivia..].to_string(),
+                    start: byte_offset + trivia,
+                    end: byte_offset + stmt_sql.len(),
+                    reason: SkipReason::Unparsable(e.to_string()),
+                });
+                continue;
+            }
         };
 
         for sp_stmt in sp_stmts {
             let mut stmt = match convert::convert_statement(sp_stmt) {
                 Ok(s) => s,
-                Err(ParseError::Unsupported(_)) => continue,
+                Err(ParseError::Unsupported(what)) => {
+                    let trivia = leading_trivia_len(stmt_sql);
+                    skipped.push(SkippedStatement {
+                        sql: stmt_sql[trivia..].to_string(),
+                        start: byte_offset + trivia,
+                        end: byte_offset + stmt_sql.len(),
+                        reason: SkipReason::Unsupported(what),
+                    });
+                    continue;
+                }
                 Err(e) => return Err(e),
             };
 
@@ -703,7 +766,50 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
             result.push(stmt);
         }
     }
-    Ok(result)
+    Ok(ParseOutcome {
+        statements: result,
+        skipped,
+    })
+}
+
+/// Longueur des « trivia » en tête de `s` : espaces, commentaires `--` et
+/// blocs `/* */`.
+///
+/// `split_statements` découpe sur `;`, donc un commentaire qui précède un
+/// statement se retrouve collé au statement suivant. Sans ce saut, le span
+/// rapporté commence sur le commentaire : le soulignement tombe à côté dans
+/// l'éditeur, et une directive `-- pgsql-disable-next-line` placée juste avant
+/// ne couvrirait pas le statement qu'elle vise.
+fn leading_trivia_len(s: &str) -> usize {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    loop {
+        // Espaces
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        // Commentaire ligne
+        if s[i..].starts_with("--") {
+            match s[i..].find('\n') {
+                Some(nl) => {
+                    i += nl + 1;
+                    continue;
+                }
+                None => return s.len(),
+            }
+        }
+        // Commentaire bloc
+        if s[i..].starts_with("/*") {
+            match s[i + 2..].find("*/") {
+                Some(close) => {
+                    i += 2 + close + 2;
+                    continue;
+                }
+                None => return s.len(),
+            }
+        }
+        return i;
+    }
 }
 
 fn set_stmt_span(stmt: &mut Statement, start: usize, end: usize) {
@@ -851,4 +957,52 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
 /// Takes a pre-parsed sqlparser statement and converts it to a pgsql_ast Statement.
 pub fn convert_statement_pub(stmt: sqlparser::ast::Statement) -> Result<Statement, ParseError> {
     convert::convert_statement(stmt)
+}
+
+#[cfg(test)]
+mod skip_tests {
+    use super::*;
+
+    #[test]
+    fn sql_invalide_est_signale_pas_avale() {
+        let out = parse_with_outcome("SELCT * FRM;").expect("parse ne doit pas échouer");
+        assert!(out.statements.is_empty());
+        assert_eq!(out.skipped.len(), 1, "un statement écarté attendu");
+        assert!(matches!(out.skipped[0].reason, SkipReason::Unparsable(_)));
+    }
+
+    #[test]
+    fn le_statement_ecarte_porte_sa_position() {
+        let sql = "CREATE TABLE t (a INT);\nSELCT oops;";
+        let out = parse_with_outcome(sql).unwrap();
+        assert_eq!(out.statements.len(), 1, "le CREATE TABLE doit passer");
+        assert_eq!(out.skipped.len(), 1);
+        let sk = &out.skipped[0];
+        // Le span doit pointer sur la 2e ligne, pas sur le début du fichier.
+        assert!(
+            sk.start >= 24,
+            "start={} devrait être sur la 2e ligne",
+            sk.start
+        );
+        assert!(sql[sk.start..sk.end].contains("SELCT"));
+    }
+
+    #[test]
+    fn du_sql_valide_ne_produit_aucun_ecart() {
+        let out = parse_with_outcome("CREATE TABLE t (a INT); SELECT a FROM t;").unwrap();
+        assert_eq!(out.statements.len(), 2);
+        assert!(
+            out.skipped.is_empty(),
+            "écarts inattendus: {:?}",
+            out.skipped
+        );
+    }
+
+    #[test]
+    fn un_statement_invalide_ne_tue_pas_les_suivants() {
+        let sql = "SELCT bad; CREATE TABLE t (a INT); SELECT a FROM t;";
+        let out = parse_with_outcome(sql).unwrap();
+        assert_eq!(out.statements.len(), 2);
+        assert_eq!(out.skipped.len(), 1);
+    }
 }

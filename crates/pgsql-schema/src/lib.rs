@@ -6,7 +6,7 @@ pub mod resolver;
 pub mod role;
 pub mod source;
 
-pub use config::ProjectConfig;
+pub use config::{ParseConfig, ProjectConfig, SkipLevel};
 pub use index::SchemaIndex;
 pub use lint::check_ddl_role;
 pub use provider::{
