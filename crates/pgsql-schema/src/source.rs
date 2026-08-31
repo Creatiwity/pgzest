@@ -62,10 +62,17 @@ impl SchemaSource for FileSource {
 
 // ── DirSource ─────────────────────────────────────────────────────────────────
 
-/// All `.sql` files in a directory, sorted lexicographically, with a fixed role.
+/// Tous les `.sql` sous un répertoire, récursivement, triés, avec un rôle fixe.
 pub struct DirSource {
     pub root: PathBuf,
     pub role: FileRole,
+    /// Sous-arbres à ne pas parcourir.
+    ///
+    /// Sert notamment à exclure `migrations/` quand on indexe la racine du
+    /// projet : sans cela un fichier de migration serait indexé deux fois, une
+    /// fois comme Migration et une fois comme Schema, ce qui rejouerait ses
+    /// ALTER et brouillerait les règles de rôle.
+    pub exclude: Vec<PathBuf>,
 }
 
 impl DirSource {
@@ -73,14 +80,31 @@ impl DirSource {
         Self {
             root: root.into(),
             role,
+            exclude: Vec::new(),
         }
+    }
+
+    /// Ajoute un sous-arbre à exclure du parcours.
+    pub fn excluding(mut self, path: impl Into<PathBuf>) -> Self {
+        self.exclude.push(path.into());
+        self
     }
 }
 
 impl SchemaSource for DirSource {
     fn chunks(&self) -> Vec<SqlChunk> {
+        let excluded: Vec<PathBuf> = self
+            .exclude
+            .iter()
+            .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()))
+            .collect();
+
         sorted_sql_files(&self.root)
             .into_iter()
+            .filter(|path| {
+                let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+                !excluded.iter().any(|ex| canon.starts_with(ex))
+            })
             .flat_map(|path| FileSource::new(path, self.role.clone()).chunks())
             .collect()
     }
@@ -236,20 +260,61 @@ impl SchemaSource for FragmentSource {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Répertoires jamais parcourus à la recherche de SQL.
+///
+/// Sans cela, indexer la racine d'un projet aspire `node_modules/`, `target/`
+/// et les snapshots — coûteux et faux (un snapshot n'est pas le schéma courant).
+const IGNORED_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "vendor",
+    ".schema-snapshots",
+    ".next",
+    ".venv",
+    "__pycache__",
+];
+
+fn is_ignored_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| IGNORED_DIRS.contains(&n) || n.starts_with('.') && n != ".")
+        .unwrap_or(false)
+}
+
+fn is_sql_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("sql"))
+        .unwrap_or(false)
+}
+
+/// Tous les `.sql` sous `dir`, **récursivement**, triés par chemin.
+///
+/// Le tri porte sur le chemin complet, donc l'ordre est déterministe et stable
+/// entre machines — ce qui compte pour les migrations, dont l'ordre
+/// d'application dérive du nom.
 fn sorted_sql_files(dir: &Path) -> Vec<PathBuf> {
-    let mut entries: Vec<PathBuf> = match std::fs::read_dir(dir) {
-        Ok(rd) => rd
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| {
-                p.extension()
-                    .and_then(|s| s.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
-                    .unwrap_or(false)
-            })
-            .collect(),
-        Err(_) => return vec![],
+    let mut out = Vec::new();
+    collect_sql_files(dir, &mut out);
+    out.sort();
+    out
+}
+
+fn collect_sql_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
     };
-    entries.sort();
-    entries
+    for entry in rd.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            if !is_ignored_dir(&path) {
+                collect_sql_files(&path, out);
+            }
+        } else if is_sql_file(&path) {
+            out.push(path);
+        }
+    }
 }

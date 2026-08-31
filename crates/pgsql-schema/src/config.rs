@@ -114,10 +114,20 @@ fn default_hash_journal() -> String {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SchemaConfig {
-    /// Optional directory for static DDL files (schema.sql, types.sql, …).
-    /// If absent: every non-migration file opened in the editor is treated as Schema.
-    /// If present: only files in this directory are Schema; others are Query.
+    /// Répertoire des fichiers DDL statiques (schema.sql, types.sql, …),
+    /// parcouru récursivement.
+    ///
+    /// Absent : tout fichier non-migration est Schema, et le scope
+    /// d'indexation est la racine du projet (voir [`ProjectConfig::to_source`]).
+    /// Présent : seuls les fichiers de ce répertoire sont Schema, les autres
+    /// sont Query.
     pub directory: Option<String>,
+    /// Répertoires supplémentaires à indexer, en plus de `directory`.
+    ///
+    /// Utile quand le DDL est éclaté (`db/tables/`, `db/functions/`) sans
+    /// répertoire parent commun dédié.
+    #[serde(default)]
+    pub include: Vec<String>,
     #[serde(default = "default_search_path")]
     pub search_path: Vec<String>,
 }
@@ -209,25 +219,48 @@ impl ProjectConfig {
         }
     }
 
-    /// Build a `MultiSource` from this config.
+    /// Construit le scope d'indexation du projet.
     ///
-    /// Includes:
-    /// 1. Migration files from `migrations.directory`
-    /// 2. Schema files from `schema.directory` (if configured)
+    /// Contenu :
+    /// 1. `migrations.directory` (récursif), chaque fichier avec sa séquence
+    /// 2. `schema.directory` (récursif) **si configuré**, sinon la racine du
+    ///    projet — pour coïncider avec [`Self::classify_file`], qui traite tout
+    ///    fichier non-migration comme Schema quand `schema.directory` est absent
+    /// 3. `schema.include` : répertoires supplémentaires
+    ///
+    /// Le cas 2 est le point important : sans lui, un fichier pouvait être
+    /// *classé* Schema tout en restant hors du scope indexé, donc ses tables
+    /// n'existaient pour personne. Les répertoires de build et `node_modules`
+    /// sont exclus du parcours.
     pub fn to_source(&self, base_dir: &Path) -> MultiSource {
         let mut sources: Vec<Box<dyn SchemaSource>> = Vec::new();
 
         // Migration files — each gets sequence from filename
         let mig_dir = base_dir.join(&self.migrations.directory);
         if mig_dir.is_dir() {
-            sources.push(Box::new(MigrationDirSource::new(mig_dir)));
+            sources.push(Box::new(MigrationDirSource::new(mig_dir.clone())));
         }
 
-        // Schema files (explicit directory)
-        if let Some(ref sdir) = self.schema.directory {
-            let schema_dir = base_dir.join(sdir);
-            if schema_dir.is_dir() {
-                sources.push(Box::new(DirSource::new(schema_dir, FileRole::Schema)));
+        match self.schema.directory {
+            Some(ref sdir) => {
+                let schema_dir = base_dir.join(sdir);
+                if schema_dir.is_dir() {
+                    sources.push(Box::new(DirSource::new(schema_dir, FileRole::Schema)));
+                }
+            }
+            // Pas de répertoire dédié : le projet entier est le schéma, sauf
+            // les migrations — déjà indexées ci-dessus avec leur séquence.
+            None => {
+                sources.push(Box::new(
+                    DirSource::new(base_dir.to_path_buf(), FileRole::Schema).excluding(&mig_dir),
+                ));
+            }
+        }
+
+        for extra in &self.schema.include {
+            let dir = base_dir.join(extra);
+            if dir.is_dir() {
+                sources.push(Box::new(DirSource::new(dir, FileRole::Schema)));
             }
         }
 
