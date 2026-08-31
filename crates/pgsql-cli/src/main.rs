@@ -230,6 +230,13 @@ fn cmd_check(
         parse: parse_cfg.clone(),
     };
 
+    // Macros : fournies + celles du projet. Le désucrage est tenté sur tout
+    // fichier — une source sans macro est recopiée à l'identique.
+    let (macros, macro_errors) = load_macros();
+    for e in &macro_errors {
+        eprintln!("warning: {e}");
+    }
+
     // ── Parse target files ─────────────────────────────────────────────────────
     // `parse_with_outcome` conserve la trace des statements écartés au lieu de
     // les perdre : c'est ce qui permet de les signaler plus bas.
@@ -238,9 +245,10 @@ fn cmd_check(
         String,
         Vec<Statement>,
         Vec<pgsql_parser::SkippedStatement>,
+        Vec<pgsql_diagnostics::Diagnostic>,
     );
     let parsed_targets: Vec<Target> = {
-        // (path, sql, stmts, skipped)
+        // (path, source, stmts, skipped, diagnostics de macro)
         let mut out = Vec::new();
         for file in files {
             let sql = match read_file(file) {
@@ -250,8 +258,17 @@ fn cmd_check(
                     return 1;
                 }
             };
-            match pgsql_parser::parse_with_outcome(&sql) {
-                Ok(o) => out.push((file.clone(), sql, o.statements, o.skipped)),
+            // Désucrage : les spans rendus par le parse sont déjà dans le
+            // repère du fichier édité, donc rien à retraduire ensuite.
+            let prepared = pgsql_analysis::prepare_source(&sql, &macros);
+            match prepared.parse_with_outcome() {
+                Ok(o) => out.push((
+                    file.clone(),
+                    sql,
+                    o.statements,
+                    o.skipped,
+                    prepared.diagnostics,
+                )),
                 Err(e) => {
                     eprintln!("error: {}: parse error: {}", file, e);
                     return 1;
@@ -264,9 +281,16 @@ fn cmd_check(
     // ── Build global schema (per-file schema detection) ────────────────────────
     // Index du projet : tables et fonctions de tous les fichiers du scope,
     // indexés sans être checkés. C'est la même construction que côté LSP.
-    let project_resolver = project
-        .as_ref()
-        .map(|(root, cfg)| pgsql_schema::SchemaResolver::from_source(&cfg.to_source(root)));
+    // `from_chunks_with_macros` et non `from_source` : l'index doit voir les
+    // objets déclarés par les macros du PROJET, pas seulement par celles
+    // fournies.
+    let project_resolver = project.as_ref().map(|(root, cfg)| {
+        let source = cfg.to_source(root);
+        pgsql_schema::SchemaResolver::from_chunks_with_macros(
+            &pgsql_schema::SchemaSource::chunks(&source),
+            &macros,
+        )
+    });
 
     let has_external_schema = !schemas.is_empty();
     let has_project_schema = project_resolver.is_some();
@@ -286,7 +310,7 @@ fn cmd_check(
     }
     // Always include target files' own definitions so intra-file references
     // (e.g. a function defined later in the same file) resolve correctly.
-    for (_, sql, stmts, _) in &parsed_targets {
+    for (_, sql, stmts, _, _) in &parsed_targets {
         let sp = pgsql_schema::provider::detect_search_path(sql);
         let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
         composite.add(Box::new(
@@ -345,7 +369,7 @@ fn cmd_check(
         .map(|(k, v)| (k.clone(), v.level().to_string()))
         .collect();
 
-    for (file, sql, stmts, skipped) in &parsed_targets {
+    for (file, sql, stmts, skipped, macro_diags) in &parsed_targets {
         let mut diagnostics =
             if has_external_schema || has_project_schema || parsed_targets.len() > 1 {
                 // Cross-file mode: trigger map built from context + ALL target files.
@@ -354,8 +378,8 @@ fn cmd_check(
                     .chain(
                         parsed_targets
                             .iter()
-                            .filter(|(f, _, _, _)| f != file)
-                            .flat_map(|(_, _, s, _)| s.iter()),
+                            .filter(|(f, _, _, _, _)| f != file)
+                            .flat_map(|(_, _, s, _, _)| s.iter()),
                     )
                     .cloned()
                     .collect();
@@ -373,7 +397,11 @@ fn cmd_check(
             };
 
         // Statements écartés par le parser → diagnostics selon la config.
-        let mut all = pgsql_analysis::skipped_to_diagnostics(skipped, &analysis_opts.parse);
+        let mut all = macro_diags.clone();
+        all.extend(pgsql_analysis::skipped_to_diagnostics(
+            skipped,
+            &analysis_opts.parse,
+        ));
         all.append(&mut diagnostics);
         let mut diagnostics = all;
 

@@ -39,7 +39,17 @@ impl SchemaResolver {
     }
 
     /// Build from pre-collected chunks (already sorted by the source).
+    ///
+    /// Les macros sont désucrées avant l'indexation : sans cela une table ou une
+    /// fonction déclarée par une macro n'existerait pour personne, et tous les
+    /// fichiers qui s'en servent récolteraient des `table-not-found`.
     pub fn from_chunks(chunks: &[SqlChunk]) -> Self {
+        Self::from_chunks_with_macros(chunks, &pgsql_macro::MacroSet::builtin())
+    }
+
+    /// Comme [`Self::from_chunks`], avec un jeu de macros explicite — nécessaire
+    /// dès que le projet définit ses propres `*.pgmacro`.
+    pub fn from_chunks_with_macros(chunks: &[SqlChunk], macros: &pgsql_macro::MacroSet) -> Self {
         let mut tables: HashMap<String, TableSchema> = HashMap::new();
         let mut functions: HashMap<String, FunctionSignature> = HashMap::new();
         let mut rls_enabled: HashSet<String> = HashSet::new();
@@ -47,14 +57,23 @@ impl SchemaResolver {
         let mut skipped = Vec::new();
 
         for chunk in chunks {
-            // `origin.byte_range.start` situe le chunk dans son document : un
-            // fichier `.sql` commence à 0, mais un littéral SQL extrait d'un
-            // `.ts` commence plus loin. Passer l'offset garde les spans
-            // exprimés dans le repère du document.
-            let outcome = match pgsql_parser::parse_at_with_outcome(
-                &chunk.sql,
-                chunk.origin.byte_range.start,
-            ) {
+            // Désucrage d'abord : sans cela une table ou une fonction déclarée
+            // par une macro n'existerait pour personne, et tous les fichiers qui
+            // s'en servent récolteraient des `table-not-found`.
+            //
+            // Deux repères se superposeraient en théorie — celui du chunk dans
+            // son document (`origin.byte_range.start`, non nul pour un littéral
+            // extrait d'un `.ts`) et celui du SQL engendré dans le chunk. Pour
+            // un fichier l'offset vaut 0, donc un seul niveau : on ne compose
+            // pas, plutôt que d'inventer une complexité dont personne n'a
+            // besoin aujourd'hui.
+            let expansion = pgsql_macro::expand_source(&chunk.sql, macros);
+            let parsed = if expansion.is_passthrough() {
+                pgsql_parser::parse_at_with_outcome(&chunk.sql, chunk.origin.byte_range.start)
+            } else {
+                pgsql_parser::parse_mapped_with_outcome(&expansion.sql, &expansion.map)
+            };
+            let outcome = match parsed {
                 Ok(o) => o,
                 Err(_) => continue,
             };

@@ -31,6 +31,11 @@ pub struct PgsqlBackend {
     legacy_schema_path: Mutex<Option<String>>,
     /// WASM plugins loaded from plugins.wasm in pgsql-tools.config.toml.
     wasm_plugins: Mutex<Vec<Arc<WasmPlugin>>>,
+    /// Macros reconnues : celles fournies, plus les `*.pgmacro` du projet.
+    ///
+    /// Reconstruit avec le resolver : un `.pgmacro` modifié doit prendre effet
+    /// sans redémarrer le serveur.
+    macros: Mutex<Arc<pgsql_macro::MacroSet>>,
 }
 
 impl PgsqlBackend {
@@ -43,7 +48,32 @@ impl PgsqlBackend {
             config: Mutex::new(None),
             legacy_schema_path: Mutex::new(None),
             wasm_plugins: Mutex::new(Vec::new()),
+            macros: Mutex::new(Arc::new(pgsql_macro::MacroSet::builtin())),
         }
+    }
+
+    /// Jeu de macros courant (clone d'Arc, bon marché).
+    async fn macros(&self) -> Arc<pgsql_macro::MacroSet> {
+        self.macros.lock().await.clone()
+    }
+
+    /// Recharge les macros du projet par-dessus les macros fournies.
+    async fn rebuild_macros(&self) {
+        let mut set = pgsql_macro::MacroSet::builtin();
+        if let Some(root) = self.project_root.lock().await.clone() {
+            let dir = match ProjectConfig::load(&root.join(ProjectConfig::FILENAME)) {
+                Ok(cfg) => root.join(&cfg.macros.directory),
+                Err(_) => root.join("macros"),
+            };
+            if dir.is_dir() {
+                for e in set.load_dir(&dir) {
+                    self.client
+                        .log_message(MessageType::WARNING, format!("pgsql-lsp: {e}"))
+                        .await;
+                }
+            }
+        }
+        *self.macros.lock().await = Arc::new(set);
     }
 
     /// Clone the current resolver out of the lock (cheap — Arc clone).
@@ -84,8 +114,16 @@ impl PgsqlBackend {
             let config_path = root.join(ProjectConfig::FILENAME);
             match ProjectConfig::load(&config_path) {
                 Ok(config) => {
+                    // Macros du projet chargées d'abord : l'index doit voir les
+                    // objets déclarés par les macros maison, pas seulement par
+                    // celles fournies.
+                    self.rebuild_macros().await;
+                    let macros = self.macros().await;
                     let source = config.to_source(root);
-                    SchemaResolver::from_source(&source)
+                    SchemaResolver::from_chunks_with_macros(
+                        &pgsql_schema::SchemaSource::chunks(&source),
+                        &macros,
+                    )
                 }
                 Err(e) => {
                     self.client
@@ -109,6 +147,7 @@ impl PgsqlBackend {
         };
 
         *self.resolver.lock().await = Arc::new(new_resolver);
+        self.rebuild_macros().await;
     }
 
     /// Build a Checker with built-in rules + any loaded WASM plugins.
@@ -141,8 +180,15 @@ impl PgsqlBackend {
         let resolver = self.resolver().await;
         let suppressions = pgsql_diagnostics::Suppressions::scan(text);
 
+        // Désucrage des macros. Une source sans macro est recopiée à
+        // l'identique, donc c'est gratuit et aucun fichier n'y échappe à cause
+        // de son extension. Les spans produits ensuite sont déjà dans le repère
+        // du fichier édité — voir `PreparedSource::parse`.
+        let macros = self.macros().await;
+        let prepared = pgsql_analysis::prepare_source(text, &macros);
+
         // Un seul parse pour le checker, le lint et les règles de rôle.
-        let outcome = match pgsql_parser::parse_with_outcome(text) {
+        let outcome = match prepared.parse_with_outcome() {
             Ok(o) => o,
             Err(e) => {
                 let mut diags = vec![Diagnostic::error(
@@ -165,15 +211,19 @@ impl PgsqlBackend {
             }
         };
 
-        // ── Statements écartés par le parser ──────────────────────────────────
-        let mut diags = pgsql_analysis::skipped_to_diagnostics(&outcome.skipped, &parse_cfg);
+        // ── Macros et statements écartés ──────────────────────────────────────
+        let mut diags = prepared.diagnostics.clone();
+        diags.extend(pgsql_analysis::skipped_to_diagnostics(
+            &outcome.skipped,
+            &parse_cfg,
+        ));
 
         // ── Checker ───────────────────────────────────────────────────────────
         let checker_diags: Vec<Diagnostic> = match role {
             FileRole::Schema => {
                 // Schema file: 2-pass — check against self-schema merged with global.
                 let mut composite = pgsql_schema::provider::CompositeSchemaProvider::new();
-                if let Ok(self_schema) = SchemaResolver::from_sql(text) {
+                if let Ok(self_schema) = SchemaResolver::from_sql(&prepared.sql) {
                     composite.add(Box::new(self_schema));
                 }
                 composite.add(Box::new(GlobalResolver(resolver.clone())));
@@ -278,10 +328,17 @@ impl LanguageServer for PgsqlBackend {
         if let Some(ref root) = workspace_root
             && let Some((project_root, config)) = ProjectConfig::find_and_load(root)
         {
-            let source = config.to_source(&project_root);
-            let resolver = SchemaResolver::from_source(&source);
-            *self.resolver.lock().await = Arc::new(resolver);
             *self.project_root.lock().await = Some(project_root.clone());
+            // Macros du projet d'abord : l'index doit voir les objets déclarés
+            // par les macros maison, pas seulement par celles fournies.
+            self.rebuild_macros().await;
+            let macros = self.macros().await;
+            let source = config.to_source(&project_root);
+            let resolver = SchemaResolver::from_chunks_with_macros(
+                &pgsql_schema::SchemaSource::chunks(&source),
+                &macros,
+            );
+            *self.resolver.lock().await = Arc::new(resolver);
 
             // Load WASM plugins listed in [plugins] wasm = [...]
             let mut loaded: Vec<Arc<WasmPlugin>> = Vec::new();

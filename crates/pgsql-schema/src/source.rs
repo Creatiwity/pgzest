@@ -284,10 +284,12 @@ fn is_ignored_dir(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// `.sql` et `.pgsql` — ce dernier pouvant contenir des macros, désucrées à
+/// l'indexation par [`crate::SchemaResolver`].
 fn is_sql_file(path: &Path) -> bool {
     path.extension()
         .and_then(|s| s.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("sql"))
+        .map(|ext| ext.eq_ignore_ascii_case("sql") || ext.eq_ignore_ascii_case("pgsql"))
         .unwrap_or(false)
 }
 

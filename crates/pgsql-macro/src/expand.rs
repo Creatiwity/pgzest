@@ -53,7 +53,7 @@ pub fn expand_source(source: &str, macros: &MacroSet) -> Expansion {
                 copy(&mut out, &mut map, source, i, at);
                 match parse_invocation(source, at, macros) {
                     Ok(inv) => {
-                        render(&inv, &mut out, &mut map, &mut diagnostics);
+                        render(&inv, &mut out, &mut map);
                         expanded += 1;
                         i = inv.end;
                     }
@@ -105,8 +105,6 @@ struct Invocation<'a> {
     declares: Vec<Declare>,
     /// Offset de fin de l'invocation dans la source (après `}`).
     end: usize,
-    /// Offset du début de l'invocation, pour situer le boilerplate.
-    start: usize,
     source: &'a str,
 }
 
@@ -251,7 +249,6 @@ fn parse_invocation<'a>(
         declares,
         body,
         end,
-        start: at,
         source,
     })
 }
@@ -341,34 +338,11 @@ fn body_end(source: &str, open: usize) -> Option<usize> {
 
 /// Rend une invocation. Une macro dont le trou `tables` contient plusieurs
 /// tables est rendue une fois par table.
-fn render(
-    inv: &Invocation,
-    out: &mut String,
-    map: &mut SourceMap,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
+fn render(inv: &Invocation, out: &mut String, map: &mut SourceMap) {
     let tables: Vec<String> = match inv.caps.get("tables") {
         Some(list) => list.split(',').map(|t| t.trim().to_string()).collect(),
         None => vec![String::new()],
     };
-
-    if tables.len() > 1 {
-        diagnostics.push(
-            Diagnostic::info(
-                MACRO_ERROR,
-                format!(
-                    "@{} sur {} tables : une fonction par table est générée, \
-                     ce qui rend NEW et OLD résolubles",
-                    inv.def.name,
-                    tables.len()
-                ),
-            )
-            .with_span(Span {
-                start: inv.start,
-                end: inv.end,
-            }),
-        );
-    }
 
     for (idx, table) in tables.iter().enumerate() {
         let mut caps = inv.caps.clone();
@@ -571,19 +545,6 @@ mod tests {
         }
         assert_eq!(e.sql.matches("CREATE OR REPLACE FUNCTION").count(), 3);
         assert_eq!(e.sql.matches("CREATE TRIGGER").count(), 3);
-    }
-
-    #[test]
-    fn le_multi_tables_est_signale_en_info() {
-        let e = expand("@trigger t before update on (a, b) for each row {\n RETURN NEW;\n}");
-        assert!(
-            e.diagnostics
-                .iter()
-                .any(|d| d.severity == Severity::Info
-                    && d.message.contains("une fonction par table")),
-            "obtenu: {:?}",
-            e.diagnostics
-        );
     }
 
     // ── Passthrough et robustesse ─────────────────────────────────────────────

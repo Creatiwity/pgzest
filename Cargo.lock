@@ -882,6 +882,7 @@ dependencies = [
  "pgsql-checker",
  "pgsql-diagnostics",
  "pgsql-lint",
+ "pgsql-macro",
  "pgsql-parser",
  "pgsql-plugin-wasm",
  "pgsql-schema",
@@ -963,6 +964,7 @@ version = "0.1.0"
 dependencies = [
  "pgsql-ast",
  "pgsql-diagnostics",
+ "pgsql-macro",
  "pgsql-parser",
  "serde",
  "serde_json",
