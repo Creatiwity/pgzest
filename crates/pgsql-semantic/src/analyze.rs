@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::infer::{OutputColumn, infer_expr_type};
 use crate::scope::{ColumnBinding, ScopeId, ScopeTree};
 use crate::symbol::{Symbol, SymbolKind, SymbolTable};
+use pgsql_ast::expr::ExprKind;
 
 /// Full result of semantic analysis on a set of SQL statements.
 #[derive(Debug)]
@@ -255,7 +256,7 @@ impl<'a> Analyzer<'a> {
     ) -> Option<DataType> {
         let ty = infer_expr_type(expr, scope_id, &self.scopes, &self.symbols, self.schema);
         // For subqueries, recurse
-        if let pgsql_ast::expr::Expr::Subquery(sub) = expr {
+        if let ExprKind::Subquery(sub) = &expr.kind {
             self.analyze_select(sub, scope_id);
         }
         ty
@@ -275,9 +276,9 @@ fn return_type_to_data_type(rt: &pgsql_ast::ddl::ReturnType) -> DataType {
 }
 
 fn expr_to_column_name(expr: &pgsql_ast::expr::Expr) -> Option<String> {
-    match expr {
-        pgsql_ast::expr::Expr::Column(col_ref) => Some(col_ref.column.value.clone()),
-        pgsql_ast::expr::Expr::FunctionCall { name, .. } => Some(name.0.last()?.value.clone()),
+    match &expr.kind {
+        ExprKind::Column(col_ref) => Some(col_ref.column.value.clone()),
+        ExprKind::FunctionCall { name, .. } => Some(name.0.last()?.value.clone()),
         _ => None,
     }
 }

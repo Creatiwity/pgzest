@@ -1,3 +1,4 @@
+use pgsql_ast::expr::ExprKind;
 use pgsql_ast::*;
 use pgsql_codegen::{DiffOp, diff_schemas, emit_statement};
 
@@ -23,10 +24,10 @@ fn make_select(columns: Vec<SelectItem>, from: Vec<TableRef>) -> SelectStmt {
 
 fn col(name: &str) -> SelectItem {
     SelectItem::Expr {
-        expr: Expr::Column(ColumnRef {
+        expr: Expr::bare(ExprKind::Column(ColumnRef {
             table: None,
             column: Ident::new(name),
-        }),
+        })),
         alias: None,
     }
 }
@@ -100,18 +101,22 @@ fn emit_select_with_where_and_limit() {
         columns: vec![SelectItem::Wildcard],
         from: vec![table_ref("orders")],
         joins: vec![],
-        where_clause: Some(Expr::BinaryOp {
-            left: Box::new(Expr::Column(ColumnRef {
+        where_clause: Some(Expr::bare(ExprKind::BinaryOp {
+            left: Box::new(Expr::bare(ExprKind::Column(ColumnRef {
                 table: None,
                 column: Ident::new("status"),
-            })),
+            }))),
             op: BinaryOp::Eq,
-            right: Box::new(Expr::Literal(Literal::String("active".to_string()))),
-        }),
+            right: Box::new(Expr::bare(ExprKind::Literal(Literal::String(
+                "active".to_string(),
+            )))),
+        })),
         group_by: vec![],
         having: None,
         order_by: vec![],
-        limit: Some(Expr::Literal(Literal::Number("10".to_string()))),
+        limit: Some(Expr::bare(ExprKind::Literal(Literal::Number(
+            "10".to_string(),
+        )))),
         offset: None,
     });
 

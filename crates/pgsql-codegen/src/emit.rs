@@ -1,3 +1,4 @@
+use pgsql_ast::expr::ExprKind;
 use pgsql_ast::*;
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -171,16 +172,16 @@ fn emit_order_by(ob: &OrderByExpr) -> String {
 // ── EXPRESSIONS ───────────────────────────────────────────────────────────────
 
 pub fn emit_expr(expr: &Expr) -> String {
-    match expr {
-        Expr::Literal(lit) => emit_literal(lit),
-        Expr::Column(col_ref) => {
+    match &expr.kind {
+        ExprKind::Literal(lit) => emit_literal(lit),
+        ExprKind::Column(col_ref) => {
             let col = emit_ident(&col_ref.column);
             match &col_ref.table {
                 Some(t) => format!("{}.{}", emit_ident(t), col),
                 None => col,
             }
         }
-        Expr::BinaryOp { left, op, right } => {
+        ExprKind::BinaryOp { left, op, right } => {
             format!(
                 "({} {} {})",
                 emit_expr(left),
@@ -188,13 +189,13 @@ pub fn emit_expr(expr: &Expr) -> String {
                 emit_expr(right)
             )
         }
-        Expr::UnaryOp { op, expr } => match op {
+        ExprKind::UnaryOp { op, expr } => match op {
             UnaryOp::Not => format!("(NOT {})", emit_expr(expr)),
             UnaryOp::Neg => format!("(-{})", emit_expr(expr)),
             UnaryOp::IsNull => format!("({} IS NULL)", emit_expr(expr)),
             UnaryOp::IsNotNull => format!("({} IS NOT NULL)", emit_expr(expr)),
         },
-        Expr::FunctionCall {
+        ExprKind::FunctionCall {
             name,
             args,
             filter,
@@ -215,10 +216,10 @@ pub fn emit_expr(expr: &Expr) -> String {
                 filter_str
             )
         }
-        Expr::Cast { expr, data_type } => {
+        ExprKind::Cast { expr, data_type } => {
             format!("CAST({} AS {})", emit_expr(expr), emit_data_type(data_type))
         }
-        Expr::Case {
+        ExprKind::Case {
             operand,
             when_clauses,
             else_clause,
@@ -241,8 +242,8 @@ pub fn emit_expr(expr: &Expr) -> String {
             s.push_str(" END");
             s
         }
-        Expr::Subquery(sel) => format!("({})", emit_select(sel)),
-        Expr::InSubquery {
+        ExprKind::Subquery(sel) => format!("({})", emit_select(sel)),
+        ExprKind::InSubquery {
             expr,
             subquery,
             negated,
@@ -255,7 +256,7 @@ pub fn emit_expr(expr: &Expr) -> String {
                 emit_select(subquery)
             )
         }
-        Expr::InList {
+        ExprKind::InList {
             expr,
             list,
             negated,
@@ -264,7 +265,7 @@ pub fn emit_expr(expr: &Expr) -> String {
             let items: Vec<String> = list.iter().map(emit_expr).collect();
             format!("({}{} IN ({}))", emit_expr(expr), not, items.join(", "))
         }
-        Expr::Between {
+        ExprKind::Between {
             expr,
             low,
             high,
@@ -279,8 +280,8 @@ pub fn emit_expr(expr: &Expr) -> String {
                 emit_expr(high)
             )
         }
-        Expr::Wildcard => "*".to_string(),
-        Expr::QualifiedWildcard(ident) => format!("{}.*", emit_ident(ident)),
+        ExprKind::Wildcard => "*".to_string(),
+        ExprKind::QualifiedWildcard(ident) => format!("{}.*", emit_ident(ident)),
     }
 }
 

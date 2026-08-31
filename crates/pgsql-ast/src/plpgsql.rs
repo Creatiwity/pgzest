@@ -236,6 +236,6 @@ pub enum PlExpr {
     And(Box<PlExpr>, Box<PlExpr>),
     /// expr OR expr
     Or(Box<PlExpr>, Box<PlExpr>),
-    /// Comparaison binaire simple (wrapping un Expr::BinaryOp)
+    /// Comparaison binaire simple (wrapping un ExprKind::BinaryOp)
     BinOp(Box<PlExpr>, String, Box<PlExpr>),
 }

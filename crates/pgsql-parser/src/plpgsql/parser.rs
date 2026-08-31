@@ -13,6 +13,7 @@ use super::{
     keywords::Keyword,
     lexer::{Lexer, Token},
 };
+use pgsql_ast::expr::{Expr, ExprKind};
 
 // ── Public entry point ──────────────────────────────────────────────────────
 
@@ -1255,9 +1256,9 @@ impl Parser {
     fn expr_fragment_to_plexpr(&self, fragment: &str) -> Result<PlExpr, PlParseError> {
         let trimmed = fragment.trim();
         if trimmed.is_empty() {
-            return Ok(PlExpr::Sql(pgsql_ast::expr::Expr::Literal(
+            return Ok(PlExpr::Sql(Expr::bare(ExprKind::Literal(
                 pgsql_ast::expr::Literal::Null,
-            )));
+            ))));
         }
 
         let upper = trimmed.to_uppercase();
@@ -1326,9 +1327,9 @@ impl Parser {
         // If the fragment looks complex (cannot be a bare identifier), treat it
         // as an opaque SQL boolean expression so the checker never raises W005.
         if is_complex {
-            return Ok(PlExpr::Sql(pgsql_ast::expr::Expr::Literal(
+            return Ok(PlExpr::Sql(Expr::bare(ExprKind::Literal(
                 pgsql_ast::expr::Literal::Boolean(true),
-            )));
+            ))));
         }
 
         // Fallback: treat as a variable reference

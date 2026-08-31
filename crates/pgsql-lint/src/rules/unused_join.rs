@@ -9,6 +9,7 @@ use pgsql_ast::stmt::{JoinConstraint, SelectItem, SelectStmt, Statement};
 use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
+use pgsql_ast::expr::ExprKind;
 
 pub const CODE: &str = "L009";
 
@@ -99,24 +100,24 @@ fn check_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
 }
 
 fn collect_table_refs(expr: &Expr, out: &mut HashSet<String>) {
-    match expr {
-        Expr::Column(col_ref) => {
+    match &expr.kind {
+        ExprKind::Column(col_ref) => {
             if let Some(tbl) = &col_ref.table {
                 out.insert(tbl.value.to_lowercase());
             }
         }
-        Expr::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } => {
             collect_table_refs(left, out);
             collect_table_refs(right, out);
         }
-        Expr::UnaryOp { expr, .. } => collect_table_refs(expr, out),
-        Expr::Cast { expr, .. } => collect_table_refs(expr, out),
-        Expr::FunctionCall { args, .. } => {
+        ExprKind::UnaryOp { expr, .. } => collect_table_refs(expr, out),
+        ExprKind::Cast { expr, .. } => collect_table_refs(expr, out),
+        ExprKind::FunctionCall { args, .. } => {
             for a in args {
                 collect_table_refs(a, out);
             }
         }
-        Expr::Case {
+        ExprKind::Case {
             operand,
             when_clauses,
             else_clause,
@@ -132,21 +133,21 @@ fn collect_table_refs(expr: &Expr, out: &mut HashSet<String>) {
                 collect_table_refs(el, out);
             }
         }
-        Expr::InList { expr, list, .. } => {
+        ExprKind::InList { expr, list, .. } => {
             collect_table_refs(expr, out);
             for e in list {
                 collect_table_refs(e, out);
             }
         }
-        Expr::Between {
+        ExprKind::Between {
             expr, low, high, ..
         } => {
             collect_table_refs(expr, out);
             collect_table_refs(low, out);
             collect_table_refs(high, out);
         }
-        Expr::Subquery(sub) => collect_select_refs(sub, out),
-        Expr::InSubquery { expr, subquery, .. } => {
+        ExprKind::Subquery(sub) => collect_select_refs(sub, out),
+        ExprKind::InSubquery { expr, subquery, .. } => {
             collect_table_refs(expr, out);
             collect_select_refs(subquery, out);
         }

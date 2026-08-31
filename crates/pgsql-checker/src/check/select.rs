@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use pgsql_ast::{Expr, SelectItem, SelectStmt, TableRef};
 
+use pgsql_ast::expr::ExprKind;
 use pgsql_diagnostics::Diagnostic;
 use pgsql_diagnostics::codes;
 use pgsql_schema::provider::{SchemaProvider, TableSchema};
@@ -170,8 +171,8 @@ fn check_expr(
     phantom_qualifiers: &HashSet<String>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    match expr {
-        Expr::Column(col_ref) => {
+    match &expr.kind {
+        ExprKind::Column(col_ref) => {
             let col_name = &col_ref.column.value;
 
             match &col_ref.table {
@@ -288,7 +289,7 @@ fn check_expr(
             }
         }
 
-        Expr::FunctionCall { name, args, .. } => {
+        ExprKind::FunctionCall { name, args, .. } => {
             let func_name = pgsql_schema::provider::object_name_to_string(name);
             // Emit a warning for unknown functions (but only for single-part names;
             // schema-qualified calls like pg_catalog.now() are trusted).
@@ -310,20 +311,20 @@ fn check_expr(
             }
         }
 
-        Expr::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } => {
             check_expr(left, ctx, schema, plvars, phantom_qualifiers, diags);
             check_expr(right, ctx, schema, plvars, phantom_qualifiers, diags);
         }
 
-        Expr::UnaryOp { expr, .. } => {
+        ExprKind::UnaryOp { expr, .. } => {
             check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
         }
 
-        Expr::Cast { expr, .. } => {
+        ExprKind::Cast { expr, .. } => {
             check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
         }
 
-        Expr::Case {
+        ExprKind::Case {
             operand,
             when_clauses,
             else_clause,
@@ -340,25 +341,25 @@ fn check_expr(
             }
         }
 
-        Expr::Subquery(sub) => {
+        ExprKind::Subquery(sub) => {
             let sub_diags = check_select_inner(sub, schema, plvars, phantom_qualifiers);
             diags.extend(sub_diags);
         }
 
-        Expr::InSubquery { expr, subquery, .. } => {
+        ExprKind::InSubquery { expr, subquery, .. } => {
             check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
             let sub_diags = check_select_inner(subquery, schema, plvars, phantom_qualifiers);
             diags.extend(sub_diags);
         }
 
-        Expr::InList { expr, list, .. } => {
+        ExprKind::InList { expr, list, .. } => {
             check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
             for item in list {
                 check_expr(item, ctx, schema, plvars, phantom_qualifiers, diags);
             }
         }
 
-        Expr::Between {
+        ExprKind::Between {
             expr, low, high, ..
         } => {
             check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags);
@@ -367,6 +368,6 @@ fn check_expr(
         }
 
         // Literals and wildcards carry no references to resolve.
-        Expr::Literal(_) | Expr::Wildcard | Expr::QualifiedWildcard(_) => {}
+        ExprKind::Literal(_) | ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {}
     }
 }

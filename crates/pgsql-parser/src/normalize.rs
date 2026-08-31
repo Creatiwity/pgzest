@@ -149,14 +149,14 @@ fn build_alias_map(columns: &[SelectItem]) -> HashMap<String, Expr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pgsql_ast::expr::{BinaryOp, ColumnRef, Literal};
+    use pgsql_ast::expr::{BinaryOp, ColumnRef, ExprKind, Literal};
     use pgsql_ast::stmt::{JoinConstraint, JoinKind, OrderByExpr};
 
     fn col(name: &str) -> Expr {
-        Expr::Column(ColumnRef {
+        Expr::bare(ExprKind::Column(ColumnRef {
             table: None,
             column: Ident::new(name),
-        })
+        }))
     }
 
     fn alias(name: &str) -> Ident {
@@ -175,11 +175,11 @@ mod tests {
                     alias: None,
                 },
                 SelectItem::Expr {
-                    expr: Expr::BinaryOp {
+                    expr: Expr::bare(ExprKind::BinaryOp {
                         left: Box::new(col("price")),
                         op: BinaryOp::Multiply,
                         right: Box::new(col("qty")),
-                    },
+                    }),
                     alias: Some(alias("total")),
                 },
             ],
@@ -188,11 +188,13 @@ mod tests {
                 alias: None,
             }],
             joins: vec![],
-            where_clause: Some(Expr::BinaryOp {
+            where_clause: Some(Expr::bare(ExprKind::BinaryOp {
                 left: Box::new(col("status")),
                 op: BinaryOp::Eq,
-                right: Box::new(Expr::Literal(Literal::String("open".into()))),
-            }),
+                right: Box::new(Expr::bare(ExprKind::Literal(Literal::String(
+                    "open".into(),
+                )))),
+            })),
             group_by: vec![],
             having: None,
             order_by: vec![OrderByExpr {
@@ -200,7 +202,7 @@ mod tests {
                 asc: Some(false),
                 nulls_first: None,
             }],
-            limit: Some(Expr::Literal(Literal::Number("10".into()))),
+            limit: Some(Expr::bare(ExprKind::Literal(Literal::Number("10".into())))),
             offset: None,
         }
     }

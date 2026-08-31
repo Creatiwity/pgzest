@@ -1,7 +1,7 @@
 use crate::scope::{ScopeId, ScopeTree};
 use crate::symbol::SymbolTable;
 use pgsql_ast::NodeId;
-use pgsql_ast::expr::{BinaryOp, Expr, Literal};
+use pgsql_ast::expr::{BinaryOp, Expr, ExprKind, Literal};
 use pgsql_ast::types::DataType;
 use pgsql_schema::provider::SchemaProvider;
 
@@ -30,9 +30,9 @@ pub fn infer_expr_type(
     symbols: &SymbolTable,
     schema: &dyn SchemaProvider,
 ) -> Option<DataType> {
-    match expr {
+    match &expr.kind {
         // Literals — always known
-        Expr::Literal(lit) => Some(match lit {
+        ExprKind::Literal(lit) => Some(match lit {
             Literal::Number(s) => {
                 // Distinguish integer vs float by presence of '.'
                 if s.contains('.') {
@@ -47,7 +47,7 @@ pub fn infer_expr_type(
         }),
 
         // Column reference — look up in scope
-        Expr::Column(col_ref) => {
+        ExprKind::Column(col_ref) => {
             let col_lower = col_ref.column.value.to_lowercase();
             // Try qualified reference first (table.col)
             if let Some(tbl) = &col_ref.table {
@@ -70,10 +70,10 @@ pub fn infer_expr_type(
         }
 
         // Cast — the cast target type is always known
-        Expr::Cast { data_type, .. } => Some(data_type.clone()),
+        ExprKind::Cast { data_type, .. } => Some(data_type.clone()),
 
         // Binary operators
-        Expr::BinaryOp { op, left, right } => {
+        ExprKind::BinaryOp { op, left, right } => {
             match op {
                 // Comparison operators → Boolean
                 BinaryOp::Eq
@@ -109,15 +109,15 @@ pub fn infer_expr_type(
         }
 
         // Unary
-        Expr::UnaryOp { expr, .. } => infer_expr_type(expr, scope_id, scopes, symbols, schema),
+        ExprKind::UnaryOp { expr, .. } => infer_expr_type(expr, scope_id, scopes, symbols, schema),
 
         // Case — use type of first THEN clause
-        Expr::Case { when_clauses, .. } => when_clauses
+        ExprKind::Case { when_clauses, .. } => when_clauses
             .first()
             .and_then(|(_, then)| infer_expr_type(then, scope_id, scopes, symbols, schema)),
 
         // Function calls — look up return type in symbol table
-        Expr::FunctionCall { name, .. } => {
+        ExprKind::FunctionCall { name, .. } => {
             let func_name = crate::schema_name(name);
             // Known built-ins with fixed return types
             match func_name.to_lowercase().as_str() {
@@ -148,16 +148,16 @@ pub fn infer_expr_type(
         }
 
         // Subquery — would require recursive analysis; return None for now
-        Expr::Subquery(_) | Expr::InSubquery { .. } => None,
+        ExprKind::Subquery(_) | ExprKind::InSubquery { .. } => None,
 
         // IN list — Boolean
-        Expr::InList { .. } => Some(DataType::Boolean),
+        ExprKind::InList { .. } => Some(DataType::Boolean),
 
         // BETWEEN — Boolean
-        Expr::Between { .. } => Some(DataType::Boolean),
+        ExprKind::Between { .. } => Some(DataType::Boolean),
 
         // Wildcards don't have a single type
-        Expr::Wildcard | Expr::QualifiedWildcard(_) => None,
+        ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => None,
     }
 }
 

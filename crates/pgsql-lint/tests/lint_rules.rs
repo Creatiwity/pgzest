@@ -92,12 +92,12 @@ fn select_star_triggers_warning() {
 
 #[test]
 fn named_columns_no_warning() {
-    use pgsql_ast::expr::{ColumnRef, Expr};
+    use pgsql_ast::expr::{ColumnRef, Expr, ExprKind};
     let col_expr = SelectItem::Expr {
-        expr: Expr::Column(ColumnRef {
+        expr: Expr::bare(ExprKind::Column(ColumnRef {
             table: None,
             column: Ident::new("id"),
-        }),
+        })),
         alias: None,
     };
     let stmt = empty_select(vec![col_expr]);
@@ -236,17 +236,17 @@ fn non_snake_case_column_triggers_warning() {
 
 #[test]
 fn not_in_subquery_triggers_warning() {
-    use pgsql_ast::expr::{ColumnRef, Expr};
+    use pgsql_ast::expr::{ColumnRef, Expr, ExprKind};
     let subquery = Box::new(SelectStmt {
         id: NodeId::DUMMY,
         span: Span::DUMMY,
         with: vec![],
         distinct: false,
         columns: vec![SelectItem::Expr {
-            expr: Expr::Column(ColumnRef {
+            expr: Expr::bare(ExprKind::Column(ColumnRef {
                 table: None,
                 column: Ident::new("id"),
-            }),
+            })),
             alias: None,
         }],
         from: vec![],
@@ -259,14 +259,14 @@ fn not_in_subquery_triggers_warning() {
         offset: None,
     });
 
-    let where_clause = Expr::InSubquery {
-        expr: Box::new(Expr::Column(ColumnRef {
+    let where_clause = Expr::bare(ExprKind::InSubquery {
+        expr: Box::new(Expr::bare(ExprKind::Column(ColumnRef {
             table: None,
             column: Ident::new("user_id"),
-        })),
+        }))),
         subquery,
         negated: true,
-    };
+    });
 
     let stmt = Statement::Select(SelectStmt {
         id: NodeId::DUMMY,

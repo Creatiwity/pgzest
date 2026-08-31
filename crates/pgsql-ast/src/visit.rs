@@ -1,7 +1,7 @@
 use crate::{
     DdlStatement, Statement,
     ddl::{CreateFunction, CreateIndex, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger},
-    expr::Expr,
+    expr::{Expr, ExprKind},
     stmt::{DeleteStmt, InsertStmt, SelectItem, SelectStmt, UpdateStmt},
 };
 
@@ -98,19 +98,19 @@ pub fn walk_select<V: Visit + ?Sized>(visitor: &mut V, node: &SelectStmt) {
 }
 
 pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
-    match expr {
-        Expr::BinaryOp { left, right, .. } => {
+    match &expr.kind {
+        ExprKind::BinaryOp { left, right, .. } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
         }
-        Expr::UnaryOp { expr, .. } => visitor.visit_expr(expr),
-        Expr::Cast { expr, .. } => visitor.visit_expr(expr),
-        Expr::FunctionCall { args, .. } => {
+        ExprKind::UnaryOp { expr, .. } => visitor.visit_expr(expr),
+        ExprKind::Cast { expr, .. } => visitor.visit_expr(expr),
+        ExprKind::FunctionCall { args, .. } => {
             for arg in args {
                 visitor.visit_expr(arg);
             }
         }
-        Expr::Case {
+        ExprKind::Case {
             operand,
             when_clauses,
             else_clause,
@@ -126,24 +126,27 @@ pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
                 visitor.visit_expr(el);
             }
         }
-        Expr::Subquery(sub) => visitor.visit_select(sub),
-        Expr::InSubquery { expr, subquery, .. } => {
+        ExprKind::Subquery(sub) => visitor.visit_select(sub),
+        ExprKind::InSubquery { expr, subquery, .. } => {
             visitor.visit_expr(expr);
             visitor.visit_select(subquery);
         }
-        Expr::InList { expr, list, .. } => {
+        ExprKind::InList { expr, list, .. } => {
             visitor.visit_expr(expr);
             for e in list {
                 visitor.visit_expr(e);
             }
         }
-        Expr::Between {
+        ExprKind::Between {
             expr, low, high, ..
         } => {
             visitor.visit_expr(expr);
             visitor.visit_expr(low);
             visitor.visit_expr(high);
         }
-        Expr::Column(_) | Expr::Literal(_) | Expr::Wildcard | Expr::QualifiedWildcard(_) => {}
+        ExprKind::Column(_)
+        | ExprKind::Literal(_)
+        | ExprKind::Wildcard
+        | ExprKind::QualifiedWildcard(_) => {}
     }
 }

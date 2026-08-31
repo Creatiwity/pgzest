@@ -4,6 +4,7 @@ pub(crate) mod select;
 use pgsql_ast::Statement;
 use pgsql_ast::ddl::CreatePolicy;
 
+use pgsql_ast::expr::ExprKind;
 use pgsql_diagnostics::Diagnostic;
 use pgsql_diagnostics::codes;
 use pgsql_schema::provider::{SchemaProvider, object_name_to_string};
@@ -105,10 +106,8 @@ fn check_policy_expr(
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
 ) {
-    use pgsql_ast::Expr;
-
-    match expr {
-        Expr::Column(col_ref) => {
+    match &expr.kind {
+        ExprKind::Column(col_ref) => {
             let col_name = &col_ref.column.value;
             if table_schema.get_column(col_name).is_none() {
                 diags.push(
@@ -132,7 +131,7 @@ fn check_policy_expr(
             }
         }
 
-        Expr::FunctionCall { name, args, .. } => {
+        ExprKind::FunctionCall { name, args, .. } => {
             let func_name = object_name_to_string(name);
             // Schema-qualified calls (e.g. auth.uid()) are trusted silently.
             if name.0.len() == 1 && schema.get_function(&func_name).is_none() {
@@ -151,20 +150,20 @@ fn check_policy_expr(
             }
         }
 
-        Expr::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } => {
             check_policy_expr(left, clause, policy_name, table_schema, schema, diags);
             check_policy_expr(right, clause, policy_name, table_schema, schema, diags);
         }
 
-        Expr::UnaryOp { expr, .. } => {
+        ExprKind::UnaryOp { expr, .. } => {
             check_policy_expr(expr, clause, policy_name, table_schema, schema, diags);
         }
 
-        Expr::Cast { expr, .. } => {
+        ExprKind::Cast { expr, .. } => {
             check_policy_expr(expr, clause, policy_name, table_schema, schema, diags);
         }
 
-        Expr::Case {
+        ExprKind::Case {
             operand,
             when_clauses,
             else_clause,
@@ -181,14 +180,14 @@ fn check_policy_expr(
             }
         }
 
-        Expr::InList { expr, list, .. } => {
+        ExprKind::InList { expr, list, .. } => {
             check_policy_expr(expr, clause, policy_name, table_schema, schema, diags);
             for item in list {
                 check_policy_expr(item, clause, policy_name, table_schema, schema, diags);
             }
         }
 
-        Expr::Between {
+        ExprKind::Between {
             expr, low, high, ..
         } => {
             check_policy_expr(expr, clause, policy_name, table_schema, schema, diags);
@@ -197,9 +196,9 @@ fn check_policy_expr(
         }
 
         // Subqueries in policy expressions are uncommon but legal; skip for now.
-        Expr::Subquery(_) | Expr::InSubquery { .. } => {}
+        ExprKind::Subquery(_) | ExprKind::InSubquery { .. } => {}
 
         // Literals and wildcards carry no column or function references.
-        Expr::Literal(_) | Expr::Wildcard | Expr::QualifiedWildcard(_) => {}
+        ExprKind::Literal(_) | ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {}
     }
 }

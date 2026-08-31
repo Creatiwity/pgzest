@@ -1,3 +1,4 @@
+use crate::node::Span;
 use crate::types::DataType;
 use serde::{Deserialize, Serialize};
 
@@ -75,7 +76,7 @@ pub enum UnaryOp {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Expr {
+pub enum ExprKind {
     Literal(Literal),
     Column(ColumnRef),
     BinaryOp {
@@ -125,3 +126,59 @@ pub enum Expr {
 
 // Forward-declare SelectStmt so Expr can reference it
 use crate::stmt::SelectStmt;
+
+/// Une expression, avec sa position dans la source.
+///
+/// `Expr` enveloppe [`ExprKind`] plutôt que d'être l'énumération elle-même :
+/// on ne peut pas ajouter un champ à un enum, et c'est le découpage retenu par
+/// rustc et oxc pour la même raison. Le motif se lit `match &expr.kind`.
+///
+/// Le span est en offsets octets dans le document, comme celui des statements.
+/// Il vaut [`Span::DUMMY`] quand la position n'est pas connue de façon fiable :
+/// expression synthétisée (codegen, desugaring, tests), ou statement dont le
+/// texte a été réécrit avant le parse — mieux vaut pas de span qu'un span faux.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Expr {
+    pub kind: ExprKind,
+    pub span: Span,
+}
+
+impl Expr {
+    /// Expression avec un span connu.
+    pub fn new(kind: ExprKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+
+    /// Expression sans span — synthétisée, ou position indisponible.
+    pub fn bare(kind: ExprKind) -> Self {
+        Self {
+            kind,
+            span: Span::DUMMY,
+        }
+    }
+
+    /// Le span, ou `None` s'il est resté à [`Span::DUMMY`].
+    ///
+    /// À préférer à la lecture directe de `span` pour émettre un diagnostic :
+    /// un span nul pointerait en 1:1.
+    pub fn real_span(&self) -> Option<Span> {
+        if self.span == Span::DUMMY {
+            None
+        } else {
+            Some(self.span)
+        }
+    }
+
+    /// Remplace le span, en conservant le `kind`.
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.span = span;
+        self
+    }
+}
+
+/// Permet `ExprKind::Wildcard.into()` là où la position n'importe pas.
+impl From<ExprKind> for Expr {
+    fn from(kind: ExprKind) -> Self {
+        Self::bare(kind)
+    }
+}

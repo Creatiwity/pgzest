@@ -7,6 +7,7 @@ use pgsql_ast::stmt::{InsertSource, SelectStmt, Statement};
 use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
+use pgsql_ast::expr::ExprKind;
 
 pub const CODE: &str = "L006";
 
@@ -57,13 +58,13 @@ fn visit_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
 }
 
 fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
-    match expr {
-        Expr::BinaryOp {
+    match &expr.kind {
+        ExprKind::BinaryOp {
             op: BinaryOp::Like | BinaryOp::NotLike | BinaryOp::ILike,
             right,
             left,
         } => {
-            if let Expr::Literal(Literal::String(pattern)) = right.as_ref()
+            if let ExprKind::Literal(Literal::String(pattern)) = &right.kind
                 && pattern.starts_with('%')
             {
                 let msg = format!(
@@ -85,19 +86,19 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
 }
 
 fn visit_expr_children(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
-    match expr {
-        Expr::BinaryOp { left, right, .. } => {
+    match &expr.kind {
+        ExprKind::BinaryOp { left, right, .. } => {
             visit_expr(left, config, out);
             visit_expr(right, config, out);
         }
-        Expr::UnaryOp { expr, .. } => visit_expr(expr, config, out),
-        Expr::Cast { expr, .. } => visit_expr(expr, config, out),
-        Expr::FunctionCall { args, .. } => {
+        ExprKind::UnaryOp { expr, .. } => visit_expr(expr, config, out),
+        ExprKind::Cast { expr, .. } => visit_expr(expr, config, out),
+        ExprKind::FunctionCall { args, .. } => {
             for a in args {
                 visit_expr(a, config, out);
             }
         }
-        Expr::Case {
+        ExprKind::Case {
             operand,
             when_clauses,
             else_clause,
@@ -113,21 +114,21 @@ fn visit_expr_children(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnosti
                 visit_expr(el, config, out);
             }
         }
-        Expr::InList { expr, list, .. } => {
+        ExprKind::InList { expr, list, .. } => {
             visit_expr(expr, config, out);
             for e in list {
                 visit_expr(e, config, out);
             }
         }
-        Expr::Between {
+        ExprKind::Between {
             expr, low, high, ..
         } => {
             visit_expr(expr, config, out);
             visit_expr(low, config, out);
             visit_expr(high, config, out);
         }
-        Expr::Subquery(sub) => visit_select(sub, config, out),
-        Expr::InSubquery { expr, subquery, .. } => {
+        ExprKind::Subquery(sub) => visit_select(sub, config, out),
+        ExprKind::InSubquery { expr, subquery, .. } => {
             visit_expr(expr, config, out);
             visit_select(subquery, config, out);
         }

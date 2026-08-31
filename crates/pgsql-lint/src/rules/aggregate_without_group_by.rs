@@ -7,6 +7,7 @@ use pgsql_ast::stmt::{SelectItem, SelectStmt, Statement};
 use pgsql_diagnostics::Diagnostic;
 
 use crate::config::{LintConfig, RuleLevel};
+use pgsql_ast::expr::ExprKind;
 
 pub const CODE: &str = "L007";
 
@@ -77,8 +78,8 @@ fn check_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
 }
 
 fn contains_aggregate(expr: &Expr) -> bool {
-    match expr {
-        Expr::FunctionCall { name, .. } => {
+    match &expr.kind {
+        ExprKind::FunctionCall { name, .. } => {
             let fname = name
                 .0
                 .last()
@@ -86,9 +87,11 @@ fn contains_aggregate(expr: &Expr) -> bool {
                 .unwrap_or_default();
             AGGREGATE_FUNCTIONS.contains(&fname.as_str())
         }
-        Expr::BinaryOp { left, right, .. } => contains_aggregate(left) || contains_aggregate(right),
-        Expr::Cast { expr, .. } => contains_aggregate(expr),
-        Expr::Case {
+        ExprKind::BinaryOp { left, right, .. } => {
+            contains_aggregate(left) || contains_aggregate(right)
+        }
+        ExprKind::Cast { expr, .. } => contains_aggregate(expr),
+        ExprKind::Case {
             when_clauses,
             else_clause,
             ..
@@ -106,5 +109,5 @@ fn contains_aggregate(expr: &Expr) -> bool {
 }
 
 fn is_bare_column(expr: &Expr) -> bool {
-    matches!(expr, Expr::Column(_))
+    matches!(&expr.kind, ExprKind::Column(_))
 }

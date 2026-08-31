@@ -1,3 +1,4 @@
+use pgsql_ast::expr::ExprKind;
 use pgsql_ast::*;
 
 /// Configuration for build-time field injection.
@@ -81,11 +82,15 @@ fn has_column(table: &CreateTable, name: &str) -> bool {
 }
 
 fn make_timestamptz_col(name: &str, default_expr: Option<&str>) -> ColumnDef {
-    let default = default_expr.map(|expr| Expr::FunctionCall {
-        name: ObjectName::unquoted(&[expr.trim_end_matches("()")]),
-        args: vec![],
-        filter: None,
-        distinct: false,
+    // Colonne injectée par le codegen : elle n'existe pas dans la source,
+    // donc pas de span.
+    let default = default_expr.map(|expr| {
+        Expr::bare(ExprKind::FunctionCall {
+            name: ObjectName::unquoted(&[expr.trim_end_matches("()")]),
+            args: vec![],
+            filter: None,
+            distinct: false,
+        })
     });
     let constraints = match &default {
         Some(d) => vec![ColumnConstraint::Default(d.clone())],

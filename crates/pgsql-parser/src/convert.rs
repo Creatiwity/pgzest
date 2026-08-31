@@ -21,6 +21,7 @@ use pgsql_ast::{
 };
 
 use crate::error::ParseError;
+use pgsql_ast::expr::ExprKind;
 use sqlparser::ast as sp;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -361,12 +362,23 @@ fn convert_order_by_expr(o: sp::OrderByExpr) -> Result<OrderByExpr, ParseError> 
 
 // ── Expression conversion ─────────────────────────────────────────────────────
 
+/// Convertit une expression sqlparser en [`Expr`], span compris.
+///
+/// Point de passage unique : le corps produit un [`ExprKind`], et c'est ici
+/// que le span est attaché. Toute expression issue du parse passe par cette
+/// fonction, donc il n'y a qu'un endroit à corriger pour la position.
 fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
+    let span = sp_expr_span(&expr);
+    let kind = convert_expr_kind(expr)?;
+    Ok(Expr::new(kind, span))
+}
+
+fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
     match expr {
         sp::Expr::Value(v) => convert_value(v.value),
         sp::Expr::Identifier(id) => {
             // Single ident — could be a column name
-            Ok(Expr::Column(ColumnRef {
+            Ok(ExprKind::Column(ColumnRef {
                 table: None,
                 column: convert_ident(id),
             }))
@@ -375,7 +387,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             0 => Err(ParseError::Unsupported(
                 "empty compound identifier".to_string(),
             )),
-            1 => Ok(Expr::Column(ColumnRef {
+            1 => Ok(ExprKind::Column(ColumnRef {
                 table: None,
                 column: convert_ident(parts.into_iter().next().unwrap()),
             })),
@@ -383,17 +395,17 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 let mut iter = parts.into_iter().rev();
                 let col = convert_ident(iter.next().unwrap());
                 let tbl = convert_ident(iter.next().unwrap());
-                Ok(Expr::Column(ColumnRef {
+                Ok(ExprKind::Column(ColumnRef {
                     table: Some(tbl),
                     column: col,
                 }))
             }
         },
-        sp::Expr::IsNull(e) => Ok(Expr::UnaryOp {
+        sp::Expr::IsNull(e) => Ok(ExprKind::UnaryOp {
             op: UnaryOp::IsNull,
             expr: Box::new(convert_expr(*e)?),
         }),
-        sp::Expr::IsNotNull(e) => Ok(Expr::UnaryOp {
+        sp::Expr::IsNotNull(e) => Ok(ExprKind::UnaryOp {
             op: UnaryOp::IsNotNull,
             expr: Box::new(convert_expr(*e)?),
         }),
@@ -401,7 +413,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             let l = convert_expr(*left)?;
             let r = convert_expr(*right)?;
             let bop = convert_binary_op(op)?;
-            Ok(Expr::BinaryOp {
+            Ok(ExprKind::BinaryOp {
                 left: Box::new(l),
                 op: bop,
                 right: Box::new(r),
@@ -419,14 +431,14 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                     )));
                 }
             };
-            Ok(Expr::UnaryOp {
+            Ok(ExprKind::UnaryOp {
                 op: uop,
                 expr: Box::new(e),
             })
         }
         sp::Expr::Cast {
             expr, data_type, ..
-        } => Ok(Expr::Cast {
+        } => Ok(ExprKind::Cast {
             expr: Box::new(convert_expr(*expr)?),
             data_type: convert_data_type(data_type)?,
         }),
@@ -447,7 +459,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 .map(|e| convert_expr(*e))
                 .transpose()?
                 .map(Box::new);
-            Ok(Expr::Case {
+            Ok(ExprKind::Case {
                 operand: op,
                 when_clauses,
                 else_clause,
@@ -463,7 +475,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 .into_iter()
                 .map(convert_expr)
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expr::InList {
+            Ok(ExprKind::InList {
                 expr: Box::new(e),
                 list: items,
                 negated,
@@ -476,7 +488,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
         } => {
             let e = convert_expr(*expr)?;
             let sub = convert_query(*subquery)?;
-            Ok(Expr::InSubquery {
+            Ok(ExprKind::InSubquery {
                 expr: Box::new(e),
                 subquery: Box::new(sub),
                 negated,
@@ -487,7 +499,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             negated,
             low,
             high,
-        } => Ok(Expr::Between {
+        } => Ok(ExprKind::Between {
             expr: Box::new(convert_expr(*expr)?),
             low: Box::new(convert_expr(*low)?),
             high: Box::new(convert_expr(*high)?),
@@ -495,19 +507,19 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
         }),
         sp::Expr::Subquery(q) => {
             let sub = convert_query(*q)?;
-            Ok(Expr::Subquery(Box::new(sub)))
+            Ok(ExprKind::Subquery(Box::new(sub)))
         }
         sp::Expr::Function(f) => {
             let name = convert_object_name(f.name);
             let args = convert_function_args(f.args)?;
-            Ok(Expr::FunctionCall {
+            Ok(ExprKind::FunctionCall {
                 name,
                 args,
                 filter: None,
                 distinct: false,
             })
         }
-        sp::Expr::Wildcard(_) => Ok(Expr::Wildcard),
+        sp::Expr::Wildcard(_) => Ok(ExprKind::Wildcard),
         // In 0.62, ObjectName.0 is Vec<ObjectNamePart>
         sp::Expr::QualifiedWildcard(parts, _) => {
             let last = parts
@@ -516,7 +528,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 .filter_map(part_to_ident)
                 .next_back()
                 .ok_or_else(|| ParseError::Unsupported("empty qualified wildcard".to_string()))?;
-            Ok(Expr::QualifiedWildcard(convert_ident(last)))
+            Ok(ExprKind::QualifiedWildcard(convert_ident(last)))
         }
         sp::Expr::Like {
             negated,
@@ -529,7 +541,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             } else {
                 BinaryOp::Like
             };
-            Ok(Expr::BinaryOp {
+            Ok(ExprKind::BinaryOp {
                 left: Box::new(convert_expr(*expr)?),
                 op,
                 right: Box::new(convert_expr(*pattern)?),
@@ -546,43 +558,52 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                     "NOT ILIKE not supported".to_string(),
                 ));
             }
-            Ok(Expr::BinaryOp {
+            Ok(ExprKind::BinaryOp {
                 left: Box::new(convert_expr(*expr)?),
                 op: BinaryOp::ILike,
                 right: Box::new(convert_expr(*pattern)?),
             })
         }
-        sp::Expr::IsTrue(e) => Ok(Expr::BinaryOp {
+        sp::Expr::IsTrue(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::Is,
-            right: Box::new(Expr::Literal(Literal::Boolean(true))),
+            // Littéral synthétisé par le désucrage de IS [NOT] TRUE :
+            // absent de la source, donc sans span.
+            right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(true)))),
         }),
-        sp::Expr::IsFalse(e) => Ok(Expr::BinaryOp {
+        sp::Expr::IsFalse(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::Is,
-            right: Box::new(Expr::Literal(Literal::Boolean(false))),
+            // Littéral synthétisé par le désucrage de IS [NOT] FALSE :
+            // absent de la source, donc sans span.
+            right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(false)))),
         }),
-        sp::Expr::IsNotTrue(e) => Ok(Expr::BinaryOp {
+        sp::Expr::IsNotTrue(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::IsNot,
-            right: Box::new(Expr::Literal(Literal::Boolean(true))),
+            // Littéral synthétisé par le désucrage de IS [NOT] TRUE :
+            // absent de la source, donc sans span.
+            right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(true)))),
         }),
-        sp::Expr::IsNotFalse(e) => Ok(Expr::BinaryOp {
+        sp::Expr::IsNotFalse(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::IsNot,
-            right: Box::new(Expr::Literal(Literal::Boolean(false))),
+            // Littéral synthétisé par le désucrage de IS [NOT] FALSE :
+            // absent de la source, donc sans span.
+            right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(false)))),
         }),
-        sp::Expr::IsDistinctFrom(l, r) => Ok(Expr::BinaryOp {
+        sp::Expr::IsDistinctFrom(l, r) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*l)?),
             op: BinaryOp::IsNot,
             right: Box::new(convert_expr(*r)?),
         }),
-        sp::Expr::IsNotDistinctFrom(l, r) => Ok(Expr::BinaryOp {
+        sp::Expr::IsNotDistinctFrom(l, r) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*l)?),
             op: BinaryOp::Is,
             right: Box::new(convert_expr(*r)?),
         }),
-        sp::Expr::Nested(e) => convert_expr(*e),
+        // `(expr)` : on garde l'expression interne, dont le span est déjà juste.
+        sp::Expr::Nested(e) => Ok(convert_expr(*e)?.kind),
 
         // `expr = ANY (array_expr)` — common in pg_dump CHECK constraints.
         // Map to a boolean literal so the containing statement doesn't fail.
@@ -596,13 +617,13 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             match (convert_expr(*left), convert_expr(*right)) {
                 (Ok(l), Ok(r)) => {
                     let op = convert_binary_op(compare_op).unwrap_or(BinaryOp::Eq);
-                    Ok(Expr::BinaryOp {
+                    Ok(ExprKind::BinaryOp {
                         left: Box::new(l),
                         op,
                         right: Box::new(r),
                     })
                 }
-                _ => Ok(Expr::Literal(Literal::Boolean(true))),
+                _ => Ok(ExprKind::Literal(Literal::Boolean(true))),
             }
         }
 
@@ -614,13 +635,13 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
         } => match (convert_expr(*left), convert_expr(*right)) {
             (Ok(l), Ok(r)) => {
                 let op = convert_binary_op(compare_op).unwrap_or(BinaryOp::Eq);
-                Ok(Expr::BinaryOp {
+                Ok(ExprKind::BinaryOp {
                     left: Box::new(l),
                     op,
                     right: Box::new(r),
                 })
             }
-            _ => Ok(Expr::Literal(Literal::Boolean(true))),
+            _ => Ok(ExprKind::Literal(Literal::Boolean(true))),
         },
 
         // `ARRAY[e1, e2, ...]` — array constructor, common in pg_dump.
@@ -632,9 +653,9 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 .filter_map(|e| convert_expr(e).ok())
                 .collect();
             if args.is_empty() {
-                Ok(Expr::Literal(Literal::Null))
+                Ok(ExprKind::Literal(Literal::Null))
             } else {
-                Ok(Expr::FunctionCall {
+                Ok(ExprKind::FunctionCall {
                     name: pgsql_ast::ObjectName(vec![pgsql_ast::Ident {
                         value: "array".into(),
                         quoted: false,
@@ -648,26 +669,26 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
 
         // `DATE '2025-01-01'` / `'value'::type` typed string literals.
         sp::Expr::TypedString(ts) => match ts.value.into_string() {
-            Some(v) => Ok(Expr::Literal(Literal::String(v))),
-            None => Ok(Expr::Literal(Literal::Null)),
+            Some(v) => Ok(ExprKind::Literal(Literal::String(v))),
+            None => Ok(ExprKind::Literal(Literal::Null)),
         },
 
         // Any other unsupported expression — return a null literal rather than
         // failing the whole statement. CHECK constraints, DEFAULT values, and
         // other DDL-context expressions don't need to be fully type-checked.
-        _other => Ok(Expr::Literal(Literal::Null)),
+        _other => Ok(ExprKind::Literal(Literal::Null)),
     }
 }
 
-fn convert_value(v: sp::Value) -> Result<Expr, ParseError> {
+fn convert_value(v: sp::Value) -> Result<ExprKind, ParseError> {
     match v {
-        sp::Value::Number(n, _) => Ok(Expr::Literal(Literal::Number(n))),
-        sp::Value::SingleQuotedString(s) => Ok(Expr::Literal(Literal::String(s))),
-        sp::Value::DollarQuotedString(dqs) => Ok(Expr::Literal(Literal::String(dqs.value))),
-        sp::Value::Boolean(b) => Ok(Expr::Literal(Literal::Boolean(b))),
-        sp::Value::Null => Ok(Expr::Literal(Literal::Null)),
-        sp::Value::DoubleQuotedString(s) => Ok(Expr::Literal(Literal::String(s))),
-        sp::Value::EscapedStringLiteral(s) => Ok(Expr::Literal(Literal::String(s))),
+        sp::Value::Number(n, _) => Ok(ExprKind::Literal(Literal::Number(n))),
+        sp::Value::SingleQuotedString(s) => Ok(ExprKind::Literal(Literal::String(s))),
+        sp::Value::DollarQuotedString(dqs) => Ok(ExprKind::Literal(Literal::String(dqs.value))),
+        sp::Value::Boolean(b) => Ok(ExprKind::Literal(Literal::Boolean(b))),
+        sp::Value::Null => Ok(ExprKind::Literal(Literal::Null)),
+        sp::Value::DoubleQuotedString(s) => Ok(ExprKind::Literal(Literal::String(s))),
+        sp::Value::EscapedStringLiteral(s) => Ok(ExprKind::Literal(Literal::String(s))),
         sp::Value::Placeholder(p) => Err(ParseError::Unsupported(format!(
             "parameter placeholder {} is not supported",
             p
@@ -747,7 +768,7 @@ fn convert_function_args(args: sp::FunctionArguments) -> Result<Vec<Expr>, Parse
                 sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Expr(e)) => convert_expr(e),
                 sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Wildcard)
                 | sp::FunctionArg::Unnamed(sp::FunctionArgExpr::WildcardWithOptions(_)) => {
-                    Ok(Expr::Wildcard)
+                    Ok(Expr::bare(ExprKind::Wildcard))
                 }
                 sp::FunctionArg::Unnamed(sp::FunctionArgExpr::QualifiedWildcard(n)) => {
                     let last =
@@ -757,7 +778,7 @@ fn convert_function_args(args: sp::FunctionArguments) -> Result<Vec<Expr>, Parse
                             .ok_or_else(|| {
                                 ParseError::Unsupported("empty qualified wildcard".to_string())
                             })?;
-                    Ok(Expr::QualifiedWildcard(convert_ident(last)))
+                    Ok(Expr::bare(ExprKind::QualifiedWildcard(convert_ident(last))))
                 }
                 sp::FunctionArg::Named { arg, .. } => match arg {
                     sp::FunctionArgExpr::Expr(e) => convert_expr(e),
@@ -1719,4 +1740,13 @@ fn convert_object_name(name: sp::ObjectName) -> ObjectName {
             })
             .collect(),
     )
+}
+
+/// Span d'une expression sqlparser, en offsets octets dans le document.
+///
+/// Étape A : renvoie [`Span::DUMMY`]. sqlparser expose bien `Spanned` mais en
+/// `Location { line, column }` ; la conversion en offset octet demande le texte
+/// source, câblé à l'étape suivante.
+fn sp_expr_span(_expr: &sp::Expr) -> Span {
+    Span::DUMMY
 }

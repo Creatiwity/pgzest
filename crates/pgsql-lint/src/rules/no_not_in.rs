@@ -2,7 +2,7 @@
 ///
 /// `NOT IN (SELECT ...)` returns no rows if the subquery contains any NULL,
 /// which is almost never the intended behaviour. Use `NOT EXISTS (...)` instead.
-use pgsql_ast::expr::{BinaryOp, Expr};
+use pgsql_ast::expr::{BinaryOp, Expr, ExprKind};
 use pgsql_ast::stmt::{InsertSource, SelectStmt, Statement};
 use pgsql_diagnostics::Diagnostic;
 
@@ -56,8 +56,8 @@ fn visit_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
 }
 
 fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
-    match expr {
-        Expr::InSubquery { negated: true, .. } => {
+    match &expr.kind {
+        ExprKind::InSubquery { negated: true, .. } => {
             let msg =
                 "NOT IN (subquery) can silently return no rows when the subquery contains NULL";
             let d = match config.rules.no_not_in_subquery {
@@ -70,12 +70,12 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             out.push(d);
         }
         // Also catch the BinaryOp NOT IN form (some ASTs use this)
-        Expr::BinaryOp {
+        ExprKind::BinaryOp {
             op: BinaryOp::NotIn,
             right,
             ..
         } => {
-            if matches!(right.as_ref(), Expr::Subquery(_)) {
+            if matches!(&right.kind, ExprKind::Subquery(_)) {
                 let msg =
                     "NOT IN (subquery) can silently return no rows when the subquery contains NULL";
                 let d = match config.rules.no_not_in_subquery {
@@ -87,12 +87,12 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             }
             visit_expr(right, config, out);
         }
-        Expr::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } => {
             visit_expr(left, config, out);
             visit_expr(right, config, out);
         }
-        Expr::UnaryOp { expr, .. } => visit_expr(expr, config, out),
-        Expr::FunctionCall { args, filter, .. } => {
+        ExprKind::UnaryOp { expr, .. } => visit_expr(expr, config, out),
+        ExprKind::FunctionCall { args, filter, .. } => {
             for a in args {
                 visit_expr(a, config, out);
             }
@@ -100,8 +100,8 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
                 visit_expr(f, config, out);
             }
         }
-        Expr::Cast { expr, .. } => visit_expr(expr, config, out),
-        Expr::Case {
+        ExprKind::Cast { expr, .. } => visit_expr(expr, config, out),
+        ExprKind::Case {
             operand,
             when_clauses,
             else_clause,
@@ -117,24 +117,27 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
                 visit_expr(e, config, out);
             }
         }
-        Expr::Subquery(sel) => visit_select(sel, config, out),
-        Expr::InSubquery { expr, subquery, .. } => {
+        ExprKind::Subquery(sel) => visit_select(sel, config, out),
+        ExprKind::InSubquery { expr, subquery, .. } => {
             visit_expr(expr, config, out);
             visit_select(subquery, config, out);
         }
-        Expr::InList { expr, list, .. } => {
+        ExprKind::InList { expr, list, .. } => {
             visit_expr(expr, config, out);
             for e in list {
                 visit_expr(e, config, out);
             }
         }
-        Expr::Between {
+        ExprKind::Between {
             expr, low, high, ..
         } => {
             visit_expr(expr, config, out);
             visit_expr(low, config, out);
             visit_expr(high, config, out);
         }
-        Expr::Literal(_) | Expr::Column(_) | Expr::Wildcard | Expr::QualifiedWildcard(_) => {}
+        ExprKind::Literal(_)
+        | ExprKind::Column(_)
+        | ExprKind::Wildcard
+        | ExprKind::QualifiedWildcard(_) => {}
     }
 }
