@@ -11,25 +11,35 @@ pub enum FileRole {
 
 impl FileRole {
     /// Parse a role from a config string (`"migration"` | `"schema"` | `"query"`).
-    pub fn from_str(s: &str) -> Option<Self> {
+    ///
+    /// Not `FromStr`: returns `Option` rather than `Result`, no error type.
+    pub fn from_name(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "migration" => Some(FileRole::Migration { sequence: 0 }),
-            "schema"    => Some(FileRole::Schema),
-            "query"     => Some(FileRole::Query),
-            _           => None,
+            "schema" => Some(FileRole::Schema),
+            "query" => Some(FileRole::Query),
+            _ => None,
         }
     }
 
-    pub fn is_migration(&self) -> bool { matches!(self, FileRole::Migration { .. }) }
-    pub fn is_schema(&self)    -> bool { matches!(self, FileRole::Schema) }
-    pub fn is_query(&self)     -> bool { matches!(self, FileRole::Query) }
+    pub fn is_migration(&self) -> bool {
+        matches!(self, FileRole::Migration { .. })
+    }
+    pub fn is_schema(&self) -> bool {
+        matches!(self, FileRole::Schema)
+    }
+    pub fn is_query(&self) -> bool {
+        matches!(self, FileRole::Query)
+    }
 }
 
 /// Extract the leading decimal sequence from a filename stem.
 /// `000010_init` → `Some(10)`, `schema` → `None`.
 pub fn sequence_from_stem(stem: &str) -> Option<u64> {
     let digits: String = stem.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if digits.is_empty() { return None; }
+    if digits.is_empty() {
+        return None;
+    }
     let after = &stem[digits.len()..];
     if !after.is_empty() && !after.starts_with('_') && !after.starts_with('-') {
         return None;

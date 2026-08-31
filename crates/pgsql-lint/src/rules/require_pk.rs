@@ -24,10 +24,11 @@ pub fn check(stmt: &Statement, config: &LintConfig) -> Vec<Diagnostic> {
         .iter()
         .any(|c| matches!(c, TableConstraint::PrimaryKey { .. }));
 
-    let has_column_pk = ct
-        .columns
-        .iter()
-        .any(|col| col.constraints.iter().any(|c| matches!(c, ColumnConstraint::PrimaryKey)));
+    let has_column_pk = ct.columns.iter().any(|col| {
+        col.constraints
+            .iter()
+            .any(|c| matches!(c, ColumnConstraint::PrimaryKey))
+    });
 
     if has_table_pk || has_column_pk {
         return vec![];

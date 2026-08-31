@@ -1,4 +1,4 @@
-use pgsql_checker::{rule::CheckRule, SchemaProvider};
+use pgsql_checker::{SchemaProvider, rule::CheckRule};
 use serde_json::Value;
 
 /// A plugin bundles optional schema contribution + lint rules + codegen hooks.

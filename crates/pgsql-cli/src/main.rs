@@ -99,16 +99,22 @@ fn offset_to_line_col(sql: &str, offset: usize) -> (usize, usize) {
     let mut line = 1usize;
     let mut col = 1usize;
     for (i, ch) in sql.char_indices() {
-        if i >= offset { break; }
-        if ch == '\n' { line += 1; col = 1; } else { col += 1; }
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
     }
     (line, col)
 }
 
 fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
-    let config = pgsql_plugin::config::PgsqlConfig::load(
-        &std::path::PathBuf::from("pgsql.toml")
-    ).unwrap_or_default();
+    let config = pgsql_plugin::config::PgsqlConfig::load(&std::path::PathBuf::from("pgsql.toml"))
+        .unwrap_or_default();
 
     let registry = pgsql_plugin::registry::PluginRegistry::new();
 
@@ -118,24 +124,32 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
     for path in schemas {
         let sql = match read_file(path) {
             Ok(s) => s,
-            Err(e) => { eprintln!("error: {}", e); return 1; }
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return 1;
+            }
         };
         match pgsql_parser::parse(&sql) {
             Ok(s) => context_files.push((sql, s)),
             Err(e) => eprintln!("warning: failed to parse schema '{}': {}", path, e),
         }
     }
-    let context_stmts: Vec<Statement> = context_files.iter()
+    let context_stmts: Vec<Statement> = context_files
+        .iter()
         .flat_map(|(_, s)| s.iter().cloned())
         .collect();
 
     // ── Parse target files ─────────────────────────────────────────────────────
-    let parsed_targets: Vec<(String, String, Vec<Statement>)> = { // (path, sql, stmts)
+    let parsed_targets: Vec<(String, String, Vec<Statement>)> = {
+        // (path, sql, stmts)
         let mut out = Vec::new();
         for file in files {
             let sql = match read_file(file) {
                 Ok(s) => s,
-                Err(e) => { eprintln!("error: {}", e); return 1; }
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    return 1;
+                }
             };
             match pgsql_parser::parse(&sql) {
                 Ok(s) => out.push((file.clone(), sql, s)),
@@ -158,7 +172,7 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
             let sp = pgsql_checker::detect_search_path(sql);
             let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
             composite.add(Box::new(
-                pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs)
+                pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs),
             ));
         }
     }
@@ -168,7 +182,7 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
         let sp = pgsql_checker::detect_search_path(sql);
         let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
         composite.add(Box::new(
-            pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs)
+            pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs),
         ));
     }
 
@@ -196,15 +210,23 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
     let show_filename = parsed_targets.len() > 1 || has_external_schema;
 
     // Build rule overrides map from config.rules.
-    let rule_overrides: std::collections::HashMap<String, String> = config.rules.iter()
+    let rule_overrides: std::collections::HashMap<String, String> = config
+        .rules
+        .iter()
         .map(|(k, v)| (k.clone(), v.level().to_string()))
         .collect();
 
     for (file, sql, stmts) in &parsed_targets {
         let mut diagnostics = if has_external_schema || parsed_targets.len() > 1 {
             // Cross-file mode: trigger map built from context + ALL target files.
-            let all_other_stmts: Vec<Statement> = context_stmts.iter()
-                .chain(parsed_targets.iter().filter(|(f, _, _)| f != file).flat_map(|(_, _, s)| s.iter()))
+            let all_other_stmts: Vec<Statement> = context_stmts
+                .iter()
+                .chain(
+                    parsed_targets
+                        .iter()
+                        .filter(|(f, _, _)| f != file)
+                        .flat_map(|(_, _, s)| s.iter()),
+                )
                 .cloned()
                 .collect();
             checker.run_with_context(stmts, &all_other_stmts, &composite)
@@ -214,7 +236,9 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
             let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
             pgsql_checker::check_statements(
                 stmts,
-                &pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(stmts, &sp_refs),
+                &pgsql_checker::DdlSchemaProvider::from_statements_with_search_path(
+                    stmts, &sp_refs,
+                ),
             )
         };
 
@@ -223,13 +247,18 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
         for diag in &diagnostics {
             use pgsql_checker::Severity;
             let sev_str = match diag.severity {
-                Severity::Error => { has_errors = true; "error" }
+                Severity::Error => {
+                    has_errors = true;
+                    "error"
+                }
                 Severity::Warning => "warning",
                 Severity::Info => "info",
             };
-            let (line, col) = diag.span.as_ref()
+            let (line, col) = diag
+                .span
+                .as_ref()
                 .filter(|s| s.start > 0 || s.end > 0)
-                .map(|s| offset_to_line_col(sql, s.start as usize))
+                .map(|s| offset_to_line_col(sql, s.start))
                 .unwrap_or((1, 1));
             let location = if show_filename {
                 format!("{}:{}:{}", file, line, col)
@@ -251,12 +280,18 @@ fn cmd_check(files: &[String], schemas: &[String]) -> i32 {
 fn cmd_lint(file: &str) -> i32 {
     let sql = match read_file(file) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return 1;
+        }
     };
 
     let stmts = match pgsql_parser::parse(&sql) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: parse error: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("error: parse error: {}", e);
+            return 1;
+        }
     };
 
     let config = pgsql_lint::LintConfig::default();
@@ -266,13 +301,18 @@ fn cmd_lint(file: &str) -> i32 {
     for diag in &result.diagnostics {
         use pgsql_checker::Severity;
         let sev_str = match diag.severity {
-            Severity::Error => { has_errors = true; "error" }
+            Severity::Error => {
+                has_errors = true;
+                "error"
+            }
             Severity::Warning => "warning",
             Severity::Info => "info",
         };
-        let (line, col) = diag.span.as_ref()
+        let (line, col) = diag
+            .span
+            .as_ref()
             .filter(|s| s.start > 0 || s.end > 0)
-            .map(|s| offset_to_line_col(&sql, s.start as usize))
+            .map(|s| offset_to_line_col(&sql, s.start))
             .unwrap_or((1, 1));
         let location = format!("{}:{}", line, col);
         if let Some(hint) = &diag.hint {
@@ -293,20 +333,32 @@ fn cmd_lint(file: &str) -> i32 {
 fn cmd_migrate_diff(old: &str, new: &str) -> i32 {
     let old_sql = match read_file(old) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return 1;
+        }
     };
     let new_sql = match read_file(new) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return 1;
+        }
     };
 
     let old_stmts = match pgsql_parser::parse(&old_sql) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: failed to parse '{}': {}", old, e); return 1; }
+        Err(e) => {
+            eprintln!("error: failed to parse '{}': {}", old, e);
+            return 1;
+        }
     };
     let new_stmts = match pgsql_parser::parse(&new_sql) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: failed to parse '{}': {}", new, e); return 1; }
+        Err(e) => {
+            eprintln!("error: failed to parse '{}': {}", new, e);
+            return 1;
+        }
     };
 
     let diff = pgsql_codegen::diff_schemas(&old_stmts, &new_stmts);
@@ -336,12 +388,18 @@ fn cmd_migrate_diff(old: &str, new: &str) -> i32 {
 fn cmd_emit(file: &str) -> i32 {
     let sql = match read_file(file) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return 1;
+        }
     };
 
     let stmts = match pgsql_parser::parse(&sql) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: parse error: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("error: parse error: {}", e);
+            return 1;
+        }
     };
 
     for stmt in &stmts {
@@ -354,7 +412,10 @@ fn cmd_emit(file: &str) -> i32 {
 fn cmd_codegen(input: &str, output: Option<&str>) -> i32 {
     let sql = match read_file(input) {
         Ok(s) => s,
-        Err(e) => { eprintln!("error: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return 1;
+        }
     };
 
     let ts = pgsql_codegen::generate_ts_types_from_sql(&sql);
@@ -381,14 +442,17 @@ fn main() {
         Command::Lint { file } => cmd_lint(&file),
         Command::Migrate { action } => match action {
             MigrateAction::Diff { old, new } => cmd_migrate_diff(&old, &new),
-            MigrateAction::Create { name, schema_dir, migrations_dir, snapshots_dir } => {
-                migrate::cmd_migrate_create(
-                    &name,
-                    Path::new(&schema_dir),
-                    Path::new(&migrations_dir),
-                    Path::new(&snapshots_dir),
-                )
-            }
+            MigrateAction::Create {
+                name,
+                schema_dir,
+                migrations_dir,
+                snapshots_dir,
+            } => migrate::cmd_migrate_create(
+                &name,
+                Path::new(&schema_dir),
+                Path::new(&migrations_dir),
+                Path::new(&snapshots_dir),
+            ),
         },
         Command::Emit { file } => cmd_emit(&file),
         Command::Codegen { input, output } => cmd_codegen(&input, output.as_deref()),

@@ -1,35 +1,35 @@
-use super::keywords::{keyword_from_str, Keyword};
+use super::keywords::{Keyword, keyword_from_str};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    Keyword(Keyword),        // mot-clé PL/pgSQL
-    Ident(String),           // identifiant (non keyword)
-    Number(String),          // littéral numérique
-    StringLit(String),       // 'chaîne'
-    DollarLabel(String),     // $tag$ (label de dollar-quote, vide pour $$)
-    Semi,                    // ;
-    Comma,                   // ,
-    Dot,                     // .
-    Assign,                  // :=  ou  =  (dans DECLARE default)
-    Colon,                   // :
-    ColonEq,                 // :=
-    Eq,                      // =
-    NotEq,                   // != ou <>
-    Lt,                      // <
-    Lte,                     // <=
-    Gt,                      // >
-    Gte,                     // >=
-    Plus,                    // +
-    Minus,                   // -
-    Star,                    // *
-    Slash,                   // /
-    Percent,                 // %
-    LParen,                  // (
-    RParen,                  // )
-    LBracket,                // [
-    RBracket,                // ]
-    DotDot,                  // ..  (range dans FOR)
-    Percent2,                // %TYPE ou %ROWTYPE
+    Keyword(Keyword),    // mot-clé PL/pgSQL
+    Ident(String),       // identifiant (non keyword)
+    Number(String),      // littéral numérique
+    StringLit(String),   // 'chaîne'
+    DollarLabel(String), // $tag$ (label de dollar-quote, vide pour $$)
+    Semi,                // ;
+    Comma,               // ,
+    Dot,                 // .
+    Assign,              // :=  ou  =  (dans DECLARE default)
+    Colon,               // :
+    ColonEq,             // :=
+    Eq,                  // =
+    NotEq,               // != ou <>
+    Lt,                  // <
+    Lte,                 // <=
+    Gt,                  // >
+    Gte,                 // >=
+    Plus,                // +
+    Minus,               // -
+    Star,                // *
+    Slash,               // /
+    Percent,             // %
+    LParen,              // (
+    RParen,              // )
+    LBracket,            // [
+    RBracket,            // ]
+    DotDot,              // ..  (range dans FOR)
+    Percent2,            // %TYPE ou %ROWTYPE
     Eof,
 }
 
@@ -43,7 +43,9 @@ impl<'a> Lexer<'a> {
         Self { input, pos: 0 }
     }
 
-    pub fn pos(&self) -> usize { self.pos }
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
 
     fn peek(&self) -> Option<char> {
         self.input[self.pos..].chars().next()
@@ -99,15 +101,42 @@ impl<'a> Lexer<'a> {
         };
 
         match ch {
-            ';' => { self.advance(); Token::Semi }
-            ',' => { self.advance(); Token::Comma }
-            '(' => { self.advance(); Token::LParen }
-            ')' => { self.advance(); Token::RParen }
-            '[' => { self.advance(); Token::LBracket }
-            ']' => { self.advance(); Token::RBracket }
-            '+' => { self.advance(); Token::Plus }
-            '*' => { self.advance(); Token::Star }
-            '/' => { self.advance(); Token::Slash }
+            ';' => {
+                self.advance();
+                Token::Semi
+            }
+            ',' => {
+                self.advance();
+                Token::Comma
+            }
+            '(' => {
+                self.advance();
+                Token::LParen
+            }
+            ')' => {
+                self.advance();
+                Token::RParen
+            }
+            '[' => {
+                self.advance();
+                Token::LBracket
+            }
+            ']' => {
+                self.advance();
+                Token::RBracket
+            }
+            '+' => {
+                self.advance();
+                Token::Plus
+            }
+            '*' => {
+                self.advance();
+                Token::Star
+            }
+            '/' => {
+                self.advance();
+                Token::Slash
+            }
             '%' => {
                 self.advance();
                 Token::Percent
@@ -130,22 +159,39 @@ impl<'a> Lexer<'a> {
                     Token::Colon
                 }
             }
-            '=' => { self.advance(); Token::Eq }
+            '=' => {
+                self.advance();
+                Token::Eq
+            }
             '!' => {
                 self.advance();
-                if self.peek() == Some('=') { self.advance(); Token::NotEq }
-                else { Token::Ident("!".to_string()) }
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::NotEq
+                } else {
+                    Token::Ident("!".to_string())
+                }
             }
             '<' => {
                 self.advance();
-                if self.peek() == Some('=') { self.advance(); Token::Lte }
-                else if self.peek() == Some('>') { self.advance(); Token::NotEq }
-                else { Token::Lt }
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::Lte
+                } else if self.peek() == Some('>') {
+                    self.advance();
+                    Token::NotEq
+                } else {
+                    Token::Lt
+                }
             }
             '>' => {
                 self.advance();
-                if self.peek() == Some('=') { self.advance(); Token::Gte }
-                else { Token::Gt }
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Token::Gte
+                } else {
+                    Token::Gt
+                }
             }
             '-' => {
                 self.advance();
@@ -166,7 +212,9 @@ impl<'a> Lexer<'a> {
                                 break;
                             }
                         }
-                        _ => { self.advance(); }
+                        _ => {
+                            self.advance();
+                        }
                     }
                 }
                 let s = self.input[start..self.pos - 1].to_string();
@@ -174,14 +222,22 @@ impl<'a> Lexer<'a> {
             }
             '0'..='9' => {
                 let start = self.pos;
-                while self.peek().map(|c| c.is_ascii_digit() || c == '.').unwrap_or(false) {
+                while self
+                    .peek()
+                    .map(|c| c.is_ascii_digit() || c == '.')
+                    .unwrap_or(false)
+                {
                     self.advance();
                 }
                 Token::Number(self.input[start..self.pos].to_string())
             }
             'a'..='z' | 'A'..='Z' | '_' | '$' => {
                 let start = self.pos;
-                while self.peek().map(|c| c.is_alphanumeric() || c == '_' || c == '$').unwrap_or(false) {
+                while self
+                    .peek()
+                    .map(|c| c.is_alphanumeric() || c == '_' || c == '$')
+                    .unwrap_or(false)
+                {
                     self.advance();
                 }
                 let word = &self.input[start..self.pos];
@@ -200,7 +256,9 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
                 let s = self.input[start..self.pos].to_string();
-                if self.peek() == Some('"') { self.advance(); }
+                if self.peek() == Some('"') {
+                    self.advance();
+                }
                 Token::Ident(s)
             }
             _ => {
@@ -215,7 +273,9 @@ impl<'a> Lexer<'a> {
         let mut tokens = Vec::new();
         loop {
             let t = self.next_token();
-            if t == Token::Eof { break; }
+            if t == Token::Eof {
+                break;
+            }
             tokens.push(t);
         }
         tokens
@@ -231,7 +291,9 @@ impl<'a> Lexer<'a> {
             self.skip_whitespace_and_comments();
             let start = self.pos;
             let t = self.next_token();
-            if t == Token::Eof { break; }
+            if t == Token::Eof {
+                break;
+            }
             tokens.push(t);
             offsets.push(start);
         }

@@ -1,11 +1,11 @@
+pub mod add_column_not_null_no_default;
+pub mod aggregate_without_group_by;
+pub mod missing_fk_index;
 pub mod naming;
+pub mod no_leading_wildcard;
 pub mod no_not_in;
 pub mod no_select_star;
 pub mod require_pk;
-pub mod missing_fk_index;
-pub mod no_leading_wildcard;
-pub mod aggregate_without_group_by;
-pub mod add_column_not_null_no_default;
 pub mod unused_join;
 
 use pgsql_ast::stmt::Statement;

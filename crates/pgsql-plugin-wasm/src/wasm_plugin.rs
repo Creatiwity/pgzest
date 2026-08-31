@@ -1,8 +1,8 @@
-use std::path::Path;
-use wasmi::{AsContext, Engine, Linker, Module, Store};
 use crate::abi::WasmDiagnostic;
 use pgsql_checker::Diagnostic;
 use pgsql_checker::schema::SchemaProvider;
+use std::path::Path;
+use wasmi::{AsContext, Engine, Linker, Module, Store};
 
 /// A plugin loaded from a WASM file.
 /// Implements pgsql_plugin::Plugin.
@@ -35,14 +35,12 @@ impl WasmPlugin {
 
     fn extract_name(wasm_bytes: &[u8]) -> Option<String> {
         let engine = Engine::default();
-        let module = Module::new(&engine, &mut &wasm_bytes[..]).ok()?;
+        let module = Module::new(&engine, wasm_bytes).ok()?;
         let mut store: Store<()> = Store::new(&engine, ());
         let linker: Linker<()> = Linker::new(&engine);
         // Try to instantiate with empty linker (may fail if imports needed)
         // wasmi 1.x combines instantiate + start into one call
-        let instance = linker
-            .instantiate_and_start(&mut store, &module)
-            .ok()?;
+        let instance = linker.instantiate_and_start(&mut store, &module).ok()?;
         let name_fn = instance
             .get_typed_func::<(), i32>(&store, "pgsql_plugin_name")
             .ok()?;
@@ -102,7 +100,7 @@ impl WasmPlugin {
         _schema: &dyn SchemaProvider,
     ) -> Result<Vec<Diagnostic>, WasmPluginError> {
         let engine = Engine::default();
-        let module = Module::new(&engine, &mut &self.wasm_bytes[..])?;
+        let module = Module::new(&engine, &self.wasm_bytes[..])?;
 
         // Host state
         struct HostState;
@@ -148,9 +146,7 @@ impl WasmPlugin {
         // Write input JSON to WASM memory
         let input_bytes = input_json.as_bytes();
         let input_len = input_bytes.len() as i32;
-        let input_ptr = alloc
-            .call(&mut store, input_len)
-            .map_err(wasmi::Error::from)?;
+        let input_ptr = alloc.call(&mut store, input_len)?;
 
         {
             let data = mem.data_mut(&mut store);
@@ -159,9 +155,7 @@ impl WasmPlugin {
         }
 
         // Call the check function → ptr to JSON response
-        let result_ptr = check_fn
-            .call(&mut store, (input_ptr, input_len))
-            .map_err(wasmi::Error::from)?;
+        let result_ptr = check_fn.call(&mut store, (input_ptr, input_len))?;
 
         // Read response JSON (null-terminated)
         let result_json = {

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use pgsql_ast::{NodeId, Span};
 use pgsql_ast::types::DataType;
+use pgsql_ast::{NodeId, Span};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(pub u32);
@@ -42,7 +42,9 @@ pub struct ScopeTree {
 }
 
 impl ScopeTree {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn new_scope(&mut self, parent: Option<ScopeId>, span: Span) -> ScopeId {
         let id = ScopeId(self.next_id);
@@ -69,7 +71,8 @@ impl ScopeTree {
     /// Returns the most specific (deepest) scope.
     pub fn scope_at_offset(&self, offset: u32) -> Option<ScopeId> {
         // Find the smallest (most specific) scope containing offset
-        self.scopes.iter()
+        self.scopes
+            .iter()
             .filter(|s| s.span.contains_offset(offset))
             .min_by_key(|s| s.span.end - s.span.start)
             .map(|s| s.id)
@@ -81,7 +84,9 @@ impl ScopeTree {
         let mut current = Some(scope_id);
         let mut seen = std::collections::HashSet::new();
         while let Some(id) = current {
-            if seen.contains(&id) { break; }
+            if seen.contains(&id) {
+                break;
+            }
             seen.insert(id);
             if let Some(scope) = self.get(id) {
                 result.extend(scope.columns.values());

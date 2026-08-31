@@ -13,18 +13,38 @@ use crate::emit::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum DiffOp {
     CreateTable(CreateTable),
-    DropTable { name: String },
-    AddColumn { table: String, column: ColumnDef },
-    DropColumn { table: String, column: String },
-    AlterColumnType { table: String, column: String, new_type: DataType },
+    DropTable {
+        name: String,
+    },
+    AddColumn {
+        table: String,
+        column: ColumnDef,
+    },
+    DropColumn {
+        table: String,
+        column: String,
+    },
+    AlterColumnType {
+        table: String,
+        column: String,
+        new_type: DataType,
+    },
     CreateIndex(CreateIndex),
-    DropIndex { name: String },
+    DropIndex {
+        name: String,
+    },
     CreatePolicy(CreatePolicy),
-    DropPolicy { name: String, table: String },
+    DropPolicy {
+        name: String,
+        table: String,
+    },
     CreateFunction(CreateFunction),
     CreateProcedure(CreateProcedure),
     CreateTrigger(CreateTrigger),
-    DropTrigger { name: String, table: String },
+    DropTrigger {
+        name: String,
+        table: String,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -118,10 +138,12 @@ fn collect_ddl(stmts: &[Statement]) -> SchemaSnapshot {
                     );
                 }
                 DdlStatement::CreateFunction(cf) => {
-                    snap.functions.insert(emit_object_name(&cf.name), cf.clone());
+                    snap.functions
+                        .insert(emit_object_name(&cf.name), cf.clone());
                 }
                 DdlStatement::CreateProcedure(cp) => {
-                    snap.procedures.insert(emit_object_name(&cp.name), cp.clone());
+                    snap.procedures
+                        .insert(emit_object_name(&cp.name), cp.clone());
                 }
                 DdlStatement::CreateTrigger(ct) => {
                     snap.triggers.insert(
@@ -168,16 +190,17 @@ fn diff_tables(
     }
 }
 
-fn diff_columns(
-    table_name: &str,
-    old: &CreateTable,
-    new: &CreateTable,
-    ops: &mut Vec<DiffOp>,
-) {
-    let old_cols: HashMap<&str, &ColumnDef> =
-        old.columns.iter().map(|c| (c.name.value.as_str(), c)).collect();
-    let new_cols: HashMap<&str, &ColumnDef> =
-        new.columns.iter().map(|c| (c.name.value.as_str(), c)).collect();
+fn diff_columns(table_name: &str, old: &CreateTable, new: &CreateTable, ops: &mut Vec<DiffOp>) {
+    let old_cols: HashMap<&str, &ColumnDef> = old
+        .columns
+        .iter()
+        .map(|c| (c.name.value.as_str(), c))
+        .collect();
+    let new_cols: HashMap<&str, &ColumnDef> = new
+        .columns
+        .iter()
+        .map(|c| (c.name.value.as_str(), c))
+        .collect();
 
     // Columns in new but not in old → ADD COLUMN
     for (col_name, col) in &new_cols {
@@ -201,14 +224,14 @@ fn diff_columns(
 
     // Columns in both — check type changes
     for (col_name, new_col) in &new_cols {
-        if let Some(old_col) = old_cols.get(col_name) {
-            if old_col.data_type != new_col.data_type {
-                ops.push(DiffOp::AlterColumnType {
-                    table: table_name.to_string(),
-                    column: col_name.to_string(),
-                    new_type: new_col.data_type.clone(),
-                });
-            }
+        if let Some(old_col) = old_cols.get(col_name)
+            && old_col.data_type != new_col.data_type
+        {
+            ops.push(DiffOp::AlterColumnType {
+                table: table_name.to_string(),
+                column: col_name.to_string(),
+                new_type: new_col.data_type.clone(),
+            });
         }
     }
 }
@@ -333,7 +356,11 @@ fn emit_diff_op(op: &DiffOp) -> String {
         DiffOp::DropColumn { table, column } => {
             format!("ALTER TABLE {} DROP COLUMN {};", table, column)
         }
-        DiffOp::AlterColumnType { table, column, new_type } => {
+        DiffOp::AlterColumnType {
+            table,
+            column,
+            new_type,
+        } => {
             format!(
                 "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {};",
                 table,

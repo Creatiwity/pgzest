@@ -15,7 +15,8 @@ pub use diagnostic::{Diagnostic, Severity, Span};
 pub use schema::{
     ColumnInfo, CompositeSchemaProvider, DdlSchemaProvider, FunctionSignature,
     IntrospectionJsonProvider, RlsAwareSchemaProvider, SchemaProvider, TableSchema,
-    detect_default_schema, detect_search_path, object_name_to_string, qualify_object_name, qualify_str,
+    detect_default_schema, detect_search_path, object_name_to_string, qualify_object_name,
+    qualify_str,
 };
 
 /// Apply per-rule severity overrides to a diagnostics list.
@@ -40,4 +41,3 @@ pub fn apply_rule_overrides(
         true
     });
 }
-

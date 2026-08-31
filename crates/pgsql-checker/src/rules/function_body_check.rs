@@ -2,7 +2,9 @@ use crate::check::plpgsql::TriggerCtx;
 use crate::codes;
 use crate::rule::{CheckRule, RuleCtx};
 use crate::schema::object_name_to_string;
-use pgsql_ast::ddl::{CreateFunction, CreateProcedure, FunctionBody, ReturnType, TriggerEvent, TriggerForEach};
+use pgsql_ast::ddl::{
+    CreateFunction, CreateProcedure, FunctionBody, ReturnType, TriggerEvent, TriggerForEach,
+};
 
 pub struct FunctionBodyCheck;
 
@@ -55,11 +57,7 @@ impl CheckRule for FunctionBodyCheck {
                 // the text-based NEW/OLD column checker at least.
                 // SAFETY: `tbl` borrows `trigger_ctx` which is in scope here.
                 crate::check::plpgsql::check_plpgsql_body(
-                    raw,
-                    &func_name,
-                    tbl,
-                    ctx.schema,
-                    ctx.diags,
+                    raw, &func_name, tbl, ctx.schema, ctx.diags,
                 );
             }
             FunctionBody::SqlQuery(_) => {} // handled by SelectColumnCheck
@@ -83,11 +81,7 @@ impl CheckRule for FunctionBodyCheck {
             }
             FunctionBody::Raw(raw) => {
                 crate::check::plpgsql::check_plpgsql_body(
-                    raw,
-                    &proc_name,
-                    None,
-                    ctx.schema,
-                    ctx.diags,
+                    raw, &proc_name, None, ctx.schema, ctx.diags,
                 );
             }
             FunctionBody::SqlQuery(_) => {}
@@ -125,9 +119,7 @@ fn resolve_trigger_ctx(func_name: &str, ctx: &mut RuleCtx) -> Option<TriggerCtx>
                     tables.join(", ")
                 ),
             )
-            .with_hint(
-                "split the function into per-table variants or use a generic RECORD body",
-            ),
+            .with_hint("split the function into per-table variants or use a generic RECORD body"),
         );
         return None;
     }

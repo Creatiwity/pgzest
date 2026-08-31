@@ -67,9 +67,17 @@ pub trait RlsAwareSchemaProvider: SchemaProvider {
 /// If it has 1 part (e.g. `users`), prepend `default_schema`.
 pub fn qualify_object_name(name: &pgsql_ast::ObjectName, default_schema: &str) -> String {
     if name.0.len() >= 2 {
-        name.0.iter().map(|i| i.value.to_lowercase()).collect::<Vec<_>>().join(".")
+        name.0
+            .iter()
+            .map(|i| i.value.to_lowercase())
+            .collect::<Vec<_>>()
+            .join(".")
     } else {
-        let local = name.0.first().map(|i| i.value.to_lowercase()).unwrap_or_default();
+        let local = name
+            .0
+            .first()
+            .map(|i| i.value.to_lowercase())
+            .unwrap_or_default();
         format!("{}.{}", default_schema.to_lowercase(), local)
     }
 }
@@ -79,7 +87,11 @@ pub fn qualify_object_name(name: &pgsql_ast::ObjectName, default_schema: &str) -
 /// Otherwise, prepend `default_schema`.
 pub fn qualify_str(name: &str, default_schema: &str) -> String {
     let lower = name.to_lowercase();
-    if lower.contains('.') { lower } else { format!("{}.{}", default_schema.to_lowercase(), lower) }
+    if lower.contains('.') {
+        lower
+    } else {
+        format!("{}.{}", default_schema.to_lowercase(), lower)
+    }
 }
 
 /// Parse the full `search_path` from raw SQL text.
@@ -102,9 +114,13 @@ pub fn detect_search_path(sql: &str) -> Vec<String> {
         }
         let lower = trimmed.to_lowercase();
         if lower.starts_with("set search_path") {
-            let after_kw = if let Some(r) = lower.split_once("to") { r.1 }
-                           else if let Some(r) = lower.split_once('=') { r.1 }
-                           else { continue };
+            let after_kw = if let Some(r) = lower.split_once("to") {
+                r.1
+            } else if let Some(r) = lower.split_once('=') {
+                r.1
+            } else {
+                continue;
+            };
             let schemas: Vec<String> = after_kw
                 .split(',')
                 .map(|s| s.trim().trim_matches(';').trim().to_string())
@@ -121,7 +137,10 @@ pub fn detect_search_path(sql: &str) -> Vec<String> {
 /// Returns the first schema from `detect_search_path` — the schema new objects
 /// are created in when an unqualified name is used.
 pub fn detect_default_schema(sql: &str) -> String {
-    detect_search_path(sql).into_iter().next().unwrap_or_else(|| "public".to_string())
+    detect_search_path(sql)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "public".to_string())
 }
 
 // ── DdlSchemaProvider ─────────────────────────────────────────────────────────
@@ -148,14 +167,20 @@ impl DdlSchemaProvider {
     }
 
     /// Build a schema using a single `default_schema` for unqualified names.
-    pub fn from_statements_with_schema(stmts: &[pgsql_ast::Statement], default_schema: &str) -> Self {
+    pub fn from_statements_with_schema(
+        stmts: &[pgsql_ast::Statement],
+        default_schema: &str,
+    ) -> Self {
         Self::from_statements_with_search_path(stmts, &[default_schema])
     }
 
     /// Build a schema respecting the full `search_path` (PostgreSQL semantics):
     /// - new unqualified objects are stored under `search_path[0]`
     /// - lookups iterate `search_path` in order, returning the first match
-    pub fn from_statements_with_search_path(stmts: &[pgsql_ast::Statement], search_path: &[&str]) -> Self {
+    pub fn from_statements_with_search_path(
+        stmts: &[pgsql_ast::Statement],
+        search_path: &[&str],
+    ) -> Self {
         let search_path: Vec<String> = search_path.iter().map(|s| s.to_lowercase()).collect();
         let creation_schema = search_path.first().map(String::as_str).unwrap_or("public");
 
@@ -169,17 +194,28 @@ impl DdlSchemaProvider {
                     pgsql_ast::DdlStatement::CreateTable(ct) => {
                         let key = qualify_object_name(&ct.name, creation_schema);
                         let table_name = object_name_to_string(&ct.name);
-                        let columns = ct.columns.iter().map(|col| ColumnInfo {
-                            name: col.name.value.clone(),
-                            data_type: col.data_type.clone(),
-                            nullable: col.nullable,
-                        }).collect();
-                        tables.insert(key, TableSchema { name: table_name, columns });
+                        let columns = ct
+                            .columns
+                            .iter()
+                            .map(|col| ColumnInfo {
+                                name: col.name.value.clone(),
+                                data_type: col.data_type.clone(),
+                                nullable: col.nullable,
+                            })
+                            .collect();
+                        tables.insert(
+                            key,
+                            TableSchema {
+                                name: table_name,
+                                columns,
+                            },
+                        );
                     }
                     pgsql_ast::DdlStatement::CreateFunction(cf) => {
                         let key = qualify_object_name(&cf.name, creation_schema);
                         let func_name = object_name_to_string(&cf.name);
-                        let params: Vec<DataType> = cf.params.iter().map(|p| p.data_type.clone()).collect();
+                        let params: Vec<DataType> =
+                            cf.params.iter().map(|p| p.data_type.clone()).collect();
                         let return_type = match &cf.return_type {
                             pgsql_ast::ReturnType::Scalar(dt) => dt.clone(),
                             pgsql_ast::ReturnType::SetOf(dt) => dt.clone(),
@@ -187,7 +223,14 @@ impl DdlSchemaProvider {
                             pgsql_ast::ReturnType::Trigger => DataType::Custom("TRIGGER".into()),
                             pgsql_ast::ReturnType::Void => DataType::Custom("VOID".into()),
                         };
-                        functions.insert(key, FunctionSignature { name: func_name, params, return_type });
+                        functions.insert(
+                            key,
+                            FunctionSignature {
+                                name: func_name,
+                                params,
+                                return_type,
+                            },
+                        );
                     }
                     pgsql_ast::DdlStatement::AlterTable(at) => {
                         let key = qualify_object_name(&at.name, creation_schema);
@@ -208,7 +251,12 @@ impl DdlSchemaProvider {
             }
         }
 
-        Self { tables, functions, rls_enabled, search_path }
+        Self {
+            tables,
+            functions,
+            rls_enabled,
+            search_path,
+        }
     }
 
     /// Parse `sql`, auto-detect its `search_path` from `SET search_path` /
@@ -225,7 +273,9 @@ impl DdlSchemaProvider {
         local: &str,
         search_path: &[String],
     ) -> Option<&'a V> {
-        search_path.iter().find_map(|schema| map.get(&format!("{}.{}", schema, local)))
+        search_path
+            .iter()
+            .find_map(|schema| map.get(&format!("{}.{}", schema, local)))
     }
 }
 
@@ -263,9 +313,9 @@ impl RlsAwareSchemaProvider for DdlSchemaProvider {
         if lower.contains('.') {
             self.rls_enabled.contains(&lower)
         } else {
-            self.search_path.iter().any(|schema| {
-                self.rls_enabled.contains(&format!("{}.{}", schema, lower))
-            })
+            self.search_path
+                .iter()
+                .any(|schema| self.rls_enabled.contains(&format!("{}.{}", schema, lower)))
         }
     }
 }
@@ -397,7 +447,9 @@ pub struct CompositeSchemaProvider {
 
 impl CompositeSchemaProvider {
     pub fn new() -> Self {
-        Self { providers: Vec::new() }
+        Self {
+            providers: Vec::new(),
+        }
     }
 
     pub fn add(&mut self, provider: Box<dyn SchemaProvider>) {
@@ -425,11 +477,15 @@ impl SchemaProvider for CompositeSchemaProvider {
     }
 
     fn get_operator(&self, op: &str, left: &DataType, right: &DataType) -> Option<DataType> {
-        self.providers.iter().find_map(|p| p.get_operator(op, left, right))
+        self.providers
+            .iter()
+            .find_map(|p| p.get_operator(op, left, right))
     }
 
     fn all_table_names(&self) -> Vec<&str> {
-        let mut names: Vec<&str> = self.providers.iter()
+        let mut names: Vec<&str> = self
+            .providers
+            .iter()
             .flat_map(|p| p.all_table_names())
             .collect();
         names.sort();

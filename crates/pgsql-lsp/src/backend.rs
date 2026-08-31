@@ -6,10 +6,10 @@ use pgsql_checker::diagnostic::{Diagnostic, Severity};
 use pgsql_checker::schema::SchemaProvider;
 use pgsql_lint::config::LintConfig;
 use pgsql_plugin_wasm::{WasmCheckRule, WasmPlugin};
-use pgsql_schema::{check_ddl_role, FileRole, ProjectConfig, SchemaResolver};
+use pgsql_schema::{FileRole, ProjectConfig, SchemaResolver, check_ddl_role};
 use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
+use tower_lsp::{Client, LanguageServer, jsonrpc::Result};
 
 use pgsql_semantic::data_type_to_sql;
 
@@ -53,7 +53,9 @@ impl PgsqlBackend {
 
     /// Determine the `FileRole` of a URI.
     async fn role_of(&self, uri: &str) -> FileRole {
-        let Some(path) = uri_to_path(uri) else { return FileRole::Query };
+        let Some(path) = uri_to_path(uri) else {
+            return FileRole::Query;
+        };
 
         // Config-driven classification (authoritative when pgsql-tools.config.toml present).
         if let (Some(root), Some(config)) = (
@@ -64,10 +66,10 @@ impl PgsqlBackend {
         }
 
         // Legacy: schemaFile option → everything inside that path is Schema.
-        if let Some(schema_path) = self.legacy_schema_path.lock().await.as_deref() {
-            if is_inside(&path, schema_path) {
-                return FileRole::Schema;
-            }
+        if let Some(schema_path) = self.legacy_schema_path.lock().await.as_deref()
+            && is_inside(&path, schema_path)
+        {
+            return FileRole::Schema;
         }
 
         // No config at all → treat everything as Schema (safe default).
@@ -97,7 +99,9 @@ impl PgsqlBackend {
             }
         } else if let Some(ref path) = *self.legacy_schema_path.lock().await {
             match load_schema_sql(path) {
-                Ok(sql) => SchemaResolver::from_sql(&sql).unwrap_or_else(|_| SchemaResolver::empty()),
+                Ok(sql) => {
+                    SchemaResolver::from_sql(&sql).unwrap_or_else(|_| SchemaResolver::empty())
+                }
                 Err(_) => return,
             }
         } else {
@@ -120,7 +124,12 @@ impl PgsqlBackend {
     async fn check_sql(&self, sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
         let stmts = match pgsql_parser::parse(sql) {
             Ok(s) => s,
-            Err(e) => return vec![Diagnostic::error(pgsql_checker::codes::PARSE_ERROR, format!("parse error: {e}"))],
+            Err(e) => {
+                return vec![Diagnostic::error(
+                    pgsql_checker::codes::PARSE_ERROR,
+                    format!("parse error: {e}"),
+                )];
+            }
         };
         self.make_checker().await.run(&stmts, schema)
     }
@@ -188,9 +197,9 @@ impl PgsqlBackend {
 
     fn to_lsp_diagnostic(d: &Diagnostic, idx: &LineIndex) -> tower_lsp::lsp_types::Diagnostic {
         let severity = match d.severity {
-            Severity::Error   => DiagnosticSeverity::ERROR,
+            Severity::Error => DiagnosticSeverity::ERROR,
             Severity::Warning => DiagnosticSeverity::WARNING,
-            Severity::Info    => DiagnosticSeverity::INFORMATION,
+            Severity::Info => DiagnosticSeverity::INFORMATION,
         };
 
         let (start_line, start_char) = match &d.span {
@@ -208,8 +217,14 @@ impl PgsqlBackend {
 
         tower_lsp::lsp_types::Diagnostic {
             range: Range {
-                start: Position { line: start_line, character: start_char },
-                end:   Position { line: end_line,   character: end_char },
+                start: Position {
+                    line: start_line,
+                    character: start_char,
+                },
+                end: Position {
+                    line: end_line,
+                    character: end_char,
+                },
             },
             severity: Some(severity),
             code: Some(NumberOrString::String(d.code.to_string())),
@@ -233,82 +248,87 @@ impl LanguageServer for PgsqlBackend {
             .workspace_folders
             .as_deref()
             .and_then(|f| f.first())
-            .and_then(|f| url_to_path(&f.uri.to_string()))
+            .and_then(|f| url_to_path(f.uri.as_ref()))
             .or_else(|| {
                 params
                     .root_uri
                     .as_ref()
-                    .and_then(|u| url_to_path(&u.to_string()))
+                    .and_then(|u| url_to_path(u.as_ref()))
             });
 
-        if let Some(ref root) = workspace_root {
-            if let Some((project_root, config)) = ProjectConfig::find_and_load(root) {
-                let source = config.to_source(&project_root);
-                let resolver = SchemaResolver::from_source(&source);
-                *self.resolver.lock().await = Arc::new(resolver);
-                *self.project_root.lock().await = Some(project_root.clone());
+        if let Some(ref root) = workspace_root
+            && let Some((project_root, config)) = ProjectConfig::find_and_load(root)
+        {
+            let source = config.to_source(&project_root);
+            let resolver = SchemaResolver::from_source(&source);
+            *self.resolver.lock().await = Arc::new(resolver);
+            *self.project_root.lock().await = Some(project_root.clone());
 
-                // Load WASM plugins listed in [plugins] wasm = [...]
-                let mut loaded: Vec<Arc<WasmPlugin>> = Vec::new();
-                for rel_path in &config.plugins.wasm {
-                    let abs = project_root.join(rel_path);
-                    match WasmPlugin::from_file(&abs) {
-                        Ok(p) => {
-                            self.client
-                                .log_message(
-                                    MessageType::INFO,
-                                    format!("pgsql-lsp: loaded wasm plugin '{}' from {}", p.name(), abs.display()),
-                                )
-                                .await;
-                            loaded.push(Arc::new(p));
-                        }
-                        Err(e) => {
-                            self.client
-                                .log_message(
-                                    MessageType::WARNING,
-                                    format!("pgsql-lsp: failed to load wasm plugin '{}': {e}", abs.display()),
-                                )
-                                .await;
-                        }
+            // Load WASM plugins listed in [plugins] wasm = [...]
+            let mut loaded: Vec<Arc<WasmPlugin>> = Vec::new();
+            for rel_path in &config.plugins.wasm {
+                let abs = project_root.join(rel_path);
+                match WasmPlugin::from_file(&abs) {
+                    Ok(p) => {
+                        self.client
+                            .log_message(
+                                MessageType::INFO,
+                                format!(
+                                    "pgsql-lsp: loaded wasm plugin '{}' from {}",
+                                    p.name(),
+                                    abs.display()
+                                ),
+                            )
+                            .await;
+                        loaded.push(Arc::new(p));
+                    }
+                    Err(e) => {
+                        self.client
+                            .log_message(
+                                MessageType::WARNING,
+                                format!(
+                                    "pgsql-lsp: failed to load wasm plugin '{}': {e}",
+                                    abs.display()
+                                ),
+                            )
+                            .await;
                     }
                 }
-                *self.wasm_plugins.lock().await = loaded;
-
-                *self.config.lock().await = Some(config);
-                self.client
-                    .log_message(
-                        MessageType::INFO,
-                        format!(
-                            "pgsql-lsp: loaded schema from {}",
-                            project_root.join(ProjectConfig::FILENAME).display()
-                        ),
-                    )
-                    .await;
             }
+            *self.wasm_plugins.lock().await = loaded;
+
+            *self.config.lock().await = Some(config);
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    format!(
+                        "pgsql-lsp: loaded schema from {}",
+                        project_root.join(ProjectConfig::FILENAME).display()
+                    ),
+                )
+                .await;
         }
 
         // 2. Legacy fallback: schemaFile initialization option.
-        if self.project_root.lock().await.is_none() {
-            if let Some(opts) = &params.initialization_options {
-                if let Some(path) = opts.get("schemaFile").and_then(|v| v.as_str()) {
-                    if !path.is_empty() {
-                        *self.legacy_schema_path.lock().await = Some(path.to_string());
-                        match load_schema_sql(path) {
-                            Ok(sql) => {
-                                if let Ok(r) = SchemaResolver::from_sql(&sql) {
-                                    *self.resolver.lock().await = Arc::new(r);
-                                }
-                            }
-                            Err(e) => {
-                                self.client
-                                    .log_message(
-                                        MessageType::WARNING,
-                                        format!("pgsql-lsp: could not load schema at {path}: {e}"),
-                                    )
-                                    .await;
-                            }
-                        }
+        if self.project_root.lock().await.is_none()
+            && let Some(opts) = &params.initialization_options
+            && let Some(path) = opts.get("schemaFile").and_then(|v| v.as_str())
+            && !path.is_empty()
+        {
+            *self.legacy_schema_path.lock().await = Some(path.to_string());
+            match load_schema_sql(path) {
+                Ok(sql) => {
+                    if let Ok(r) = SchemaResolver::from_sql(&sql) {
+                        *self.resolver.lock().await = Arc::new(r);
                     }
+                }
+                Err(e) => {
+                    self.client
+                        .log_message(
+                            MessageType::WARNING,
+                            format!("pgsql-lsp: could not load schema at {path}: {e}"),
+                        )
+                        .await;
                 }
             }
         }
@@ -346,7 +366,10 @@ impl LanguageServer for PgsqlBackend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         let text = params.text_document.text;
-        self.documents.lock().await.insert(uri.clone(), text.clone());
+        self.documents
+            .lock()
+            .await
+            .insert(uri.clone(), text.clone());
         self.run_diagnostics(&uri, &text).await;
     }
 
@@ -354,7 +377,10 @@ impl LanguageServer for PgsqlBackend {
         if let Some(change) = params.content_changes.into_iter().last() {
             let uri = params.text_document.uri.to_string();
             let text = change.text;
-            self.documents.lock().await.insert(uri.clone(), text.clone());
+            self.documents
+                .lock()
+                .await
+                .insert(uri.clone(), text.clone());
 
             // Rebuild schema if a schema/migration file changed.
             let role = self.role_of(&uri).await;
@@ -367,14 +393,21 @@ impl LanguageServer for PgsqlBackend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.documents.lock().await.remove(&params.text_document.uri.to_string());
+        self.documents
+            .lock()
+            .await
+            .remove(&params.text_document.uri.to_string());
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let uri = params.text_document_position_params.text_document.uri.to_string();
+        let uri = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .to_string();
         let pos = params.text_document_position_params.position;
 
         let docs = self.documents.lock().await;
@@ -458,16 +491,16 @@ impl LanguageServer for PgsqlBackend {
 // ── Cross-schema error filter ─────────────────────────────────────────────────
 
 fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
-    if d.code == pgsql_checker::codes::TABLE_NOT_FOUND {
-        if let Some(start) = d.message.find('\'') {
-            let rest = &d.message[start + 1..];
-            if let Some(end) = rest.find('\'') {
-                let table = &rest[..end];
-                if let Some(dot) = table.find('.') {
-                    if &table[..dot] != "public" {
-                        return true;
-                    }
-                }
+    if d.code == pgsql_checker::codes::TABLE_NOT_FOUND
+        && let Some(start) = d.message.find('\'')
+    {
+        let rest = &d.message[start + 1..];
+        if let Some(end) = rest.find('\'') {
+            let table = &rest[..end];
+            if let Some(dot) = table.find('.')
+                && &table[..dot] != "public"
+            {
+                return true;
             }
         }
     }
@@ -481,8 +514,7 @@ fn hover_schema_file(text: &str, word: &str, global: &dyn SchemaProvider) -> Opt
     let self_schema = SchemaResolver::from_sql(text).ok()?;
     let provider: &dyn SchemaProvider = &self_schema;
 
-    let result = lookup_hover(word, provider).or_else(|| lookup_hover(word, global));
-    result
+    lookup_hover(word, provider).or_else(|| lookup_hover(word, global))
 }
 
 fn hover_query(
@@ -496,7 +528,9 @@ fn hover_query(
     for scope_id in 0..100u32 {
         let sid = pgsql_semantic::ScopeId(scope_id);
         let cols = semantic.scopes.available_columns(sid);
-        if cols.is_empty() { break; }
+        if cols.is_empty() {
+            break;
+        }
         for col in &cols {
             if col.name.to_lowercase() == word {
                 return Some(format!(
@@ -579,19 +613,19 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
     let lower = word.to_lowercase();
 
     // Function signature?
-    let func_candidates = [
-        format!("public.{}", lower),
-        lower.clone(),
-    ];
+    let func_candidates = [format!("public.{}", lower), lower.clone()];
     for key in &func_candidates {
         if let Some(sig) = schema.get_function(key) {
-            let params_str = sig.params.iter()
+            let params_str = sig
+                .params
+                .iter()
                 .map(|dt| format!("`{}`", data_type_to_sql(dt)))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Some(format!(
                 "(function) **{}**({}): `{}`",
-                sig.name, params_str,
+                sig.name,
+                params_str,
                 data_type_to_sql(&sig.return_type)
             ));
         }
@@ -599,16 +633,18 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
 
     // Column name anywhere
     for table_name in schema.all_table_names() {
-        if let Some(table) = schema.get_table(table_name) {
-            if let Some(col) = table.get_column(&lower) {
-                let nn = if col.nullable { "" } else { " NOT NULL" };
-                return Some(format!(
-                    "(column) {}.{}.**{}**: `{}`{}",
-                    tbl_schema(&table.name), tbl_local(&table.name),
-                    col.name,
-                    data_type_to_sql(&col.data_type), nn
-                ));
-            }
+        if let Some(table) = schema.get_table(table_name)
+            && let Some(col) = table.get_column(&lower)
+        {
+            let nn = if col.nullable { "" } else { " NOT NULL" };
+            return Some(format!(
+                "(column) {}.{}.**{}**: `{}`{}",
+                tbl_schema(&table.name),
+                tbl_local(&table.name),
+                col.name,
+                data_type_to_sql(&col.data_type),
+                nn
+            ));
         }
     }
 
@@ -622,8 +658,8 @@ fn hover_plpgsql_var(
     cursor_offset: usize,
     word: &str,
 ) -> Option<String> {
-    use pgsql_ast::ddl::FunctionBody;
     use pgsql_ast::Statement;
+    use pgsql_ast::ddl::FunctionBody;
     let lower = word.to_lowercase();
 
     for stmt in stmts {
@@ -646,7 +682,9 @@ fn hover_plpgsql_var(
         };
 
         // Only consider functions whose span actually contains the cursor.
-        if span.end == 0 { continue; }
+        if span.end == 0 {
+            continue;
+        }
         if !(span.start as usize <= cursor_offset && cursor_offset < span.end as usize) {
             continue;
         }
@@ -666,14 +704,14 @@ fn hover_plpgsql_var(
 
         // Function / procedure parameters
         for param in params {
-            if let Some(name) = &param.name {
-                if name.value.to_lowercase() == lower {
-                    return Some(format!(
-                        "(parameter) **{}**: `{}`",
-                        name.value,
-                        data_type_to_sql(&param.data_type)
-                    ));
-                }
+            if let Some(name) = &param.name
+                && name.value.to_lowercase() == lower
+            {
+                return Some(format!(
+                    "(parameter) **{}**: `{}`",
+                    name.value,
+                    data_type_to_sql(&param.data_type)
+                ));
             }
         }
     }
@@ -682,11 +720,17 @@ fn hover_plpgsql_var(
 }
 
 fn tbl_schema(qualified: &str) -> &str {
-    qualified.rfind('.').map(|d| &qualified[..d]).unwrap_or("public")
+    qualified
+        .rfind('.')
+        .map(|d| &qualified[..d])
+        .unwrap_or("public")
 }
 
 fn tbl_local(qualified: &str) -> &str {
-    qualified.rfind('.').map(|d| &qualified[d + 1..]).unwrap_or(qualified)
+    qualified
+        .rfind('.')
+        .map(|d| &qualified[d + 1..])
+        .unwrap_or(qualified)
 }
 
 // ── Newtype: let Arc<SchemaResolver> work as a SchemaProvider ─────────────────
@@ -741,9 +785,7 @@ fn load_schema_sql(path: &str) -> std::io::Result<String> {
 // ── URI / path helpers ────────────────────────────────────────────────────────
 
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
-    let path_str = uri
-        .strip_prefix("file://")
-        .unwrap_or(uri);
+    let path_str = uri.strip_prefix("file://").unwrap_or(uri);
     let p = PathBuf::from(path_str);
     p.canonicalize().ok().or(Some(p))
 }
@@ -754,10 +796,11 @@ fn url_to_path(url: &str) -> Option<PathBuf> {
 
 fn is_inside(child: &Path, parent_str: &str) -> bool {
     let parent = Path::new(parent_str);
-    let parent_canon = parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
+    let parent_canon = parent
+        .canonicalize()
+        .unwrap_or_else(|_| parent.to_path_buf());
     let child_canon = child.canonicalize().unwrap_or_else(|_| child.to_path_buf());
-    child_canon == parent_canon
-        || child_canon.starts_with(format!("{}/", parent_canon.display()))
+    child_canon == parent_canon || child_canon.starts_with(format!("{}/", parent_canon.display()))
 }
 
 fn position_to_offset(text: &str, line: u32, character: u32) -> u32 {
@@ -788,5 +831,9 @@ fn word_at_offset(text: &str, offset: usize) -> Option<String> {
     while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
         end += 1;
     }
-    if start == end { None } else { Some(text[start..end].to_lowercase()) }
+    if start == end {
+        None
+    } else {
+        Some(text[start..end].to_lowercase())
+    }
 }

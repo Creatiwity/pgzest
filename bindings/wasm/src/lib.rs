@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::*;
 use pgsql_checker::DdlSchemaProvider;
+use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct CheckResult {

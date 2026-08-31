@@ -1,4 +1,7 @@
-use pgsql_checker::{check_sql, check_sql_self_contained, check_statements, codes, DdlSchemaProvider, IntrospectionJsonProvider};
+use pgsql_checker::{
+    DdlSchemaProvider, IntrospectionJsonProvider, check_sql, check_sql_self_contained,
+    check_statements, codes,
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,7 +47,12 @@ fn missing_column_is_error() {
         .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
         .collect();
 
-    assert_eq!(errors.len(), 1, "expected exactly 1 error, got: {:#?}", diags);
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected exactly 1 error, got: {:#?}",
+        diags
+    );
     assert_eq!(errors[0].code, codes::COLUMN_NOT_FOUND);
     assert!(
         errors[0].message.contains("nonexistent"),
@@ -114,7 +122,10 @@ fn unknown_table_in_update_is_error() {
         .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
         .collect();
 
-    assert!(!errors.is_empty(), "expected error for UPDATE on unknown table");
+    assert!(
+        !errors.is_empty(),
+        "expected error for UPDATE on unknown table"
+    );
 }
 
 #[test]
@@ -127,7 +138,10 @@ fn unknown_table_in_delete_is_error() {
         .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
         .collect();
 
-    assert!(!errors.is_empty(), "expected error for DELETE from unknown table");
+    assert!(
+        !errors.is_empty(),
+        "expected error for DELETE from unknown table"
+    );
 }
 
 // ── DDL pass-through ──────────────────────────────────────────────────────────
@@ -143,7 +157,11 @@ fn ddl_passes_through_without_errors() {
         .iter()
         .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
         .collect();
-    assert!(errors.is_empty(), "DDL should produce no errors, got: {:#?}", diags);
+    assert!(
+        errors.is_empty(),
+        "DDL should produce no errors, got: {:#?}",
+        diags
+    );
 }
 
 // ── IntrospectionJsonProvider ─────────────────────────────────────────────────
@@ -161,8 +179,7 @@ fn json_provider_valid_select() {
             }
         ]
     }"#;
-    let schema =
-        IntrospectionJsonProvider::from_json(json).expect("JSON parse should succeed");
+    let schema = IntrospectionJsonProvider::from_json(json).expect("JSON parse should succeed");
 
     let diags = check_sql("SELECT id, name FROM organizations", &schema);
     assert!(
@@ -184,8 +201,7 @@ fn json_provider_missing_column_is_error() {
             }
         ]
     }"#;
-    let schema =
-        IntrospectionJsonProvider::from_json(json).expect("JSON parse should succeed");
+    let schema = IntrospectionJsonProvider::from_json(json).expect("JSON parse should succeed");
 
     let diags = check_sql("SELECT id, nonexistent FROM organizations", &schema);
     let errors: Vec<_> = diags
@@ -193,7 +209,12 @@ fn json_provider_missing_column_is_error() {
         .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
         .collect();
 
-    assert_eq!(errors.len(), 1, "expected exactly 1 error, got: {:#?}", diags);
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected exactly 1 error, got: {:#?}",
+        diags
+    );
     assert_eq!(errors[0].code, codes::COLUMN_NOT_FOUND);
 }
 
@@ -219,7 +240,8 @@ fn rls_policy_unknown_table_is_error() {
         diags
     );
     assert_eq!(
-        errors[0].code, codes::TABLE_NOT_FOUND,
+        errors[0].code,
+        codes::TABLE_NOT_FOUND,
         "expected code table-not-found, got: {}",
         errors[0].code
     );
@@ -293,7 +315,10 @@ fn self_contained_schema_resolves_policies() {
             FOR SELECT USING (id = id);
     ";
     let diags = check_sql_self_contained(sql);
-    let errors: Vec<_> = diags.iter().filter(|d| matches!(d.severity, pgsql_checker::Severity::Error)).collect();
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| matches!(d.severity, pgsql_checker::Severity::Error))
+        .collect();
     assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
 }
 
@@ -305,7 +330,10 @@ fn builtin_functions_no_warning() {
         SELECT COUNT(*), ROUND(AVG(value), 2), NULLIF(MAX(value), 0) FROM metrics;
     ";
     let diags = pgsql_checker::check_sql_self_contained(sql);
-    let w001: Vec<_> = diags.iter().filter(|d| d.code == codes::FUNCTION_NOT_FOUND).collect();
+    let w001: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code == codes::FUNCTION_NOT_FOUND)
+        .collect();
     assert!(
         w001.is_empty(),
         "unexpected function-not-found for builtin functions: {:?}",
@@ -330,7 +358,10 @@ END;
 $$"#,
         &schema,
     );
-    let e003: Vec<_> = diags.iter().filter(|d| d.code == codes::TABLE_NOT_FOUND).collect();
+    let e003: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code == codes::TABLE_NOT_FOUND)
+        .collect();
     assert!(
         e003.is_empty(),
         "unexpected table-not-found for temp table reference: {:#?}",
@@ -356,7 +387,10 @@ END;
 $$"#,
         &schema,
     );
-    let e002: Vec<_> = diags.iter().filter(|d| d.code == codes::TABLE_NOT_IN_SCOPE).collect();
+    let e002: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code == codes::TABLE_NOT_IN_SCOPE)
+        .collect();
     assert!(
         e002.is_empty(),
         "unexpected table-not-in-scope for plvar reference: {:#?}",
@@ -405,7 +439,9 @@ fn plpgsql_empty_body_is_warning() {
         diags
     );
     assert!(
-        warnings.iter().any(|w| w.code == codes::EMPTY_FUNCTION_BODY),
+        warnings
+            .iter()
+            .any(|w| w.code == codes::EMPTY_FUNCTION_BODY),
         "expected empty-function-body warning, got warnings: {:#?}",
         warnings
     );

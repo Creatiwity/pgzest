@@ -16,14 +16,20 @@ pub struct InjectionConfig {
 pub fn inject_audit_fields(table: &mut CreateTable, config: &InjectionConfig) {
     if config.audit_fields {
         if !has_column(table, "created_at") {
-            table.columns.push(make_timestamptz_col("created_at", Some("NOW()")));
+            table
+                .columns
+                .push(make_timestamptz_col("created_at", Some("NOW()")));
         }
         if !has_column(table, "updated_at") {
-            table.columns.push(make_timestamptz_col("updated_at", Some("NOW()")));
+            table
+                .columns
+                .push(make_timestamptz_col("updated_at", Some("NOW()")));
         }
     }
     if config.soft_delete && !has_column(table, "deleted_at") {
-        table.columns.push(make_nullable_timestamptz_col("deleted_at"));
+        table
+            .columns
+            .push(make_nullable_timestamptz_col("deleted_at"));
     }
 }
 
@@ -75,13 +81,11 @@ fn has_column(table: &CreateTable, name: &str) -> bool {
 }
 
 fn make_timestamptz_col(name: &str, default_expr: Option<&str>) -> ColumnDef {
-    let default = default_expr.map(|expr| {
-        Expr::FunctionCall {
-            name: ObjectName::unquoted(&[expr.trim_end_matches("()")]),
-            args: vec![],
-            filter: None,
-            distinct: false,
-        }
+    let default = default_expr.map(|expr| Expr::FunctionCall {
+        name: ObjectName::unquoted(&[expr.trim_end_matches("()")]),
+        args: vec![],
+        filter: None,
+        distinct: false,
     });
     let constraints = match &default {
         Some(d) => vec![ColumnConstraint::Default(d.clone())],

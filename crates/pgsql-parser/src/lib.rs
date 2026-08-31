@@ -74,10 +74,7 @@ fn preprocess_function_sql(sql: &str) -> (String, FunctionMeta) {
 /// so that sqlparser (which can't parse PL/pgSQL procedure bodies) can handle it.
 ///
 /// Returns `(new_header, new_body_and_rest, was_procedure)`.
-fn rewrite_procedure_as_function(
-    header: &str,
-    body_and_rest: &str,
-) -> (String, String, bool) {
+fn rewrite_procedure_as_function(header: &str, body_and_rest: &str) -> (String, String, bool) {
     let upper = header.to_uppercase();
 
     // Only rewrite PROCEDURE statements — check outside comment sections so that
@@ -108,7 +105,11 @@ fn rewrite_procedure_as_function(
     // Step 3: Insert RETURNS VOID before LANGUAGE (or before AS $$ if no LANGUAGE)
     let nu = new_header.to_uppercase();
     let new_header = if let Some(lang_pos) = nu.rfind("LANGUAGE") {
-        format!("{} RETURNS VOID {}", &new_header[..lang_pos].trim_end(), &new_header[lang_pos..])
+        format!(
+            "{} RETURNS VOID {}",
+            new_header[..lang_pos].trim_end(),
+            &new_header[lang_pos..]
+        )
     } else {
         // No LANGUAGE in header — body_and_rest starts with $$
         // Insert RETURNS VOID at end of header
@@ -131,35 +132,39 @@ fn rewrite_returns_table(header: &str, meta: &mut FunctionMeta) -> String {
     while i < len {
         if starts_with_word(upper_bytes, i, b"RETURNS") {
             let after_returns = i + 7;
-            if let Some(j) = skip_spaces(upper_bytes, after_returns) {
-                if starts_with_word(upper_bytes, j, b"TABLE") {
-                    let after_table = j + 5;
-                    if let Some(paren_start) = skip_spaces(upper_bytes, after_table) {
-                        if paren_start < len && header.as_bytes()[paren_start] == b'(' {
-                            // Find matching closing paren
-                            let mut depth = 0usize;
-                            let mut k = paren_start;
-                            let hbytes = header.as_bytes();
-                            while k < len {
-                                if hbytes[k] == b'(' { depth += 1; }
-                                else if hbytes[k] == b')' {
-                                    depth -= 1;
-                                    if depth == 0 { break; }
-                                }
-                                k += 1;
+            if let Some(j) = skip_spaces(upper_bytes, after_returns)
+                && starts_with_word(upper_bytes, j, b"TABLE")
+            {
+                let after_table = j + 5;
+                if let Some(paren_start) = skip_spaces(upper_bytes, after_table)
+                    && paren_start < len
+                    && header.as_bytes()[paren_start] == b'('
+                {
+                    // Find matching closing paren
+                    let mut depth = 0usize;
+                    let mut k = paren_start;
+                    let hbytes = header.as_bytes();
+                    while k < len {
+                        if hbytes[k] == b'(' {
+                            depth += 1;
+                        } else if hbytes[k] == b')' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
                             }
-                            let paren_end = k; // index of ')'
-                            // Extract and parse the column list
-                            let col_list = &header[paren_start + 1..paren_end];
-                            let cols = parse_table_columns(col_list);
-                            meta.table_columns = Some(cols);
-                            // Rewrite: keep everything before RETURNS, add RETURNS VOID,
-                            // then keep everything after the closing paren.
-                            let before = &header[..i];
-                            let after = &header[paren_end + 1..];
-                            return format!("{}RETURNS VOID{}", before, after);
                         }
+                        k += 1;
                     }
+                    let paren_end = k; // index of ')'
+                    // Extract and parse the column list
+                    let col_list = &header[paren_start + 1..paren_end];
+                    let cols = parse_table_columns(col_list);
+                    meta.table_columns = Some(cols);
+                    // Rewrite: keep everything before RETURNS, add RETURNS VOID,
+                    // then keep everything after the closing paren.
+                    let before = &header[..i];
+                    let after = &header[paren_end + 1..];
+                    return format!("{}RETURNS VOID{}", before, after);
                 }
             }
         }
@@ -185,7 +190,9 @@ fn parse_table_columns(col_list: &str) -> Vec<(String, String)> {
         if let (Some(col_name), Some(type_part)) = (words.next(), words.next()) {
             let col_name = col_name.trim().to_string();
             // The type might have qualifiers; take the first word as the base type.
-            let type_name = type_part.trim().split_whitespace().next()
+            let type_name = type_part
+                .split_whitespace()
+                .next()
                 .unwrap_or(type_part.trim())
                 .to_string();
             if !col_name.is_empty() {
@@ -241,35 +248,34 @@ fn strip_function_options(header: &str, meta: &mut FunctionMeta) -> String {
         // only the "SETOF " part.
         if starts_with_word(upper_bytes, i, b"RETURNS") {
             let after_returns = i + 7; // len("RETURNS")
-            if let Some(j) = skip_spaces(upper_bytes, after_returns) {
-                if starts_with_word(upper_bytes, j, b"SETOF") {
-                    let after_setof = j + 5; // len("SETOF")
-                    // Find the inner type name (skip spaces after SETOF)
-                    if let Some(type_start) = skip_spaces(upper_bytes, after_setof) {
-                        // Collect the type name (word chars until whitespace)
-                        let type_end = {
-                            let mut k = type_start;
-                            while k < len
-                                && (upper_bytes[k].is_ascii_alphanumeric()
-                                    || upper_bytes[k] == b'_')
-                            {
-                                k += 1;
-                            }
-                            k
-                        };
-                        let inner_type = &header[type_start..type_end];
-                        meta.setof_type = Some(inner_type.to_string());
-                        // Blank out just "SETOF " (from j to type_start), keeping the type name
-                        blank_ranges.push((j, type_start));
-                        i = type_end;
-                        continue;
-                    } else {
-                        // SETOF with no type — blank it and record as "record"
-                        meta.setof_type = Some("record".to_string());
-                        blank_ranges.push((j, after_setof));
-                        i = after_setof;
-                        continue;
-                    }
+            if let Some(j) = skip_spaces(upper_bytes, after_returns)
+                && starts_with_word(upper_bytes, j, b"SETOF")
+            {
+                let after_setof = j + 5; // len("SETOF")
+                // Find the inner type name (skip spaces after SETOF)
+                if let Some(type_start) = skip_spaces(upper_bytes, after_setof) {
+                    // Collect the type name (word chars until whitespace)
+                    let type_end = {
+                        let mut k = type_start;
+                        while k < len
+                            && (upper_bytes[k].is_ascii_alphanumeric() || upper_bytes[k] == b'_')
+                        {
+                            k += 1;
+                        }
+                        k
+                    };
+                    let inner_type = &header[type_start..type_end];
+                    meta.setof_type = Some(inner_type.to_string());
+                    // Blank out just "SETOF " (from j to type_start), keeping the type name
+                    blank_ranges.push((j, type_start));
+                    i = type_end;
+                    continue;
+                } else {
+                    // SETOF with no type — blank it and record as "record"
+                    meta.setof_type = Some("record".to_string());
+                    blank_ranges.push((j, after_setof));
+                    i = after_setof;
+                    continue;
                 }
             }
         }
@@ -294,25 +300,25 @@ fn strip_function_options(header: &str, meta: &mut FunctionMeta) -> String {
         // Try to match "COST" followed by whitespace and a number.
         if starts_with_word(upper_bytes, i, b"COST") {
             let after = i + 4;
-            if let Some(j) = skip_spaces(upper_bytes, after) {
-                if let Some((n, end)) = parse_u64(bytes, j) {
-                    meta.cost = Some(n);
-                    blank_ranges.push((i, end));
-                    i = end;
-                    continue;
-                }
+            if let Some(j) = skip_spaces(upper_bytes, after)
+                && let Some((n, end)) = parse_u64(bytes, j)
+            {
+                meta.cost = Some(n);
+                blank_ranges.push((i, end));
+                i = end;
+                continue;
             }
         }
         // Try to match "ROWS" followed by whitespace and a number.
         if starts_with_word(upper_bytes, i, b"ROWS") {
             let after = i + 4;
-            if let Some(j) = skip_spaces(upper_bytes, after) {
-                if let Some((n, end)) = parse_u64(bytes, j) {
-                    meta.rows = Some(n);
-                    blank_ranges.push((i, end));
-                    i = end;
-                    continue;
-                }
+            if let Some(j) = skip_spaces(upper_bytes, after)
+                && let Some((n, end)) = parse_u64(bytes, j)
+            {
+                meta.rows = Some(n);
+                blank_ranges.push((i, end));
+                i = end;
+                continue;
             }
         }
         i += 1;
@@ -437,10 +443,7 @@ fn is_create_function_sql(sql: &str) -> bool {
     // false positive.
     let no_comments = strip_line_comments(sql);
 
-    let first_non_empty = no_comments
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty());
+    let first_non_empty = no_comments.lines().map(str::trim).find(|l| !l.is_empty());
 
     let s = match first_non_empty {
         Some(l) => l.to_uppercase(),
@@ -487,10 +490,10 @@ fn neutralize_check_constraints(sql: &str) -> String {
                 && (b[3] == b'C' || b[3] == b'c')
                 && (b[4] == b'K' || b[4] == b'k')
             {
-                let before_ok = i == 0
-                    || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_');
-                let after_ok = i + 5 >= len
-                    || (!bytes[i + 5].is_ascii_alphanumeric() && bytes[i + 5] != b'_');
+                let before_ok =
+                    i == 0 || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_');
+                let after_ok =
+                    i + 5 >= len || (!bytes[i + 5].is_ascii_alphanumeric() && bytes[i + 5] != b'_');
                 if before_ok && after_ok {
                     // Emit "CHECK"
                     copy_range!(i, i + 5);
@@ -507,11 +510,16 @@ fn neutralize_check_constraints(sql: &str) -> String {
                         let mut depth = 0i32;
                         while i < len {
                             match bytes[i] {
-                                b'(' => { depth += 1; i += 1; }
+                                b'(' => {
+                                    depth += 1;
+                                    i += 1;
+                                }
                                 b')' => {
                                     depth -= 1;
                                     i += 1;
-                                    if depth <= 0 { break; }
+                                    if depth <= 0 {
+                                        break;
+                                    }
                                 }
                                 b'\'' => {
                                     // Skip single-quoted string (handles '' escaping)
@@ -528,16 +536,14 @@ fn neutralize_check_constraints(sql: &str) -> String {
                                         i += 1;
                                     }
                                 }
-                                _ => { i += 1; }
+                                _ => {
+                                    i += 1;
+                                }
                             }
                         }
                         let body = &sql[paren_start..i];
-                        let inner = body
-                            .trim_start_matches('(')
-                            .trim_end_matches(')')
-                            .trim();
-                        if inner.eq_ignore_ascii_case("true")
-                            || inner.eq_ignore_ascii_case("false")
+                        let inner = body.trim_start_matches('(').trim_end_matches(')').trim();
+                        if inner.eq_ignore_ascii_case("true") || inner.eq_ignore_ascii_case("false")
                         {
                             result.push_str(body);
                         } else {
@@ -616,7 +622,10 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                         let table_cols: Vec<(Ident, pgsql_ast::types::DataType)> = cols
                             .iter()
                             .map(|(col_name, type_name)| {
-                                let ident = Ident { value: col_name.clone(), quoted: false };
+                                let ident = Ident {
+                                    value: col_name.clone(),
+                                    quoted: false,
+                                };
                                 let dt = convert::parse_simple_type_pub(type_name);
                                 (ident, dt)
                             })
@@ -625,23 +634,21 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                     }
                 }
 
-                if meta.is_procedure {
-                    if let Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) = stmt
-                    {
-                        use pgsql_ast::ddl::CreateProcedure;
-                        let proc = CreateProcedure {
-                            id: cf.id,
-                            span: cf.span,
-                            body_start: 0,
-                            name: cf.name,
-                            or_replace: cf.or_replace,
-                            params: cf.params,
-                            language: cf.language,
-                            body: cf.body,
-                        };
-                        stmt =
-                            Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(proc));
-                    }
+                if meta.is_procedure
+                    && let Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) = stmt
+                {
+                    use pgsql_ast::ddl::CreateProcedure;
+                    let proc = CreateProcedure {
+                        id: cf.id,
+                        span: cf.span,
+                        body_start: 0,
+                        name: cf.name,
+                        or_replace: cf.or_replace,
+                        params: cf.params,
+                        language: cf.language,
+                        body: cf.body,
+                    };
+                    stmt = Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateProcedure(proc));
                 }
             }
             set_stmt_span(&mut stmt, *byte_offset, byte_offset + stmt_sql.len());
@@ -658,7 +665,9 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                     while delim_end < stmt_sql.len() && body_bytes[delim_end] != b'$' {
                         delim_end += 1;
                     }
-                    if delim_end < stmt_sql.len() { delim_end += 1; } // skip closing $
+                    if delim_end < stmt_sql.len() {
+                        delim_end += 1;
+                    } // skip closing $
                     let content_file_offset = *byte_offset + delim_end;
 
                     match &mut stmt {
@@ -667,8 +676,11 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                             // Re-parse with exact file offset for precise inner spans.
                             if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cf.body {
                                 let raw = raw.clone();
-                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset) {
-                                    cf.body = pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                if let Ok(parsed) =
+                                    crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset)
+                                {
+                                    cf.body =
+                                        pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
                                 }
                             }
                         }
@@ -676,8 +688,11 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
                             cp.body_start = global_body_start;
                             if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cp.body {
                                 let raw = raw.clone();
-                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset) {
-                                    cp.body = pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                if let Ok(parsed) =
+                                    crate::plpgsql::parse_plpgsql_body_at(&raw, content_file_offset)
+                                {
+                                    cp.body =
+                                        pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
                                 }
                             }
                         }
@@ -693,7 +708,10 @@ pub fn parse(sql: &str) -> Result<Vec<Statement>, ParseError> {
 
 fn set_stmt_span(stmt: &mut Statement, start: usize, end: usize) {
     use pgsql_ast::{DdlStatement, Statement::*};
-    let span = pgsql_ast::node::Span { start: start as u32, end: end as u32 };
+    let span = pgsql_ast::node::Span {
+        start: start as u32,
+        end: end as u32,
+    };
     match stmt {
         Select(s) => s.span = span,
         Insert(s) => s.span = span,
@@ -831,8 +849,6 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
 
 /// Expose single-statement conversion for testing purposes.
 /// Takes a pre-parsed sqlparser statement and converts it to a pgsql_ast Statement.
-pub fn convert_statement_pub(
-    stmt: sqlparser::ast::Statement,
-) -> Result<Statement, ParseError> {
+pub fn convert_statement_pub(stmt: sqlparser::ast::Statement) -> Result<Statement, ParseError> {
     convert::convert_statement(stmt)
 }

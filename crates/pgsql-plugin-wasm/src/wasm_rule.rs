@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use pgsql_checker::rule::{CheckRule, RuleCtx};
+use crate::wasm_plugin::WasmPlugin;
 use pgsql_ast::ddl::CreateTable;
 use pgsql_ast::stmt::SelectStmt;
-use crate::wasm_plugin::WasmPlugin;
+use pgsql_checker::rule::{CheckRule, RuleCtx};
+use std::sync::Arc;
 
 /// Adapts a WasmPlugin as a CheckRule for use in the Checker walker.
 pub struct WasmCheckRule {

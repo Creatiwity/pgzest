@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::role::{sequence_from_path, FileRole};
+use crate::role::{FileRole, sequence_from_path};
 use crate::source::{DirSource, MigrationDirSource, MultiSource, SchemaSource};
 
 // ── Top-level config ──────────────────────────────────────────────────────────
@@ -45,9 +45,15 @@ impl Default for MigrationsConfig {
     }
 }
 
-fn default_migrations_dir() -> String { "migrations/".into() }
-fn default_format()        -> String { "{sequence:06}_{name}.sql".into() }
-fn default_hash_journal()  -> String { "pgsql-tools-hashes.json".into() }
+fn default_migrations_dir() -> String {
+    "migrations/".into()
+}
+fn default_format() -> String {
+    "{sequence:06}_{name}.sql".into()
+}
+fn default_hash_journal() -> String {
+    "pgsql-tools-hashes.json".into()
+}
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -61,7 +67,9 @@ pub struct SchemaConfig {
     pub search_path: Vec<String>,
 }
 
-fn default_search_path() -> Vec<String> { vec!["public".into()] }
+fn default_search_path() -> Vec<String> {
+    vec!["public".into()]
+}
 
 // ── Instrumentation ───────────────────────────────────────────────────────────
 
@@ -77,13 +85,23 @@ pub struct InstrumentationConfig {
 
 impl Default for InstrumentationConfig {
     fn default() -> Self {
-        Self { enabled: true, log_level: default_log_level(), log_target: default_log_target() }
+        Self {
+            enabled: true,
+            log_level: default_log_level(),
+            log_target: default_log_target(),
+        }
     }
 }
 
-fn default_true()       -> bool   { true }
-fn default_log_level()  -> String { "step".into() }
-fn default_log_target() -> String { "notify".into() }
+fn default_true() -> bool {
+    true
+}
+fn default_log_level() -> String {
+    "step".into()
+}
+fn default_log_target() -> String {
+    "notify".into()
+}
 
 // ── Lint ──────────────────────────────────────────────────────────────────────
 
@@ -116,13 +134,16 @@ impl ProjectConfig {
     pub fn load(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        toml::from_str(&content)
-            .map_err(|e| format!("cannot parse {}: {e}", path.display()))
+        toml::from_str(&content).map_err(|e| format!("cannot parse {}: {e}", path.display()))
     }
 
     /// Walk up from `start` looking for `pgsql-tools.config.toml`.
     pub fn find_and_load(start: &Path) -> Option<(PathBuf, Self)> {
-        let mut dir: &Path = if start.is_file() { start.parent()? } else { start };
+        let mut dir: &Path = if start.is_file() {
+            start.parent()?
+        } else {
+            start
+        };
         loop {
             let candidate = dir.join(Self::FILENAME);
             if candidate.exists() {
@@ -172,7 +193,9 @@ impl ProjectConfig {
         let path_canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
         if path_canon.starts_with(&mig_canon) {
-            return FileRole::Migration { sequence: sequence_from_path(&path_canon) };
+            return FileRole::Migration {
+                sequence: sequence_from_path(&path_canon),
+            };
         }
 
         if let Some(ref sdir) = self.schema.directory {

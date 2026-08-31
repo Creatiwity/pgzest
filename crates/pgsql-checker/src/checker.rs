@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use pgsql_ast::Statement;
-use pgsql_ast::ddl::CreateTrigger;
+use crate::diagnostic::Diagnostic;
 use crate::rule::{CheckRule, RuleCtx};
 use crate::schema::SchemaProvider;
-use crate::diagnostic::Diagnostic;
+use pgsql_ast::Statement;
+use pgsql_ast::ddl::CreateTrigger;
+use std::collections::HashMap;
 
 pub struct Checker {
     rules: Vec<Box<dyn CheckRule>>,
@@ -63,7 +63,12 @@ impl Checker {
         let first_new = diags.len();
 
         for rule in &self.rules {
-            let mut ctx = RuleCtx { schema, diags, options: serde_json::Value::Null, trigger_map };
+            let mut ctx = RuleCtx {
+                schema,
+                diags,
+                options: serde_json::Value::Null,
+                trigger_map,
+            };
             match stmt {
                 Select(sel) => rule.check_select(sel, &mut ctx),
                 Insert(ins) => rule.check_insert(ins, &mut ctx),
@@ -98,29 +103,42 @@ impl Checker {
 fn stmt_span(stmt: &Statement) -> Option<crate::diagnostic::Span> {
     use pgsql_ast::{DdlStatement, Statement::*};
     let (start, end) = match stmt {
-        Select(s)  => (s.span.start, s.span.end),
-        Insert(s)  => (s.span.start, s.span.end),
-        Update(s)  => (s.span.start, s.span.end),
-        Delete(s)  => (s.span.start, s.span.end),
-        Ddl(ddl)   => match ddl {
+        Select(s) => (s.span.start, s.span.end),
+        Insert(s) => (s.span.start, s.span.end),
+        Update(s) => (s.span.start, s.span.end),
+        Delete(s) => (s.span.start, s.span.end),
+        Ddl(ddl) => match ddl {
             // For functions/procedures, prefer body_start so inner diagnostics
             // are shown at the body ($$) rather than the CREATE keyword.
-            DdlStatement::CreateFunction(cf)  => (
-                if cf.body_start > 0 { cf.body_start } else { cf.span.start },
+            DdlStatement::CreateFunction(cf) => (
+                if cf.body_start > 0 {
+                    cf.body_start
+                } else {
+                    cf.span.start
+                },
                 cf.span.end,
             ),
             DdlStatement::CreateProcedure(cp) => (
-                if cp.body_start > 0 { cp.body_start } else { cp.span.start },
+                if cp.body_start > 0 {
+                    cp.body_start
+                } else {
+                    cp.span.start
+                },
                 cp.span.end,
             ),
-            DdlStatement::CreatePolicy(p)     => (p.span.start,  p.span.end),
-            DdlStatement::CreateTable(ct)     => (ct.span.start, ct.span.end),
+            DdlStatement::CreatePolicy(p) => (p.span.start, p.span.end),
+            DdlStatement::CreateTable(ct) => (ct.span.start, ct.span.end),
             _ => return None,
         },
     };
     // Span { 0, 0 } is the DUMMY sentinel — only skip when both are 0.
-    if start == 0 && end == 0 { return None; }
-    Some(crate::diagnostic::Span { start: start as usize, end: end as usize })
+    if start == 0 && end == 0 {
+        return None;
+    }
+    Some(crate::diagnostic::Span {
+        start: start as usize,
+        end: end as usize,
+    })
 }
 
 /// Scan all statements for CREATE TRIGGER and return a map from

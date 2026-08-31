@@ -92,9 +92,7 @@ fn check_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
                 RuleLevel::Error => Diagnostic::error(CODE, msg),
                 _ => Diagnostic::warning(CODE, msg),
             }
-            .with_hint(
-                "Remove the JOIN if unneeded, or reference a column from the joined table.",
-            );
+            .with_hint("Remove the JOIN if unneeded, or reference a column from the joined table.");
             out.push(d);
         }
     }
@@ -118,7 +116,11 @@ fn collect_table_refs(expr: &Expr, out: &mut HashSet<String>) {
                 collect_table_refs(a, out);
             }
         }
-        Expr::Case { operand, when_clauses, else_clause } => {
+        Expr::Case {
+            operand,
+            when_clauses,
+            else_clause,
+        } => {
             if let Some(op) = operand {
                 collect_table_refs(op, out);
             }
@@ -136,7 +138,9 @@ fn collect_table_refs(expr: &Expr, out: &mut HashSet<String>) {
                 collect_table_refs(e, out);
             }
         }
-        Expr::Between { expr, low, high, .. } => {
+        Expr::Between {
+            expr, low, high, ..
+        } => {
             collect_table_refs(expr, out);
             collect_table_refs(low, out);
             collect_table_refs(high, out);

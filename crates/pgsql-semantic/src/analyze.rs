@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use pgsql_ast::{NodeId, Span, Statement, DdlStatement, SelectItem};
 use pgsql_ast::types::DataType;
+use pgsql_ast::{DdlStatement, NodeId, SelectItem, Span, Statement};
 use pgsql_checker::schema::{SchemaProvider, object_name_to_string};
+use std::collections::HashMap;
 
-use crate::scope::{ScopeId, ScopeTree, ColumnBinding};
-use crate::symbol::{Symbol, SymbolKind, SymbolTable};
 use crate::infer::{OutputColumn, infer_expr_type};
+use crate::scope::{ColumnBinding, ScopeId, ScopeTree};
+use crate::symbol::{Symbol, SymbolKind, SymbolTable};
 
 /// Full result of semantic analysis on a set of SQL statements.
 #[derive(Debug)]
@@ -52,13 +52,16 @@ impl<'a> Analyzer<'a> {
 
         // Populate symbol table from schema provider (tables + functions)
         for table_name in schema.all_table_names() {
-            symbols.add_table(table_name, Symbol {
-                name: table_name.to_string(),
-                kind: SymbolKind::Table,
-                data_type: DataType::Custom(table_name.to_string()),
-                node_id: NodeId::DUMMY,
-                span: Span::DUMMY,
-            });
+            symbols.add_table(
+                table_name,
+                Symbol {
+                    name: table_name.to_string(),
+                    kind: SymbolKind::Table,
+                    data_type: DataType::Custom(table_name.to_string()),
+                    node_id: NodeId::DUMMY,
+                    span: Span::DUMMY,
+                },
+            );
         }
 
         Self {
@@ -88,24 +91,30 @@ impl<'a> Analyzer<'a> {
                         // Register function in symbol table
                         let name = object_name_to_string(&cf.name);
                         let ret_type = return_type_to_data_type(&cf.return_type);
-                        self.symbols.add_function(name.clone(), Symbol {
-                            name,
-                            kind: SymbolKind::Function,
-                            data_type: ret_type,
-                            node_id: cf.id,
-                            span: cf.span,
-                        });
+                        self.symbols.add_function(
+                            name.clone(),
+                            Symbol {
+                                name,
+                                kind: SymbolKind::Function,
+                                data_type: ret_type,
+                                node_id: cf.id,
+                                span: cf.span,
+                            },
+                        );
                     }
                     DdlStatement::CreateTable(ct) => {
                         // Register table in symbol table (from DDL, not just schema)
                         let name = object_name_to_string(&ct.name);
-                        self.symbols.add_table(name.clone(), Symbol {
-                            name,
-                            kind: SymbolKind::Table,
-                            data_type: DataType::Custom("table".into()),
-                            node_id: ct.id,
-                            span: ct.span,
-                        });
+                        self.symbols.add_table(
+                            name.clone(),
+                            Symbol {
+                                name,
+                                kind: SymbolKind::Table,
+                                data_type: DataType::Custom("table".into()),
+                                node_id: ct.id,
+                                span: ct.span,
+                            },
+                        );
                     }
                     _ => {}
                 }
@@ -135,9 +144,15 @@ impl<'a> Analyzer<'a> {
         if let Some(w) = &sel.where_clause {
             self.infer_and_store(w, scope_id);
         }
-        for e in &sel.group_by { self.infer_and_store(e, scope_id); }
-        if let Some(h) = &sel.having { self.infer_and_store(h, scope_id); }
-        for o in &sel.order_by { self.infer_and_store(&o.expr, scope_id); }
+        for e in &sel.group_by {
+            self.infer_and_store(e, scope_id);
+        }
+        if let Some(h) = &sel.having {
+            self.infer_and_store(h, scope_id);
+        }
+        for o in &sel.order_by {
+            self.infer_and_store(&o.expr, scope_id);
+        }
 
         // Build output columns from SELECT list
         let mut output = Vec::new();
@@ -149,7 +164,8 @@ impl<'a> Analyzer<'a> {
                     let col_snapshots: Vec<(String, DataType)> = {
                         let scope = self.scopes.get(scope_id);
                         if let Some(s) = scope {
-                            s.columns.values()
+                            s.columns
+                                .values()
                                 .filter(|c| c.table_alias.is_some()) // only qualified entries to avoid duplicates
                                 .map(|c| (c.name.clone(), c.data_type.clone()))
                                 .collect()
@@ -166,9 +182,12 @@ impl<'a> Analyzer<'a> {
                     }
                 }
                 SelectItem::Expr { expr, alias } => {
-                    let ty = self.infer_and_store(expr, scope_id)
+                    let ty = self
+                        .infer_and_store(expr, scope_id)
                         .unwrap_or(DataType::Text);
-                    let name = alias.as_ref().map(|a| a.value.clone())
+                    let name = alias
+                        .as_ref()
+                        .map(|a| a.value.clone())
                         .or_else(|| expr_to_column_name(expr));
                     output.push(OutputColumn {
                         name,
@@ -186,37 +205,44 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Bind a table reference into the current scope (adds its columns).
-    fn bind_table_ref(
-        &mut self,
-        table_ref: &pgsql_ast::stmt::TableRef,
-        scope_id: ScopeId,
-    ) {
+    fn bind_table_ref(&mut self, table_ref: &pgsql_ast::stmt::TableRef, scope_id: ScopeId) {
         let table_name = object_name_to_string(&table_ref.name);
-        let alias = table_ref.alias.as_ref().map(|a| a.value.clone())
+        let alias = table_ref
+            .alias
+            .as_ref()
+            .map(|a| a.value.clone())
             .unwrap_or_else(|| table_name.clone());
 
         if let Some(ts) = self.schema.get_table(&table_name) {
             // Clone to avoid borrow conflict with scopes.get_mut
-            let col_data: Vec<(String, DataType)> = ts.columns.iter()
+            let col_data: Vec<(String, DataType)> = ts
+                .columns
+                .iter()
                 .map(|col| (col.name.clone(), col.data_type.clone()))
                 .collect();
 
             let scope = self.scopes.get_mut(scope_id).unwrap();
             for (col_name, col_type) in col_data {
                 let key = format!("{}.{}", alias.to_lowercase(), col_name.to_lowercase());
-                scope.columns.insert(key, ColumnBinding {
-                    name: col_name.clone(),
-                    table_alias: Some(alias.clone()),
-                    data_type: col_type.clone(),
-                    source_node: NodeId::DUMMY,
-                });
+                scope.columns.insert(
+                    key,
+                    ColumnBinding {
+                        name: col_name.clone(),
+                        table_alias: Some(alias.clone()),
+                        data_type: col_type.clone(),
+                        source_node: NodeId::DUMMY,
+                    },
+                );
                 // Also register unqualified (first one wins)
-                scope.columns.entry(col_name.to_lowercase()).or_insert(ColumnBinding {
-                    name: col_name,
-                    table_alias: Some(alias.clone()),
-                    data_type: col_type,
-                    source_node: NodeId::DUMMY,
-                });
+                scope
+                    .columns
+                    .entry(col_name.to_lowercase())
+                    .or_insert(ColumnBinding {
+                        name: col_name,
+                        table_alias: Some(alias.clone()),
+                        data_type: col_type,
+                        source_node: NodeId::DUMMY,
+                    });
             }
         }
     }
@@ -251,9 +277,7 @@ fn return_type_to_data_type(rt: &pgsql_ast::ddl::ReturnType) -> DataType {
 fn expr_to_column_name(expr: &pgsql_ast::expr::Expr) -> Option<String> {
     match expr {
         pgsql_ast::expr::Expr::Column(col_ref) => Some(col_ref.column.value.clone()),
-        pgsql_ast::expr::Expr::FunctionCall { name, .. } => {
-            Some(name.0.last()?.value.clone())
-        }
+        pgsql_ast::expr::Expr::FunctionCall { name, .. } => Some(name.0.last()?.value.clone()),
         _ => None,
     }
 }

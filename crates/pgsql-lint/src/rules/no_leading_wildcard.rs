@@ -63,19 +63,19 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             right,
             left,
         } => {
-            if let Expr::Literal(Literal::String(pattern)) = right.as_ref() {
-                if pattern.starts_with('%') {
-                    let msg = format!(
-                        "LIKE pattern '{}' has a leading wildcard — index cannot be used",
-                        pattern
-                    );
-                    let d = match config.rules.no_leading_wildcard {
+            if let Expr::Literal(Literal::String(pattern)) = right.as_ref()
+                && pattern.starts_with('%')
+            {
+                let msg = format!(
+                    "LIKE pattern '{}' has a leading wildcard — index cannot be used",
+                    pattern
+                );
+                let d = match config.rules.no_leading_wildcard {
                         RuleLevel::Error => Diagnostic::error(CODE, msg),
                         _ => Diagnostic::warning(CODE, msg),
                     }
                     .with_hint("Use a GIN index with pg_trgm (USING gin with operator class gin_trgm_ops) for contains/suffix searches.");
-                    out.push(d);
-                }
+                out.push(d);
             }
             // Recurse into left side too
             visit_expr(left, config, out);
@@ -97,7 +97,11 @@ fn visit_expr_children(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnosti
                 visit_expr(a, config, out);
             }
         }
-        Expr::Case { operand, when_clauses, else_clause } => {
+        Expr::Case {
+            operand,
+            when_clauses,
+            else_clause,
+        } => {
             if let Some(op) = operand {
                 visit_expr(op, config, out);
             }
@@ -115,7 +119,9 @@ fn visit_expr_children(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnosti
                 visit_expr(e, config, out);
             }
         }
-        Expr::Between { expr, low, high, .. } => {
+        Expr::Between {
+            expr, low, high, ..
+        } => {
             visit_expr(expr, config, out);
             visit_expr(low, config, out);
             visit_expr(high, config, out);

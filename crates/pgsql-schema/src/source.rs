@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::role::{sequence_from_path, FileRole};
+use crate::role::{FileRole, sequence_from_path};
 
 // ── Origin ────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,10 @@ pub struct FileSource {
 
 impl FileSource {
     pub fn new(path: impl Into<PathBuf>, role: FileRole) -> Self {
-        Self { path: path.into(), role }
+        Self {
+            path: path.into(),
+            role,
+        }
     }
 }
 
@@ -47,7 +50,10 @@ impl SchemaSource for FileSource {
         };
         let len = sql.len();
         vec![SqlChunk {
-            origin: SourceOrigin { path: self.path.clone(), byte_range: 0..len },
+            origin: SourceOrigin {
+                path: self.path.clone(),
+                byte_range: 0..len,
+            },
             sql,
             role: self.role.clone(),
         }]
@@ -64,7 +70,10 @@ pub struct DirSource {
 
 impl DirSource {
     pub fn new(root: impl Into<PathBuf>, role: FileRole) -> Self {
-        Self { root: root.into(), role }
+        Self {
+            root: root.into(),
+            role,
+        }
     }
 }
 
@@ -72,9 +81,7 @@ impl SchemaSource for DirSource {
     fn chunks(&self) -> Vec<SqlChunk> {
         sorted_sql_files(&self.root)
             .into_iter()
-            .flat_map(|path| {
-                FileSource::new(path, self.role.clone()).chunks()
-            })
+            .flat_map(|path| FileSource::new(path, self.role.clone()).chunks())
             .collect()
     }
 }
@@ -124,14 +131,13 @@ impl MultiSource {
 
 impl SchemaSource for MultiSource {
     fn chunks(&self) -> Vec<SqlChunk> {
-        let mut all: Vec<SqlChunk> =
-            self.sources.iter().flat_map(|s| s.chunks()).collect();
+        let mut all: Vec<SqlChunk> = self.sources.iter().flat_map(|s| s.chunks()).collect();
 
         // Stable sort: migrations first (by sequence), then schema, then query.
         all.sort_by_key(|c| match &c.role {
             FileRole::Migration { sequence } => (0u8, *sequence),
             FileRole::Schema => (1, 0),
-            FileRole::Query  => (2, 0),
+            FileRole::Query => (2, 0),
         });
 
         all
@@ -149,7 +155,11 @@ pub struct InlineSource {
 
 impl InlineSource {
     pub fn new(label: impl Into<String>, sql: impl Into<String>, role: FileRole) -> Self {
-        Self { label: label.into(), sql: sql.into(), role }
+        Self {
+            label: label.into(),
+            sql: sql.into(),
+            role,
+        }
     }
 }
 

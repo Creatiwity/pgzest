@@ -23,7 +23,10 @@ pub fn parse_plpgsql_body(body: &str) -> Result<PlpgsqlBody, PlParseError> {
 /// Like `parse_plpgsql_body` but takes the byte offset of the body string
 /// within the full source file. Used to produce file-accurate diagnostic spans
 /// for SQL fragments embedded in PL/pgSQL bodies.
-pub fn parse_plpgsql_body_at(body: &str, file_body_offset: usize) -> Result<PlpgsqlBody, PlParseError> {
+pub fn parse_plpgsql_body_at(
+    body: &str,
+    file_body_offset: usize,
+) -> Result<PlpgsqlBody, PlParseError> {
     let mut lexer = Lexer::new(body);
     let (tokens, token_offsets) = lexer.tokenize_all_with_offsets();
     let mut parser = Parser {
@@ -205,7 +208,7 @@ impl Parser {
                 return Err(PlParseError::UnexpectedToken {
                     token: format!("{:?}", other),
                     pos: self.pos,
-                })
+                });
             }
         };
 
@@ -648,12 +651,10 @@ impl Parser {
         let mut i = self.pos;
 
         // Skip the target part: [NEW|OLD|ident] [. ident]*
-        let is_target_start = match self.tokens.get(i) {
-            Some(Token::Keyword(Keyword::New))
-            | Some(Token::Keyword(Keyword::Old))
-            | Some(Token::Ident(_)) => true,
-            _ => false,
-        };
+        let is_target_start = matches!(
+            self.tokens.get(i),
+            Some(Token::Keyword(Keyword::New) | Token::Keyword(Keyword::Old) | Token::Ident(_))
+        );
         if !is_target_start {
             return false;
         }
@@ -715,12 +716,15 @@ impl Parser {
                 _ => {
                     return Err(PlParseError::Unsupported(
                         "unexpected token in assignment target".to_string(),
-                    ))
+                    ));
                 }
             };
 
             // Consume := or =
-            if !self.eat_token(&Token::ColonEq) && !self.eat_token(&Token::Assign) && !self.eat_token(&Token::Eq) {
+            if !self.eat_token(&Token::ColonEq)
+                && !self.eat_token(&Token::Assign)
+                && !self.eat_token(&Token::Eq)
+            {
                 return Err(PlParseError::UnexpectedToken {
                     token: format!("{:?}", self.peek()),
                     pos: self.pos,
@@ -790,24 +794,26 @@ impl Parser {
                 // Reconstruct SELECT without INTO clause for sqlparser
                 let before_into = &fragment[..into_pos];
                 // Find what comes after the targets (FROM clause etc.)
-                let _rest_pos = into_pos + 5 + (after_into.len() - targets_str_start.len()) + targets_end;
+                let _rest_pos =
+                    into_pos + 5 + (after_into.len() - targets_str_start.len()) + targets_end;
                 // Be more careful: find the actual rest
                 let rest = if targets_end < targets_str_start.len() {
                     &targets_str_start[targets_end..]
                 } else {
                     ""
                 };
-                let select_without_into =
-                    format!("{} {}", before_into.trim(), rest.trim()).trim().to_string();
+                let select_without_into = format!("{} {}", before_into.trim(), rest.trim())
+                    .trim()
+                    .to_string();
 
-                if let Ok(stmt) = self.parse_sql_fragment(&select_without_into, frag_start) {
-                    if let pgsql_ast::Statement::Select(sel) = stmt {
-                        return Ok(PlStatement::SelectInto {
-                            strict,
-                            targets,
-                            query: sel,
-                        });
-                    }
+                if let Ok(stmt) = self.parse_sql_fragment(&select_without_into, frag_start)
+                    && let pgsql_ast::Statement::Select(sel) = stmt
+                {
+                    return Ok(PlStatement::SelectInto {
+                        strict,
+                        targets,
+                        query: sel,
+                    });
                 }
             }
         }
@@ -922,7 +928,9 @@ impl Parser {
 
             let from = self.expr_fragment_to_plexpr(&from_str)?;
             let to = self.expr_fragment_to_plexpr(&to_str)?;
-            let by = by_str.map(|s| self.expr_fragment_to_plexpr(&s)).transpose()?;
+            let by = by_str
+                .map(|s| self.expr_fragment_to_plexpr(&s))
+                .transpose()?;
 
             self.expect_keyword(Keyword::Loop)?;
             let stmts = self.parse_statements()?;
@@ -1307,16 +1315,12 @@ impl Parser {
 
         // Try to parse via sqlparser as a SELECT expression
         let sql = format!("SELECT {}", trimmed);
-        if let Ok(stmts) = crate::parse(&sql) {
-            if !stmts.is_empty() {
-                if let pgsql_ast::Statement::Select(ref sel) = stmts[0] {
-                    if let Some(pgsql_ast::stmt::SelectItem::Expr { expr, .. }) =
-                        sel.columns.first()
-                    {
-                        return Ok(PlExpr::Sql(expr.clone()));
-                    }
-                }
-            }
+        if let Ok(stmts) = crate::parse(&sql)
+            && !stmts.is_empty()
+            && let pgsql_ast::Statement::Select(ref sel) = stmts[0]
+            && let Some(pgsql_ast::stmt::SelectItem::Expr { expr, .. }) = sel.columns.first()
+        {
+            return Ok(PlExpr::Sql(expr.clone()));
         }
 
         // If the fragment looks complex (cannot be a bare identifier), treat it
@@ -1426,7 +1430,11 @@ impl Parser {
     /// captured immediately before the extraction that produced `sql`; it's
     /// used to compute the fragment's byte offset within the source file so
     /// that diagnostic spans point to the correct line.
-    fn parse_sql_fragment(&self, sql: &str, token_start: usize) -> Result<pgsql_ast::Statement, PlParseError> {
+    fn parse_sql_fragment(
+        &self,
+        sql: &str,
+        token_start: usize,
+    ) -> Result<pgsql_ast::Statement, PlParseError> {
         let trimmed = sql.trim().trim_end_matches(';');
         let full = format!("{};", trimmed);
         match crate::parse(&full) {
@@ -1434,10 +1442,7 @@ impl Parser {
                 let mut stmt = stmts.into_iter().next().unwrap();
                 // Shift the statement span from fragment-relative (start=0) to
                 // the actual byte position in the source file.
-                let body_offset = self.token_offsets
-                    .get(token_start)
-                    .copied()
-                    .unwrap_or(0);
+                let body_offset = self.token_offsets.get(token_start).copied().unwrap_or(0);
                 let file_offset = self.file_body_offset + body_offset;
                 if file_offset > 0 {
                     shift_stmt_span(&mut stmt, file_offset);
@@ -1457,28 +1462,28 @@ fn shift_stmt_span(stmt: &mut pgsql_ast::Statement, offset: usize) {
     match stmt {
         Select(s) => {
             s.span.start = s.span.start.saturating_add(off);
-            s.span.end   = s.span.end.saturating_add(off);
+            s.span.end = s.span.end.saturating_add(off);
         }
         Insert(s) => {
             s.span.start = s.span.start.saturating_add(off);
-            s.span.end   = s.span.end.saturating_add(off);
+            s.span.end = s.span.end.saturating_add(off);
         }
         Update(s) => {
             s.span.start = s.span.start.saturating_add(off);
-            s.span.end   = s.span.end.saturating_add(off);
+            s.span.end = s.span.end.saturating_add(off);
         }
         Delete(s) => {
             s.span.start = s.span.start.saturating_add(off);
-            s.span.end   = s.span.end.saturating_add(off);
+            s.span.end = s.span.end.saturating_add(off);
         }
         Ddl(ddl) => match ddl {
             DdlStatement::CreateTable(ct) => {
                 ct.span.start = ct.span.start.saturating_add(off);
-                ct.span.end   = ct.span.end.saturating_add(off);
+                ct.span.end = ct.span.end.saturating_add(off);
             }
             DdlStatement::CreateFunction(cf) => {
                 cf.span.start = cf.span.start.saturating_add(off);
-                cf.span.end   = cf.span.end.saturating_add(off);
+                cf.span.end = cf.span.end.saturating_add(off);
             }
             _ => {}
         },

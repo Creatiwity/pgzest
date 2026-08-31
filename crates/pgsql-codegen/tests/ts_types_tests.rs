@@ -14,12 +14,27 @@ fn generates_interface_for_returns_table() {
     ";
     let ts = generate_ts_types_from_sql(sql);
     println!("{}", ts);
-    assert!(ts.contains("export interface ProjectSummaryRow {"),
-        "expected ProjectSummaryRow interface, got:\n{}", ts);
-    assert!(ts.contains("project_id: string;"), "expected project_id: string");
-    assert!(ts.contains("project_name: string;"), "expected project_name: string");
-    assert!(ts.contains("total_tasks: number;"), "expected total_tasks: number");
-    assert!(ts.contains("completion_rate: number;"), "expected completion_rate: number");
+    assert!(
+        ts.contains("export interface ProjectSummaryRow {"),
+        "expected ProjectSummaryRow interface, got:\n{}",
+        ts
+    );
+    assert!(
+        ts.contains("project_id: string;"),
+        "expected project_id: string"
+    );
+    assert!(
+        ts.contains("project_name: string;"),
+        "expected project_name: string"
+    );
+    assert!(
+        ts.contains("total_tasks: number;"),
+        "expected total_tasks: number"
+    );
+    assert!(
+        ts.contains("completion_rate: number;"),
+        "expected completion_rate: number"
+    );
 }
 
 #[test]
@@ -32,13 +47,19 @@ fn generates_interface_for_named_query() {
     ";
     let ts = generate_ts_types_from_sql(sql);
     println!("{}", ts);
-    assert!(ts.contains("export interface UserRecord {"),
-        "expected UserRecord interface, got:\n{}", ts);
+    assert!(
+        ts.contains("export interface UserRecord {"),
+        "expected UserRecord interface, got:\n{}",
+        ts
+    );
 }
 
 #[test]
 fn no_interfaces_emits_comment() {
     let sql = "CREATE TABLE events (id UUID PRIMARY KEY, payload JSONB);";
     let ts = generate_ts_types_from_sql(sql);
-    assert!(ts.contains("No named queries"), "expected no-interfaces comment");
+    assert!(
+        ts.contains("No named queries"),
+        "expected no-interfaces comment"
+    );
 }

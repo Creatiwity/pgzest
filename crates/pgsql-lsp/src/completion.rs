@@ -43,7 +43,11 @@ pub fn analyze_cursor(text: &str, cursor_offset: usize) -> CursorCtx {
     let clause = detect_clause(prefix);
     let bindings = extract_table_bindings(text);
 
-    CursorCtx { clause, qualifier, bindings }
+    CursorCtx {
+        clause,
+        qualifier,
+        bindings,
+    }
 }
 
 pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<CompletionItem> {
@@ -53,8 +57,14 @@ pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<Co
     match &ctx.clause {
         ClauseCtx::StatementStart => {
             for kw in &[
-                "SELECT", "INSERT INTO", "UPDATE", "DELETE FROM",
-                "CREATE TABLE", "ALTER TABLE", "DROP TABLE", "WITH",
+                "SELECT",
+                "INSERT INTO",
+                "UPDATE",
+                "DELETE FROM",
+                "CREATE TABLE",
+                "ALTER TABLE",
+                "DROP TABLE",
+                "WITH",
             ] {
                 items.push(kw_item(kw));
             }
@@ -64,7 +74,7 @@ pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<Co
             for name in schema.all_table_names() {
                 // Strip schema prefix from label — "public.users" → "users".
                 // The checker's 3-step fallback resolves unqualified names correctly.
-                let label = name.split('.').last().unwrap_or(name);
+                let label = name.split('.').next_back().unwrap_or(name);
                 if seen.insert(label.to_string()) {
                     items.push(CompletionItem {
                         label: label.to_string(),
@@ -76,15 +86,22 @@ pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<Co
             }
         }
 
-        ClauseCtx::SelectList | ClauseCtx::WhereHaving | ClauseCtx::SetClause | ClauseCtx::OrderGroup => {
+        ClauseCtx::SelectList
+        | ClauseCtx::WhereHaving
+        | ClauseCtx::SetClause
+        | ClauseCtx::OrderGroup => {
             if let Some(alias) = &ctx.qualifier {
                 // Qualified "alias." → show only columns of that alias
                 for binding in &ctx.bindings {
-                    if binding.alias == *alias {
-                        if let Some(ts) = schema.get_table(&binding.table) {
-                            for col in &ts.columns {
-                                items.push(col_item(&col.name, data_type_to_ts(&col.data_type), &binding.alias));
-                            }
+                    if binding.alias == *alias
+                        && let Some(ts) = schema.get_table(&binding.table)
+                    {
+                        for col in &ts.columns {
+                            items.push(col_item(
+                                &col.name,
+                                data_type_to_ts(&col.data_type),
+                                &binding.alias,
+                            ));
                         }
                     }
                 }
@@ -110,8 +127,17 @@ pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<Co
                 let kws: &[&str] = match ctx.clause {
                     ClauseCtx::SelectList => &["DISTINCT", "AS", "COUNT(*)", "COALESCE", "NULLIF"],
                     ClauseCtx::WhereHaving => &[
-                        "AND", "OR", "NOT", "IS NULL", "IS NOT NULL",
-                        "IN", "NOT IN", "BETWEEN", "LIKE", "ILIKE", "EXISTS",
+                        "AND",
+                        "OR",
+                        "NOT",
+                        "IS NULL",
+                        "IS NOT NULL",
+                        "IN",
+                        "NOT IN",
+                        "BETWEEN",
+                        "LIKE",
+                        "ILIKE",
+                        "EXISTS",
                     ],
                     ClauseCtx::OrderGroup => &["ASC", "DESC", "NULLS FIRST", "NULLS LAST"],
                     _ => &[],
@@ -135,8 +161,8 @@ fn detect_clause(prefix: &str) -> ClauseCtx {
     let bytes = upper.as_bytes();
 
     let is_word_boundary = |pos: usize, len: usize| -> bool {
-        let before = pos == 0
-            || (!bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_');
+        let before =
+            pos == 0 || (!bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_');
         let after_pos = pos + len;
         let after = after_pos >= bytes.len()
             || (!bytes[after_pos].is_ascii_alphanumeric() && bytes[after_pos] != b'_');
@@ -165,18 +191,22 @@ fn detect_clause(prefix: &str) -> ClauseCtx {
 
     for (kw, ctx) in candidates {
         let klen = kw.len();
-        if upper.len() < klen { continue; }
+        if upper.len() < klen {
+            continue;
+        }
         // Scan from the right for the rightmost word-boundary match
         let mut pos = upper.len() - klen;
         loop {
             if upper[pos..pos + klen] == **kw && is_word_boundary(pos, klen) {
-                if best_pos.map_or(true, |p| pos > p) {
+                if best_pos.is_none_or(|p| pos > p) {
                     best_pos = Some(pos);
                     best_ctx = ctx.clone();
                 }
                 break;
             }
-            if pos == 0 { break; }
+            if pos == 0 {
+                break;
+            }
             pos -= 1;
         }
     }
@@ -189,7 +219,7 @@ fn detect_clause(prefix: &str) -> ClauseCtx {
 fn detect_qualifier(prefix: &str) -> Option<String> {
     // Check if the text right before the cursor looks like "alias."
     // (allowing optional trailing spaces between alias and dot, but not before cursor)
-    let trimmed = prefix.trim_end_matches(|c: char| c == ' ' || c == '\t');
+    let trimmed = prefix.trim_end_matches([' ', '\t']);
     if !trimmed.ends_with('.') {
         return None;
     }
@@ -199,7 +229,11 @@ fn detect_qualifier(prefix: &str) -> Option<String> {
         .map(|i| i + 1)
         .unwrap_or(0);
     let alias = &before_dot[start..];
-    if alias.is_empty() { None } else { Some(alias.to_lowercase()) }
+    if alias.is_empty() {
+        None
+    } else {
+        Some(alias.to_lowercase())
+    }
 }
 
 // ── Table binding extraction ──────────────────────────────────────────────────
@@ -265,11 +299,18 @@ pub fn extract_table_bindings(text: &str) -> Vec<TableBinding> {
                     next
                 } else {
                     // Fall back to the table name (without schema prefix)
-                    table_name.rsplit('.').next().unwrap_or(&table_name).to_string()
+                    table_name
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or(&table_name)
+                        .to_string()
                 }
             };
 
-            bindings.push(TableBinding { alias, table: table_name });
+            bindings.push(TableBinding {
+                alias,
+                table: table_name,
+            });
         }
     }
 
@@ -282,8 +323,8 @@ fn is_word_boundary_at(upper: &str, pos: usize, len: usize) -> bool {
     let bytes = upper.as_bytes();
     let before = pos == 0 || (!bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_');
     let after_pos = pos + len;
-    let after =
-        after_pos >= bytes.len() || (!bytes[after_pos].is_ascii_alphanumeric() && bytes[after_pos] != b'_');
+    let after = after_pos >= bytes.len()
+        || (!bytes[after_pos].is_ascii_alphanumeric() && bytes[after_pos] != b'_');
     before && after
 }
 
@@ -302,12 +343,44 @@ fn is_ident_char(b: u8) -> bool {
 fn is_sql_keyword(s: &str) -> bool {
     matches!(
         s.to_uppercase().as_str(),
-        "WHERE" | "ON" | "AND" | "OR" | "NOT" | "GROUP" | "ORDER" | "HAVING"
-        | "LIMIT" | "OFFSET" | "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS"
-        | "SET" | "RETURNING" | "INTO" | "VALUES" | "SELECT" | "INSERT"
-        | "UPDATE" | "DELETE" | "CREATE" | "ALTER" | "DROP" | "WITH"
-        | "AS" | "JOIN" | "FROM" | "DISTINCT" | "ALL" | "UNION" | "EXCEPT"
-        | "INTERSECT" | "LATERAL" | "NATURAL" | "USING"
+        "WHERE"
+            | "ON"
+            | "AND"
+            | "OR"
+            | "NOT"
+            | "GROUP"
+            | "ORDER"
+            | "HAVING"
+            | "LIMIT"
+            | "OFFSET"
+            | "INNER"
+            | "LEFT"
+            | "RIGHT"
+            | "FULL"
+            | "CROSS"
+            | "SET"
+            | "RETURNING"
+            | "INTO"
+            | "VALUES"
+            | "SELECT"
+            | "INSERT"
+            | "UPDATE"
+            | "DELETE"
+            | "CREATE"
+            | "ALTER"
+            | "DROP"
+            | "WITH"
+            | "AS"
+            | "JOIN"
+            | "FROM"
+            | "DISTINCT"
+            | "ALL"
+            | "UNION"
+            | "EXCEPT"
+            | "INTERSECT"
+            | "LATERAL"
+            | "NATURAL"
+            | "USING"
     )
 }
 

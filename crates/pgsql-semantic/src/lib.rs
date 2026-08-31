@@ -1,18 +1,16 @@
+pub mod analyze;
+pub mod infer;
 pub mod scope;
 pub mod symbol;
-pub mod infer;
-pub mod analyze;
 
-pub use analyze::{analyze, SemanticResult};
+pub use analyze::{SemanticResult, analyze};
+pub use infer::{OutputColumn, data_type_to_sql, data_type_to_ts};
 pub use scope::{ScopeId, ScopeTree};
 pub use symbol::{Symbol, SymbolKind, SymbolTable};
-pub use infer::{OutputColumn, data_type_to_ts, data_type_to_sql};
 
 /// Convert ObjectName to a simple string (last part only for schema-qualified names).
 pub(crate) fn schema_name(name: &pgsql_ast::expr::ObjectName) -> String {
-    name.0.last()
-        .map(|i| i.value.clone())
-        .unwrap_or_default()
+    name.0.last().map(|i| i.value.clone()).unwrap_or_default()
 }
 
 /// Analyze and return both diagnostics and the semantic result.
@@ -30,7 +28,10 @@ pub fn analyze_sql(
         Err(e) => {
             let dummy_schema = pgsql_checker::DdlSchemaProvider::from_statements(&[]);
             (
-                vec![pgsql_checker::Diagnostic::error(pgsql_checker::codes::PARSE_ERROR, format!("parse error: {e}"))],
+                vec![pgsql_checker::Diagnostic::error(
+                    pgsql_checker::codes::PARSE_ERROR,
+                    format!("parse error: {e}"),
+                )],
                 analyze(&[], &dummy_schema),
             )
         }

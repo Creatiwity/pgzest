@@ -1,8 +1,8 @@
-use pgsql_ast::NodeId;
-use pgsql_ast::types::DataType;
-use pgsql_ast::expr::{Expr, Literal, BinaryOp};
 use crate::scope::{ScopeId, ScopeTree};
 use crate::symbol::SymbolTable;
+use pgsql_ast::NodeId;
+use pgsql_ast::expr::{BinaryOp, Expr, Literal};
+use pgsql_ast::types::DataType;
 use pgsql_checker::schema::SchemaProvider;
 
 /// A resolved output column from a SELECT.
@@ -53,10 +53,10 @@ pub fn infer_expr_type(
             if let Some(tbl) = &col_ref.table {
                 let tbl_lower = tbl.value.to_lowercase();
                 let key = format!("{}.{}", tbl_lower, col_lower);
-                if let Some(scope) = scopes.get(scope_id) {
-                    if let Some(binding) = scope.columns.get(&key) {
-                        return Some(binding.data_type.clone());
-                    }
+                if let Some(scope) = scopes.get(scope_id)
+                    && let Some(binding) = scope.columns.get(&key)
+                {
+                    return Some(binding.data_type.clone());
                 }
             }
             // Unqualified: search all columns in scope chain
@@ -76,17 +76,27 @@ pub fn infer_expr_type(
         Expr::BinaryOp { op, left, right } => {
             match op {
                 // Comparison operators → Boolean
-                BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Lt | BinaryOp::Lte
-                | BinaryOp::Gt | BinaryOp::Gte | BinaryOp::And | BinaryOp::Or
-                | BinaryOp::Like | BinaryOp::NotLike | BinaryOp::ILike
-                | BinaryOp::Is | BinaryOp::IsNot | BinaryOp::In | BinaryOp::NotIn => {
-                    Some(DataType::Boolean)
-                }
+                BinaryOp::Eq
+                | BinaryOp::NotEq
+                | BinaryOp::Lt
+                | BinaryOp::Lte
+                | BinaryOp::Gt
+                | BinaryOp::Gte
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::Like
+                | BinaryOp::NotLike
+                | BinaryOp::ILike
+                | BinaryOp::Is
+                | BinaryOp::IsNot
+                | BinaryOp::In
+                | BinaryOp::NotIn => Some(DataType::Boolean),
                 // Arithmetic — use left operand type as proxy
-                BinaryOp::Plus | BinaryOp::Minus | BinaryOp::Multiply
-                | BinaryOp::Divide | BinaryOp::Modulo => {
-                    infer_expr_type(left, scope_id, scopes, symbols, schema)
-                }
+                BinaryOp::Plus
+                | BinaryOp::Minus
+                | BinaryOp::Multiply
+                | BinaryOp::Divide
+                | BinaryOp::Modulo => infer_expr_type(left, scope_id, scopes, symbols, schema),
                 // Custom / extension operators — ask the schema provider (e.g. PostGIS plugin)
                 BinaryOp::Custom(op_sym) => {
                     let left_ty = infer_expr_type(left, scope_id, scopes, symbols, schema)
@@ -99,15 +109,12 @@ pub fn infer_expr_type(
         }
 
         // Unary
-        Expr::UnaryOp { expr, .. } => {
-            infer_expr_type(expr, scope_id, scopes, symbols, schema)
-        }
+        Expr::UnaryOp { expr, .. } => infer_expr_type(expr, scope_id, scopes, symbols, schema),
 
         // Case — use type of first THEN clause
-        Expr::Case { when_clauses, .. } => {
-            when_clauses.first()
-                .and_then(|(_, then)| infer_expr_type(then, scope_id, scopes, symbols, schema))
-        }
+        Expr::Case { when_clauses, .. } => when_clauses
+            .first()
+            .and_then(|(_, then)| infer_expr_type(then, scope_id, scopes, symbols, schema)),
 
         // Function calls — look up return type in symbol table
         Expr::FunctionCall { name, .. } => {
@@ -115,17 +122,26 @@ pub fn infer_expr_type(
             // Known built-ins with fixed return types
             match func_name.to_lowercase().as_str() {
                 "count" | "count_distinct" => Some(DataType::BigInt),
-                "sum" | "avg" => Some(DataType::Numeric { precision: None, scale: None }),
+                "sum" | "avg" => Some(DataType::Numeric {
+                    precision: None,
+                    scale: None,
+                }),
                 "min" | "max" => None, // depends on argument — skip for now
                 "now" | "current_timestamp" => Some(DataType::TimestampTz),
-                "lower" | "upper" | "trim" | "concat" | "substr" | "replace" => Some(DataType::Text),
+                "lower" | "upper" | "trim" | "concat" | "substr" | "replace" => {
+                    Some(DataType::Text)
+                }
                 "length" | "char_length" => Some(DataType::Integer),
-                "round" | "ceil" | "floor" | "abs" => Some(DataType::Numeric { precision: None, scale: None }),
+                "round" | "ceil" | "floor" | "abs" => Some(DataType::Numeric {
+                    precision: None,
+                    scale: None,
+                }),
                 "coalesce" | "nullif" => None, // polymorphic — infer from args
                 "uuid_generate_v4" | "gen_random_uuid" => Some(DataType::Uuid),
                 _ => {
                     // Look up user-defined function return type
-                    symbols.get_function(&func_name)
+                    symbols
+                        .get_function(&func_name)
                         .map(|s| s.data_type.clone())
                 }
             }
@@ -176,8 +192,14 @@ pub fn data_type_to_sql(dt: &DataType) -> String {
         SmallInt => "smallint".into(),
         Integer => "integer".into(),
         BigInt => "bigint".into(),
-        Numeric { precision: Some(p), scale: Some(s) } => format!("numeric({p},{s})"),
-        Numeric { precision: Some(p), scale: None } => format!("numeric({p})"),
+        Numeric {
+            precision: Some(p),
+            scale: Some(s),
+        } => format!("numeric({p},{s})"),
+        Numeric {
+            precision: Some(p),
+            scale: None,
+        } => format!("numeric({p})"),
         Numeric { .. } => "numeric".into(),
         Real => "real".into(),
         DoublePrecision => "double precision".into(),

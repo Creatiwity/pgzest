@@ -33,17 +33,11 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-      # Non bloquant pour l'instant : le codebase n'a jamais été rustfmt'é.
-      # Passer en `cargo fmt --all --check` une fois la normalisation faite.
-      - name: Format (informatif)
-        continue-on-error: true
+      - name: Format
         run: cargo fmt --all --check
 
-      # Non bloquant : ~85 lints de style restants. Retirer continue-on-error
-      # puis ajouter `-- -D warnings` quand ils sont traités.
-      - name: Clippy (informatif)
-        continue-on-error: true
-        run: cargo clippy --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   typescript:
     name: TypeScript (paquet npm + extension)

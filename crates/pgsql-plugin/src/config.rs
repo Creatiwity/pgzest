@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 /// Parsed representation of pgsql.toml.
 #[derive(Debug, Deserialize, Default)]

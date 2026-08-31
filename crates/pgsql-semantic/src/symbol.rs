@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use pgsql_ast::{NodeId, Span};
 use pgsql_ast::types::DataType;
+use pgsql_ast::{NodeId, Span};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolKind {
@@ -8,13 +8,13 @@ pub enum SymbolKind {
     Column { table: String },
     Function,
     Cte,
-    PlVar,      // variable DECLARE dans PL/pgSQL
-    PlParam,    // paramètre de fonction/procédure
+    PlVar,   // variable DECLARE dans PL/pgSQL
+    PlParam, // paramètre de fonction/procédure
 }
 
 #[derive(Debug, Clone)]
 pub struct Symbol {
-    pub name: String,         // lower-case
+    pub name: String, // lower-case
     pub kind: SymbolKind,
     pub data_type: DataType,
     pub node_id: NodeId,
@@ -31,7 +31,9 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn add_table(&mut self, name: impl Into<String>, sym: Symbol) {
         self.tables.insert(name.into().to_lowercase(), sym);

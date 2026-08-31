@@ -1,8 +1,15 @@
-use serde::{Deserialize, Serialize};
-use crate::expr::{Expr, ObjectName, Ident};
-use crate::types::DataType;
+use crate::expr::{Expr, Ident, ObjectName};
 use crate::node::{NodeId, Span};
+use crate::types::DataType;
+use serde::{Deserialize, Serialize};
 
+// `Statement` fait 448 octets, dominé par `SelectStmt` (240 pour Insert).
+// Boxer les variants réduirait la taille mais casserait le pattern matching
+// dans tous les crates consommateurs (checker, lint, codegen, semantic, lsp).
+// Les Statement sont manipulés par référence et en Vec, jamais copiés en
+// masse : le coût réel est faible. À reconsidérer si le parsing de gros
+// fichiers devient un point chaud mesuré.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Statement {
     Select(SelectStmt),
@@ -116,7 +123,10 @@ pub enum OnConflictTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OnConflictAction {
     DoNothing,
-    Update { assignments: Vec<Assignment>, where_clause: Option<Expr> },
+    Update {
+        assignments: Vec<Assignment>,
+        where_clause: Option<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

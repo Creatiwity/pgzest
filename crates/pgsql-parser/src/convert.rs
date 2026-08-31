@@ -3,12 +3,12 @@
 //! Entry point is [`convert_statement`].
 
 use pgsql_ast::{
+    Statement,
     ddl::{
-        AlterColumnAction, AlterTable, AlterTableOp, ColumnConstraint, ColumnDef,
-        CreateFunction, CreateIndex, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger,
-        DdlStatement, FunctionBody, FunctionLanguage, FunctionParam, ParamMode, PolicyCommand,
-        ReferentialAction, ReturnType, TableConstraint, TriggerEvent, TriggerForEach,
-        TriggerTiming, Volatility,
+        AlterColumnAction, AlterTable, AlterTableOp, ColumnConstraint, ColumnDef, CreateFunction,
+        CreateIndex, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger, DdlStatement,
+        FunctionBody, FunctionLanguage, FunctionParam, ParamMode, PolicyCommand, ReferentialAction,
+        ReturnType, TableConstraint, TriggerEvent, TriggerForEach, TriggerTiming, Volatility,
     },
     expr::{BinaryOp, ColumnRef, Expr, Ident, Literal, ObjectName, UnaryOp},
     node::Span,
@@ -18,7 +18,6 @@ use pgsql_ast::{
         TableRef, UpdateStmt,
     },
     types::DataType,
-    Statement,
 };
 
 use crate::error::ParseError;
@@ -53,7 +52,13 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             Ok(Statement::Insert(s))
         }
         sp::Statement::Update(upd) => {
-            let s = convert_update(upd.table, upd.assignments, upd.from, upd.selection, upd.returning)?;
+            let s = convert_update(
+                upd.table,
+                upd.assignments,
+                upd.from,
+                upd.selection,
+                upd.returning,
+            )?;
             Ok(Statement::Update(s))
         }
         sp::Statement::Delete(del) => {
@@ -103,11 +108,9 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             Ok(Statement::Ddl(DdlStatement::AlterTable(ddl)))
         }
         // CREATE EXTENSION — silently skip (no pgsql_ast equivalent yet)
-        sp::Statement::CreateExtension { .. } => {
-            Err(ParseError::Unsupported(
-                "CREATE EXTENSION is not yet supported".to_string(),
-            ))
-        }
+        sp::Statement::CreateExtension { .. } => Err(ParseError::Unsupported(
+            "CREATE EXTENSION is not yet supported".to_string(),
+        )),
         other => Err(ParseError::Unsupported(format!(
             "unsupported statement: {}",
             other
@@ -138,7 +141,7 @@ fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> {
             sp::OrderByKind::All(_) => {
                 return Err(ParseError::Unsupported(
                     "ORDER BY ALL is not supported".to_string(),
-                ))
+                ));
             }
         }
     } else {
@@ -218,7 +221,7 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
         sp::GroupByExpr::All(_) => {
             return Err(ParseError::Unsupported(
                 "GROUP BY ALL is not supported".to_string(),
-            ))
+            ));
         }
         sp::GroupByExpr::Expressions(exprs, _) => exprs
             .into_iter()
@@ -314,7 +317,7 @@ fn convert_join(join: sp::Join) -> Result<Join, ParseError> {
             return Err(ParseError::Unsupported(format!(
                 "unsupported join operator: {:?}",
                 other
-            )))
+            )));
         }
     };
 
@@ -368,26 +371,24 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 column: convert_ident(id),
             }))
         }
-        sp::Expr::CompoundIdentifier(parts) => {
-            match parts.len() {
-                0 => Err(ParseError::Unsupported(
-                    "empty compound identifier".to_string(),
-                )),
-                1 => Ok(Expr::Column(ColumnRef {
-                    table: None,
-                    column: convert_ident(parts.into_iter().next().unwrap()),
-                })),
-                _ => {
-                    let mut iter = parts.into_iter().rev();
-                    let col = convert_ident(iter.next().unwrap());
-                    let tbl = convert_ident(iter.next().unwrap());
-                    Ok(Expr::Column(ColumnRef {
-                        table: Some(tbl),
-                        column: col,
-                    }))
-                }
+        sp::Expr::CompoundIdentifier(parts) => match parts.len() {
+            0 => Err(ParseError::Unsupported(
+                "empty compound identifier".to_string(),
+            )),
+            1 => Ok(Expr::Column(ColumnRef {
+                table: None,
+                column: convert_ident(parts.into_iter().next().unwrap()),
+            })),
+            _ => {
+                let mut iter = parts.into_iter().rev();
+                let col = convert_ident(iter.next().unwrap());
+                let tbl = convert_ident(iter.next().unwrap());
+                Ok(Expr::Column(ColumnRef {
+                    table: Some(tbl),
+                    column: col,
+                }))
             }
-        }
+        },
         sp::Expr::IsNull(e) => Ok(Expr::UnaryOp {
             op: UnaryOp::IsNull,
             expr: Box::new(convert_expr(*e)?),
@@ -415,7 +416,7 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                     return Err(ParseError::Unsupported(format!(
                         "unsupported unary op: {:?}",
                         op
-                    )))
+                    )));
                 }
             };
             Ok(Expr::UnaryOp {
@@ -423,7 +424,9 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 expr: Box::new(e),
             })
         }
-        sp::Expr::Cast { expr, data_type, .. } => Ok(Expr::Cast {
+        sp::Expr::Cast {
+            expr, data_type, ..
+        } => Ok(Expr::Cast {
             expr: Box::new(convert_expr(*expr)?),
             data_type: convert_data_type(data_type)?,
         }),
@@ -521,7 +524,11 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             pattern,
             ..
         } => {
-            let op = if negated { BinaryOp::NotLike } else { BinaryOp::Like };
+            let op = if negated {
+                BinaryOp::NotLike
+            } else {
+                BinaryOp::Like
+            };
             Ok(Expr::BinaryOp {
                 left: Box::new(convert_expr(*expr)?),
                 op,
@@ -535,7 +542,9 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
             ..
         } => {
             if negated {
-                return Err(ParseError::Unsupported("NOT ILIKE not supported".to_string()));
+                return Err(ParseError::Unsupported(
+                    "NOT ILIKE not supported".to_string(),
+                ));
             }
             Ok(Expr::BinaryOp {
                 left: Box::new(convert_expr(*expr)?),
@@ -543,34 +552,26 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
                 right: Box::new(convert_expr(*pattern)?),
             })
         }
-        sp::Expr::IsTrue(e) => {
-            Ok(Expr::BinaryOp {
-                left: Box::new(convert_expr(*e)?),
-                op: BinaryOp::Is,
-                right: Box::new(Expr::Literal(Literal::Boolean(true))),
-            })
-        }
-        sp::Expr::IsFalse(e) => {
-            Ok(Expr::BinaryOp {
-                left: Box::new(convert_expr(*e)?),
-                op: BinaryOp::Is,
-                right: Box::new(Expr::Literal(Literal::Boolean(false))),
-            })
-        }
-        sp::Expr::IsNotTrue(e) => {
-            Ok(Expr::BinaryOp {
-                left: Box::new(convert_expr(*e)?),
-                op: BinaryOp::IsNot,
-                right: Box::new(Expr::Literal(Literal::Boolean(true))),
-            })
-        }
-        sp::Expr::IsNotFalse(e) => {
-            Ok(Expr::BinaryOp {
-                left: Box::new(convert_expr(*e)?),
-                op: BinaryOp::IsNot,
-                right: Box::new(Expr::Literal(Literal::Boolean(false))),
-            })
-        }
+        sp::Expr::IsTrue(e) => Ok(Expr::BinaryOp {
+            left: Box::new(convert_expr(*e)?),
+            op: BinaryOp::Is,
+            right: Box::new(Expr::Literal(Literal::Boolean(true))),
+        }),
+        sp::Expr::IsFalse(e) => Ok(Expr::BinaryOp {
+            left: Box::new(convert_expr(*e)?),
+            op: BinaryOp::Is,
+            right: Box::new(Expr::Literal(Literal::Boolean(false))),
+        }),
+        sp::Expr::IsNotTrue(e) => Ok(Expr::BinaryOp {
+            left: Box::new(convert_expr(*e)?),
+            op: BinaryOp::IsNot,
+            right: Box::new(Expr::Literal(Literal::Boolean(true))),
+        }),
+        sp::Expr::IsNotFalse(e) => Ok(Expr::BinaryOp {
+            left: Box::new(convert_expr(*e)?),
+            op: BinaryOp::IsNot,
+            right: Box::new(Expr::Literal(Literal::Boolean(false))),
+        }),
         sp::Expr::IsDistinctFrom(l, r) => Ok(Expr::BinaryOp {
             left: Box::new(convert_expr(*l)?),
             op: BinaryOp::IsNot,
@@ -585,29 +586,42 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
 
         // `expr = ANY (array_expr)` — common in pg_dump CHECK constraints.
         // Map to a boolean literal so the containing statement doesn't fail.
-        sp::Expr::AnyOp { left, compare_op, right, .. } => {
+        sp::Expr::AnyOp {
+            left,
+            compare_op,
+            right,
+            ..
+        } => {
             // Best effort: convert operands, return BinaryOp if possible.
             match (convert_expr(*left), convert_expr(*right)) {
                 (Ok(l), Ok(r)) => {
-                    let op = convert_binary_op(compare_op)
-                        .unwrap_or(BinaryOp::Eq);
-                    Ok(Expr::BinaryOp { left: Box::new(l), op, right: Box::new(r) })
+                    let op = convert_binary_op(compare_op).unwrap_or(BinaryOp::Eq);
+                    Ok(Expr::BinaryOp {
+                        left: Box::new(l),
+                        op,
+                        right: Box::new(r),
+                    })
                 }
                 _ => Ok(Expr::Literal(Literal::Boolean(true))),
             }
         }
 
         // `ALL` operation — same treatment as AnyOp.
-        sp::Expr::AllOp { left, compare_op, right } => {
-            match (convert_expr(*left), convert_expr(*right)) {
-                (Ok(l), Ok(r)) => {
-                    let op = convert_binary_op(compare_op)
-                        .unwrap_or(BinaryOp::Eq);
-                    Ok(Expr::BinaryOp { left: Box::new(l), op, right: Box::new(r) })
-                }
-                _ => Ok(Expr::Literal(Literal::Boolean(true))),
+        sp::Expr::AllOp {
+            left,
+            compare_op,
+            right,
+        } => match (convert_expr(*left), convert_expr(*right)) {
+            (Ok(l), Ok(r)) => {
+                let op = convert_binary_op(compare_op).unwrap_or(BinaryOp::Eq);
+                Ok(Expr::BinaryOp {
+                    left: Box::new(l),
+                    op,
+                    right: Box::new(r),
+                })
             }
-        }
+            _ => Ok(Expr::Literal(Literal::Boolean(true))),
+        },
 
         // `ARRAY[e1, e2, ...]` — array constructor, common in pg_dump.
         // Convert elements individually; treat failures as a null literal.
@@ -633,12 +647,10 @@ fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
         }
 
         // `DATE '2025-01-01'` / `'value'::type` typed string literals.
-        sp::Expr::TypedString(ts) => {
-            match ts.value.into_string() {
-                Some(v) => Ok(Expr::Literal(Literal::String(v))),
-                None => Ok(Expr::Literal(Literal::Null)),
-            }
-        }
+        sp::Expr::TypedString(ts) => match ts.value.into_string() {
+            Some(v) => Ok(Expr::Literal(Literal::String(v))),
+            None => Ok(Expr::Literal(Literal::Null)),
+        },
 
         // Any other unsupported expression — return a null literal rather than
         // failing the whole statement. CHECK constraints, DEFAULT values, and
@@ -714,9 +726,7 @@ fn convert_binary_op(op: sp::BinaryOperator) -> Result<BinaryOp, ParseError> {
         sp::BinaryOperator::DoubleHash => Ok(BinaryOp::Custom("##".into())),
         // Generic custom / user-defined operators
         sp::BinaryOperator::Custom(s) => Ok(BinaryOp::Custom(s)),
-        sp::BinaryOperator::PGCustomBinaryOperator(parts) => {
-            Ok(BinaryOp::Custom(parts.join(".")))
-        }
+        sp::BinaryOperator::PGCustomBinaryOperator(parts) => Ok(BinaryOp::Custom(parts.join("."))),
         other => Err(ParseError::Unsupported(format!(
             "unsupported binary operator: {:?}",
             other
@@ -724,9 +734,7 @@ fn convert_binary_op(op: sp::BinaryOperator) -> Result<BinaryOp, ParseError> {
     }
 }
 
-fn convert_function_args(
-    args: sp::FunctionArguments,
-) -> Result<Vec<Expr>, ParseError> {
+fn convert_function_args(args: sp::FunctionArguments) -> Result<Vec<Expr>, ParseError> {
     match args {
         sp::FunctionArguments::None => Ok(vec![]),
         sp::FunctionArguments::Subquery(_) => Err(ParseError::Unsupported(
@@ -742,14 +750,13 @@ fn convert_function_args(
                     Ok(Expr::Wildcard)
                 }
                 sp::FunctionArg::Unnamed(sp::FunctionArgExpr::QualifiedWildcard(n)) => {
-                    let last = n
-                        .0
-                        .into_iter()
-                        .filter_map(part_to_ident)
-                        .next_back()
-                        .ok_or_else(|| {
-                            ParseError::Unsupported("empty qualified wildcard".to_string())
-                        })?;
+                    let last =
+                        n.0.into_iter()
+                            .filter_map(part_to_ident)
+                            .next_back()
+                            .ok_or_else(|| {
+                                ParseError::Unsupported("empty qualified wildcard".to_string())
+                            })?;
                     Ok(Expr::QualifiedWildcard(convert_ident(last)))
                 }
                 sp::FunctionArg::Named { arg, .. } => match arg {
@@ -777,7 +784,7 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
         sp::TableObject::TableFunction(_) | sp::TableObject::TableQuery(_) => {
             return Err(ParseError::Unsupported(
                 "INSERT INTO TABLE FUNCTION/QUERY not supported".to_string(),
-            ))
+            ));
         }
     };
 
@@ -899,7 +906,7 @@ fn convert_assignment(a: sp::Assignment) -> Result<Assignment, ParseError> {
         sp::AssignmentTarget::Tuple(_) => {
             return Err(ParseError::Unsupported(
                 "tuple assignment not supported".to_string(),
-            ))
+            ));
         }
     };
     Ok(Assignment {
@@ -970,7 +977,9 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
         .using
         .unwrap_or_default()
         .into_iter()
-        .flat_map(|twj| std::iter::once(twj.relation).chain(twj.joins.into_iter().map(|j| j.relation)))
+        .flat_map(|twj| {
+            std::iter::once(twj.relation).chain(twj.joins.into_iter().map(|j| j.relation))
+        })
         .map(convert_table_factor)
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -1099,9 +1108,7 @@ fn convert_table_constraint(tc: sp::TableConstraint) -> Result<TableConstraint, 
             on_delete: fk.on_delete.map(convert_referential_action),
             on_update: fk.on_update.map(convert_referential_action),
         }),
-        sp::TableConstraint::Check(cc) => {
-            Ok(TableConstraint::Check(convert_expr(*cc.expr)?))
-        }
+        sp::TableConstraint::Check(cc) => Ok(TableConstraint::Check(convert_expr(*cc.expr)?)),
         other => Err(ParseError::Unsupported(format!(
             "unsupported table constraint: {}",
             other
@@ -1174,7 +1181,12 @@ fn convert_create_function(cf: sp::CreateFunction) -> Result<CreateFunction, Par
         .collect::<Result<Vec<_>, _>>()?;
 
     // Determine language
-    let language = match cf.language.as_ref().map(|l| l.value.to_lowercase()).as_deref() {
+    let language = match cf
+        .language
+        .as_ref()
+        .map(|l| l.value.to_lowercase())
+        .as_deref()
+    {
         Some("sql") => FunctionLanguage::Sql,
         Some("plpgsql") => FunctionLanguage::PlPgSql,
         Some("c") => FunctionLanguage::C,
@@ -1267,7 +1279,10 @@ fn parse_simple_type(s: &str) -> DataType {
         "INTEGER" | "INT" | "INT4" => DataType::Integer,
         "BIGINT" | "INT8" => DataType::BigInt,
         "SMALLINT" | "INT2" => DataType::SmallInt,
-        "NUMERIC" | "DECIMAL" | "DEC" => DataType::Numeric { precision: None, scale: None },
+        "NUMERIC" | "DECIMAL" | "DEC" => DataType::Numeric {
+            precision: None,
+            scale: None,
+        },
         "REAL" | "FLOAT4" | "FLOAT" => DataType::Real,
         "DOUBLE PRECISION" | "FLOAT8" => DataType::DoublePrecision,
         "BOOLEAN" | "BOOL" => DataType::Boolean,
@@ -1290,11 +1305,7 @@ fn convert_function_body(
     language: &FunctionLanguage,
 ) -> Result<FunctionBody, ParseError> {
     let raw = match body {
-        None => {
-            return Err(ParseError::Unsupported(
-                "function with no body".to_string(),
-            ))
-        }
+        None => return Err(ParseError::Unsupported("function with no body".to_string())),
         // AsBeforeOptions is a struct variant in 0.62; other variants are tuple or struct
         Some(sp::CreateFunctionBody::AsBeforeOptions { body: e, .. })
         | Some(sp::CreateFunctionBody::AsAfterOptions(e))
@@ -1318,12 +1329,11 @@ fn convert_function_body(
     // For LANGUAGE sql, try to parse as a SelectStmt
     if matches!(language, FunctionLanguage::Sql) {
         let dialect = sqlparser::dialect::PostgreSqlDialect {};
-        if let Ok(stmts) = sqlparser::parser::Parser::parse_sql(&dialect, raw.trim()) {
-            if let Some(sp::Statement::Query(q)) = stmts.into_iter().next() {
-                if let Ok(sel) = convert_query(*q) {
-                    return Ok(FunctionBody::SqlQuery(Box::new(sel)));
-                }
-            }
+        if let Ok(stmts) = sqlparser::parser::Parser::parse_sql(&dialect, raw.trim())
+            && let Some(sp::Statement::Query(q)) = stmts.into_iter().next()
+            && let Ok(sel) = convert_query(*q)
+        {
+            return Ok(FunctionBody::SqlQuery(Box::new(sel)));
         }
     }
 
@@ -1544,16 +1554,14 @@ fn convert_alter_table_op(op: sp::AlterTableOperation) -> Result<AlterTableOp, P
                 })?;
             Ok(AlterTableOp::DropColumn { name, if_exists })
         }
-        sp::AlterTableOperation::AlterColumn { column_name, op } => {
-            Ok(AlterTableOp::AlterColumn {
-                name: convert_ident(column_name),
-                action: convert_alter_column_op(op)?,
-            })
-        }
+        sp::AlterTableOperation::AlterColumn { column_name, op } => Ok(AlterTableOp::AlterColumn {
+            name: convert_ident(column_name),
+            action: convert_alter_column_op(op)?,
+        }),
         // In 0.62, AddConstraint is a struct variant
-        sp::AlterTableOperation::AddConstraint { constraint, .. } => {
-            Ok(AlterTableOp::AddConstraint(convert_table_constraint(constraint)?))
-        }
+        sp::AlterTableOperation::AddConstraint { constraint, .. } => Ok(
+            AlterTableOp::AddConstraint(convert_table_constraint(constraint)?),
+        ),
         sp::AlterTableOperation::DropConstraint {
             name, if_exists, ..
         } => Ok(AlterTableOp::DropConstraint {
@@ -1575,9 +1583,9 @@ fn convert_alter_column_op(op: sp::AlterColumnOperation) -> Result<AlterColumnAc
         sp::AlterColumnOperation::DropDefault => Ok(AlterColumnAction::DropDefault),
         sp::AlterColumnOperation::SetNotNull => Ok(AlterColumnAction::SetNotNull),
         sp::AlterColumnOperation::DropNotNull => Ok(AlterColumnAction::DropNotNull),
-        sp::AlterColumnOperation::SetDataType { data_type, .. } => {
-            Ok(AlterColumnAction::SetDataType(convert_data_type(data_type)?))
-        }
+        sp::AlterColumnOperation::SetDataType { data_type, .. } => Ok(
+            AlterColumnAction::SetDataType(convert_data_type(data_type)?),
+        ),
         other => Err(ParseError::Unsupported(format!(
             "unsupported ALTER COLUMN operation: {}",
             other
@@ -1595,9 +1603,9 @@ fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
         | sp::DataType::Int(_)
         | sp::DataType::Int4(_)
         | sp::DataType::Int32 => Ok(DataType::Integer),
-        sp::DataType::BigInt(_)
-        | sp::DataType::Int8(_)
-        | sp::DataType::Int64 => Ok(DataType::BigInt),
+        sp::DataType::BigInt(_) | sp::DataType::Int8(_) | sp::DataType::Int64 => {
+            Ok(DataType::BigInt)
+        }
         // Numeric / decimal
         sp::DataType::Numeric(info) | sp::DataType::Decimal(info) | sp::DataType::Dec(info) => {
             let (precision, scale) = match info {
@@ -1616,8 +1624,12 @@ fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
         | sp::DataType::Double(_) => Ok(DataType::DoublePrecision),
         sp::DataType::Float(_) => Ok(DataType::Real),
         // Text family
-        sp::DataType::Text | sp::DataType::MediumText | sp::DataType::LongText => Ok(DataType::Text),
-        sp::DataType::Varchar(len) | sp::DataType::CharacterVarying(len) | sp::DataType::CharVarying(len) => {
+        sp::DataType::Text | sp::DataType::MediumText | sp::DataType::LongText => {
+            Ok(DataType::Text)
+        }
+        sp::DataType::Varchar(len)
+        | sp::DataType::CharacterVarying(len)
+        | sp::DataType::CharVarying(len) => {
             let n = len.and_then(|l| match l {
                 sp::CharacterLength::IntegerLength { length, .. } => Some(length),
                 sp::CharacterLength::Max => None,

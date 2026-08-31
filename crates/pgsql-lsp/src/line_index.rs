@@ -13,7 +13,9 @@ impl LineIndex {
                 starts.push((i + 1) as u32);
             }
         }
-        Self { line_starts: starts }
+        Self {
+            line_starts: starts,
+        }
     }
 
     /// Convert a byte offset to (line, character). Returns (0,0) if out of range.

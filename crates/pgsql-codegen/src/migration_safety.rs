@@ -3,8 +3,8 @@
 //! These rules operate on a `MigrationDiff` (the output of `diff_schemas`)
 //! and produce diagnostics about unsafe operations.
 
-use pgsql_checker::diagnostic::Diagnostic;
 use crate::diff::{DiffOp, MigrationDiff};
+use pgsql_checker::diagnostic::Diagnostic;
 
 /// Check a migration diff for potentially dangerous operations.
 /// Returns a list of warnings/errors to show to the user before applying.
@@ -21,23 +21,26 @@ fn check_op(op: &DiffOp) -> Vec<Diagnostic> {
         // M001 — ADD COLUMN NOT NULL without DEFAULT
         DiffOp::AddColumn { table, column } => {
             if !column.nullable && column.default.is_none() {
-                let has_col_default = column.constraints.iter().any(|c| {
-                    matches!(c, pgsql_ast::ddl::ColumnConstraint::Default(_))
-                });
+                let has_col_default = column
+                    .constraints
+                    .iter()
+                    .any(|c| matches!(c, pgsql_ast::ddl::ColumnConstraint::Default(_)));
                 if !has_col_default {
-                    return vec![Diagnostic::warning(
-                        "M001",
-                        format!(
-                            "Adding NOT NULL column '{}.{}' without DEFAULT — \
+                    return vec![
+                        Diagnostic::warning(
+                            "M001",
+                            format!(
+                                "Adding NOT NULL column '{}.{}' without DEFAULT — \
                             requires full table rewrite on PostgreSQL < 11 and \
                             acquires ACCESS EXCLUSIVE lock on validation",
-                            table, column.name.value
+                                table, column.name.value
+                            ),
+                        )
+                        .with_hint(
+                            "Add a DEFAULT clause, or: (1) add as nullable, (2) backfill, \
+                        (3) set NOT NULL separately with a NOT VALID constraint first.",
                         ),
-                    )
-                    .with_hint(
-                        "Add a DEFAULT clause, or: (1) add as nullable, (2) backfill, \
-                        (3) set NOT NULL separately with a NOT VALID constraint first."
-                    )];
+                    ];
                 }
             }
             vec![]

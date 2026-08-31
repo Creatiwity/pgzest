@@ -1,5 +1,5 @@
 use pgsql_ast::*;
-use pgsql_codegen::{diff_schemas, emit_statement, DiffOp};
+use pgsql_codegen::{DiffOp, diff_schemas, emit_statement};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -77,7 +77,11 @@ fn emit_select_roundtrip() {
     let sql = emit_statement(&stmt);
 
     // Must start with SELECT
-    assert!(sql.starts_with("SELECT "), "expected SELECT prefix, got: {}", sql);
+    assert!(
+        sql.starts_with("SELECT "),
+        "expected SELECT prefix, got: {}",
+        sql
+    );
     // Must reference both projected columns
     assert!(sql.contains("id"), "missing column id in: {}", sql);
     assert!(sql.contains("name"), "missing column name in: {}", sql);
@@ -184,7 +188,13 @@ fn diff_no_change() {
         vec![
             simple_col_def("id", DataType::Uuid),
             simple_col_def("title", DataType::Text),
-            simple_col_def("price", DataType::Numeric { precision: Some(10), scale: Some(2) }),
+            simple_col_def(
+                "price",
+                DataType::Numeric {
+                    precision: Some(10),
+                    scale: Some(2),
+                },
+            ),
         ],
     )];
 
@@ -201,7 +211,10 @@ fn diff_no_change() {
 
 #[test]
 fn diff_drops_table() {
-    let old = vec![make_create_table("legacy", vec![simple_col_def("id", DataType::Integer)])];
+    let old = vec![make_create_table(
+        "legacy",
+        vec![simple_col_def("id", DataType::Integer)],
+    )];
     let new: Vec<Statement> = vec![];
 
     let diff = diff_schemas(&old, &new);
@@ -230,7 +243,11 @@ fn diff_alters_column_type() {
 
     assert_eq!(diff.operations.len(), 1);
     match &diff.operations[0] {
-        DiffOp::AlterColumnType { table, column, new_type } => {
+        DiffOp::AlterColumnType {
+            table,
+            column,
+            new_type,
+        } => {
             assert_eq!(table, "items");
             assert_eq!(column, "quantity");
             assert_eq!(*new_type, DataType::BigInt);

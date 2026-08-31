@@ -48,12 +48,12 @@ fn parse_schema_supported_subset() {
     "#;
 
     let stmts = parse(supported_sql).expect("supported SQL should parse without errors");
-    assert!(
-        !stmts.is_empty(),
-        "expected at least 1 statement, got 0"
-    );
+    assert!(!stmts.is_empty(), "expected at least 1 statement, got 0");
     println!("parsed {} statements from supported subset", stmts.len());
-    println!("first statement type: {:?}", std::mem::discriminant(&stmts[0]));
+    println!(
+        "first statement type: {:?}",
+        std::mem::discriminant(&stmts[0])
+    );
 }
 
 /// Parse the full schema statement-by-statement (splitting on semicolons at the
@@ -119,9 +119,9 @@ fn parse_full_schema_counts_statements() {
 #[test]
 fn parse_create_function_setof_security_definer() {
     use pgsql_ast::{
+        Statement,
         ddl::{DdlStatement, ReturnType},
         types::DataType,
-        Statement,
     };
 
     let sql = r#"
@@ -139,10 +139,11 @@ fn parse_create_function_setof_security_definer() {
         Statement::Ddl(DdlStatement::CreateFunction(cf)) => {
             assert!(cf.security_definer, "security_definer should be true");
             assert!(cf.or_replace, "or_replace should be true");
-            assert!(matches!(
-                &cf.return_type,
-                ReturnType::SetOf(DataType::Uuid)
-            ), "return_type should be SetOf(Uuid), got {:?}", cf.return_type);
+            assert!(
+                matches!(&cf.return_type, ReturnType::SetOf(DataType::Uuid)),
+                "return_type should be SetOf(Uuid), got {:?}",
+                cf.return_type
+            );
         }
         other => panic!("expected CreateFunction, got {:?}", other),
     }
@@ -151,10 +152,7 @@ fn parse_create_function_setof_security_definer() {
 /// Test COST n and ROWS n extraction.
 #[test]
 fn parse_create_function_cost_rows() {
-    use pgsql_ast::{
-        ddl::DdlStatement,
-        Statement,
-    };
+    use pgsql_ast::{Statement, ddl::DdlStatement};
 
     let sql = r#"
         CREATE OR REPLACE FUNCTION my_fn()

@@ -1,6 +1,6 @@
 use crate::codes;
 use crate::rule::{CheckRule, RuleCtx};
-use pgsql_ast::stmt::{InsertStmt, UpdateStmt, DeleteStmt};
+use pgsql_ast::stmt::{DeleteStmt, InsertStmt, UpdateStmt};
 
 pub struct DmlTableCheck;
 

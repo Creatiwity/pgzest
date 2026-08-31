@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use crate::plugin::Plugin;
-use pgsql_checker::rule::CheckRule;
 use pgsql_checker::SchemaProvider;
+use pgsql_checker::rule::CheckRule;
+use std::collections::HashMap;
 
 /// Central registry of available plugins.
 /// Built-in plugins are registered at startup; external plugins register themselves.
@@ -11,7 +11,9 @@ pub struct PluginRegistry {
 
 impl PluginRegistry {
     pub fn new() -> Self {
-        let mut r = Self { plugins: HashMap::new() };
+        let mut r = Self {
+            plugins: HashMap::new(),
+        };
         // Register built-in plugins
         r.register(Box::new(crate::builtin::RlsEnforcerPlugin));
         // Register Prisma plugin
@@ -30,9 +32,7 @@ impl PluginRegistry {
     ) -> Vec<Box<dyn CheckRule>> {
         enabled
             .iter()
-            .filter_map(|(name, opts)| {
-                self.plugins.get(name).map(|p| p.rules(opts))
-            })
+            .filter_map(|(name, opts)| self.plugins.get(name).map(|p| p.rules(opts)))
             .flatten()
             .collect()
     }
@@ -44,9 +44,7 @@ impl PluginRegistry {
     ) -> Vec<Box<dyn SchemaProvider>> {
         enabled
             .iter()
-            .filter_map(|(name, opts)| {
-                self.plugins.get(name)?.schema_provider(opts)
-            })
+            .filter_map(|(name, opts)| self.plugins.get(name)?.schema_provider(opts))
             .collect()
     }
 }

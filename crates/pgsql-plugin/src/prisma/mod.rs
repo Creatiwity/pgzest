@@ -13,11 +13,13 @@ impl PrismaSchemaProvider {
     /// Load from a schema.prisma file.
     pub fn from_file(path: &Path) -> Result<Self, PrismaError> {
         let content = std::fs::read_to_string(path)?;
-        Ok(Self::from_str(&content))
+        Ok(Self::parse(&content))
     }
 
     /// Parse a Prisma schema string. Basic regex-free hand parser.
-    pub fn from_str(content: &str) -> Self {
+    ///
+    /// Not `FromStr`: parsing is infallible (unknown lines are skipped).
+    pub fn parse(content: &str) -> Self {
         let mut tables = HashMap::new();
         let mut current_model: Option<(String, Vec<ColumnInfo>)> = None;
 
@@ -48,10 +50,10 @@ impl PrismaSchemaProvider {
             }
 
             // Field line inside a model: "  id    String  @id"
-            if let Some((_, ref mut cols)) = current_model {
-                if let Some(col) = parse_prisma_field(trimmed) {
-                    cols.push(col);
-                }
+            if let Some((_, ref mut cols)) = current_model
+                && let Some(col) = parse_prisma_field(trimmed)
+            {
+                cols.push(col);
             }
         }
 
@@ -74,10 +76,7 @@ fn pascal_to_snake(s: &str) -> String {
 /// Parse a single Prisma field line. Returns None for directives, annotations, etc.
 fn parse_prisma_field(line: &str) -> Option<ColumnInfo> {
     // Skip directives, empty lines, comments
-    if line.is_empty()
-        || line.starts_with("@@")
-        || line.starts_with("//")
-        || line.starts_with('@')
+    if line.is_empty() || line.starts_with("@@") || line.starts_with("//") || line.starts_with('@')
     {
         return None;
     }
@@ -88,9 +87,7 @@ fn parse_prisma_field(line: &str) -> Option<ColumnInfo> {
     let field_name = parts[0].to_string();
     let type_raw = parts[1];
     let nullable = type_raw.ends_with('?');
-    let prisma_type = type_raw
-        .trim_end_matches('?')
-        .trim_end_matches("[]");
+    let prisma_type = type_raw.trim_end_matches('?').trim_end_matches("[]");
     let data_type = prisma_type_to_pg(prisma_type);
     Some(ColumnInfo {
         name: field_name,
@@ -107,7 +104,10 @@ fn prisma_type_to_pg(t: &str) -> DataType {
         "Int" => Integer,
         "BigInt" => BigInt,
         "Float" => DoublePrecision,
-        "Decimal" => Numeric { precision: None, scale: None },
+        "Decimal" => Numeric {
+            precision: None,
+            scale: None,
+        },
         "Boolean" => Boolean,
         "DateTime" => TimestampTz,
         "Json" => Jsonb,
@@ -150,7 +150,7 @@ mod tests {
               createdAt DateTime
             }
         "#;
-        let provider = PrismaSchemaProvider::from_str(schema);
+        let provider = PrismaSchemaProvider::parse(schema);
         let table = provider.get_table("user").expect("user table");
         assert!(table.get_column("email").is_some());
         assert!(

@@ -9,8 +9,8 @@ use crate::role::FileRole;
 pub fn check_ddl_role(stmts: &[Statement], role: &FileRole) -> Vec<Diagnostic> {
     match role {
         FileRole::Migration { .. } => vec![],
-        FileRole::Schema  => check_schema_file(stmts),
-        FileRole::Query   => check_query_file(stmts),
+        FileRole::Schema => check_schema_file(stmts),
+        FileRole::Query => check_query_file(stmts),
     }
 }
 
@@ -45,14 +45,18 @@ fn check_schema_file(stmts: &[Statement]) -> Vec<Diagnostic> {
     stmts
         .iter()
         .filter_map(|stmt| {
-            let Statement::Ddl(ddl) = stmt else { return None };
+            let Statement::Ddl(ddl) = stmt else {
+                return None;
+            };
             ddl_schema_error(ddl)
         })
         .collect()
 }
 
 fn ddl_schema_error(ddl: &DdlStatement) -> Option<Diagnostic> {
-    let DdlStatement::AlterTable(at) = ddl else { return None };
+    let DdlStatement::AlterTable(at) = ddl else {
+        return None;
+    };
 
     for op in &at.operations {
         let msg: Option<&'static str> = match op {

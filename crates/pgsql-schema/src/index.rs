@@ -30,12 +30,12 @@ pub struct IndexEntry {
 /// Unqualified names default to the `public` schema.
 #[derive(Debug, Default)]
 pub struct SchemaIndex {
-    pub tables:     HashMap<String, IndexEntry>,
-    pub functions:  HashMap<String, IndexEntry>,
+    pub tables: HashMap<String, IndexEntry>,
+    pub functions: HashMap<String, IndexEntry>,
     pub procedures: HashMap<String, IndexEntry>,
-    pub types:      HashMap<String, IndexEntry>,
-    pub sequences:  HashMap<String, IndexEntry>,
-    pub schemas:    HashSet<String>,
+    pub types: HashMap<String, IndexEntry>,
+    pub sequences: HashMap<String, IndexEntry>,
+    pub schemas: HashSet<String>,
 }
 
 impl SchemaIndex {
@@ -76,11 +76,15 @@ impl SchemaIndex {
                 }
                 DdlStatement::CreateFunction(cf) => {
                     let name = qualify(object_name_to_string(&cf.name));
-                    self.functions.entry(name).or_insert_with(|| make_entry(chunk));
+                    self.functions
+                        .entry(name)
+                        .or_insert_with(|| make_entry(chunk));
                 }
                 DdlStatement::CreateProcedure(cp) => {
                     let name = qualify(object_name_to_string(&cp.name));
-                    self.procedures.entry(name).or_insert_with(|| make_entry(chunk));
+                    self.procedures
+                        .entry(name)
+                        .or_insert_with(|| make_entry(chunk));
                 }
                 _ => {}
             }
@@ -94,7 +98,8 @@ impl SchemaIndex {
 
     /// Check if a file path belongs to any schema source (by role).
     pub fn role_of_path(&self, path: &std::path::Path) -> Option<&FileRole> {
-        self.tables.values()
+        self.tables
+            .values()
             .chain(self.functions.values())
             .chain(self.procedures.values())
             .find(|e| e.origin.path == path)
@@ -107,5 +112,9 @@ impl SchemaIndex {
 /// Ensure a name is schema-qualified with `public.` if it has no dot.
 pub(crate) fn qualify(name: String) -> String {
     let lower = name.to_lowercase();
-    if lower.contains('.') { lower } else { format!("public.{lower}") }
+    if lower.contains('.') {
+        lower
+    } else {
+        format!("public.{lower}")
+    }
 }

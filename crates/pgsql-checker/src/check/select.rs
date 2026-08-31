@@ -81,7 +81,14 @@ fn check_select_inner(
 
     // Check WHERE clause.
     if let Some(where_expr) = &stmt.where_clause {
-        check_expr(where_expr, &ctx, schema, plvars, phantom_qualifiers, &mut diags);
+        check_expr(
+            where_expr,
+            &ctx,
+            schema,
+            plvars,
+            phantom_qualifiers,
+            &mut diags,
+        );
     }
 
     // Check GROUP BY.
@@ -96,7 +103,14 @@ fn check_select_inner(
 
     // Check ORDER BY.
     for order in &stmt.order_by {
-        check_expr(&order.expr, &ctx, schema, plvars, phantom_qualifiers, &mut diags);
+        check_expr(
+            &order.expr,
+            &ctx,
+            schema,
+            plvars,
+            phantom_qualifiers,
+            &mut diags,
+        );
     }
 
     diags
@@ -285,7 +299,10 @@ fn check_expr(
             {
                 diags.push(Diagnostic::warning(
                     codes::FUNCTION_NOT_FOUND,
-                    format!("function '{}' is not defined in the known schema", func_name),
+                    format!(
+                        "function '{}' is not defined in the known schema",
+                        func_name
+                    ),
                 ));
             }
             for arg in args {

@@ -22,15 +22,21 @@ pub fn check(stmt: &Statement, config: &LintConfig) -> Vec<Diagnostic> {
     };
 
     let mut diags = Vec::new();
-    let table_name = at.name.0.last().map(|i| i.value.as_str()).unwrap_or("<unknown>");
+    let table_name = at
+        .name
+        .0
+        .last()
+        .map(|i| i.value.as_str())
+        .unwrap_or("<unknown>");
 
     for op in &at.operations {
         if let AlterTableOp::AddColumn(col_def) = op {
             let is_not_null = !col_def.nullable;
             let has_default = col_def.default.is_some()
-                || col_def.constraints.iter().any(|c| {
-                    matches!(c, ColumnConstraint::Default(_))
-                });
+                || col_def
+                    .constraints
+                    .iter()
+                    .any(|c| matches!(c, ColumnConstraint::Default(_)));
 
             if is_not_null && !has_default {
                 let col_name = &col_def.name.value;

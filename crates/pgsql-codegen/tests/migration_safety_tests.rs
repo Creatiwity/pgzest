@@ -7,24 +7,29 @@ fn parse(sql: &str) -> Vec<pgsql_ast::Statement> {
 #[test]
 fn m001_add_not_null_without_default() {
     let old = parse("CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT);");
-    let new = parse("CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT, priority TEXT NOT NULL);");
+    let new =
+        parse("CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT, priority TEXT NOT NULL);");
     let diff = diff_schemas(&old, &new);
     let diags = check_migration_safety(&diff);
     assert!(
         diags.iter().any(|d| d.code == "M001"),
-        "expected M001, got: {:?}", diags.iter().map(|d| &d.code).collect::<Vec<_>>()
+        "expected M001, got: {:?}",
+        diags.iter().map(|d| &d.code).collect::<Vec<_>>()
     );
 }
 
 #[test]
 fn m001_no_warn_with_default() {
     let old = parse("CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT);");
-    let new = parse("CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT, priority TEXT NOT NULL DEFAULT 'low');");
+    let new = parse(
+        "CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT, priority TEXT NOT NULL DEFAULT 'low');",
+    );
     let diff = diff_schemas(&old, &new);
     let diags = check_migration_safety(&diff);
     assert!(
         !diags.iter().any(|d| d.code == "M001"),
-        "M001 should not fire with DEFAULT, got: {:?}", diags.iter().map(|d| &d.code).collect::<Vec<_>>()
+        "M001 should not fire with DEFAULT, got: {:?}",
+        diags.iter().map(|d| &d.code).collect::<Vec<_>>()
     );
 }
 
@@ -36,7 +41,8 @@ fn m002_drop_column_warns() {
     let diags = check_migration_safety(&diff);
     assert!(
         diags.iter().any(|d| d.code == "M002"),
-        "expected M002, got: {:?}", diags.iter().map(|d| &d.code).collect::<Vec<_>>()
+        "expected M002, got: {:?}",
+        diags.iter().map(|d| &d.code).collect::<Vec<_>>()
     );
 }
 
@@ -48,6 +54,7 @@ fn m003_drop_table_warns() {
     let diags = check_migration_safety(&diff);
     assert!(
         diags.iter().any(|d| d.code == "M003"),
-        "expected M003, got: {:?}", diags.iter().map(|d| &d.code).collect::<Vec<_>>()
+        "expected M003, got: {:?}",
+        diags.iter().map(|d| &d.code).collect::<Vec<_>>()
     );
 }

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::types::DataType;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Ident {
@@ -9,7 +9,10 @@ pub struct Ident {
 
 impl Ident {
     pub fn new(value: impl Into<String>) -> Self {
-        Self { value: value.into(), quoted: false }
+        Self {
+            value: value.into(),
+            quoted: false,
+        }
     }
 }
 
@@ -38,11 +41,26 @@ pub enum Literal {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BinaryOp {
-    Eq, NotEq, Lt, Lte, Gt, Gte,
-    And, Or,
-    Plus, Minus, Multiply, Divide, Modulo,
-    In, NotIn, Like, NotLike, ILike,
-    Is, IsNot,
+    Eq,
+    NotEq,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    And,
+    Or,
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Modulo,
+    In,
+    NotIn,
+    Like,
+    NotLike,
+    ILike,
+    Is,
+    IsNot,
     /// Any non-standard or extension operator (PostGIS, JSONB, custom, etc.).
     /// The string is the operator symbol, e.g. "<->", "&&", "@>", "#>>".
     Custom(String),

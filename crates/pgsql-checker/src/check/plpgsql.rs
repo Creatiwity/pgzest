@@ -10,7 +10,7 @@ use pgsql_ast::types::DataType;
 use crate::codes;
 use crate::diagnostic::Diagnostic;
 use crate::schema::{
-    object_name_to_string, ColumnInfo, FunctionSignature, SchemaProvider, TableSchema,
+    ColumnInfo, FunctionSignature, SchemaProvider, TableSchema, object_name_to_string,
 };
 
 // ── Trigger context ───────────────────────────────────────────────────────────
@@ -196,25 +196,22 @@ pub fn check_plpgsql_body(
         // E002 (table/alias not in FROM) is suppressed here — without knowing
         // the declared variables, qualified refs like `v_rec.col` always fire
         // false positives. E001 and E003 are kept as best-effort signals.
-        if contains_dml_keyword(&upper) {
-            if let Some(sql_fragment) = extract_sql_fragment(trimmed) {
-                match pgsql_parser::parse(sql_fragment) {
-                    Ok(stmts) => {
-                        let inner = super::check_statements(&stmts, schema);
-                        for mut d in inner {
-                            if d.code == codes::TABLE_NOT_IN_SCOPE {
-                                continue;
-                            }
-                            d.message = format!("[in {}] {}", function_name, d.message);
-                            // Clear fragment-relative spans so the outer checker can
-                            // backfill them with the function body offset (body_start).
-                            d.span = None;
-                            diags.push(d);
-                        }
+        if contains_dml_keyword(&upper)
+            && let Some(sql_fragment) = extract_sql_fragment(trimmed)
+        {
+            // Fragment parse failures are expected for multi-line or
+            // PL/pgSQL-variable-containing queries — ignore silently.
+            if let Ok(stmts) = pgsql_parser::parse(sql_fragment) {
+                let inner = super::check_statements(&stmts, schema);
+                for mut d in inner {
+                    if d.code == codes::TABLE_NOT_IN_SCOPE {
+                        continue;
                     }
-                    // Fragment parse failures are expected for multi-line or
-                    // PL/pgSQL-variable-containing queries — ignore silently.
-                    Err(_) => {}
+                    d.message = format!("[in {}] {}", function_name, d.message);
+                    // Clear fragment-relative spans so the outer checker can
+                    // backfill them with the function body offset (body_start).
+                    d.span = None;
+                    diags.push(d);
                 }
             }
         }
@@ -254,26 +251,26 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             target: AssignTarget::NewField(col),
             value,
         } => {
-            if let Some(ts) = ctx.trigger_table {
-                if ts.get_column(&col.value).is_none() {
-                    diags.push(
-                        Diagnostic::error(
-                            codes::COLUMN_NOT_FOUND,
-                            format!(
-                                "column '{}' does not exist on trigger table '{}'",
-                                col.value, ts.name
-                            ),
-                        )
-                        .with_hint(format!(
-                            "available columns: {}",
-                            ts.columns
-                                .iter()
-                                .map(|c| c.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )),
-                    );
-                }
+            if let Some(ts) = ctx.trigger_table
+                && ts.get_column(&col.value).is_none()
+            {
+                diags.push(
+                    Diagnostic::error(
+                        codes::COLUMN_NOT_FOUND,
+                        format!(
+                            "column '{}' does not exist on trigger table '{}'",
+                            col.value, ts.name
+                        ),
+                    )
+                    .with_hint(format!(
+                        "available columns: {}",
+                        ts.columns
+                            .iter()
+                            .map(|c| c.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
+                );
             }
             check_plexpr(value, ctx, diags);
         }
@@ -399,7 +396,9 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
         }
 
         // FOR … IN EXECUTE.
-        PlStatement::ForExecute { sql, using, body, .. } => {
+        PlStatement::ForExecute {
+            sql, using, body, ..
+        } => {
             check_plexpr(sql, ctx, diags);
             for expr in using {
                 check_plexpr(expr, ctx, diags);
@@ -442,50 +441,50 @@ fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
 fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
     match expr {
         PlExpr::NewField(col) => {
-            if let Some(ts) = ctx.trigger_table {
-                if ts.get_column(&col.value).is_none() {
-                    diags.push(
-                        Diagnostic::error(
-                            codes::COLUMN_NOT_FOUND,
-                            format!(
-                                "column '{}' does not exist on trigger table '{}'",
-                                col.value, ts.name
-                            ),
-                        )
-                        .with_hint(format!(
-                            "available columns: {}",
-                            ts.columns
-                                .iter()
-                                .map(|c| c.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )),
-                    );
-                }
+            if let Some(ts) = ctx.trigger_table
+                && ts.get_column(&col.value).is_none()
+            {
+                diags.push(
+                    Diagnostic::error(
+                        codes::COLUMN_NOT_FOUND,
+                        format!(
+                            "column '{}' does not exist on trigger table '{}'",
+                            col.value, ts.name
+                        ),
+                    )
+                    .with_hint(format!(
+                        "available columns: {}",
+                        ts.columns
+                            .iter()
+                            .map(|c| c.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
+                );
             }
         }
 
         PlExpr::OldField(col) => {
-            if let Some(ts) = ctx.trigger_table {
-                if ts.get_column(&col.value).is_none() {
-                    diags.push(
-                        Diagnostic::error(
-                            codes::COLUMN_NOT_FOUND,
-                            format!(
-                                "column '{}' does not exist on trigger table '{}'",
-                                col.value, ts.name
-                            ),
-                        )
-                        .with_hint(format!(
-                            "available columns: {}",
-                            ts.columns
-                                .iter()
-                                .map(|c| c.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )),
-                    );
-                }
+            if let Some(ts) = ctx.trigger_table
+                && ts.get_column(&col.value).is_none()
+            {
+                diags.push(
+                    Diagnostic::error(
+                        codes::COLUMN_NOT_FOUND,
+                        format!(
+                            "column '{}' does not exist on trigger table '{}'",
+                            col.value, ts.name
+                        ),
+                    )
+                    .with_hint(format!(
+                        "available columns: {}",
+                        ts.columns
+                            .iter()
+                            .map(|c| c.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
+                );
             }
         }
 
@@ -536,24 +535,29 @@ fn collect_temp_tables(block: &Block) -> HashMap<String, TableSchema> {
 
 fn collect_temp_tables_in_block(block: &Block, out: &mut HashMap<String, TableSchema>) {
     for stmt in &block.statements {
-        if let PlStatement::Sql(Statement::Ddl(DdlStatement::CreateTable(ct))) = stmt {
-            if ct.temporary {
-                let name = object_name_to_string(&ct.name);
-                let columns = ct
-                    .columns
-                    .iter()
-                    .map(|col| ColumnInfo {
-                        name: col.name.value.clone(),
-                        data_type: col.data_type.clone(),
-                        nullable: col.nullable,
-                    })
-                    .collect();
-                out.insert(name.to_lowercase(), TableSchema { name, columns });
-            }
+        if let PlStatement::Sql(Statement::Ddl(DdlStatement::CreateTable(ct))) = stmt
+            && ct.temporary
+        {
+            let name = object_name_to_string(&ct.name);
+            let columns = ct
+                .columns
+                .iter()
+                .map(|col| ColumnInfo {
+                    name: col.name.value.clone(),
+                    data_type: col.data_type.clone(),
+                    nullable: col.nullable,
+                })
+                .collect();
+            out.insert(name.to_lowercase(), TableSchema { name, columns });
         }
         // Recurse into nested blocks.
         match stmt {
-            PlStatement::If { then_block, elsif_clauses, else_block, .. } => {
+            PlStatement::If {
+                then_block,
+                elsif_clauses,
+                else_block,
+                ..
+            } => {
                 collect_temp_tables_in_block(then_block, out);
                 for e in elsif_clauses {
                     collect_temp_tables_in_block(&e.block, out);
@@ -585,9 +589,15 @@ fn collect_temp_tables_in_block(block: &Block, out: &mut HashMap<String, TableSc
 
 /// Check a SELECT statement with the current body context — body schema, plvars,
 /// and phantom qualifiers (NEW/OLD when trigger table is unknown).
-fn check_select_in_ctx(sel: &pgsql_ast::stmt::SelectStmt, ctx: &TypeContext<'_>) -> Vec<Diagnostic> {
+fn check_select_in_ctx(
+    sel: &pgsql_ast::stmt::SelectStmt,
+    ctx: &TypeContext<'_>,
+) -> Vec<Diagnostic> {
     use super::select::{check_select_with_plvars, check_select_with_plvars_and_phantoms};
-    let body = BodySchemaProvider { temp_tables: &ctx.temp_tables, global: ctx.schema };
+    let body = BodySchemaProvider {
+        temp_tables: &ctx.temp_tables,
+        global: ctx.schema,
+    };
     let pv = plvars(ctx);
     if ctx.is_trigger && ctx.trigger_table.is_none() {
         let ph: HashSet<String> = ["new".to_string(), "old".to_string()].into_iter().collect();
@@ -602,7 +612,10 @@ fn check_select_in_ctx(sel: &pgsql_ast::stmt::SelectStmt, ctx: &TypeContext<'_>)
 /// Uses the body schema (global + temp tables) and suppresses plvar names so
 /// variable references don't fire false-positive E001/E002 errors.
 fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
-    let body = BodySchemaProvider { temp_tables: &ctx.temp_tables, global: ctx.schema };
+    let body = BodySchemaProvider {
+        temp_tables: &ctx.temp_tables,
+        global: ctx.schema,
+    };
     let pv = plvars(ctx);
 
     // When the function is a trigger but we don't know the trigger table,
@@ -613,12 +626,16 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
     } else {
         HashSet::new()
     };
-    let check_sel = |sel: &pgsql_ast::stmt::SelectStmt, provider: &dyn crate::schema::SchemaProvider, out: &mut Vec<Diagnostic>| {
+    let check_sel = |sel: &pgsql_ast::stmt::SelectStmt,
+                     provider: &dyn crate::schema::SchemaProvider,
+                     out: &mut Vec<Diagnostic>| {
         use super::select::{check_select_with_plvars, check_select_with_plvars_and_phantoms};
         if phantoms.is_empty() {
             out.extend(check_select_with_plvars(sel, provider, &pv));
         } else {
-            out.extend(check_select_with_plvars_and_phantoms(sel, provider, &pv, &phantoms));
+            out.extend(check_select_with_plvars_and_phantoms(
+                sel, provider, &pv, &phantoms,
+            ));
         }
     };
 
@@ -631,8 +648,11 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
             let name = object_name_to_string(&ins.table);
             if body.get_table(&name).is_none() {
                 diags.push(
-                    Diagnostic::error(codes::TABLE_NOT_FOUND, format!("table '{}' does not exist", name))
-                        .with_hint("check the table name or provide a schema with that table"),
+                    Diagnostic::error(
+                        codes::TABLE_NOT_FOUND,
+                        format!("table '{}' does not exist", name),
+                    )
+                    .with_hint("check the table name or provide a schema with that table"),
                 );
             }
             if let InsertSource::Select(sel) = &ins.source {
@@ -665,7 +685,7 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
 
         // Other DDL (CREATE INDEX, etc.) — fall back to full checker with body schema.
         _ => {
-            diags.extend(super::check_statements(&[stmt.clone()], &body));
+            diags.extend(super::check_statements(std::slice::from_ref(stmt), &body));
         }
     }
 }
@@ -714,11 +734,7 @@ fn extract_sql_fragment(line: &str) -> Option<&str> {
     } else {
         t
     };
-    if t.is_empty() {
-        None
-    } else {
-        Some(t)
-    }
+    if t.is_empty() { None } else { Some(t) }
 }
 
 /// Scan a single body line for `OLD.<col>` and `NEW.<col>` references.

@@ -28,7 +28,12 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
         let Statement::Ddl(ddl) = stmt else { continue };
         match ddl {
             DdlStatement::CreateTable(ct) => {
-                let table = ct.name.0.last().map(|i| i.value.to_lowercase()).unwrap_or_default();
+                let table = ct
+                    .name
+                    .0
+                    .last()
+                    .map(|i| i.value.to_lowercase())
+                    .unwrap_or_default();
                 // Column-level FK
                 for col in &ct.columns {
                     for constraint in &col.constraints {
@@ -47,7 +52,12 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                 }
             }
             DdlStatement::CreateIndex(ci) => {
-                let table = ci.table.0.last().map(|i| i.value.to_lowercase()).unwrap_or_default();
+                let table = ci
+                    .table
+                    .0
+                    .last()
+                    .map(|i| i.value.to_lowercase())
+                    .unwrap_or_default();
                 // An index covers the FK column if it's the first (or only) index column
                 if let Some(first_col) = ci.columns.first() {
                     indexed.insert((table, first_col.value.to_lowercase()));
@@ -60,8 +70,15 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
     // Also: PRIMARY KEY implicitly creates an index — skip PK columns
     let mut pk_cols: HashSet<(String, String)> = HashSet::new();
     for stmt in stmts {
-        let Statement::Ddl(DdlStatement::CreateTable(ct)) = stmt else { continue };
-        let table = ct.name.0.last().map(|i| i.value.to_lowercase()).unwrap_or_default();
+        let Statement::Ddl(DdlStatement::CreateTable(ct)) = stmt else {
+            continue;
+        };
+        let table = ct
+            .name
+            .0
+            .last()
+            .map(|i| i.value.to_lowercase())
+            .unwrap_or_default();
         for col in &ct.columns {
             for c in &col.constraints {
                 if matches!(c, ColumnConstraint::PrimaryKey | ColumnConstraint::Unique) {
@@ -94,10 +111,7 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                 RuleLevel::Error => Diagnostic::error(CODE, msg),
                 _ => Diagnostic::warning(CODE, msg),
             }
-            .with_hint(format!(
-                "Add: CREATE INDEX ON {}({});",
-                table, col
-            ));
+            .with_hint(format!("Add: CREATE INDEX ON {}({});", table, col));
             diags.push(d);
         }
     }

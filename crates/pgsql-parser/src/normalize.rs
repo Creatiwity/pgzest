@@ -39,7 +39,6 @@ use pgsql_ast::stmt::{Cte, Join, OrderByExpr, SelectItem, SelectStmt, TableRef};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedSelect {
     // ── Phase 1: source ──────────────────────────────────────────────────────
-
     /// Common Table Expressions (WITH clause), evaluated first.
     pub with: Vec<Cte>,
 
@@ -50,12 +49,10 @@ pub struct NormalizedSelect {
     pub joins: Vec<Join>,
 
     // ── Phase 2: filtering ───────────────────────────────────────────────────
-
     /// Row-level filter evaluated before grouping (WHERE).
     pub where_clause: Option<Expr>,
 
     // ── Phase 3: grouping ────────────────────────────────────────────────────
-
     /// GROUP BY expressions.
     pub group_by: Vec<Expr>,
 
@@ -63,7 +60,6 @@ pub struct NormalizedSelect {
     pub having: Option<Expr>,
 
     // ── Phase 4: projection ──────────────────────────────────────────────────
-
     /// SELECT column list (projection), evaluated after grouping.
     pub columns: Vec<SelectItem>,
 
@@ -71,7 +67,6 @@ pub struct NormalizedSelect {
     pub distinct: bool,
 
     // ── Phase 5: ordering & pagination ───────────────────────────────────────
-
     /// ORDER BY expressions. Aliases defined in `columns` are resolved in
     /// `resolved_aliases`; the type-checker should consult that map first.
     pub order_by: Vec<OrderByExpr>,
@@ -83,7 +78,6 @@ pub struct NormalizedSelect {
     pub offset: Option<Expr>,
 
     // ── Derived metadata ─────────────────────────────────────────────────────
-
     /// Alias → Expr map built from the SELECT list.
     ///
     /// For every `SelectItem::Expr { expr, alias: Some(name) }` entry in
@@ -139,7 +133,11 @@ pub fn normalize_select(stmt: SelectStmt) -> NormalizedSelect {
 fn build_alias_map(columns: &[SelectItem]) -> HashMap<String, Expr> {
     let mut map = HashMap::new();
     for item in columns {
-        if let SelectItem::Expr { expr, alias: Some(Ident { value, .. }) } = item {
+        if let SelectItem::Expr {
+            expr,
+            alias: Some(Ident { value, .. }),
+        } = item
+        {
             map.insert(value.clone(), expr.clone());
         }
     }
@@ -155,7 +153,10 @@ mod tests {
     use pgsql_ast::stmt::{JoinConstraint, JoinKind, OrderByExpr};
 
     fn col(name: &str) -> Expr {
-        Expr::Column(ColumnRef { table: None, column: Ident::new(name) })
+        Expr::Column(ColumnRef {
+            table: None,
+            column: Ident::new(name),
+        })
     }
 
     fn alias(name: &str) -> Ident {
@@ -169,7 +170,10 @@ mod tests {
             with: vec![],
             distinct: false,
             columns: vec![
-                SelectItem::Expr { expr: col("id"), alias: None },
+                SelectItem::Expr {
+                    expr: col("id"),
+                    alias: None,
+                },
                 SelectItem::Expr {
                     expr: Expr::BinaryOp {
                         left: Box::new(col("price")),
@@ -191,7 +195,11 @@ mod tests {
             }),
             group_by: vec![],
             having: None,
-            order_by: vec![OrderByExpr { expr: col("total"), asc: Some(false), nulls_first: None }],
+            order_by: vec![OrderByExpr {
+                expr: col("total"),
+                asc: Some(false),
+                nulls_first: None,
+            }],
             limit: Some(Expr::Literal(Literal::Number("10".into()))),
             offset: None,
         }
@@ -216,10 +224,14 @@ mod tests {
         let stmt = simple_stmt();
         let norm = normalize_select(stmt);
 
-        assert!(norm.resolved_aliases.contains_key("total"),
-            "expected 'total' in resolved_aliases");
-        assert!(!norm.resolved_aliases.contains_key("id"),
-            "unaliased column should not appear in resolved_aliases");
+        assert!(
+            norm.resolved_aliases.contains_key("total"),
+            "expected 'total' in resolved_aliases"
+        );
+        assert!(
+            !norm.resolved_aliases.contains_key("id"),
+            "unaliased column should not appear in resolved_aliases"
+        );
     }
 
     #[test]
@@ -249,7 +261,10 @@ mod tests {
         let mut stmt = simple_stmt();
         stmt.joins.push(Join {
             kind: JoinKind::Inner,
-            table: TableRef { name: ObjectName::unquoted(&["products"]), alias: None },
+            table: TableRef {
+                name: ObjectName::unquoted(&["products"]),
+                alias: None,
+            },
             constraint: JoinConstraint::Using(vec![Ident::new("product_id")]),
         });
         let norm = normalize_select(stmt);

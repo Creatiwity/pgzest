@@ -4,7 +4,7 @@ pub mod inject;
 pub mod migration_safety;
 pub mod ts_types;
 
-pub use diff::{diff_schemas, DiffOp, MigrationDiff};
+pub use diff::{DiffOp, MigrationDiff, diff_schemas};
 pub use emit::{emit_create_table, emit_object_name, emit_statement};
 pub use migration_safety::check_migration_safety;
 pub use ts_types::{generate_ts_types, generate_ts_types_from_sql};

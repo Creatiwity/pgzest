@@ -1,9 +1,8 @@
 use crate::{
-    Statement,
-    DdlStatement,
-    stmt::{SelectStmt, InsertStmt, UpdateStmt, DeleteStmt, SelectItem},
-    ddl::{CreateTable, CreateFunction, CreateProcedure, CreatePolicy, CreateIndex, CreateTrigger},
+    DdlStatement, Statement,
+    ddl::{CreateFunction, CreateIndex, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger},
     expr::Expr,
+    stmt::{DeleteStmt, InsertStmt, SelectItem, SelectStmt, UpdateStmt},
 };
 
 // ── Read-only visitor ─────────────────────────────────────────────────────────
@@ -15,8 +14,12 @@ use crate::{
 /// This trait is intentionally simple: it provides structural traversal, not type info.
 pub trait Visit {
     // Statement level
-    fn visit_statement(&mut self, stmt: &Statement) { walk_statement(self, stmt); }
-    fn visit_select(&mut self, node: &SelectStmt) { walk_select(self, node); }
+    fn visit_statement(&mut self, stmt: &Statement) {
+        walk_statement(self, stmt);
+    }
+    fn visit_select(&mut self, node: &SelectStmt) {
+        walk_select(self, node);
+    }
     fn visit_insert(&mut self, _node: &InsertStmt) {}
     fn visit_update(&mut self, _node: &UpdateStmt) {}
     fn visit_delete(&mut self, _node: &DeleteStmt) {}
@@ -30,7 +33,9 @@ pub trait Visit {
     fn visit_create_trigger(&mut self, _node: &CreateTrigger) {}
 
     // Expressions
-    fn visit_expr(&mut self, expr: &Expr) { walk_expr(self, expr); }
+    fn visit_expr(&mut self, expr: &Expr) {
+        walk_expr(self, expr);
+    }
 }
 
 // ── Mutable visitor (for transformations like normalize) ───────────────────────
@@ -81,9 +86,15 @@ pub fn walk_select<V: Visit + ?Sized>(visitor: &mut V, node: &SelectStmt) {
     if let Some(w) = &node.where_clause {
         visitor.visit_expr(w);
     }
-    for e in &node.group_by { visitor.visit_expr(e); }
-    if let Some(h) = &node.having { visitor.visit_expr(h); }
-    for o in &node.order_by { visitor.visit_expr(&o.expr); }
+    for e in &node.group_by {
+        visitor.visit_expr(e);
+    }
+    if let Some(h) = &node.having {
+        visitor.visit_expr(h);
+    }
+    for o in &node.order_by {
+        visitor.visit_expr(&o.expr);
+    }
 }
 
 pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
@@ -95,12 +106,25 @@ pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
         Expr::UnaryOp { expr, .. } => visitor.visit_expr(expr),
         Expr::Cast { expr, .. } => visitor.visit_expr(expr),
         Expr::FunctionCall { args, .. } => {
-            for arg in args { visitor.visit_expr(arg); }
+            for arg in args {
+                visitor.visit_expr(arg);
+            }
         }
-        Expr::Case { operand, when_clauses, else_clause } => {
-            if let Some(op) = operand { visitor.visit_expr(op); }
-            for (w, t) in when_clauses { visitor.visit_expr(w); visitor.visit_expr(t); }
-            if let Some(el) = else_clause { visitor.visit_expr(el); }
+        Expr::Case {
+            operand,
+            when_clauses,
+            else_clause,
+        } => {
+            if let Some(op) = operand {
+                visitor.visit_expr(op);
+            }
+            for (w, t) in when_clauses {
+                visitor.visit_expr(w);
+                visitor.visit_expr(t);
+            }
+            if let Some(el) = else_clause {
+                visitor.visit_expr(el);
+            }
         }
         Expr::Subquery(sub) => visitor.visit_select(sub),
         Expr::InSubquery { expr, subquery, .. } => {
@@ -109,9 +133,13 @@ pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
         }
         Expr::InList { expr, list, .. } => {
             visitor.visit_expr(expr);
-            for e in list { visitor.visit_expr(e); }
+            for e in list {
+                visitor.visit_expr(e);
+            }
         }
-        Expr::Between { expr, low, high, .. } => {
+        Expr::Between {
+            expr, low, high, ..
+        } => {
             visitor.visit_expr(expr);
             visitor.visit_expr(low);
             visitor.visit_expr(high);

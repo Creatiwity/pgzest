@@ -194,7 +194,12 @@ pub fn emit_expr(expr: &Expr) -> String {
             UnaryOp::IsNull => format!("({} IS NULL)", emit_expr(expr)),
             UnaryOp::IsNotNull => format!("({} IS NOT NULL)", emit_expr(expr)),
         },
-        Expr::FunctionCall { name, args, filter, distinct } => {
+        Expr::FunctionCall {
+            name,
+            args,
+            filter,
+            distinct,
+        } => {
             let fn_name = emit_object_name(name);
             let distinct_kw = if *distinct { "DISTINCT " } else { "" };
             let args_str: Vec<String> = args.iter().map(emit_expr).collect();
@@ -202,19 +207,33 @@ pub fn emit_expr(expr: &Expr) -> String {
                 Some(f) => format!(" FILTER (WHERE {})", emit_expr(f)),
                 None => String::new(),
             };
-            format!("{}({}{}){}", fn_name, distinct_kw, args_str.join(", "), filter_str)
+            format!(
+                "{}({}{}){}",
+                fn_name,
+                distinct_kw,
+                args_str.join(", "),
+                filter_str
+            )
         }
         Expr::Cast { expr, data_type } => {
             format!("CAST({} AS {})", emit_expr(expr), emit_data_type(data_type))
         }
-        Expr::Case { operand, when_clauses, else_clause } => {
+        Expr::Case {
+            operand,
+            when_clauses,
+            else_clause,
+        } => {
             let mut s = "CASE".to_string();
             if let Some(op) = operand {
                 s.push(' ');
                 s.push_str(&emit_expr(op));
             }
             for (when, then) in when_clauses {
-                s.push_str(&format!(" WHEN {} THEN {}", emit_expr(when), emit_expr(then)));
+                s.push_str(&format!(
+                    " WHEN {} THEN {}",
+                    emit_expr(when),
+                    emit_expr(then)
+                ));
             }
             if let Some(el) = else_clause {
                 s.push_str(&format!(" ELSE {}", emit_expr(el)));
@@ -223,16 +242,34 @@ pub fn emit_expr(expr: &Expr) -> String {
             s
         }
         Expr::Subquery(sel) => format!("({})", emit_select(sel)),
-        Expr::InSubquery { expr, subquery, negated } => {
+        Expr::InSubquery {
+            expr,
+            subquery,
+            negated,
+        } => {
             let not = if *negated { " NOT" } else { "" };
-            format!("({}{} IN ({}))", emit_expr(expr), not, emit_select(subquery))
+            format!(
+                "({}{} IN ({}))",
+                emit_expr(expr),
+                not,
+                emit_select(subquery)
+            )
         }
-        Expr::InList { expr, list, negated } => {
+        Expr::InList {
+            expr,
+            list,
+            negated,
+        } => {
             let not = if *negated { " NOT" } else { "" };
             let items: Vec<String> = list.iter().map(emit_expr).collect();
             format!("({}{} IN ({}))", emit_expr(expr), not, items.join(", "))
         }
-        Expr::Between { expr, low, high, negated } => {
+        Expr::Between {
+            expr,
+            low,
+            high,
+            negated,
+        } => {
             let not = if *negated { " NOT" } else { "" };
             format!(
                 "({}{} BETWEEN {} AND {})",
@@ -297,7 +334,11 @@ pub fn emit_ddl(ddl: &DdlStatement) -> String {
 }
 
 pub fn emit_create_table(ct: &CreateTable) -> String {
-    let if_not_exists = if ct.if_not_exists { "IF NOT EXISTS " } else { "" };
+    let if_not_exists = if ct.if_not_exists {
+        "IF NOT EXISTS "
+    } else {
+        ""
+    };
     let mut parts: Vec<String> = ct.columns.iter().map(emit_column_def).collect();
     for constraint in &ct.constraints {
         parts.push(emit_table_constraint(constraint));
@@ -311,14 +352,14 @@ pub fn emit_create_table(ct: &CreateTable) -> String {
 }
 
 pub fn emit_column_def(col: &ColumnDef) -> String {
-    let mut parts = vec![
-        emit_ident(&col.name),
-        emit_data_type(&col.data_type),
-    ];
+    let mut parts = vec![emit_ident(&col.name), emit_data_type(&col.data_type)];
     if !col.nullable {
         // Only emit NOT NULL if there is no explicit PrimaryKey constraint
         // (PK implies NOT NULL).
-        let has_pk = col.constraints.iter().any(|c| matches!(c, ColumnConstraint::PrimaryKey));
+        let has_pk = col
+            .constraints
+            .iter()
+            .any(|c| matches!(c, ColumnConstraint::PrimaryKey));
         if !has_pk {
             parts.push("NOT NULL".to_string());
         }
@@ -328,10 +369,13 @@ pub fn emit_column_def(col: &ColumnDef) -> String {
             ColumnConstraint::PrimaryKey => parts.push("PRIMARY KEY".to_string()),
             ColumnConstraint::Unique => parts.push("UNIQUE".to_string()),
             ColumnConstraint::NotNull => {} // already handled above
-            ColumnConstraint::Check(expr) => {
-                parts.push(format!("CHECK ({})", emit_expr(expr)))
-            }
-            ColumnConstraint::References { table, column, on_delete, on_update } => {
+            ColumnConstraint::Check(expr) => parts.push(format!("CHECK ({})", emit_expr(expr))),
+            ColumnConstraint::References {
+                table,
+                column,
+                on_delete,
+                on_update,
+            } => {
                 let col_ref = match column {
                     Some(c) => format!(" ({})", emit_ident(c)),
                     None => String::new(),
@@ -352,9 +396,7 @@ pub fn emit_column_def(col: &ColumnDef) -> String {
                     on_upd
                 ));
             }
-            ColumnConstraint::Default(expr) => {
-                parts.push(format!("DEFAULT {}", emit_expr(expr)))
-            }
+            ColumnConstraint::Default(expr) => parts.push(format!("DEFAULT {}", emit_expr(expr))),
         }
     }
     parts.join(" ")
@@ -412,7 +454,11 @@ fn emit_referential_action(action: &ReferentialAction) -> &'static str {
 
 pub fn emit_create_index(ci: &CreateIndex) -> String {
     let unique = if ci.unique { "UNIQUE " } else { "" };
-    let if_not_exists = if ci.if_not_exists { "IF NOT EXISTS " } else { "" };
+    let if_not_exists = if ci.if_not_exists {
+        "IF NOT EXISTS "
+    } else {
+        ""
+    };
     let name = ci
         .name
         .as_ref()
@@ -435,7 +481,11 @@ pub fn emit_create_function(cf: &CreateFunction) -> String {
     let returns = emit_return_type(&cf.return_type);
     let lang = emit_function_language(&cf.language);
     let body = emit_function_body(&cf.body);
-    let security = if cf.security_definer { "\nSECURITY DEFINER" } else { "" };
+    let security = if cf.security_definer {
+        "\nSECURITY DEFINER"
+    } else {
+        ""
+    };
     let volatility = match cf.volatility {
         Volatility::Volatile => "",
         Volatility::Stable => "\nSTABLE",
@@ -486,7 +536,13 @@ fn emit_function_param(param: &FunctionParam) -> String {
         .as_ref()
         .map(|d| format!(" DEFAULT {}", emit_expr(d)))
         .unwrap_or_default();
-    format!("{}{}{}{}", mode, name, emit_data_type(&param.data_type), default)
+    format!(
+        "{}{}{}{}",
+        mode,
+        name,
+        emit_data_type(&param.data_type),
+        default
+    )
 }
 
 fn emit_return_type(rt: &ReturnType) -> String {
@@ -568,7 +624,11 @@ fn emit_trigger_event(event: &TriggerEvent) -> String {
 }
 
 pub fn emit_create_policy(cp: &CreatePolicy) -> String {
-    let permissive = if cp.permissive { "PERMISSIVE" } else { "RESTRICTIVE" };
+    let permissive = if cp.permissive {
+        "PERMISSIVE"
+    } else {
+        "RESTRICTIVE"
+    };
     let command = match cp.command {
         PolicyCommand::All => "ALL",
         PolicyCommand::Select => "SELECT",
@@ -672,7 +732,7 @@ fn emit_insert(ins: &InsertStmt) -> String {
     let on_conflict = ins
         .on_conflict
         .as_ref()
-        .map(|oc| emit_on_conflict(oc))
+        .map(emit_on_conflict)
         .unwrap_or_default();
     let returning = emit_returning(&ins.returning);
     format!(
@@ -696,7 +756,10 @@ fn emit_on_conflict(oc: &OnConflict) -> String {
     };
     let action = match &oc.action {
         OnConflictAction::DoNothing => "DO NOTHING".to_string(),
-        OnConflictAction::Update { assignments, where_clause } => {
+        OnConflictAction::Update {
+            assignments,
+            where_clause,
+        } => {
             let assigns: Vec<String> = assignments
                 .iter()
                 .map(|a| format!("{} = {}", emit_ident(&a.column), emit_expr(&a.value)))

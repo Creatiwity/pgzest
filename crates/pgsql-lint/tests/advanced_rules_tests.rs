@@ -1,4 +1,4 @@
-use pgsql_lint::{lint_statements, LintConfig};
+use pgsql_lint::{LintConfig, lint_statements};
 
 fn parse(sql: &str) -> Vec<pgsql_ast::stmt::Statement> {
     pgsql_parser::parse(sql).expect("parse")

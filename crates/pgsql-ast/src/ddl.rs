@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use crate::expr::{Expr, ObjectName, Ident};
-use crate::types::DataType;
-use crate::stmt::SelectStmt;
+use crate::expr::{Expr, Ident, ObjectName};
 use crate::node::{NodeId, Span};
+use crate::stmt::SelectStmt;
+use crate::types::DataType;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DdlStatement {
@@ -63,8 +63,12 @@ pub enum ReferentialAction {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TableConstraint {
-    PrimaryKey { columns: Vec<Ident> },
-    Unique { columns: Vec<Ident> },
+    PrimaryKey {
+        columns: Vec<Ident>,
+    },
+    Unique {
+        columns: Vec<Ident>,
+    },
     ForeignKey {
         columns: Vec<Ident>,
         ref_table: ObjectName,
@@ -243,10 +247,19 @@ pub enum AlterTableOp {
     DisableRowLevelSecurity,
     ForceRowLevelSecurity,
     AddColumn(ColumnDef),
-    DropColumn { name: Ident, if_exists: bool },
-    AlterColumn { name: Ident, action: AlterColumnAction },
+    DropColumn {
+        name: Ident,
+        if_exists: bool,
+    },
+    AlterColumn {
+        name: Ident,
+        action: AlterColumnAction,
+    },
     AddConstraint(TableConstraint),
-    DropConstraint { name: Ident, if_exists: bool },
+    DropConstraint {
+        name: Ident,
+        if_exists: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

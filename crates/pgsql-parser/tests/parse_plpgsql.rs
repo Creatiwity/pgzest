@@ -1,7 +1,7 @@
 use pgsql_ast::{
+    Statement,
     ddl::{DdlStatement, FunctionBody},
     plpgsql::PlExpr,
-    Statement,
 };
 use pgsql_parser::parse;
 
@@ -47,7 +47,9 @@ fn parse_full_schema_plpgsql_functions() {
     assert!(
         parsed_count >= 3,
         "expected at least 3 Parsed PL/pgSQL bodies, got {} (raw={}, sqlquery={})",
-        parsed_count, raw_count, sql_query_count
+        parsed_count,
+        raw_count,
+        sql_query_count
     );
     // Expect 0 Raw (graceful degradation should not be needed for these functions)
     assert_eq!(

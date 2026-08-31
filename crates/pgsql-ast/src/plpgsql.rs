@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
 use crate::expr::{Expr, Ident, ObjectName};
 use crate::stmt::SelectStmt;
 use crate::types::DataType;
+use serde::{Deserialize, Serialize};
 
 // ── Corps complet d'une fonction/procédure PL/pgSQL ──────────────────────────
 
@@ -44,9 +44,9 @@ pub struct ExceptionHandler {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ExceptionCondition {
-    SqlState(String),   // SQLSTATE '22012'
-    Named(String),      // division_by_zero, unique_violation, etc.
-    Others,             // WHEN OTHERS
+    SqlState(String), // SQLSTATE '22012'
+    Named(String),    // division_by_zero, unique_violation, etc.
+    Others,           // WHEN OTHERS
 }
 
 // ── Statements PL/pgSQL ───────────────────────────────────────────────────────
@@ -54,10 +54,7 @@ pub enum ExceptionCondition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PlStatement {
     /// var := expr  ou  var = expr (dans les triggers)
-    Assign {
-        target: AssignTarget,
-        value: PlExpr,
-    },
+    Assign { target: AssignTarget, value: PlExpr },
     /// SELECT … INTO [STRICT] var1, var2 FROM …
     SelectInto {
         strict: bool,
@@ -95,10 +92,7 @@ pub enum PlStatement {
     /// LOOP … END LOOP
     Loop(Block),
     /// WHILE condition LOOP … END LOOP
-    While {
-        condition: PlExpr,
-        body: Block,
-    },
+    While { condition: PlExpr, body: Block },
     /// FOR var IN [REVERSE] from .. to [BY step] LOOP … END LOOP
     ForRange {
         var: Ident,
@@ -134,10 +128,7 @@ pub enum PlStatement {
     /// Instruction SQL directe (INSERT, UPDATE, DELETE)
     Sql(crate::stmt::Statement),
     /// CALL procedure(args)
-    Call {
-        name: ObjectName,
-        args: Vec<PlExpr>,
-    },
+    Call { name: ObjectName, args: Vec<PlExpr> },
     /// GET DIAGNOSTICS var = item
     GetDiagnostics(Vec<DiagnosticsAssignment>),
     /// Bloc imbriqué (BEGIN … END à l'intérieur d'un bloc)

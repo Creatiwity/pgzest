@@ -58,18 +58,26 @@ fn visit_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
 fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
     match expr {
         Expr::InSubquery { negated: true, .. } => {
-            let msg = "NOT IN (subquery) can silently return no rows when the subquery contains NULL";
+            let msg =
+                "NOT IN (subquery) can silently return no rows when the subquery contains NULL";
             let d = match config.rules.no_not_in_subquery {
                 RuleLevel::Error => Diagnostic::error(CODE, msg),
                 _ => Diagnostic::warning(CODE, msg),
             }
-            .with_hint("Replace `NOT IN (SELECT ...)` with `NOT EXISTS (SELECT 1 FROM ... WHERE ...)`.");
+            .with_hint(
+                "Replace `NOT IN (SELECT ...)` with `NOT EXISTS (SELECT 1 FROM ... WHERE ...)`.",
+            );
             out.push(d);
         }
         // Also catch the BinaryOp NOT IN form (some ASTs use this)
-        Expr::BinaryOp { op: BinaryOp::NotIn, right, .. } => {
+        Expr::BinaryOp {
+            op: BinaryOp::NotIn,
+            right,
+            ..
+        } => {
             if matches!(right.as_ref(), Expr::Subquery(_)) {
-                let msg = "NOT IN (subquery) can silently return no rows when the subquery contains NULL";
+                let msg =
+                    "NOT IN (subquery) can silently return no rows when the subquery contains NULL";
                 let d = match config.rules.no_not_in_subquery {
                     RuleLevel::Error => Diagnostic::error(CODE, msg),
                     _ => Diagnostic::warning(CODE, msg),
@@ -93,7 +101,11 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             }
         }
         Expr::Cast { expr, .. } => visit_expr(expr, config, out),
-        Expr::Case { operand, when_clauses, else_clause } => {
+        Expr::Case {
+            operand,
+            when_clauses,
+            else_clause,
+        } => {
             if let Some(op) = operand {
                 visit_expr(op, config, out);
             }
@@ -116,7 +128,9 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
                 visit_expr(e, config, out);
             }
         }
-        Expr::Between { expr, low, high, .. } => {
+        Expr::Between {
+            expr, low, high, ..
+        } => {
             visit_expr(expr, config, out);
             visit_expr(low, config, out);
             visit_expr(high, config, out);

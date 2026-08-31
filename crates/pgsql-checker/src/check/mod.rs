@@ -1,18 +1,21 @@
 pub(crate) mod plpgsql;
 pub(crate) mod select;
 
-use pgsql_ast::ddl::CreatePolicy;
 use pgsql_ast::Statement;
+use pgsql_ast::ddl::CreatePolicy;
 
 use crate::codes;
 use crate::diagnostic::Diagnostic;
-use crate::schema::{object_name_to_string, SchemaProvider};
+use crate::schema::{SchemaProvider, object_name_to_string};
 
 /// Parse `sql` and type-check all resulting statements.
 pub fn check_sql(sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
     match pgsql_parser::parse(sql) {
         Ok(stmts) => check_statements(&stmts, schema),
-        Err(e) => vec![Diagnostic::error(codes::PARSE_ERROR, format!("parse error: {e}"))],
+        Err(e) => vec![Diagnostic::error(
+            codes::PARSE_ERROR,
+            format!("parse error: {e}"),
+        )],
     }
 }
 
@@ -22,7 +25,12 @@ pub fn check_sql(sql: &str, schema: &dyn SchemaProvider) -> Vec<Diagnostic> {
 pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
     let stmts = match pgsql_parser::parse(sql) {
         Ok(s) => s,
-        Err(e) => return vec![Diagnostic::error(codes::PARSE_ERROR, format!("parse error: {e}"))],
+        Err(e) => {
+            return vec![Diagnostic::error(
+                codes::PARSE_ERROR,
+                format!("parse error: {e}"),
+            )];
+        }
     };
 
     // Première passe : construire le schéma depuis le DDL du fichier lui-même
@@ -180,7 +188,9 @@ fn check_policy_expr(
             }
         }
 
-        Expr::Between { expr, low, high, .. } => {
+        Expr::Between {
+            expr, low, high, ..
+        } => {
             check_policy_expr(expr, clause, policy_name, table_schema, schema, diags);
             check_policy_expr(low, clause, policy_name, table_schema, schema, diags);
             check_policy_expr(high, clause, policy_name, table_schema, schema, diags);

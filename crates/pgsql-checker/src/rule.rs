@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use pgsql_ast::ddl::{CreateFunction, CreateProcedure, CreatePolicy, CreateTable, CreateTrigger};
-use pgsql_ast::stmt::{SelectStmt, InsertStmt, UpdateStmt, DeleteStmt};
 use crate::diagnostic::Diagnostic;
 use crate::schema::SchemaProvider;
+use pgsql_ast::ddl::{CreateFunction, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger};
+use pgsql_ast::stmt::{DeleteStmt, InsertStmt, SelectStmt, UpdateStmt};
+use std::collections::HashMap;
 
 /// Context passed to every rule invocation.
 pub struct RuleCtx<'a> {

@@ -264,12 +264,6 @@ make clean       # supprime les artefacts
 Cibles Rust seules : `make build`, `make release`, `make test-rust`,
 `make clippy`, `make fmt`. `make wasm` nécessite `cargo install wasm-pack`.
 
-### Dette connue sur l'outillage
-
-- Le code n'a jamais été passé à `rustfmt` (~6800 lignes de diff en attente).
-  `make fmt-check` échoue donc ; la CI ne bloque pas dessus pour le moment.
-- ~85 lints clippy de style restent à traiter (dont 34 `collapsible_if`),
-  en grande partie corrigeables via `cargo clippy --fix`.
-
-Les deux étapes de la CI correspondantes sont en `continue-on-error` ; il
-suffit de retirer ce drapeau une fois la dette payée.
+Le code est formaté avec `rustfmt` et sans aucun warning clippy. La CI
+bloque sur les deux (`cargo fmt --all --check` et `clippy -- -D warnings`),
+donc `make ci` avant de pousser.

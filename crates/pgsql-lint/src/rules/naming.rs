@@ -33,10 +33,7 @@ fn diag_for_ident(ident: &Ident, context: &str, level: &RuleLevel) -> Option<Dia
     if is_snake_case(&ident.value) {
         return None;
     }
-    let msg = format!(
-        "{context} `{}` is not snake_case",
-        ident.value
-    );
+    let msg = format!("{context} `{}` is not snake_case", ident.value);
     let d = match level {
         RuleLevel::Error => Diagnostic::error(CODE, msg),
         _ => Diagnostic::warning(CODE, msg),
@@ -76,10 +73,10 @@ pub fn check(stmt: &Statement, config: &LintConfig) -> Vec<Diagnostic> {
             }
         }
         DdlStatement::CreateIndex(ci) => {
-            if let Some(ref name) = ci.name {
-                if let Some(d) = diag_for_ident(name, "Index", level) {
-                    diags.push(d);
-                }
+            if let Some(ref name) = ci.name
+                && let Some(d) = diag_for_ident(name, "Index", level)
+            {
+                diags.push(d);
             }
             for part in &ci.table.0 {
                 if let Some(d) = diag_for_ident(part, "Table", level) {

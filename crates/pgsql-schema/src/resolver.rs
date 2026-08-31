@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use pgsql_ast::{AlterTableOp, DdlStatement, Statement};
 use pgsql_checker::schema::{
-    object_name_to_string, ColumnInfo, FunctionSignature, RlsAwareSchemaProvider, SchemaProvider,
-    TableSchema,
+    ColumnInfo, FunctionSignature, RlsAwareSchemaProvider, SchemaProvider, TableSchema,
+    object_name_to_string,
 };
 
-use crate::index::{qualify, SchemaIndex};
+use crate::index::{SchemaIndex, qualify};
 use crate::source::{SchemaSource, SqlChunk};
 
 // ── SchemaResolver ────────────────────────────────────────────────────────────
@@ -19,10 +19,10 @@ use crate::source::{SchemaSource, SqlChunk};
 /// ALTER TABLE mutations (ADD COLUMN, DROP COLUMN, RLS) are applied in
 /// chunk order so migrations layer on top of the base schema correctly.
 pub struct SchemaResolver {
-    tables:      HashMap<String, TableSchema>,
-    functions:   HashMap<String, FunctionSignature>,
+    tables: HashMap<String, TableSchema>,
+    functions: HashMap<String, FunctionSignature>,
     rls_enabled: HashSet<String>,
-    pub index:   SchemaIndex,
+    pub index: SchemaIndex,
 }
 
 impl SchemaResolver {
@@ -47,7 +47,12 @@ impl SchemaResolver {
         }
 
         let index = SchemaIndex::from_chunks(chunks);
-        Self { tables, functions, rls_enabled, index }
+        Self {
+            tables,
+            functions,
+            rls_enabled,
+            index,
+        }
     }
 
     /// Empty resolver (no schema loaded).
@@ -67,7 +72,12 @@ impl SchemaResolver {
         let mut functions = HashMap::new();
         let mut rls_enabled = HashSet::new();
         apply_statements(&stmts, &mut tables, &mut functions, &mut rls_enabled);
-        Ok(Self { tables, functions, rls_enabled, index: SchemaIndex::default() })
+        Ok(Self {
+            tables,
+            functions,
+            rls_enabled,
+            index: SchemaIndex::default(),
+        })
     }
 }
 
@@ -124,14 +134,16 @@ fn apply_statements(
                     .collect();
                 tables.insert(
                     key,
-                    TableSchema { name: object_name_to_string(&ct.name), columns },
+                    TableSchema {
+                        name: object_name_to_string(&ct.name),
+                        columns,
+                    },
                 );
             }
 
             DdlStatement::CreateFunction(cf) => {
                 let key = qualify(object_name_to_string(&cf.name));
-                let params: Vec<DataType> =
-                    cf.params.iter().map(|p| p.data_type.clone()).collect();
+                let params: Vec<DataType> = cf.params.iter().map(|p| p.data_type.clone()).collect();
                 let return_type = match &cf.return_type {
                     pgsql_ast::ReturnType::Scalar(dt) => dt.clone(),
                     pgsql_ast::ReturnType::SetOf(dt) => dt.clone(),
@@ -175,7 +187,10 @@ fn apply_statements(
                             if let Some(table) = find_table_mut(tables, &table_key) {
                                 // Avoid duplicate if already present
                                 let col_lower = col_def.name.value.to_lowercase();
-                                if !table.columns.iter().any(|c| c.name.to_lowercase() == col_lower)
+                                if !table
+                                    .columns
+                                    .iter()
+                                    .any(|c| c.name.to_lowercase() == col_lower)
                                 {
                                     table.columns.push(ColumnInfo {
                                         name: col_def.name.value.clone(),
@@ -232,10 +247,10 @@ fn resolve_name<'a, V>(name: &str, map: &'a HashMap<String, V>) -> Option<&'a V>
     if let Some(v) = map.get(&with_public) {
         return Some(v);
     }
-    if let Some(dot) = lower.find('.') {
-        if let Some(v) = map.get(&lower[dot + 1..]) {
-            return Some(v);
-        }
+    if let Some(dot) = lower.find('.')
+        && let Some(v) = map.get(&lower[dot + 1..])
+    {
+        return Some(v);
     }
     None
 }

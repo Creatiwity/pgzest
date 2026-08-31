@@ -6,7 +6,10 @@ pub enum DataType {
     SmallInt,
     Integer,
     BigInt,
-    Numeric { precision: Option<u64>, scale: Option<u64> },
+    Numeric {
+        precision: Option<u64>,
+        scale: Option<u64>,
+    },
     Real,
     DoublePrecision,
     // Text

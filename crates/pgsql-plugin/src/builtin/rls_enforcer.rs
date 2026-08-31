@@ -1,7 +1,7 @@
-use pgsql_checker::rule::{CheckRule, RuleCtx};
-use pgsql_checker::object_name_to_string;
 use pgsql_ast::ddl::CreateTable;
 use pgsql_ast::stmt::SelectStmt;
+use pgsql_checker::object_name_to_string;
+use pgsql_checker::rule::{CheckRule, RuleCtx};
 
 pub struct RlsEnforcerPlugin;
 
@@ -11,10 +11,7 @@ impl crate::plugin::Plugin for RlsEnforcerPlugin {
     }
 
     fn rules(&self, _options: &serde_json::Value) -> Vec<Box<dyn CheckRule>> {
-        vec![
-            Box::new(RequireRlsRule),
-            Box::new(NoSelectStarRule),
-        ]
+        vec![Box::new(RequireRlsRule), Box::new(NoSelectStarRule)]
     }
 }
 
@@ -29,21 +26,19 @@ impl CheckRule for RequireRlsRule {
 
     fn check_table(&self, ct: &CreateTable, ctx: &mut RuleCtx) {
         let table_name = object_name_to_string(&ct.name);
-        if let Some(provider) = ctx.schema.as_rls_aware() {
-            if !provider.table_has_rls(&table_name) {
-                ctx.diags.push(
-                    pgsql_checker::Diagnostic::warning(
-                        "rls/table-without-rls",
-                        format!("table '{}' does not have RLS enabled", table_name),
-                    )
-                    .with_hint(
-                        format!(
-                            "add: ALTER TABLE {} ENABLE ROW LEVEL SECURITY",
-                            table_name
-                        ),
-                    ),
-                );
-            }
+        if let Some(provider) = ctx.schema.as_rls_aware()
+            && !provider.table_has_rls(&table_name)
+        {
+            ctx.diags.push(
+                pgsql_checker::Diagnostic::warning(
+                    "rls/table-without-rls",
+                    format!("table '{}' does not have RLS enabled", table_name),
+                )
+                .with_hint(format!(
+                    "add: ALTER TABLE {} ENABLE ROW LEVEL SECURITY",
+                    table_name
+                )),
+            );
         }
     }
 }
@@ -65,9 +60,7 @@ impl CheckRule for NoSelectStarRule {
                         "rls/select-star",
                         "SELECT * is not recommended in application queries".to_string(),
                     )
-                    .with_hint(
-                        "list columns explicitly for better performance and type safety",
-                    ),
+                    .with_hint("list columns explicitly for better performance and type safety"),
                 );
                 break;
             }
