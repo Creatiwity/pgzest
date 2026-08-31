@@ -467,7 +467,11 @@ mod tests {
         assert!(sql.contains("RETURNS INTEGER"));
         assert!(sql.contains("LANGUAGE plpgsql"));
         assert!(sql.contains("BEGIN"));
-        assert!(sql.contains("DECLARE total INTEGER;"));
+        // La déclaration est remontée en section DECLARE, avant BEGIN :
+        // `DECLARE x T;` entre BEGIN et END est du PL/pgSQL invalide.
+        let decl = sql.find("DECLARE").expect("section DECLARE");
+        assert!(decl < sql.find("BEGIN").unwrap(), "obtenu:\n{sql}");
+        assert!(sql.contains("total INTEGER;"), "obtenu:\n{sql}");
         assert!(sql.contains("RETURN total;"));
         assert!(sql.contains("END;"));
     }
