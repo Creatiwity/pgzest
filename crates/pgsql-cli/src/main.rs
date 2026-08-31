@@ -64,6 +64,26 @@ enum Command {
         no_project: bool,
     },
 
+    /// List available macros: the ones shipped with the tool, plus the
+    /// project's own from `[macros] directory`.
+    Macros {
+        /// Show each macro's header pattern and its expansion template.
+        #[arg(long)]
+        verbose: bool,
+    },
+
+    /// Expand macros in a `.pgsql` file and print standard SQL.
+    ///
+    /// With `--out-dir`, writes one `.sql` per input instead of printing.
+    Build {
+        /// `.pgsql` files to expand (at least one required)
+        #[arg(required = true)]
+        files: Vec<String>,
+        /// Directory to write the generated `.sql` files into
+        #[arg(long = "out-dir")]
+        out_dir: Option<String>,
+    },
+
     /// Lint a SQL file for style and best-practice violations.
     Lint {
         /// SQL file to lint
@@ -574,6 +594,8 @@ fn main() {
             on_unsupported.map(Into::into),
             no_project,
         ),
+        Command::Macros { verbose } => cmd_macros(verbose),
+        Command::Build { files, out_dir } => cmd_build(&files, out_dir.as_deref()),
         Command::Lint { file } => cmd_lint(&file),
         Command::Migrate { action } => match action {
             MigrateAction::Diff { old, new } => cmd_migrate_diff(&old, &new),
@@ -594,4 +616,148 @@ fn main() {
     };
 
     process::exit(exit_code);
+}
+
+// ── Macros ────────────────────────────────────────────────────────────────────
+
+/// Jeu de macros du projet : celles fournies, plus celles de `[macros] directory`.
+///
+/// Les erreurs de définition sont rapportées mais ne bloquent pas : les autres
+/// macros restent utilisables.
+fn load_macros() -> (pgsql_macro::MacroSet, Vec<String>) {
+    let mut set = pgsql_macro::MacroSet::builtin();
+    let mut errors = Vec::new();
+
+    if let Some((root, config)) = std::path::Path::new(".")
+        .canonicalize()
+        .ok()
+        .and_then(|d| pgsql_schema::ProjectConfig::find_and_load(&d))
+    {
+        let dir = root.join(&config.macros.directory);
+        if dir.is_dir() {
+            errors = set.load_dir(&dir);
+        }
+    }
+    (set, errors)
+}
+
+fn cmd_macros(verbose: bool) -> i32 {
+    let (set, errors) = load_macros();
+    for e in &errors {
+        eprintln!("warning: {e}");
+    }
+
+    println!("{} macros disponibles :\n", set.len());
+    for name in set.names() {
+        let def = set.get(name).expect("nom listé");
+        let origin = if def.origin.starts_with("<builtin>") {
+            "fournie".to_string()
+        } else {
+            def.origin.clone()
+        };
+        println!("  @{name}  ({origin})");
+
+        if verbose {
+            let slots = set.slots_of(name).unwrap_or_default();
+            if !slots.is_empty() {
+                let rendered: Vec<String> = slots
+                    .iter()
+                    .map(|(n, k)| format!("{n}:{}", k.as_str()))
+                    .collect();
+                println!("      trous   : {}", rendered.join(", "));
+            }
+            if !def.flags.is_empty() {
+                let f: Vec<&str> = def.flags.iter().map(|f| f.keyword.as_str()).collect();
+                println!("      drapeaux: {}", f.join(", "));
+            }
+            if !def.options.is_empty() {
+                let o: Vec<String> = def
+                    .options
+                    .iter()
+                    .map(|o| match &o.default {
+                        Some(d) => format!("{} (défaut {d})", o.keyword),
+                        None => o.keyword.clone(),
+                    })
+                    .collect();
+                println!("      options : {}", o.join(", "));
+            }
+            println!();
+        }
+    }
+
+    if !verbose {
+        println!("\n`pgsql macros --verbose` détaille chaque macro.");
+        println!("Pour en ajouter : un `*.pgmacro` dans le répertoire `[macros] directory`.");
+    }
+    if errors.is_empty() { 0 } else { 1 }
+}
+
+fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
+    let (set, errors) = load_macros();
+    for e in &errors {
+        eprintln!("warning: {e}");
+    }
+
+    let mut failed = false;
+    for path in files {
+        let src = match read_file(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: {e}");
+                failed = true;
+                continue;
+            }
+        };
+        let expansion = pgsql_macro::expand_source(&src, &set);
+
+        for d in &expansion.diagnostics {
+            use pgsql_diagnostics::Severity;
+            let sev = match d.severity {
+                Severity::Error => {
+                    failed = true;
+                    "error"
+                }
+                Severity::Warning => "warning",
+                Severity::Info => "info",
+            };
+            // Les spans des diagnostics de macro sont déjà dans le repère source.
+            let (line, col) = d
+                .span
+                .as_ref()
+                .map(|s| offset_to_line_col(&src, s.start))
+                .unwrap_or((1, 1));
+            eprintln!("{path}:{line}:{col}: {sev}[{}]: {}", d.code, d.message);
+        }
+
+        match out_dir {
+            None => print!("{}", expansion.sql),
+            Some(dir) => {
+                let stem = std::path::Path::new(path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "out".into());
+                let target = std::path::Path::new(dir).join(format!("{stem}.sql"));
+                if let Some(parent) = target.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    eprintln!("error: {}: {e}", parent.display());
+                    failed = true;
+                    continue;
+                }
+                match std::fs::write(&target, &expansion.sql) {
+                    Ok(()) => println!(
+                        "{} → {} ({} macro(s) désucrée(s))",
+                        path,
+                        target.display(),
+                        expansion.expanded
+                    ),
+                    Err(e) => {
+                        eprintln!("error: {}: {e}", target.display());
+                        failed = true;
+                    }
+                }
+            }
+        }
+    }
+    if failed { 1 } else { 0 }
 }

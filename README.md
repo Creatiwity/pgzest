@@ -125,6 +125,90 @@ souligne `nope`, pas le `SELECT`), y compris dans une sous-expression. Les
 règles de **lint** visent le statement — leurs nœuds d'intérêt ne sont pas
 toujours des expressions.
 
+## Macros
+
+Une syntaxe compacte qui se désucre en SQL standard. Rien n'est deviné : toute
+l'information est portée par la syntaxe.
+
+```sql
+@function user_count(target_org UUID): INTEGER {
+    DECLARE total INTEGER;
+    SELECT count(*) INTO total FROM users WHERE org_id = target_org;
+    RETURN total;
+}
+```
+
+11 lignes → 5. Les `DECLARE` s'écrivent près de leur usage et sont remontés en
+section avant `BEGIN` à la compilation.
+
+Les macros vivent dans des `.pgsql` ; `pgsql build` produit du `.sql` standard,
+lisible par psql et pg_dump — aucun verrouillage.
+
+```bash
+pgsql macros                       # les macros disponibles
+pgsql macros --verbose             # trous, drapeaux et options de chacune
+pgsql build q.pgsql                # affiche le SQL généré
+pgsql build q.pgsql --out-dir gen  # écrit gen/q.sql
+```
+
+### Fournies
+
+| Macro | Rôle |
+|---|---|
+| `@function name(params)[: TYPE] [attributs] { … }` | fonction PL/pgSQL ou SQL |
+| `@procedure name(params) [attributs] { … }` | procédure |
+| `@trigger name timing events on table(s) for each row\|statement [when (…)] { … }` | la fonction **et** le `CREATE TRIGGER` |
+
+Attributs de `@function` : `immutable`, `stable`, `volatile`,
+`security_definer`, `strict`, `leakproof`, `language <lang>`, `cost N`,
+`rows N`.
+
+Le `RETURN` reste explicite : un `AFTER` ou un `FOR EACH STATEMENT` n'a pas les
+mêmes conventions qu'un `BEFORE … FOR EACH ROW`, et une règle implicite
+variable selon le timing serait un piège.
+
+### Le trigger multi-tables
+
+```sql
+@trigger touch before update on (users, organizations) for each row {
+    NEW.updated_at = now();
+    RETURN NEW;
+}
+```
+
+Une fonction est générée **par table**, donc `NEW` et `OLD` sont résolubles.
+C'est le vrai gain : avec une fonction partagée, le checker ne sait pas
+résoudre `NEW` et se contente d'un `trigger-ambiguous-table` — le faux positif
+qu'on observe sur `examples/schema.sql`. Ici il vérifie réellement la colonne
+sur chaque table, et signale celle qui manque sur l'une d'elles.
+
+### En déclarer une
+
+Un `*.pgmacro` dans le répertoire `[macros] directory` (défaut : `macros/`) :
+
+```
+macro audited
+header {name:ident}
+
+template
+CREATE TABLE {name} (
+{body},
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+end
+```
+
+Directives : `macro`, `header`, `default`, `flag`, `option`, `template`…`end`.
+Types de trou : `ident`, `word`, `words`, `parens`, `type`, `list`, `keywords`
+— un jeu **fermé**, ce qui empêche le format de dériver vers un langage de
+gabarits.
+
+Les macros fournies sont écrites dans ce même format
+(`crates/pgsql-macro/src/builtins/`) : un mécanisme d'extension dont les
+macros fournies ne se servent pas est un mécanisme non testé. Une macro du
+projet portant le nom d'une macro fournie la remplace.
+
 ## Scope du projet
 
 `pgsql check` et le serveur LSP partagent le même modèle : les fichiers du

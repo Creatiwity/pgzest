@@ -10,6 +10,8 @@ use crate::source::{DirSource, MigrationDirSource, MultiSource, SchemaSource};
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProjectConfig {
     #[serde(default)]
+    pub macros: MacrosConfig,
+    #[serde(default)]
     pub parse: ParseConfig,
     #[serde(default)]
     pub migrations: MigrationsConfig,
@@ -21,6 +23,31 @@ pub struct ProjectConfig {
     pub lint: LintProjectConfig,
     #[serde(default)]
     pub plugins: PluginsConfig,
+}
+
+// ── Macros ────────────────────────────────────────────────────────────────────
+
+/// Où trouver les macros du projet.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MacrosConfig {
+    /// Répertoire des `*.pgmacro`, parcouru récursivement.
+    ///
+    /// Une macro du projet portant le nom d'une macro fournie la remplace :
+    /// c'est le seul moyen d'ajuster une macro fournie sans forker l'outil.
+    #[serde(default = "default_macros_dir")]
+    pub directory: String,
+}
+
+impl Default for MacrosConfig {
+    fn default() -> Self {
+        Self {
+            directory: default_macros_dir(),
+        }
+    }
+}
+
+fn default_macros_dir() -> String {
+    "macros".into()
 }
 
 // ── Parse ─────────────────────────────────────────────────────────────────────

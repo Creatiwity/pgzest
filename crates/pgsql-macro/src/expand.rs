@@ -110,10 +110,23 @@ struct Invocation<'a> {
     source: &'a str,
 }
 
-/// Prochain `@` en début de statement, hors chaîne et hors commentaire.
+/// Prochain `@` ouvrant un statement.
+///
+/// Un `@` n'est une invocation que s'il commence un statement : sinon c'est
+/// l'opérateur valeur absolue de PostgreSQL (`SELECT @ -5`).
+///
+/// L'état « début de statement » est suivi pendant le balayage plutôt que
+/// déduit en regardant en arrière : regarder en arrière tombe sur le
+/// commentaire qui précède la macro et conclut à tort. Blancs et commentaires
+/// ne changent pas l'état ; `;` et `}` le rétablissent — `}` parce qu'il ferme
+/// une macro précédente.
 fn find_invocation(source: &str, from: usize) -> Option<usize> {
     let b = source.as_bytes();
     let mut i = from;
+    // Au tout début du fichier on est en début de statement ; en reprise après
+    // une macro, l'appelant a positionné `from` juste après le `}`.
+    let mut at_stmt_start = true;
+
     while i < b.len() {
         match b[i] {
             b'\'' => {
@@ -122,8 +135,10 @@ fn find_invocation(source: &str, from: usize) -> Option<usize> {
                     i += 1;
                 }
                 i += 1;
+                at_stmt_start = false;
             }
             b'-' if i + 1 < b.len() && b[i + 1] == b'-' => {
+                // Commentaire ligne : neutre vis-à-vis de l'état.
                 while i < b.len() && b[i] != b'\n' {
                     i += 1;
                 }
@@ -135,28 +150,24 @@ fn find_invocation(source: &str, from: usize) -> Option<usize> {
                 }
                 i += 2;
             }
-            b'@' => {
-                // `@` doit ouvrir un statement. Sinon c'est l'opérateur valeur
-                // absolue de PostgreSQL (`SELECT @ -5`), qu'il ne faut pas
-                // confondre. Précédents admis : rien, `;`, ou `}` — la fin d'une
-                // macro précédente.
-                let ok = source[..i]
-                    .trim_end()
-                    .chars()
-                    .next_back()
-                    .is_none_or(|c| c == ';' || c == '}');
-                if ok && source[i + 1..].starts_with(|c: char| c.is_alphabetic()) {
-                    return Some(i);
-                }
+            b'@' if at_stmt_start && source[i + 1..].starts_with(|c: char| c.is_alphabetic()) => {
+                return Some(i);
+            }
+            b';' | b'}' => {
+                at_stmt_start = true;
                 i += 1;
             }
-            _ => i += 1,
+            c if c.is_ascii_whitespace() => i += 1,
+            _ => {
+                at_stmt_start = false;
+                i += 1;
+            }
         }
     }
     None
 }
 
-/// Une déclaration remontée.
+/// Une déclaration remontée du corps vers la section `DECLARE`.
 struct Declare {
     /// Plage à retirer du corps : la ligne entière, saut de ligne compris.
     line: std::ops::Range<usize>,

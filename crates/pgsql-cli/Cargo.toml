@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 pgsql-analysis = { path = "../pgsql-analysis" }
 pgsql-ast = { path = "../pgsql-ast" }
+pgsql-macro = { path = "../pgsql-macro" }
 pgsql-diagnostics = { workspace = true }
 pgsql-schema = { path = "../pgsql-schema" }
 pgsql-parser = { path = "../pgsql-parser" }

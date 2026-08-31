@@ -799,6 +799,7 @@ dependencies = [
  "pgsql-codegen",
  "pgsql-diagnostics",
  "pgsql-lint",
+ "pgsql-macro",
  "pgsql-parser",
  "pgsql-plugin",
  "pgsql-plugin-wasm",

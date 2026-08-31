@@ -1,0 +1,20 @@
+# Exemple de macro maison. Le format est celui des macros fournies —
+# voir `pgsql macros --verbose`.
+#
+# @audited ajoute les colonnes d'audit qu'on répète sur chaque table :
+#
+#   @audited users {
+#       id    UUID PRIMARY KEY,
+#       email TEXT NOT NULL
+#   }
+
+macro audited
+header {name:ident}
+
+template
+CREATE TABLE {name} (
+{body},
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+end

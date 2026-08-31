@@ -144,3 +144,48 @@ fn du_sql_melange_a_des_macros_parse_entierement() {
     assert!(sql.contains("CREATE TABLE users"));
     assert!(sql.contains("SELECT id FROM users;"));
 }
+
+/// Régression : la détection regardait en arrière et tombait sur le commentaire
+/// précédant la macro, donc seule la première d'un fichier était désucrée.
+#[test]
+fn des_macros_separees_par_des_commentaires_sont_toutes_desucrees() {
+    let src = "\
+-- premier commentaire
+@function a(): INT {
+    RETURN 1;
+}
+
+-- deuxième commentaire, qui précède la macro suivante
+@function b(): INT {
+    RETURN 2;
+}
+
+/* commentaire bloc */
+@function c(): INT {
+    RETURN 3;
+}
+";
+    let e = expand_source(src, &MacroSet::builtin());
+    assert_eq!(e.expanded, 3, "les trois macros doivent être désucrées");
+    assert!(
+        !e.sql.contains("@function"),
+        "aucune macro ne doit subsister :\n{}",
+        e.sql
+    );
+    assert_parses(&expand(src));
+}
+
+#[test]
+fn une_macro_suivant_immediatement_une_autre_est_desucree() {
+    let src = "@function a(): INT {\n RETURN 1;\n}\n@function b(): INT {\n RETURN 2;\n}";
+    let e = expand_source(src, &MacroSet::builtin());
+    assert_eq!(e.expanded, 2);
+}
+
+#[test]
+fn loperateur_valeur_absolue_reste_intact_apres_un_statement() {
+    let src = "SELECT 1;\nSELECT @ -5;";
+    let e = expand_source(src, &MacroSet::builtin());
+    assert_eq!(e.expanded, 0, "aucune expansion attendue");
+    assert_eq!(e.sql, src);
+}
