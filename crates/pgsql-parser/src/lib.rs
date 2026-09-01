@@ -582,6 +582,14 @@ pub enum SkipReason {
     /// Parsé par sqlparser mais volontairement pas modélisé dans notre AST.
     /// Ici on sait que le SQL est valide, seulement hors périmètre.
     Unsupported(String),
+    /// Le statement est bien dans l'AST, mais le **corps** d'une fonction ou
+    /// d'une procédure PL/pgSQL n'a pas pu être parsé.
+    ///
+    /// Conséquence pratique : ce corps retombe sur un repli textuel presque
+    /// aveugle. Les variables, les types, les `RETURN` et le contexte trigger ne
+    /// sont plus vérifiés. Une seule construction non gérée suffit — d'où
+    /// l'importance de le dire au lieu de laisser croire à une analyse complète.
+    UnparsedBody { name: String, reason: String },
 }
 
 /// Un statement écarté pendant le parse, avec sa position dans la source.
@@ -843,19 +851,36 @@ fn parse_with_offsets(sql: &str, offsets: Offsets) -> Result<ParseOutcome, Parse
                     // interne, qui tombe elle dans un fragment recopié.
                     let content_file_offset = stmt_offset + delim_end;
 
+                    // L'échec du parse d'un corps était jeté (`if let Ok(…)`),
+                    // laissant le corps en `Raw` — donc analysé par un repli
+                    // textuel presque aveugle, sans qu'aucun diagnostic ne le
+                    // dise. Une seule construction PL/pgSQL non gérée suffisait
+                    // à désactiver l'analyse de toute la fonction, en silence.
+                    //
+                    // L'échec est désormais rapporté comme un écart, avec la
+                    // même plomberie que les statements écartés : niveau
+                    // configurable, position, suppression par directive.
+                    let mut body_failure: Option<(String, String)> = None;
+
                     match &mut stmt {
                         Statement::Ddl(pgsql_ast::ddl::DdlStatement::CreateFunction(cf)) => {
                             cf.body_start = global_body_start;
                             // Re-parse with exact file offset for precise inner spans.
                             if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cf.body {
                                 let raw = raw.clone();
-                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_mapped(
+                                match crate::plpgsql::parse_plpgsql_body_mapped(
                                     &raw,
                                     content_file_offset,
                                     &offsets,
                                 ) {
-                                    cf.body =
-                                        pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                    Ok(parsed) => {
+                                        cf.body =
+                                            pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                    }
+                                    Err(e) => {
+                                        body_failure =
+                                            Some((object_name_last(&cf.name), e.to_string()));
+                                    }
                                 }
                             }
                         }
@@ -863,17 +888,32 @@ fn parse_with_offsets(sql: &str, offsets: Offsets) -> Result<ParseOutcome, Parse
                             cp.body_start = global_body_start;
                             if let pgsql_ast::ddl::FunctionBody::Raw(raw) = &cp.body {
                                 let raw = raw.clone();
-                                if let Ok(parsed) = crate::plpgsql::parse_plpgsql_body_mapped(
+                                match crate::plpgsql::parse_plpgsql_body_mapped(
                                     &raw,
                                     content_file_offset,
                                     &offsets,
                                 ) {
-                                    cp.body =
-                                        pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                    Ok(parsed) => {
+                                        cp.body =
+                                            pgsql_ast::ddl::FunctionBody::Parsed(Box::new(parsed));
+                                    }
+                                    Err(e) => {
+                                        body_failure =
+                                            Some((object_name_last(&cp.name), e.to_string()));
+                                    }
                                 }
                             }
                         }
                         _ => {}
+                    }
+
+                    if let Some((name, reason)) = body_failure {
+                        skipped.push(SkippedStatement {
+                            sql: stmt_sql[trivia..].to_string(),
+                            start: sql_offset,
+                            end: stmt_offset + stmt_sql.len(),
+                            reason: SkipReason::UnparsedBody { name, reason },
+                        });
                     }
                 }
             }
@@ -1329,4 +1369,12 @@ mod utf8_span_tests {
             &sql[start..end]
         );
     }
+}
+
+/// Dernier segment d'un `ObjectName`, pour nommer une fonction dans un message.
+fn object_name_last(name: &pgsql_ast::expr::ObjectName) -> String {
+    name.0
+        .last()
+        .map(|i| i.value.clone())
+        .unwrap_or_else(|| "?".to_string())
 }

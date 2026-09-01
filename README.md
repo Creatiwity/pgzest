@@ -71,7 +71,13 @@ Deux catégories, distinguées :
 | Catégorie | Signification | Défaut |
 |---|---|---|
 | `unparsable-statement` | sqlparser-rs n'a pas su lire le statement. Peut être du PostgreSQL valide hors périmètre **ou** une faute de syntaxe — indiscernables à ce niveau. | `warn` |
-| `unsupported-statement` | Statement valide, volontairement pas modélisé dans l'AST (`GRANT`, …). Aucune ambiguïté. | `ignore` |
+| `unsupported-statement` | Statement valide, volontairement pas modélisé dans l'AST (`GRANT`, `CREATE VIEW`, …). | `warn` |
+| `unparsed-function-body` | Le statement est analysé, mais le **corps** d'une fonction PL/pgSQL n'a pas pu être parsé. Il retombe alors sur un repli textuel presque aveugle : variables, types, `RETURN` et contexte trigger ne sont plus vérifiés. Une seule construction non gérée suffit. | `warn` (suit `unparsable`) |
+
+**Le silence est traité comme un bug.** Aucune de ces trois situations ne
+disparaît sans le dire — c'est ce qui distingue un outil *incomplet* d'un outil
+*trompeur*. `unsupported` valait `ignore` par défaut : un `CREATE VIEW` jeté
+signifiait que la vue n'existait pour aucun autre fichier, sans un mot.
 
 Le défaut `warn` sur `unparsable` rend le problème visible sans casser le
 build (`check` sort 0 sur un warning), ce qui permet d'adopter l'outil sur une

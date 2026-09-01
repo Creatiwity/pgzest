@@ -81,8 +81,12 @@ pub struct ParseConfig {
     #[serde(default = "default_unparsable")]
     pub unparsable: SkipLevel,
     /// Statement valide mais volontairement pas modélisé dans l'AST.
-    /// Ici aucune ambiguïté : on sait que le SQL est bon, d'où le défaut
-    /// `ignore`.
+    ///
+    /// Défaut passé de `ignore` à `warn` : « on sait que le SQL est bon » ne
+    /// justifiait pas le silence, puisque le statement disparaît quand même de
+    /// l'analyse. Un `CREATE VIEW` ignoré, et la vue n'existe pour aucun autre
+    /// fichier — sans que rien ne le dise. Un warning ne fait pas échouer
+    /// `check`, il rend seulement la lacune visible.
     #[serde(default = "default_unsupported")]
     pub unsupported: SkipLevel,
 }
@@ -100,7 +104,7 @@ fn default_unparsable() -> SkipLevel {
     SkipLevel::Warn
 }
 fn default_unsupported() -> SkipLevel {
-    SkipLevel::Ignore
+    SkipLevel::Warn
 }
 
 // ── Migrations ────────────────────────────────────────────────────────────────

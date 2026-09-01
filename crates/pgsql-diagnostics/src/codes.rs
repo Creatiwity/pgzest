@@ -20,3 +20,9 @@ pub const UNPARSABLE_STATEMENT: &str = "unparsable-statement";
 /// Statement valide mais volontairement pas modélisé dans l'AST (GRANT, …).
 /// Niveau piloté par `[parse] unsupported`.
 pub const UNSUPPORTED_STATEMENT: &str = "unsupported-statement";
+
+/// Corps de fonction ou de procédure PL/pgSQL non parsé : il retombe sur un
+/// repli textuel presque aveugle. Niveau piloté par `[parse] unparsable`.
+pub const UNPARSED_FUNCTION_BODY: &str = "unparsed-function-body";
+/// Expression que l'AST ne modélise pas. L'analyse la traverse sans conclure.
+pub const UNSUPPORTED_EXPRESSION: &str = "unsupported-expression";

@@ -37,6 +37,17 @@ pub fn skipped_to_diagnostics(skipped: &[SkippedStatement], cfg: &ParseConfig) -
                 codes::UNSUPPORTED_STATEMENT,
                 format!("statement non modélisé, ignoré par l'analyse : {what}"),
             ),
+            // Le statement est bien analysé, mais pas le corps de la fonction.
+            // Même niveau que `unparsable` : dans les deux cas, il y a du SQL
+            // que nous n'avons pas su lire.
+            SkipReason::UnparsedBody { name, reason } => (
+                cfg.unparsable,
+                codes::UNPARSED_FUNCTION_BODY,
+                format!(
+                    "corps de '{name}' non analysé : {reason}. \
+                     Variables, types, RETURN et contexte trigger ne sont pas vérifiés"
+                ),
+            ),
         };
 
         let severity = match level {
@@ -61,6 +72,11 @@ pub fn skipped_to_diagnostics(skipped: &[SkippedStatement], cfg: &ParseConfig) -
 
 fn hint_for(reason: &SkipReason) -> &'static str {
     match reason {
+        SkipReason::UnparsedBody { .. } => {
+            "une seule construction PL/pgSQL non gérée suffit à désactiver \
+             l'analyse de tout le corps ; `-- pgsql-disable-next-line \
+             unparsed-function-body` pour le taire ici"
+        }
         SkipReason::Unparsable(_) => {
             "si ce SQL est valide, c'est une lacune du parser : \
              `-- pgsql-disable-next-line unparsable-statement` pour le taire ici, \
