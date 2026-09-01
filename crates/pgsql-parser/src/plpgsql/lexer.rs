@@ -30,8 +30,31 @@ pub enum Token {
     RBracket,            // ]
     DotDot,              // ..  (range dans FOR)
     Percent2,            // %TYPE ou %ROWTYPE
+    /// Opérateur PostgreSQL rendu verbatim : `||`, `::`, `->`, `->>`, `@>`, `~*`…
+    ///
+    /// Ces opérateurs étaient lexés caractère par caractère et retombaient dans
+    /// le fourre-tout `Ident(c)`. Recollés par jonction d'espaces, `||` devenait
+    /// `"| |"` — du SQL invalide, donc un corps de fonction entier perdu, ou une
+    /// expression remplacée par le littéral `true`.
+    Op(String),
     Eof,
 }
+
+/// Opérateurs PostgreSQL multi-caractères, du plus long au plus court.
+///
+/// L'ordre compte : `->>` doit être testé avant `->`, sinon on lexerait `->` puis
+/// `>`. Les opérateurs d'un seul caractère qui ont déjà un token dédié (`=`,
+/// `<`, `>`, `+`…) ne figurent pas ici — le parser s'appuie sur ces tokens.
+const MULTI_CHAR_OPS: &[&str] = &[
+    // JSON / JSONB
+    "->>", "#>>", "->", "#>", "#-", "?&", "?|", "@?", "@@", // conteneurs et texte
+    "||", "::", "@>", "<@", "&&", "^@", // expressions rationnelles
+    "!~*", "~~*", "!~~*", "~*", "!~", "~~", "!~~", // bits et arithmétique
+    "<<", ">>",
+];
+
+/// Opérateurs d'un seul caractère sans token dédié.
+const SINGLE_CHAR_OPS: &[char] = &['~', '@', '#', '?', '&', '|', '^'];
 
 pub struct Lexer<'a> {
     input: &'a str,
@@ -99,6 +122,12 @@ impl<'a> Lexer<'a> {
             None => return Token::Eof,
             Some(c) => c,
         };
+
+        // Tenter d'abord les opérateurs multi-caractères : ils doivent gagner
+        // sur les tokens d'un caractère (`-` de `->`, `<` de `<<`, `:` de `::`).
+        if let Some(op) = self.try_multi_char_op() {
+            return Token::Op(op);
+        }
 
         match ch {
             ';' => {
@@ -229,6 +258,26 @@ impl<'a> Lexer<'a> {
                 {
                     self.advance();
                 }
+                // Notation exponentielle : `1e6`, `1.5e-3`, `2E+10`.
+                //
+                // Sans ça `1e6` se lexait `Number("1")` + `Ident("e6")`, recollé
+                // `1 e6`, que sqlparser lit comme un ALIAS : la valeur devenait
+                // silencieusement `1`.
+                if matches!(self.peek(), Some('e') | Some('E')) {
+                    let save = self.pos;
+                    self.advance();
+                    if matches!(self.peek(), Some('+') | Some('-')) {
+                        self.advance();
+                    }
+                    if self.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                        while self.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            self.advance();
+                        }
+                    } else {
+                        // Pas un exposant (`1eX`) : on rend la main.
+                        self.pos = save;
+                    }
+                }
                 Token::Number(self.input[start..self.pos].to_string())
             }
             'a'..='z' | 'A'..='Z' | '_' | '$' => {
@@ -260,6 +309,13 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
                 Token::Ident(s)
+            }
+            // Opérateur d'un seul caractère : `~`, `@`, `#`, `?`, `&`, `|`, `^`.
+            // Auparavant rangés en `Ident`, donc recollés avec des espaces
+            // parasites autour.
+            c if SINGLE_CHAR_OPS.contains(&c) => {
+                self.advance();
+                Token::Op(c.to_string())
             }
             _ => {
                 self.advance();
@@ -298,6 +354,20 @@ impl<'a> Lexer<'a> {
             offsets.push(start);
         }
         (tokens, offsets)
+    }
+}
+
+impl Lexer<'_> {
+    /// Consomme le plus long opérateur multi-caractères présent, s'il y en a un.
+    fn try_multi_char_op(&mut self) -> Option<String> {
+        let rest = &self.input[self.pos..];
+        for op in MULTI_CHAR_OPS {
+            if rest.starts_with(op) {
+                self.pos += op.len();
+                return Some((*op).to_string());
+            }
+        }
+        None
     }
 }
 

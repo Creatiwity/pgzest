@@ -8,3 +8,6 @@ pgsql-ast = { path = "../pgsql-ast" }
 sqlparser = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+pgsql-checker = { path = "../pgsql-checker" }

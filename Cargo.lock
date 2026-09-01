@@ -924,6 +924,7 @@ name = "pgsql-parser"
 version = "0.1.0"
 dependencies = [
  "pgsql-ast",
+ "pgsql-checker",
  "serde",
  "sqlparser",
  "thiserror",

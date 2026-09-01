@@ -1305,30 +1305,25 @@ impl Parser {
             return Ok(PlExpr::Not(Box::new(PlExpr::Found)));
         }
 
-        // NEW.col  (stop at first non-identifier char after the dot)
-        if upper.starts_with("NEW .") || upper.starts_with("NEW.") {
-            let dot_pos = trimmed.find('.').unwrap_or(0);
-            let after = trimmed[dot_pos + 1..].trim_start();
-            let field: String = after
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-            if !field.is_empty() {
-                return Ok(PlExpr::NewField(Ident::new(field)));
-            }
+        // `NEW.col` / `OLD.col` SEULS — le fragment ne doit rien contenir de plus.
+        //
+        // Ce raccourci tronquait l'expression entière : il se déclenchait sur
+        // tout fragment COMMENÇANT par `NEW.`, prenait le champ, et jetait le
+        // reste. `IF OLD.status = 'cancelled' AND NEW.status != 'cancelled'`
+        // devenait `OldField("status")` — la comparaison, le AND et toute la
+        // clause NEW disparaissaient, en silence, avec un corps `Parsed`.
+        // `examples/schema.sql` en contenait trois occurrences, et le test dédié
+        // était vert parce qu'il n'assertait que le compte de corps parsés.
+        //
+        // Une expression plus large est désormais confiée à sqlparser, qui lit
+        // `NEW.status` comme une simple colonne qualifiée. Le checker enregistre
+        // déjà `new` et `old` comme alias de la table du trigger, donc la
+        // résolution fonctionne.
+        if let Some(field) = row_var_field(trimmed, "NEW") {
+            return Ok(PlExpr::NewField(Ident::new(field)));
         }
-
-        // OLD.col  (stop at first non-identifier char after the dot)
-        if upper.starts_with("OLD .") || upper.starts_with("OLD.") {
-            let dot_pos = trimmed.find('.').unwrap_or(0);
-            let after = trimmed[dot_pos + 1..].trim_start();
-            let field: String = after
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-            if !field.is_empty() {
-                return Ok(PlExpr::OldField(Ident::new(field)));
-            }
+        if let Some(field) = row_var_field(trimmed, "OLD") {
+            return Ok(PlExpr::OldField(Ident::new(field)));
         }
 
         // Detect patterns that cannot be PL/pgSQL variable names.
@@ -1356,12 +1351,20 @@ impl Parser {
             return Ok(PlExpr::Sql(expr.clone()));
         }
 
-        // If the fragment looks complex (cannot be a bare identifier), treat it
-        // as an opaque SQL boolean expression so the checker never raises W005.
+        // Fragment que sqlparser refuse, et qui n'est pas un identifiant simple.
+        //
+        // Ce bras renvoyait le littéral `true`. Une condition `IF` devenait donc
+        // littéralement vraie dans l'AST : plus grave qu'une information perdue,
+        // c'était une information fausse, et le commentaire d'origine l'assumait
+        // (« so the checker never raises W005 »).
+        //
+        // `ExprKind::Unsupported` dit ce qui est : une expression que nous
+        // n'avons pas su lire. Le corps continue de parser — donc les autres
+        // statements restent vérifiés — et rien n'affirme de travers.
         if is_complex {
-            return Ok(PlExpr::Sql(Expr::bare(ExprKind::Literal(
-                pgsql_ast::expr::Literal::Boolean(true),
-            ))));
+            return Ok(PlExpr::Sql(Expr::bare(ExprKind::Unsupported(format!(
+                "fragment PL/pgSQL : {trimmed}"
+            )))));
         }
 
         // Fallback: treat as a variable reference
@@ -1428,6 +1431,8 @@ impl Parser {
             Token::Keyword(k) => keyword_to_sql_str(k),
             Token::Ident(s) => s.clone(),
             Token::Number(s) => s.clone(),
+            // Rendu verbatim : c'est tout l'intérêt du token.
+            Token::Op(s) => s.clone(),
             Token::StringLit(s) => format!("'{}'", s.replace('\'', "''")),
             Token::Semi => ";".to_string(),
             Token::Comma => ",".to_string(),
@@ -1611,4 +1616,31 @@ fn keyword_to_sql_str(k: &Keyword) -> String {
         Keyword::Other => "OTHER",
     }
     .to_string()
+}
+
+/// Champ d'une variable ligne, si le fragment est **exactement** `VAR.champ`.
+///
+/// Renvoie `None` dès que le fragment contient quoi que ce soit d'autre : c'est
+/// la condition qui évite de tronquer une expression plus large.
+fn row_var_field(fragment: &str, var: &str) -> Option<String> {
+    let t = fragment.trim();
+    let rest = t
+        .strip_prefix(var)
+        .or_else(|| t.strip_prefix(&var.to_lowercase()))?;
+    let rest = rest.trim_start().strip_prefix('.')?.trim_start();
+
+    let field: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if field.is_empty() {
+        return None;
+    }
+    // Rien ne doit suivre le champ : sinon l'expression est plus large que
+    // `VAR.champ` et doit être parsée entièrement.
+    if rest[field.len()..].trim().is_empty() {
+        Some(field)
+    } else {
+        None
+    }
 }

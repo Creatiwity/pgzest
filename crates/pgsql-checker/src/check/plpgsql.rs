@@ -573,9 +573,41 @@ fn check_sql_expr_idents(
 
     match &expr.kind {
         ExprKind::Column(col) => {
-            // Référence qualifiée (`x.y`) : pourrait être un record, un alias de
-            // requête englobante… trop ambigu pour trancher sans faux positifs.
-            if col.table.is_some() {
+            if let Some(qualifier) = &col.table {
+                let q = qualifier.value.to_lowercase();
+
+                // `NEW.col` / `OLD.col` au sein d'une expression SQL. Ce chemin
+                // n'existait pas : le parser tronquait toute expression
+                // commençant par `NEW.`, donc seul le cas `NEW.col` isolé
+                // arrivait ici, par la branche `PlExpr::NewField`. Maintenant
+                // qu'une condition composite est conservée entière, la colonne
+                // doit être vérifiée ici aussi.
+                if (q == "new" || q == "old")
+                    && let Some(ts) = ctx.trigger_table
+                    && ts.get_column(&col.column.value).is_none()
+                {
+                    diags.push(
+                        Diagnostic::error(
+                            codes::COLUMN_NOT_FOUND,
+                            format!(
+                                "column '{}' does not exist on trigger table '{}'",
+                                col.column.value, ts.name
+                            ),
+                        )
+                        .with_hint(format!(
+                            "available columns: {}",
+                            ts.columns
+                                .iter()
+                                .map(|c| c.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )),
+                    );
+                }
+
+                // Tout autre qualificateur (`rec.champ`, alias de requête
+                // englobante…) reste trop ambigu pour trancher sans faux
+                // positifs.
                 return;
             }
             let name = &col.column.value;
