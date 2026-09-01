@@ -512,7 +512,16 @@ fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic
 
         PlExpr::Found | PlExpr::Sqlstate => {}
 
-        PlExpr::Sql(_) | PlExpr::RecordField { .. } => {}
+        // Expression SQL d'un RETURN, d'un IF, d'un PERFORM… Les identifiants
+        // non qualifiés y désignent des variables ou des paramètres : en
+        // PL/pgSQL, hors requête, aucune colonne de table n'est en portée.
+        // PostgreSQL lui-même répond `column "x" does not exist` sur un
+        // identifiant inconnu.
+        PlExpr::Sql(expr) => check_sql_expr_idents(expr, ctx, diags),
+
+        // `rec.field` : le type du record n'est pas suivi, donc rien à vérifier
+        // sans produire de faux positifs.
+        PlExpr::RecordField { .. } => {}
 
         PlExpr::Not(inner) => check_plexpr(inner, ctx, diags),
 
@@ -520,6 +529,152 @@ fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic
             check_plexpr(l, ctx, diags);
             check_plexpr(r, ctx, diags);
         }
+    }
+}
+
+/// Variables spéciales de PL/pgSQL, toujours en portée.
+///
+/// Sans cette liste, `RETURN TG_OP` — parfaitement valide — serait signalé sur
+/// chaque trigger : le parser en fait un identifiant non qualifié comme un
+/// autre.
+const SPECIAL_VARS: &[&str] = &[
+    "FOUND",
+    "SQLSTATE",
+    "SQLERRM",
+    "TG_NAME",
+    "TG_WHEN",
+    "TG_LEVEL",
+    "TG_OP",
+    "TG_RELID",
+    "TG_RELNAME",
+    "TG_TABLE_NAME",
+    "TG_TABLE_SCHEMA",
+    "TG_NARGS",
+    "TG_ARGV",
+];
+
+/// Vérifie les identifiants non qualifiés d'une expression SQL de corps.
+///
+/// # Position
+///
+/// Le diagnostic est émis **sans span**, donc rapporté au niveau du statement
+/// englobant (la fonction). Les spans des expressions existent bien, mais ils
+/// sont relatifs à un `SELECT <expr>` synthétique : les fragments PL/pgSQL sont
+/// reconstruits par jonction de tokens (`parts.join(" ")`), ce qui détruit la
+/// correspondance octet à octet avec la source. Mieux vaut pointer la bonne
+/// fonction qu'une position fausse. Rendre ces spans exacts demande de trancher
+/// la source au lieu de rejoindre des tokens — un chantier à part.
+fn check_sql_expr_idents(
+    expr: &pgsql_ast::Expr,
+    ctx: &TypeContext<'_>,
+    diags: &mut Vec<Diagnostic>,
+) {
+    use pgsql_ast::expr::ExprKind;
+
+    match &expr.kind {
+        ExprKind::Column(col) => {
+            // Référence qualifiée (`x.y`) : pourrait être un record, un alias de
+            // requête englobante… trop ambigu pour trancher sans faux positifs.
+            if col.table.is_some() {
+                return;
+            }
+            let name = &col.column.value;
+            let lower = name.to_lowercase();
+            let upper = name.to_uppercase();
+
+            if ctx.vars.contains_key(&lower)
+                || ctx.params.contains_key(&lower)
+                || SPECIAL_VARS.contains(&upper.as_str())
+            {
+                return;
+            }
+
+            // `NEW` et `OLD` nus — comme dans `RETURN NEW` — sont les variables
+            // ligne d'un trigger. Le parser n'en fait un `NewField` que
+            // lorsqu'un `.colonne` suit, donc il faut les reconnaître ici.
+            //
+            // Conditionné à `is_trigger` plutôt que blanchi : `RETURN NEW` dans
+            // une fonction ordinaire est une vraie erreur, autant la signaler.
+            if ctx.is_trigger && (upper == "NEW" || upper == "OLD") {
+                return;
+            }
+
+            // Même code et même sévérité que la branche `PlExpr::Var` : un
+            // identifiant inconnu dans une expression de corps, c'est la même
+            // chose, et rester cohérent évite deux vocabulaires pour un fait.
+            let mut known: Vec<&str> = ctx
+                .vars
+                .keys()
+                .chain(ctx.params.keys())
+                .map(String::as_str)
+                .collect();
+            known.sort_unstable();
+
+            let hint = if known.is_empty() {
+                "declare it in the DECLARE section or verify it's a function parameter".to_string()
+            } else {
+                format!("declared variables and parameters: {}", known.join(", "))
+            };
+
+            diags.push(
+                Diagnostic::warning(
+                    codes::UNDECLARED_VARIABLE,
+                    format!("variable '{}' may not be declared", name),
+                )
+                .with_hint(hint),
+            );
+        }
+
+        ExprKind::BinaryOp { left, right, .. } => {
+            check_sql_expr_idents(left, ctx, diags);
+            check_sql_expr_idents(right, ctx, diags);
+        }
+        ExprKind::UnaryOp { expr, .. } | ExprKind::Cast { expr, .. } => {
+            check_sql_expr_idents(expr, ctx, diags);
+        }
+        ExprKind::FunctionCall { args, filter, .. } => {
+            for a in args {
+                check_sql_expr_idents(a, ctx, diags);
+            }
+            if let Some(f) = filter {
+                check_sql_expr_idents(f, ctx, diags);
+            }
+        }
+        ExprKind::Case {
+            operand,
+            when_clauses,
+            else_clause,
+        } => {
+            if let Some(op) = operand {
+                check_sql_expr_idents(op, ctx, diags);
+            }
+            for (w, t) in when_clauses {
+                check_sql_expr_idents(w, ctx, diags);
+                check_sql_expr_idents(t, ctx, diags);
+            }
+            if let Some(e) = else_clause {
+                check_sql_expr_idents(e, ctx, diags);
+            }
+        }
+        ExprKind::InList { expr, list, .. } => {
+            check_sql_expr_idents(expr, ctx, diags);
+            for e in list {
+                check_sql_expr_idents(e, ctx, diags);
+            }
+        }
+        ExprKind::Between {
+            expr, low, high, ..
+        } => {
+            check_sql_expr_idents(expr, ctx, diags);
+            check_sql_expr_idents(low, ctx, diags);
+            check_sql_expr_idents(high, ctx, diags);
+        }
+
+        // Les sous-requêtes ont leur propre portée : les colonnes y sont
+        // légitimes, ce n'est pas à cette vérification de s'en occuper.
+        ExprKind::Subquery(_) | ExprKind::InSubquery { .. } => {}
+
+        ExprKind::Literal(_) | ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {}
     }
 }
 

@@ -71,15 +71,25 @@ fn une_erreur_dans_un_corps_de_macro_pointe_le_fichier_source() {
     );
 }
 
-/// Écart connu : `RETURN <expr>` dans un corps PL/pgSQL n'est pas confronté au
-/// schéma. Rien à voir avec les macros — le même trou existe sur un `.sql`.
+/// `RETURN <expr>` est désormais confronté aux variables déclarées.
+///
+/// Le diagnostic est `undeclared-variable` et non `column-not-found` : un
+/// identifiant nu dans une expression PL/pgSQL désigne une variable, pas une
+/// colonne. Il est rapporté à la **ligne de la macro**, pas à la colonne exacte
+/// de l'identifiant : les fragments PL/pgSQL sont reconstruits par jonction de
+/// tokens, ce qui détruit la correspondance octet à octet.
 #[test]
-#[ignore = "RETURN <expr> n'est pas checké contre le schéma (voir check/plpgsql.rs)"]
-fn le_span_designe_la_colonne_fautive_dans_un_return() {
+fn un_return_dune_variable_inconnue_est_signale_dans_un_pgsql() {
     let src = format!("{SCHEMA}\n@function f(): INTEGER {{\n    RETURN nope;\n}}\n");
     let diags = analyze(&src);
-    let d = find(&diags, codes::COLUMN_NOT_FOUND);
-    assert_eq!(slice(&src, d), Some("nope"));
+    let d = find(&diags, codes::UNDECLARED_VARIABLE);
+    assert!(d.message.contains("nope"), "obtenu : {}", d.message);
+    assert_eq!(
+        line_of(&src, d),
+        Some(2),
+        "rapporté sur la ligne de la macro, span {:?}",
+        d.span
+    );
 }
 
 /// La précision à la colonne survit au désucrage — vérifiée sur du SQL hors
@@ -195,8 +205,10 @@ fn last_porte_directement_les_spans_source() {
     );
 }
 
+/// Chaque macro doit produire son propre diagnostic, à sa propre ligne : une
+/// seule correspondance sert tout le fichier, donc une erreur de composition
+/// ferait converger les positions.
 #[test]
-#[ignore = "dépend du même écart : RETURN <expr> non checké"]
 fn plusieurs_macros_gardent_chacune_leurs_positions() {
     let src = format!(
         "{SCHEMA}\n\
@@ -205,13 +217,16 @@ fn plusieurs_macros_gardent_chacune_leurs_positions() {
          @function b(): INT {{\n    RETURN bad_b;\n}}\n"
     );
     let diags = analyze(&src);
-    let texts: Vec<_> = diags
+    let lines: Vec<_> = diags
         .iter()
-        .filter(|d| d.code == codes::COLUMN_NOT_FOUND)
-        .map(|d| slice(&src, d))
+        .filter(|d| d.code == codes::UNDECLARED_VARIABLE)
+        .map(|d| line_of(&src, d))
         .collect();
-    assert!(
-        texts.contains(&Some("bad_a")) && texts.contains(&Some("bad_b")),
-        "chaque macro doit garder ses positions, obtenu : {texts:?}"
+    // Les deux macros sont sur des lignes distinctes (2 et 6) : les
+    // diagnostics doivent l'être aussi.
+    assert_eq!(lines.len(), 2, "un diagnostic par macro : {diags:?}");
+    assert_ne!(
+        lines[0], lines[1],
+        "les positions ne doivent pas converger : {lines:?}"
     );
 }
