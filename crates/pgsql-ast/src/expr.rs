@@ -62,8 +62,17 @@ pub enum BinaryOp {
     ILike,
     Is,
     IsNot,
-    /// Any non-standard or extension operator (PostGIS, JSONB, custom, etc.).
-    /// The string is the operator symbol, e.g. "<->", "&&", "@>", "#>>".
+    /// `||` — concaténation de chaînes.
+    ///
+    /// Variante à part et non `Custom("||")` : c'est l'opérateur non standard le
+    /// plus fréquent de PostgreSQL, et son type de résultat est connu (texte),
+    /// ce dont l'inférence a besoin.
+    Concat,
+    /// Tout opérateur non standard ou d'extension (PostGIS, JSONB, défini par
+    /// l'utilisateur). La chaîne est le symbole : `<->`, `&&`, `@>`, `#>>`.
+    ///
+    /// C'est le point d'extensibilité de cet enum : un opérateur inconnu se
+    /// range ici plutôt que de faire échouer la conversion.
     Custom(String),
 }
 
@@ -122,6 +131,52 @@ pub enum ExprKind {
     },
     Wildcard,
     QualifiedWildcard(Ident),
+
+    // ── Ajouts : constructions PostgreSQL courantes ────────────────────────────
+    /// `EXISTS (subquery)` / `NOT EXISTS (…)` — résultat booléen.
+    Exists {
+        subquery: Box<SelectStmt>,
+        negated: bool,
+    },
+    /// `INTERVAL '1 day'`. Le littéral est conservé tel quel : sa décomposition
+    /// en champs n'intéresse pas encore l'analyse, son type suffit.
+    Interval(String),
+    /// `timestamp AT TIME ZONE zone`.
+    AtTimeZone {
+        timestamp: Box<Expr>,
+        time_zone: Box<Expr>,
+    },
+    /// `expr COLLATE "C"` — même type que `expr`.
+    Collate {
+        expr: Box<Expr>,
+        collation: String,
+    },
+    /// `ROW(a, b)` ou `(a, b)` — constructeur de ligne.
+    Tuple(Vec<Expr>),
+    /// Accès composé : `arr[1]`, `(rec).champ`, `payload['clé']`.
+    ///
+    /// `path` conserve les accesseurs sous forme textuelle, dans l'ordre. Le
+    /// type de l'élément n'est pas résolu ici.
+    FieldAccess {
+        root: Box<Expr>,
+        path: Vec<String>,
+    },
+    /// Paramètre lié : `$1`, `:nom`.
+    ///
+    /// Son type dépend du contexte d'appel, donc il n'est pas décidé ici — mais
+    /// le nœud existe, là où il faisait auparavant échouer tout le statement.
+    Parameter(String),
+
+    /// Expression que cet AST ne modélise pas.
+    ///
+    /// Remplace un ancien `Literal(Null)` attrape-tout : affirmer `NULL` était
+    /// un mensonge sur le contenu de la requête — un `WHERE EXISTS (…)` devenait
+    /// `WHERE NULL`, ce qui veut dire « aucune ligne ». Ne rien affirmer permet
+    /// aux consommateurs de passer leur tour sans conclure de travers, et au
+    /// checker de signaler qu'il n'a pas tout compris.
+    ///
+    /// La chaîne décrit la construction, pour le diagnostic.
+    Unsupported(String),
 }
 
 // Forward-declare SelectStmt so Expr can reference it

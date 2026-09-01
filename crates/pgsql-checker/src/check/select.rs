@@ -398,6 +398,41 @@ fn check_expr_inner(
         }
 
         // Literals and wildcards carry no references to resolve.
-        ExprKind::Literal(_) | ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {}
+        // Descendre dans les constructions ajoutées : une colonne inexistante
+        // dans un `EXISTS`, un constructeur de ligne ou un `COLLATE` était
+        // invisible tant que ces expressions devenaient `Literal(Null)`.
+        ExprKind::Exists { subquery, .. } => {
+            diags.extend(check_select_inner(
+                subquery,
+                schema,
+                plvars,
+                phantom_qualifiers,
+            ));
+        }
+        ExprKind::AtTimeZone {
+            timestamp,
+            time_zone,
+        } => {
+            check_expr(timestamp, ctx, schema, plvars, phantom_qualifiers, diags);
+            check_expr(time_zone, ctx, schema, plvars, phantom_qualifiers, diags);
+        }
+        ExprKind::Collate { expr, .. } => {
+            check_expr(expr, ctx, schema, plvars, phantom_qualifiers, diags)
+        }
+        ExprKind::Tuple(items) => {
+            for e in items {
+                check_expr(e, ctx, schema, plvars, phantom_qualifiers, diags);
+            }
+        }
+        ExprKind::FieldAccess { root, .. } => {
+            check_expr(root, ctx, schema, plvars, phantom_qualifiers, diags)
+        }
+
+        ExprKind::Literal(_)
+        | ExprKind::Wildcard
+        | ExprKind::QualifiedWildcard(_)
+        | ExprKind::Interval(_)
+        | ExprKind::Parameter(_)
+        | ExprKind::Unsupported(_) => {}
     }
 }

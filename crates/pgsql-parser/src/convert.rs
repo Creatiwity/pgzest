@@ -691,10 +691,87 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             None => Ok(ExprKind::Literal(Literal::Null)),
         },
 
-        // Any other unsupported expression — return a null literal rather than
-        // failing the whole statement. CHECK constraints, DEFAULT values, and
-        // other DDL-context expressions don't need to be fully type-checked.
-        _other => Ok(ExprKind::Literal(Literal::Null)),
+        // ── Constructions PostgreSQL courantes ────────────────────────────────
+        sp::Expr::Exists { subquery, negated } => Ok(ExprKind::Exists {
+            subquery: Box::new(convert_query(*subquery)?),
+            negated,
+        }),
+
+        sp::Expr::Interval(iv) => Ok(ExprKind::Interval(iv.to_string())),
+
+        sp::Expr::AtTimeZone {
+            timestamp,
+            time_zone,
+        } => Ok(ExprKind::AtTimeZone {
+            timestamp: Box::new(convert_expr(*timestamp)?),
+            time_zone: Box::new(convert_expr(*time_zone)?),
+        }),
+
+        sp::Expr::Collate { expr, collation } => Ok(ExprKind::Collate {
+            expr: Box::new(convert_expr(*expr)?),
+            collation: object_name_to_plain_string(&collation),
+        }),
+
+        sp::Expr::Tuple(items) => Ok(ExprKind::Tuple(
+            items
+                .into_iter()
+                .map(convert_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+
+        // `arr[1]`, `(rec).champ`, `payload['clé']`.
+        sp::Expr::CompoundFieldAccess { root, access_chain } => Ok(ExprKind::FieldAccess {
+            root: Box::new(convert_expr(*root)?),
+            path: access_chain.iter().map(|a| a.to_string()).collect(),
+        }),
+
+        // Fonctions déguisées en syntaxe : on les ramène à `FunctionCall` plutôt
+        // que d'ajouter une variante par mot-clé. Le nom suffit à l'inférence.
+        sp::Expr::Extract { field, expr, .. } => Ok(ExprKind::FunctionCall {
+            name: ObjectName::unquoted(&["extract"]),
+            args: vec![
+                Expr::bare(ExprKind::Literal(Literal::String(field.to_string()))),
+                convert_expr(*expr)?,
+            ],
+            filter: None,
+            distinct: false,
+        }),
+
+        _other => Ok(ExprKind::Unsupported(describe_sp_expr(&_other))),
+    }
+}
+
+/// Nom court de la construction sqlparser, pour un diagnostic lisible.
+///
+/// Le `Debug` complet d'une expression est illisible dans un message ; on n'en
+/// garde que le nom de variante.
+fn describe_sp_expr(e: &sp::Expr) -> String {
+    let dbg = format!("{e:?}");
+    let name: String = dbg
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    if name.is_empty() {
+        "expression".to_string()
+    } else {
+        name
+    }
+}
+
+/// `ObjectName` sqlparser → chaîne pointée, sans passer par notre `ObjectName`.
+fn object_name_to_plain_string(name: &sp::ObjectName) -> String {
+    name.0
+        .iter()
+        .filter_map(part_to_ident_ref)
+        .map(|i| i.value.clone())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn part_to_ident_ref(part: &sp::ObjectNamePart) -> Option<&sp::Ident> {
+    match part {
+        sp::ObjectNamePart::Identifier(i) => Some(i),
+        _ => None,
     }
 }
 
@@ -707,14 +784,15 @@ fn convert_value(v: sp::Value) -> Result<ExprKind, ParseError> {
         sp::Value::Null => Ok(ExprKind::Literal(Literal::Null)),
         sp::Value::DoubleQuotedString(s) => Ok(ExprKind::Literal(Literal::String(s))),
         sp::Value::EscapedStringLiteral(s) => Ok(ExprKind::Literal(Literal::String(s))),
-        sp::Value::Placeholder(p) => Err(ParseError::Unsupported(format!(
-            "parameter placeholder {} is not supported",
-            p
-        ))),
-        other => Err(ParseError::Unsupported(format!(
-            "unsupported literal value: {:?}",
-            other
-        ))),
+        // `$1`, `:nom` : le nœud existe désormais. Auparavant ce bras écartait le
+        // statement entier, donc aucune requête paramétrée d'application ne
+        // passait — alors que c'est la forme normale du SQL applicatif.
+        sp::Value::Placeholder(p) => Ok(ExprKind::Parameter(p)),
+
+        // Littéral d'une forme que nous ne modélisons pas (chaînes nationales,
+        // hexadécimales, Unicode…). On ne prétend pas connaître sa valeur, mais
+        // on ne détruit pas le statement pour autant.
+        other => Ok(ExprKind::Unsupported(format!("literal {other}"))),
     }
 }
 
@@ -763,13 +841,20 @@ fn convert_binary_op(op: sp::BinaryOperator) -> Result<BinaryOp, ParseError> {
         // Other PostgreSQL operators
         sp::BinaryOperator::PGRegexMatch => Ok(BinaryOp::Custom("~".into())),
         sp::BinaryOperator::DoubleHash => Ok(BinaryOp::Custom("##".into())),
+        // `||` : opérateur non standard le plus fréquent, et de type connu.
+        sp::BinaryOperator::StringConcat => Ok(BinaryOp::Concat),
         // Generic custom / user-defined operators
         sp::BinaryOperator::Custom(s) => Ok(BinaryOp::Custom(s)),
         sp::BinaryOperator::PGCustomBinaryOperator(parts) => Ok(BinaryOp::Custom(parts.join("."))),
-        other => Err(ParseError::Unsupported(format!(
-            "unsupported binary operator: {:?}",
-            other
-        ))),
+
+        // Tout autre opérateur connu de sqlparser se range en `Custom`, avec son
+        // symbole obtenu de son propre `Display`.
+        //
+        // Auparavant ce bras renvoyait `Unsupported`, ce qui écartait le
+        // statement entier — y compris pour des opérateurs banals que sqlparser
+        // sait parfaitement lire. `BinaryOp::Custom` existait déjà pour PostGIS
+        // et JSONB ; il suffisait de s'en servir jusqu'au bout.
+        other => Ok(BinaryOp::Custom(other.to_string())),
     }
 }
 

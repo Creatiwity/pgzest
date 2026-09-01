@@ -282,7 +282,59 @@ pub fn emit_expr(expr: &Expr) -> String {
         }
         ExprKind::Wildcard => "*".to_string(),
         ExprKind::QualifiedWildcard(ident) => format!("{}.*", emit_ident(ident)),
+
+        // ── Constructions ajoutées ────────────────────────────────────────────
+        ExprKind::Exists { subquery, negated } => format!(
+            "{}EXISTS ({})",
+            if *negated { "NOT " } else { "" },
+            emit_select(subquery)
+        ),
+        ExprKind::Interval(lit) => lit.clone(),
+        ExprKind::AtTimeZone {
+            timestamp,
+            time_zone,
+        } => format!(
+            "{} AT TIME ZONE {}",
+            emit_expr(timestamp),
+            emit_expr(time_zone)
+        ),
+        ExprKind::Collate { expr, collation } => {
+            format!("{} COLLATE {}", emit_expr(expr), collation)
+        }
+        ExprKind::Tuple(items) => format!(
+            "({})",
+            items.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+        ),
+        ExprKind::FieldAccess { root, path } => {
+            format!("{}{}", emit_expr(root), path.join(""))
+        }
+        ExprKind::Parameter(p) => p.clone(),
+
+        // Une expression non modélisée ne peut pas être ré-émise fidèlement.
+        //
+        // Cet émetteur alimente la génération de migrations : produire du SQL
+        // approximatif ici serait déployé tel quel. On émet donc une construction
+        // volontairement INVALIDE, qui casse à la relecture plutôt que de passer
+        // pour du SQL correct. `emit_contains_unsupported` permet à l'appelant de
+        // le détecter avant écriture.
+        ExprKind::Unsupported(what) => {
+            format!("{UNSUPPORTED_MARKER}/* {what} */")
+        }
     }
+}
+
+/// Marqueur émis à la place d'une expression non modélisée.
+///
+/// Syntaxiquement invalide à dessein : une migration qui en contient doit
+/// échouer bruyamment, pas être déployée.
+pub const UNSUPPORTED_MARKER: &str = "$$PGSQL_UNSUPPORTED$$";
+
+/// Vrai si `sql` contient une expression que l'AST ne modélisait pas.
+///
+/// À vérifier avant d'écrire un fichier de migration : le SQL produit n'est
+/// alors pas déployable.
+pub fn emit_contains_unsupported(sql: &str) -> bool {
+    sql.contains(UNSUPPORTED_MARKER)
 }
 
 fn emit_literal(lit: &Literal) -> String {
@@ -303,6 +355,7 @@ fn emit_binary_op(op: &BinaryOp) -> std::borrow::Cow<'static, str> {
         BinaryOp::Gt => ">".into(),
         BinaryOp::Gte => ">=".into(),
         BinaryOp::And => "AND".into(),
+        BinaryOp::Concat => "||".into(),
         BinaryOp::Or => "OR".into(),
         BinaryOp::Plus => "+".into(),
         BinaryOp::Minus => "-".into(),

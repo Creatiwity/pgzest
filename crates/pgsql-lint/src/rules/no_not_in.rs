@@ -135,9 +135,30 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             visit_expr(low, config, out);
             visit_expr(high, config, out);
         }
+        // Descendre dans les nouvelles variantes : un `NOT IN` peut se cacher
+        // dans la sous-requête d'un `EXISTS` ou dans un constructeur de ligne.
+        ExprKind::Exists { subquery, .. } => visit_select(subquery, config, out),
+        ExprKind::AtTimeZone {
+            timestamp,
+            time_zone,
+        } => {
+            visit_expr(timestamp, config, out);
+            visit_expr(time_zone, config, out);
+        }
+        ExprKind::Collate { expr, .. } => visit_expr(expr, config, out),
+        ExprKind::Tuple(items) => {
+            for e in items {
+                visit_expr(e, config, out);
+            }
+        }
+        ExprKind::FieldAccess { root, .. } => visit_expr(root, config, out),
+
         ExprKind::Literal(_)
         | ExprKind::Column(_)
         | ExprKind::Wildcard
-        | ExprKind::QualifiedWildcard(_) => {}
+        | ExprKind::QualifiedWildcard(_)
+        | ExprKind::Interval(_)
+        | ExprKind::Parameter(_)
+        | ExprKind::Unsupported(_) => {}
     }
 }

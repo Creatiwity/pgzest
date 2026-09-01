@@ -199,6 +199,34 @@ fn check_policy_expr(
         ExprKind::Subquery(_) | ExprKind::InSubquery { .. } => {}
 
         // Literals and wildcards carry no column or function references.
-        ExprKind::Literal(_) | ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {}
+        // Idem pour les expressions de policy RLS.
+        ExprKind::AtTimeZone {
+            timestamp,
+            time_zone,
+        } => {
+            check_policy_expr(timestamp, clause, policy_name, table_schema, schema, diags);
+            check_policy_expr(time_zone, clause, policy_name, table_schema, schema, diags);
+        }
+        ExprKind::Collate { expr, .. } => {
+            check_policy_expr(expr, clause, policy_name, table_schema, schema, diags)
+        }
+        ExprKind::Tuple(items) => {
+            for e in items {
+                check_policy_expr(e, clause, policy_name, table_schema, schema, diags);
+            }
+        }
+        ExprKind::FieldAccess { root, .. } => {
+            check_policy_expr(root, clause, policy_name, table_schema, schema, diags)
+        }
+
+        // Une sous-requête de policy a sa propre portée : hors périmètre ici.
+        ExprKind::Exists { .. } => {}
+
+        ExprKind::Literal(_)
+        | ExprKind::Wildcard
+        | ExprKind::QualifiedWildcard(_)
+        | ExprKind::Interval(_)
+        | ExprKind::Parameter(_)
+        | ExprKind::Unsupported(_) => {}
     }
 }

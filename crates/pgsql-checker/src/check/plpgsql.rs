@@ -674,7 +674,32 @@ fn check_sql_expr_idents(
         // légitimes, ce n'est pas à cette vérification de s'en occuper.
         ExprKind::Subquery(_) | ExprKind::InSubquery { .. } => {}
 
-        ExprKind::Literal(_) | ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {}
+        // Descendre dans les constructions ajoutées.
+        ExprKind::AtTimeZone {
+            timestamp,
+            time_zone,
+        } => {
+            check_sql_expr_idents(timestamp, ctx, diags);
+            check_sql_expr_idents(time_zone, ctx, diags);
+        }
+        ExprKind::Collate { expr, .. } => check_sql_expr_idents(expr, ctx, diags),
+        ExprKind::Tuple(items) => {
+            for e in items {
+                check_sql_expr_idents(e, ctx, diags);
+            }
+        }
+        ExprKind::FieldAccess { root, .. } => check_sql_expr_idents(root, ctx, diags),
+
+        // `EXISTS` ouvre une portée de requête : ses colonnes n'ont pas à être
+        // des variables du corps.
+        ExprKind::Exists { .. } => {}
+
+        ExprKind::Literal(_)
+        | ExprKind::Wildcard
+        | ExprKind::QualifiedWildcard(_)
+        | ExprKind::Interval(_)
+        | ExprKind::Parameter(_)
+        | ExprKind::Unsupported(_) => {}
     }
 }
 

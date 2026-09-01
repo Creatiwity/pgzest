@@ -97,6 +97,8 @@ pub fn infer_expr_type(
                 | BinaryOp::Multiply
                 | BinaryOp::Divide
                 | BinaryOp::Modulo => infer_expr_type(left, scope_id, scopes, symbols, schema),
+                // `||` produit toujours du texte, quels que soient les opérandes.
+                BinaryOp::Concat => Some(DataType::Text),
                 // Custom / extension operators — ask the schema provider (e.g. PostGIS plugin)
                 BinaryOp::Custom(op_sym) => {
                     let left_ty = infer_expr_type(left, scope_id, scopes, symbols, schema)
@@ -155,6 +157,34 @@ pub fn infer_expr_type(
 
         // BETWEEN — Boolean
         ExprKind::Between { .. } => Some(DataType::Boolean),
+
+        // ── Constructions ajoutées ────────────────────────────────────────────
+        // `EXISTS (…)` est un prédicat.
+        ExprKind::Exists { .. } => Some(DataType::Boolean),
+
+        ExprKind::Interval(_) => Some(DataType::Custom("interval".into())),
+
+        // `AT TIME ZONE` sur un timestamptz donne un timestamp, et inversement.
+        // Sans suivre cette bascule finement, on garde le type de l'opérande :
+        // c'est faux dans un cas sur deux, donc on préfère ne rien affirmer.
+        ExprKind::AtTimeZone { .. } => None,
+
+        // `COLLATE` ne change pas le type, seulement l'ordre de tri.
+        ExprKind::Collate { expr, .. } => infer_expr_type(expr, scope_id, scopes, symbols, schema),
+
+        // Un constructeur de ligne n'a pas de type scalaire.
+        ExprKind::Tuple(_) => None,
+
+        // L'accès à un élément de tableau ou à un champ composite demanderait de
+        // résoudre le type de la base puis de le décomposer — pas encore fait.
+        ExprKind::FieldAccess { .. } => None,
+
+        // Le type d'un paramètre lié vient du site d'appel, pas de la requête.
+        ExprKind::Parameter(_) => None,
+
+        // Ne rien affirmer sur ce qu'on ne modélise pas : c'est toute la raison
+        // d'être de cette variante.
+        ExprKind::Unsupported(_) => None,
 
         // Wildcards don't have a single type
         ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => None,

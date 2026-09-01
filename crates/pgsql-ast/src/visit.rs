@@ -144,9 +144,32 @@ pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
             visitor.visit_expr(low);
             visitor.visit_expr(high);
         }
+        // Le parcours doit descendre dans les nouvelles variantes, sinon un
+        // visiteur (checker, linter) raterait les sous-expressions qu'elles
+        // contiennent — une colonne inexistante dans un `EXISTS`, par exemple.
+        ExprKind::Exists { subquery, .. } => visitor.visit_select(subquery),
+        ExprKind::AtTimeZone {
+            timestamp,
+            time_zone,
+        } => {
+            visitor.visit_expr(timestamp);
+            visitor.visit_expr(time_zone);
+        }
+        ExprKind::Collate { expr, .. } => visitor.visit_expr(expr),
+        ExprKind::Tuple(items) => {
+            for e in items {
+                visitor.visit_expr(e);
+            }
+        }
+        ExprKind::FieldAccess { root, .. } => visitor.visit_expr(root),
+
+        // Feuilles : rien à parcourir.
         ExprKind::Column(_)
         | ExprKind::Literal(_)
         | ExprKind::Wildcard
-        | ExprKind::QualifiedWildcard(_) => {}
+        | ExprKind::QualifiedWildcard(_)
+        | ExprKind::Interval(_)
+        | ExprKind::Parameter(_)
+        | ExprKind::Unsupported(_) => {}
     }
 }
