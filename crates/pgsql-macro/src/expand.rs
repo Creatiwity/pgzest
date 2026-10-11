@@ -562,8 +562,7 @@ mod tests {
         );
     }
 
-    /// Le cas qui motive la macro : une fonction par table, donc NEW et OLD
-    /// résolubles, donc plus de `trigger-ambiguous-table`.
+    /// Le trigger multi-tables : une fonction et un `CREATE TRIGGER` par table.
     #[test]
     fn multi_tables_genere_une_fonction_par_table() {
         let e = expand(

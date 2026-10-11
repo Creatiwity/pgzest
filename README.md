@@ -187,11 +187,11 @@ variable selon le timing serait un piège.
 }
 ```
 
-Une fonction est générée **par table**, donc `NEW` et `OLD` sont résolubles.
-C'est le vrai gain : avec une fonction partagée, le checker ne sait pas
-résoudre `NEW` et se contente d'un `trigger-ambiguous-table` — le faux positif
-qu'on observe sur `examples/schema.sql`. Ici il vérifie réellement la colonne
-sur chaque table, et signale celle qui manque sur l'une d'elles.
+Une fonction est générée **par table**, ce qui donne à chacune un nom et un
+`CREATE TRIGGER` propres. Le checker vérifie la colonne sur chaque table et
+signale celle qui manque sur l'une d'elles — comme il le fait aussi pour une
+fonction partagée écrite à la main (`set_updated_at` attaché à plusieurs
+tables) : le corps est vérifié une fois par table qui la déclenche.
 
 ### Voir l'expansion dans VS Code
 
@@ -273,14 +273,9 @@ complet.
 
 Par ordre d'importance :
 
-1. **Faux positif `trigger-ambiguous-table`.** Le checker signale une erreur
-   quand une même fonction trigger (ex. `set_updated_at`) sert plusieurs
-   tables — c'est un motif PostgreSQL idiomatique. Visible sur
-   `examples/schema.sql`, qui ne passe donc pas `check`.
+1. Pas de vérification de compatibilité de types entre opérandes.
 
-2. Pas de vérification de compatibilité de types entre opérandes.
-
-3. Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
+2. Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
 
 ---
 
