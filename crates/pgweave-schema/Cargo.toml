@@ -1,0 +1,13 @@
+[package]
+name = "pgweave-schema"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgweave-ast    = { path = "../pgweave-ast" }
+pgweave-diagnostics = { workspace = true }
+pgweave-macro = { path = "../pgweave-macro" }
+pgweave-parser = { path = "../pgweave-parser" }
+serde        = { workspace = true, features = ["derive"] }
+serde_json   = { workspace = true }
+toml         = { workspace = true }

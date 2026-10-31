@@ -1,8 +1,8 @@
 -- Regles de lint.
 --
--- ATTENTION : `pgsql check` ne lance PAS le linter, seulement le type-checker.
+-- ATTENTION : `pgweave check` ne lance PAS le linter, seulement le type-checker.
 -- Ici tu ne verras rien en CLI avec `check`. Deux façons de les voir :
---   - en CLI  : `pgsql lint queries/05-lint.sql`
+--   - en CLI  : `pgweave lint queries/05-lint.sql`
 --   - dans VS Code : le LSP lance check ET lint, donc tout est souligné.
 
 -- L001 : SELECT *

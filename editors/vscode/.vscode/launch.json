@@ -4,7 +4,7 @@
     {
       // F5 : compile l'extension, ouvre une fenêtre VS Code de développement
       // et y charge directement examples/playground/ — un vrai projet avec
-      // schema/, migrations/ et pgsql-tools.config.toml, pour ne pas avoir à
+      // schema/, migrations/ et pgweave.toml, pour ne pas avoir à
       // chercher un dossier à la main.
       "name": "Run Extension (playground)",
       "type": "extensionHost",

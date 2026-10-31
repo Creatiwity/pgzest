@@ -1,0 +1,25 @@
+[package]
+name = "pgweave"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "pgweave"
+path = "src/main.rs"
+
+[dependencies]
+pgweave-analysis = { path = "../pgweave-analysis" }
+pgweave-ast = { path = "../pgweave-ast" }
+pgweave-macro = { path = "../pgweave-macro" }
+pgweave-diagnostics = { workspace = true }
+pgweave-schema = { path = "../pgweave-schema" }
+pgweave-parser = { path = "../pgweave-parser" }
+pgweave-checker = { path = "../pgweave-checker" }
+pgweave-codegen = { path = "../pgweave-codegen" }
+pgweave-lint = { path = "../pgweave-lint" }
+pgweave-plugin = { path = "../pgweave-plugin" }
+pgweave-plugin-wasm = { path = "../pgweave-plugin-wasm" }
+pgweave-semantic = { path = "../pgweave-semantic" }
+serde = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }

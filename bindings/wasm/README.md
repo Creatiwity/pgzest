@@ -1,6 +1,6 @@
-# pgsql-wasm
+# pgweave-wasm
 
-WASM bindings for pgsql-tools, exposing the parser, checker, linter, and codegen crates to JavaScript/TypeScript environments.
+WASM bindings for pgweave, exposing the parser, checker, linter, and codegen crates to JavaScript/TypeScript environments.
 
 ## Prerequisites
 
@@ -65,7 +65,7 @@ const normalized = parse_and_emit("SELECT id FROM users WHERE id = 1");
 ## Usage (bundler)
 
 ```ts
-import init, { check, lint, migrate_diff, parse_and_emit } from "./pkg/pgsql_wasm";
+import init, { check, lint, migrate_diff, parse_and_emit } from "./pkg/pgweave_wasm";
 
 await init();
 

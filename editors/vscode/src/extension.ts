@@ -19,8 +19,8 @@ function resolveServerPath(configured: string, extensionPath: string): string {
   // Walk up from editors/vscode/ to workspace root, try debug then release
   const root = path.resolve(extensionPath, '..', '..');
   for (const candidate of [
-    path.join(root, 'target', 'debug', 'pgsql-lsp'),
-    path.join(root, 'target', 'release', 'pgsql-lsp'),
+    path.join(root, 'target', 'debug', 'pgweave-lsp'),
+    path.join(root, 'target', 'release', 'pgweave-lsp'),
   ]) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -28,8 +28,8 @@ function resolveServerPath(configured: string, extensionPath: string): string {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration('pgsql-tools');
-  const configured = config.get<string>('lspPath', 'pgsql-lsp');
+  const config = vscode.workspace.getConfiguration('pgweave');
+  const configured = config.get<string>('lspPath', 'pgweave-lsp');
   const lspPath = resolveServerPath(configured, context.extensionPath);
   const schemaFile = config.get<string>('schemaFile', '');
 
@@ -51,8 +51,8 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   client = new LanguageClient(
-    'pgsql-tools',
-    'pgsql-tools Language Server',
+    'pgweave',
+    'pgweave Language Server',
     serverOptions,
     clientOptions,
   );

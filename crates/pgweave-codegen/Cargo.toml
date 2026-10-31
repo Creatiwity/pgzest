@@ -1,0 +1,13 @@
+[package]
+name = "pgweave-codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgweave-ast = { path = "../pgweave-ast" }
+pgweave-diagnostics = { workspace = true }
+pgweave-schema = { path = "../pgweave-schema" }
+pgweave-parser = { path = "../pgweave-parser" }
+pgweave-semantic = { path = "../pgweave-semantic" }
+serde = { workspace = true }
+thiserror = { workspace = true }

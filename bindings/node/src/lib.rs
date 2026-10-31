@@ -9,9 +9,9 @@ pub struct JsDiagnostic {
 
 #[napi]
 pub fn check(sql: String, schema_sql: String) -> Vec<JsDiagnostic> {
-    let schema = pgsql_schema::provider::DdlSchemaProvider::from_sql(&schema_sql)
-        .unwrap_or_else(|_| pgsql_schema::provider::DdlSchemaProvider::from_statements(&[]));
-    let diagnostics = pgsql_checker::check_sql(&sql, &schema);
+    let schema = pgweave_schema::provider::DdlSchemaProvider::from_sql(&schema_sql)
+        .unwrap_or_else(|_| pgweave_schema::provider::DdlSchemaProvider::from_statements(&[]));
+    let diagnostics = pgweave_checker::check_sql(&sql, &schema);
     diagnostics
         .into_iter()
         .map(|d| JsDiagnostic {
@@ -24,7 +24,7 @@ pub fn check(sql: String, schema_sql: String) -> Vec<JsDiagnostic> {
 
 #[napi]
 pub fn lint(sql: String) -> Vec<JsDiagnostic> {
-    let stmts = match pgsql_parser::parse(&sql) {
+    let stmts = match pgweave_parser::parse(&sql) {
         Ok(s) => s,
         Err(e) => {
             return vec![JsDiagnostic {
@@ -34,7 +34,7 @@ pub fn lint(sql: String) -> Vec<JsDiagnostic> {
             }];
         }
     };
-    let result = pgsql_lint::lint_statements(&stmts, &pgsql_lint::LintConfig::default());
+    let result = pgweave_lint::lint_statements(&stmts, &pgweave_lint::LintConfig::default());
     result
         .diagnostics
         .into_iter()
@@ -48,17 +48,17 @@ pub fn lint(sql: String) -> Vec<JsDiagnostic> {
 
 #[napi]
 pub fn migrate_diff(old_sql: String, new_sql: String) -> String {
-    let old_stmts = pgsql_parser::parse(&old_sql).unwrap_or_default();
-    let new_stmts = pgsql_parser::parse(&new_sql).unwrap_or_default();
-    pgsql_codegen::diff_schemas(&old_stmts, &new_stmts).to_sql()
+    let old_stmts = pgweave_parser::parse(&old_sql).unwrap_or_default();
+    let new_stmts = pgweave_parser::parse(&new_sql).unwrap_or_default();
+    pgweave_codegen::diff_schemas(&old_stmts, &new_stmts).to_sql()
 }
 
 #[napi]
 pub fn parse_and_emit(sql: String) -> String {
-    match pgsql_parser::parse(&sql) {
+    match pgweave_parser::parse(&sql) {
         Ok(stmts) => stmts
             .iter()
-            .map(pgsql_codegen::emit_statement)
+            .map(pgweave_codegen::emit_statement)
             .collect::<Vec<_>>()
             .join(";\n"),
         Err(e) => format!("-- error: {e}"),
@@ -74,13 +74,13 @@ pub fn generate_types(sql: String, schema_sql: String) -> String {
     } else {
         format!("{}\n\n{}", schema_sql, sql)
     };
-    pgsql_codegen::generate_ts_types_from_sql(&combined)
+    pgweave_codegen::generate_ts_types_from_sql(&combined)
 }
 
 /// Parse SQL and return AST as a JSON string.
 #[napi]
 pub fn parse_to_json(sql: String) -> String {
-    match pgsql_parser::parse(&sql) {
+    match pgweave_parser::parse(&sql) {
         Ok(stmts) => serde_json::to_string_pretty(&stmts)
             .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
         Err(e) => format!("{{\"error\":\"parse error: {e}\"}}"),

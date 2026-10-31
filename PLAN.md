@@ -4,8 +4,7 @@
 > `SPECS.md`, `ARCHITECTURE.md`, `PLPGSQL_SPEC.md` et `SPECS-schema-plpgsql.md`
 > restent des documents de contexte ; en cas de contradiction, ce plan fait foi.
 >
-> **Nom du projet : `pgweave`** (anciennement `pgsql-tools`). Dans ce plan,
-> les noms `pgsql-*` désignent l'existant ; le renommage est une tâche de P0.
+> **Nom du projet : `pgweave`** (anciennement `pgsql-tools`).
 
 ---
 
@@ -104,13 +103,13 @@ et il est alors documenté (patch minimal, rebase suivi).
 Plusieurs réécritures datent de sqlparser 0.54 ; la 0.62 en couvre peut-être
 nativement une partie — à inventorier en premier.
 
-L'AST maison `pgsql-ast` est conservé : il isole le reste du code des
+L'AST maison `pgweave-ast` est conservé : il isole le reste du code des
 changements d'AST de sqlparser.
 
 ### D2 — Catalogue unique, en couches, résolu à la demande
 
 Remplace `SchemaProvider`, `SchemaResolver` (aujourd'hui eager), `SchemaIndex`,
-le `TypeContext` du checker et la `SymbolTable` de `pgsql-semantic`.
+le `TypeContext` du checker et la `SymbolTable` de `pgweave-semantic`.
 
 Couches, de la plus externe à la plus interne, chacune pouvant masquer la
 précédente :
@@ -155,8 +154,8 @@ ou surcoût mesuré > 2× sur l'indexation de Mesalia.
 
 ### D4 — Un seul analyseur sémantique, sur une représentation résolue
 
-`pgsql-semantic` et le checker font aujourd'hui de la résolution chacun de
-leur côté. **Décision** : un crate `pgsql-sema` produit une représentation
+`pgweave-semantic` et le checker font aujourd'hui de la résolution chacun de
+leur côté. **Décision** : un crate `pgweave-sema` produit une représentation
 résolue (HIR) — chaque référence pointe vers un objet du catalogue ou une
 entrée de portée, chaque expression porte `(type, nullabilité)`. La
 normalisation en ordre logique (FROM → … → ORDER BY) reste l'étape d'entrée,
@@ -305,19 +304,19 @@ Le schéma (namespace) fait partie de l'identité de chaque objet, partout :
 
 | Élément | Sort | Note |
 |---|---|---|
-| `pgsql-ast` | Garder, étendre | DDL manquants (§P1), spans sur tous les nœuds, IDs déterministes par fichier |
+| `pgweave-ast` | Garder, étendre | DDL manquants (§P1), spans sur tous les nœuds, IDs déterministes par fichier |
 | Parser PL/pgSQL (lexer + parser) | Garder, étendre | Cas restants de `SPECS-schema-plpgsql.md` §6 |
 | Réécritures textuelles du parser | **Retirer** | Remplacées par D1 |
-| `pgsql-diagnostics`, directives `pgsql-disable…` | Garder | |
-| `pgsql-macro`, source maps, `build`/expansion | Garder, étendre | Fragments d'expression (§P6) |
-| `SchemaProvider`/`SchemaResolver`/`SchemaIndex` | **Refondre** → `pgsql-catalog` | D2, D3 |
-| `pgsql-semantic` + `TypeContext` du checker | **Fusionner** → `pgsql-sema` | D4 |
+| `pgweave-diagnostics`, directives `pgweave-disable…` | Garder | |
+| `pgweave-macro`, source maps, `build`/expansion | Garder, étendre | Fragments d'expression (§P6) |
+| `SchemaProvider`/`SchemaResolver`/`SchemaIndex` | **Refondre** → `pgweave-catalog` | D2, D3 |
+| `pgweave-semantic` + `TypeContext` du checker | **Fusionner** → `pgweave-sema` | D4 |
 | `builtins.rs` écrit à la main | **Retirer** | Généré (D9, principe 1) |
 | Règles checker/lint | Garder, porter sur le HIR | |
-| `pgsql-codegen::diff`, sûreté de migration | Garder, étendre | Modèle complet D2 |
-| `pgsql-codegen::ts_types` | **Retirer** | Bug d'ordre `HashMap` ; remplacé par le descripteur (§P8) |
+| `pgweave-codegen::diff`, sûreté de migration | Garder, étendre | Modèle complet D2 |
+| `pgweave-codegen::ts_types` | **Retirer** | Bug d'ordre `HashMap` ; remplacé par le descripteur (§P8) |
 | LSP + extension VS Code | Garder | Rebranché sur salsa/HIR, pas de nouvelle feature avant P4 |
-| `npm/pgsql-tools` (`db.query<T>` = cast) | **Geler** | Repris en §P8 sur le descripteur |
+| `npm/pgweave` (`db.query<T>` = cast) | **Geler** | Repris en §P8 sur le descripteur |
 | Bindings WASM/Node | Geler | Repris en §P8 |
 | `ROADMAP.md` | Archiver | Bandeau renvoyant ici |
 
@@ -457,17 +456,11 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
 - Format des requêtes nommées figé et documenté (trajectoire Mesalia).
 - Format de config projet figé : `postgres = <major>`, `search_path`,
   schéma par défaut par répertoire.
-- Renommage en `pgweave`, en un seul commit mécanique, avant tout autre
-  changement de code :
-  - crates `pgsql-*` → `pgweave-*` ; binaires `pgsql` / `pgsql-lsp` →
-    `pgweave` / `pgweave-lsp` ;
-  - config `pgsql-tools.config.toml` → `pgweave.toml` ;
-  - directives `pgsql-disable…` → `pgweave-disable…`, en-tête de migration
-    `-- pgweave:`, cache `.pgweave/` ;
-  - extension VS Code, grammaire, playground, README, CI ;
-  - les extensions de fichier `.pgsql` et `.pgmacro` sont **conservées** :
-    elles décrivent le langage (SQL PostgreSQL + macros), pas l'outil ;
-  - aucun alias de compatibilité : l'outil n'est encore adopté nulle part.
+- ✅ Renommage en `pgweave` (crates `pgweave-*`, binaires `pgweave` /
+  `pgweave-lsp`, config `pgweave.toml`, directives `pgweave-disable…`,
+  extension VS Code, CI). Les extensions de fichier `.pgsql` / `.pgmacro` et
+  l'identifiant de langage `pgsql` sont conservés : ils nomment le langage,
+  pas l'outil. Aucun alias de compatibilité.
 
 **Sortie** : CI avec oracle opérationnel ; rapport de base Mesalia publié
 dans `docs/` ; décision salsa actée ; formats requêtes nommées et config
@@ -500,7 +493,7 @@ restante.
 
 ### P2 — Catalogue
 
-- Crate `pgsql-catalog` : modèle D2, couches, schémas et `search_path`
+- Crate `pgweave-catalog` : modèle D2, couches, schémas et `search_path`
   (D11), clés sensibles à la casse (principe 8).
 - Générateur (`xtask catalog-gen`) : extrait `pg_namespace`, `pg_type`,
   `pg_proc`, `pg_operator`, `pg_cast`, `pg_aggregate`, `pg_opclass`,
@@ -521,7 +514,7 @@ restante.
 
 - **Import brownfield** (avancé depuis P7, chemin critique Mesalia) :
   rejouer les migrations Prisma → fichiers de schéma déclaratifs organisés
-  par schéma PG (`pgsql schema import`) + migration baseline avec en-tête.
+  par schéma PG (`pgweave schema import`) + migration baseline avec en-tête.
   L'import ne fait qu'émettre le catalogue reconstruit ; il ne demande pas le
   diff de P7.
 
@@ -533,7 +526,7 @@ recalculées (test).
 
 ### P3 — Analyse sémantique unifiée
 
-- Crate `pgsql-sema` : normalisation → résolution → HIR typé.
+- Crate `pgweave-sema` : normalisation → résolution → HIR typé.
 - Système de types fidèle : catégories, casts implicites/assignation,
   résolution de surcharges d'opérateurs et fonctions, littéraux `unknown`,
   `UNION`/`CASE`/`COALESCE`/`VALUES`, tableaux, enums, domaines.
@@ -543,7 +536,7 @@ recalculées (test).
   contexte de leur table ; `DEFAULT` ; `ON CONFLICT` ; `RETURNING` ; `CALL`
   vérifié contre la signature de procédure ; corps de trigger vérifié par
   table (existant, porté).
-- Checker et lint portés sur le HIR ; suppression de `pgsql-semantic` et du
+- Checker et lint portés sur le HIR ; suppression de `pgweave-semantic` et du
   `TypeContext`.
 
 **Sortie** : oracle différentiel vert sur le corpus de requêtes (≥ 300
@@ -553,22 +546,22 @@ diagnostic).
 
 ### P4 — Descripteur de requête
 
-- Crate `pgsql-query` : descripteur §4, cardinalité, `depends_on`,
+- Crate `pgweave-query` : descripteur §4, cardinalité, `depends_on`,
   fingerprint, cache disque.
 - Requêtes nommées en fichiers (`queries/*.sql`, en-tête `-- name: …` ou
   macro dédiée), réécriture `$name` → positionnel.
-- CLI `pgsql describe <fichier|requête>` et sortie JSON.
+- CLI `pgweave describe <fichier|requête>` et sortie JSON.
 
 **Sortie** : descripteurs déterministes (snapshots) ; refus explicite quand
 un type est inconnu ; oracle vert sur types de paramètres et colonnes.
 
 ### P5 — Intégration Rust
 
-- `pgsql-runtime` : exécution D8, `fetch_one`/`fetch_optional`/`fetch_all`/
+- `pgweave-runtime` : exécution D8, `fetch_one`/`fetch_optional`/`fetch_all`/
   `execute` alignés sur la cardinalité, flux (`RowStream`), transactions,
   `copy_in` typé (CSV avec validation d'en-tête optionnelle, binaire avec
   structs).
-- `pgsql-macros` : `query!`, `query_file!`, `copy_in!` ; diagnostics SQL
+- `pgweave-macros` : `query!`, `query_file!`, `copy_in!` ; diagnostics SQL
   re-situés dans le source Rust ; recompilation correcte (§5).
 - Génération `build.rs` des requêtes nommées.
 - Correspondance de types Rust, extensible par pack (PostGIS).
@@ -585,7 +578,7 @@ budget de compilation respecté ; benchmark d'exécution comparé à
   leur contexte d'utilisation, avec source maps (mécanisme existant étendu).
 - Une requête nommée utilisable comme type de référence par d'autres
   (vérification de compatibilité, jamais de cast forcé).
-- Expansion visible (LSP) et éjectable (`pgsql build`), comme les macros
+- Expansion visible (LSP) et éjectable (`pgweave build`), comme les macros
   actuelles.
 
 **Sortie** : la liste de colonnes siren et les projections récurrentes de
@@ -602,7 +595,7 @@ Mesalia/Sherpa exprimées une seule fois.
 - Vérification par oracle : migration appliquée sur PG → catalogue
   introspecté == schéma déclaratif.
 
-**Sortie** : une évolution réelle du schéma Mesalia produite par `pgsql
+**Sortie** : une évolution réelle du schéma Mesalia produite par `pgweave
 migrate create` et validée par l'oracle, dont un ajout d'extension.
 
 ### P8 — TypeScript
@@ -614,7 +607,7 @@ migrate create` et validée par l'oracle, dont un ajout d'extension.
   indexées par la chaîne exacte (modèle du « client preset » de
   graphql-codegen) ou par un plugin du language service — choix à trancher
   en ouverture de phase.
-- Reprise ou remplacement de `npm/pgsql-tools` et des bindings.
+- Reprise ou remplacement de `npm/pgweave` et des bindings.
 
 **Sortie** : l'exemple `getPage` de la DX cible typé de bout en bout, sans
 cast.
@@ -635,14 +628,14 @@ code écrit d'ici là **migre mécaniquement** vers le code généré :
    `queries/*.sql` au format des requêtes nommées (P4) et avec la syntaxe
    `$name` (D6) ; exécution via `tokio-postgres` et une fine couche écrite à
    la main qui respecte la forme du futur runtime (une fonction par requête,
-   struct de paramètres, struct de ligne). `pgsql check` (existant) vérifie
+   struct de paramètres, struct de ligne). `pgweave check` (existant) vérifie
    déjà l'existence des tables/colonnes en CI.
 2. **Le format des requêtes nommées est donc figé en P0**, pas en P4 — c'est
    la seule avance de phase demandée par Mesalia.
 3. **Prisma reste propriétaire des migrations** jusqu'à la fin de P2 (import
    relu). Ensuite, plus aucune migration Prisma : les nouvelles migrations
-   sont écrites en SQL dans le dépôt, vérifiées par `pgsql check`, puis
-   générées par `pgsql migrate create` à partir de P7.
+   sont écrites en SQL dans le dépôt, vérifiées par `pgweave check`, puis
+   générées par `pgweave migrate create` à partir de P7.
 4. **À la livraison de P5** : la couche manuelle est remplacée requête par
    requête par le code généré ; la compilation signale chaque écart de type
    ou de nullabilité que la couche manuelle masquait.
@@ -653,29 +646,29 @@ code écrit d'ici là **migre mécaniquement** vers le code généré :
 
 ```
 crates/
-  pgsql-ast/          AST syntaxique, spans, IDs déterministes
-  pgsql-parser/       PgsqlDialect + PL/pgSQL
-  pgsql-macro/        macros, fragments, source maps
-  pgsql-catalog/      modèle d'objets, couches, search_path, données générées
-  pgsql-project/      base salsa : fichiers, révisions, requêtes mémoïsées
-  pgsql-sema/         normalisation, résolution, types, nullabilité → HIR
-  pgsql-checker/      règles de correction sur le HIR
-  pgsql-lint/         règles de style / perf / sûreté de migration
-  pgsql-query/        descripteur de requête, cache
-  pgsql-codegen/      émission SQL, diff de migrations
-  pgsql-diagnostics/  diagnostics, directives
-  pgsql-lsp/  pgsql-cli/
+  pgweave-ast/          AST syntaxique, spans, IDs déterministes
+  pgweave-parser/       PgsqlDialect + PL/pgSQL
+  pgweave-macro/        macros, fragments, source maps
+  pgweave-catalog/      modèle d'objets, couches, search_path, données générées
+  pgweave-project/      base salsa : fichiers, révisions, requêtes mémoïsées
+  pgweave-sema/         normalisation, résolution, types, nullabilité → HIR
+  pgweave-checker/      règles de correction sur le HIR
+  pgweave-lint/         règles de style / perf / sûreté de migration
+  pgweave-query/        descripteur de requête, cache
+  pgweave-codegen/      émission SQL, diff de migrations
+  pgweave-diagnostics/  diagnostics, directives
+  pgweave-lsp/  pgweave-cli/
 rust/
-  pgsql-runtime/      exécution tokio-postgres
-  pgsql-macros/       proc-macros
+  pgweave-runtime/      exécution tokio-postgres
+  pgweave-macros/       proc-macros
 contributors/         packs générés (D9) : catalogue + correspondances de types
   postgres-18/
   citext/  btree_gist/  postgis/
 xtask/                catalog-gen, corpus, bench
 ```
 
-`pgsql-analysis` (pipeline partagé CLI/LSP aujourd'hui) est absorbé par
-`pgsql-project`.
+`pgweave-analysis` (pipeline partagé CLI/LSP aujourd'hui) est absorbé par
+`pgweave-project`.
 
 ---
 

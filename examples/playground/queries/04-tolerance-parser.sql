@@ -1,4 +1,4 @@
--- Tolérance du parser, réglée par [parse] dans pgsql-tools.config.toml.
+-- Tolérance du parser, réglée par [parse] dans pgweave.toml.
 
 -- SQL valide mais hors périmètre de l'AST → unsupported-statement.
 -- Avec `unsupported = "ignore"` (défaut), rien n'est signalé.

@@ -1,5 +1,5 @@
 # Exemple de macro maison. Le format est celui des macros fournies —
-# voir `pgsql macros --verbose`.
+# voir `pgweave macros --verbose`.
 #
 # @audited ajoute les colonnes d'audit qu'on répète sur chaque table :
 #

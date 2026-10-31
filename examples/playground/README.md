@@ -1,4 +1,4 @@
-# Playground pgsql-tools
+# Playground pgweave
 
 Projet de démonstration. Ouvert automatiquement par **F5** depuis
 `editors/vscode/`.
@@ -6,18 +6,18 @@ Projet de démonstration. Ouvert automatiquement par **F5** depuis
 ## Lancer
 
 ```bash
-make lsp                 # compile le serveur LSP (target/debug/pgsql-lsp)
+make lsp                 # compile le serveur LSP (target/debug/pgweave-lsp)
 code editors/vscode      # puis F5 → « Run Extension (playground) »
 ```
 
-L'extension détecte `target/debug/pgsql-lsp` toute seule. Une fenêtre
+L'extension détecte `target/debug/pgweave-lsp` toute seule. Une fenêtre
 « Extension Development Host » s'ouvre sur ce dossier.
 
 En CLI, depuis ce dossier :
 
 ```bash
-pgsql check queries/02-erreurs.sql
-pgsql lint  queries/05-lint.sql
+pgweave check queries/02-erreurs.sql
+pgweave lint  queries/05-lint.sql
 ```
 
 ## Ce qu'il y a à regarder
@@ -28,7 +28,7 @@ pgsql lint  queries/05-lint.sql
 | `queries/02-erreurs.sql` | Colonne et table inexistantes. Le hint liste les colonnes disponibles. |
 | `queries/03-directives.sql` | Les directives en commentaire, à la ESLint. Seul le dernier `SELECT` doit être souligné. |
 | `queries/04-tolerance-parser.sql` | Un statement illisible remonte en warning sans interrompre l'analyse du reste. |
-| `queries/05-lint.sql` | Règles de lint. **Invisibles avec `pgsql check`** : le linter est une commande séparée. Visibles dans VS Code, où le LSP lance les deux. |
+| `queries/05-lint.sql` | Règles de lint. **Invisibles avec `pgweave check`** : le linter est une commande séparée. Visibles dans VS Code, où le LSP lance les deux. |
 | `queries/06-macros.pgsql` | Les macros. Analysé directement par `check` et par le LSP — pas besoin de `build`. Curseur dans une macro + **⌘⌥E** pour voir son expansion. Contient un trigger multi-tables et une macro maison (`macros/audited.pgmacro`). |
 
 Essaie aussi :
@@ -37,13 +37,13 @@ Essaie aussi :
 - **Complétion** après `SELECT ` ou après `u.` dans une requête sur `users`.
 - Modifier `schema/tables/users.sql` (ajouter une colonne) puis revenir sur
   `queries/01-ok.sql` : l'index se reconstruit.
-- Passer `unparsable = "error"` dans `pgsql-tools.config.toml` : le warning de
+- Passer `unparsable = "error"` dans `pgweave.toml` : le warning de
   `04-tolerance-parser.sql` devient une erreur.
 
 ## Structure
 
 ```
-pgsql-tools.config.toml   ← définit le scope, la tolérance, les sévérités
+pgweave.toml   ← définit le scope, la tolérance, les sévérités
 schema/
   tables/                 ← indexé récursivement…
   functions/              ← …sous-répertoires compris

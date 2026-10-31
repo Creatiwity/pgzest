@@ -1,7 +1,7 @@
 -- Ce fichier doit être entièrement propre.
 --
 -- `users` et `organizations` ne sont pas définies ici : elles viennent de
--- schema/tables/, indexé automatiquement via pgsql-tools.config.toml.
+-- schema/tables/, indexé automatiquement via pgweave.toml.
 -- Aucun --schema à passer.
 
 SELECT u.email, o.name

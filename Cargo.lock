@@ -788,105 +788,105 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "pgsql"
+name = "pgweave"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
- "pgsql-analysis",
- "pgsql-ast",
- "pgsql-checker",
- "pgsql-codegen",
- "pgsql-diagnostics",
- "pgsql-lint",
- "pgsql-macro",
- "pgsql-parser",
- "pgsql-plugin",
- "pgsql-plugin-wasm",
- "pgsql-schema",
- "pgsql-semantic",
+ "pgweave-analysis",
+ "pgweave-ast",
+ "pgweave-checker",
+ "pgweave-codegen",
+ "pgweave-diagnostics",
+ "pgweave-lint",
+ "pgweave-macro",
+ "pgweave-parser",
+ "pgweave-plugin",
+ "pgweave-plugin-wasm",
+ "pgweave-schema",
+ "pgweave-semantic",
  "serde",
 ]
 
 [[package]]
-name = "pgsql-analysis"
+name = "pgweave-analysis"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-checker",
- "pgsql-diagnostics",
- "pgsql-lint",
- "pgsql-macro",
- "pgsql-parser",
- "pgsql-schema",
- "pgsql-semantic",
+ "pgweave-ast",
+ "pgweave-checker",
+ "pgweave-diagnostics",
+ "pgweave-lint",
+ "pgweave-macro",
+ "pgweave-parser",
+ "pgweave-schema",
+ "pgweave-semantic",
 ]
 
 [[package]]
-name = "pgsql-ast"
+name = "pgweave-ast"
 version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
-name = "pgsql-checker"
+name = "pgweave-checker"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-diagnostics",
- "pgsql-parser",
- "pgsql-schema",
+ "pgweave-ast",
+ "pgweave-diagnostics",
+ "pgweave-parser",
+ "pgweave-schema",
  "serde",
  "serde_json",
  "thiserror",
 ]
 
 [[package]]
-name = "pgsql-codegen"
+name = "pgweave-codegen"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-diagnostics",
- "pgsql-parser",
- "pgsql-schema",
- "pgsql-semantic",
+ "pgweave-ast",
+ "pgweave-diagnostics",
+ "pgweave-parser",
+ "pgweave-schema",
+ "pgweave-semantic",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "pgsql-diagnostics"
+name = "pgweave-diagnostics"
 version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
-name = "pgsql-lint"
+name = "pgweave-lint"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-diagnostics",
- "pgsql-parser",
+ "pgweave-ast",
+ "pgweave-diagnostics",
+ "pgweave-parser",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "pgsql-lsp"
+name = "pgweave-lsp"
 version = "0.1.0"
 dependencies = [
- "pgsql-analysis",
- "pgsql-ast",
- "pgsql-checker",
- "pgsql-diagnostics",
- "pgsql-lint",
- "pgsql-macro",
- "pgsql-parser",
- "pgsql-plugin-wasm",
- "pgsql-schema",
- "pgsql-semantic",
+ "pgweave-analysis",
+ "pgweave-ast",
+ "pgweave-checker",
+ "pgweave-diagnostics",
+ "pgweave-lint",
+ "pgweave-macro",
+ "pgweave-parser",
+ "pgweave-plugin-wasm",
+ "pgweave-schema",
+ "pgweave-semantic",
  "serde",
  "serde_json",
  "tokio",
@@ -894,50 +894,50 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgsql-macro"
+name = "pgweave-macro"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-diagnostics",
- "pgsql-parser",
+ "pgweave-ast",
+ "pgweave-diagnostics",
+ "pgweave-parser",
 ]
 
 [[package]]
-name = "pgsql-node"
+name = "pgweave-node"
 version = "0.1.0"
 dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "pgsql-checker",
- "pgsql-codegen",
- "pgsql-diagnostics",
- "pgsql-lint",
- "pgsql-parser",
- "pgsql-schema",
+ "pgweave-checker",
+ "pgweave-codegen",
+ "pgweave-diagnostics",
+ "pgweave-lint",
+ "pgweave-parser",
+ "pgweave-schema",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "pgsql-parser"
+name = "pgweave-parser"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-checker",
+ "pgweave-ast",
+ "pgweave-checker",
  "serde",
  "sqlparser",
  "thiserror",
 ]
 
 [[package]]
-name = "pgsql-plugin"
+name = "pgweave-plugin"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-checker",
- "pgsql-diagnostics",
- "pgsql-schema",
+ "pgweave-ast",
+ "pgweave-checker",
+ "pgweave-diagnostics",
+ "pgweave-schema",
  "serde",
  "serde_json",
  "thiserror",
@@ -945,14 +945,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgsql-plugin-wasm"
+name = "pgweave-plugin-wasm"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-checker",
- "pgsql-diagnostics",
- "pgsql-plugin",
- "pgsql-schema",
+ "pgweave-ast",
+ "pgweave-checker",
+ "pgweave-diagnostics",
+ "pgweave-plugin",
+ "pgweave-schema",
  "serde",
  "serde_json",
  "thiserror",
@@ -960,40 +960,40 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgsql-schema"
+name = "pgweave-schema"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-diagnostics",
- "pgsql-macro",
- "pgsql-parser",
+ "pgweave-ast",
+ "pgweave-diagnostics",
+ "pgweave-macro",
+ "pgweave-parser",
  "serde",
  "serde_json",
  "toml",
 ]
 
 [[package]]
-name = "pgsql-semantic"
+name = "pgweave-semantic"
 version = "0.1.0"
 dependencies = [
- "pgsql-ast",
- "pgsql-diagnostics",
- "pgsql-parser",
- "pgsql-schema",
+ "pgweave-ast",
+ "pgweave-diagnostics",
+ "pgweave-parser",
+ "pgweave-schema",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "pgsql-wasm"
+name = "pgweave-wasm"
 version = "0.1.0"
 dependencies = [
- "pgsql-checker",
- "pgsql-codegen",
- "pgsql-diagnostics",
- "pgsql-lint",
- "pgsql-parser",
- "pgsql-schema",
+ "pgweave-checker",
+ "pgweave-codegen",
+ "pgweave-diagnostics",
+ "pgweave-lint",
+ "pgweave-parser",
+ "pgweave-schema",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

@@ -1,5 +1,5 @@
 [package]
-name = "pgsql-wasm"
+name = "pgweave-wasm"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,12 +7,12 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pgsql-parser = { path = "../../crates/pgsql-parser" }
-pgsql-checker = { path = "../../crates/pgsql-checker" }
-pgsql-diagnostics = { workspace = true }
-pgsql-schema = { path = "../../crates/pgsql-schema" }
-pgsql-lint = { path = "../../crates/pgsql-lint" }
-pgsql-codegen = { path = "../../crates/pgsql-codegen" }
+pgweave-parser = { path = "../../crates/pgweave-parser" }
+pgweave-checker = { path = "../../crates/pgweave-checker" }
+pgweave-diagnostics = { workspace = true }
+pgweave-schema = { path = "../../crates/pgweave-schema" }
+pgweave-lint = { path = "../../crates/pgweave-lint" }
+pgweave-codegen = { path = "../../crates/pgweave-codegen" }
 wasm-bindgen = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

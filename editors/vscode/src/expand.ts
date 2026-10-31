@@ -11,7 +11,7 @@ import * as vscode from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 
 /** Schéma d'URI des documents d'expansion. */
-export const EXPANDED_SCHEME = 'pgsql-expanded';
+export const EXPANDED_SCHEME = 'pgweave-expanded';
 
 interface ExpandMacroResult {
   sql: string;
@@ -62,7 +62,7 @@ class ExpandCodeLensProvider implements vscode.CodeLensProvider {
       lenses.push(
         new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
           title: `Voir l'expansion de @${match[1]}`,
-          command: 'pgsql-tools.expandMacro',
+          command: 'pgweave.expandMacro',
           arguments: [new vscode.Position(line, match[0].length)],
         }),
       );
@@ -89,12 +89,12 @@ export function registerExpandMacro(
       new ExpandCodeLensProvider(),
     ),
     vscode.commands.registerCommand(
-      'pgsql-tools.expandMacro',
+      'pgweave.expandMacro',
       async (position?: vscode.Position) => {
         const client = getClient();
         const editor = vscode.window.activeTextEditor;
         if (!client || !editor) {
-          vscode.window.showWarningMessage('pgsql-tools : aucun éditeur actif.');
+          vscode.window.showWarningMessage('pgweave : aucun éditeur actif.');
           return;
         }
 
@@ -103,18 +103,18 @@ export function registerExpandMacro(
 
         let result: ExpandMacroResult;
         try {
-          result = await client.sendRequest<ExpandMacroResult>('pgsql/expandMacro', {
+          result = await client.sendRequest<ExpandMacroResult>('pgweave/expandMacro', {
             textDocument: { uri: editor.document.uri.toString() },
             position: { line: at.line, character: at.character },
           });
         } catch (err) {
-          vscode.window.showErrorMessage(`pgsql-tools : expansion impossible — ${err}`);
+          vscode.window.showErrorMessage(`pgweave : expansion impossible — ${err}`);
           return;
         }
 
         if (!result.sql) {
           vscode.window.showInformationMessage(
-            `pgsql-tools : ${result.note ?? 'rien à développer ici.'}`,
+            `pgweave : ${result.note ?? 'rien à développer ici.'}`,
           );
           return;
         }
@@ -129,7 +129,7 @@ export function registerExpandMacro(
         );
 
         const header =
-          `-- Expansion engendrée par pgsql-tools — lecture seule.\n` +
+          `-- Expansion engendrée par pgweave — lecture seule.\n` +
           `-- Source : ${name}\n` +
           (result.note ? `-- ${result.note}\n` : '') +
           `\n`;

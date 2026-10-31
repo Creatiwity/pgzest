@@ -1,0 +1,13 @@
+[package]
+name = "pgweave-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgweave-ast = { path = "../pgweave-ast" }
+sqlparser = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+pgweave-checker = { path = "../pgweave-checker" }

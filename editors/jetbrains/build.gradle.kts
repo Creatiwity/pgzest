@@ -3,7 +3,7 @@ plugins {
     kotlin("jvm") version "1.9.0"
 }
 
-group = "com.pgsql-tools"
+group = "com.pgweave"
 version = "0.1.0"
 
 repositories {

@@ -1,0 +1,24 @@
+[package]
+name = "pgweave-lsp"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "pgweave-lsp"
+path = "src/main.rs"
+
+[dependencies]
+pgweave-analysis = { path = "../pgweave-analysis" }
+pgweave-macro = { path = "../pgweave-macro" }
+pgweave-ast = { path = "../pgweave-ast" }
+pgweave-diagnostics = { workspace = true }
+pgweave-parser = { path = "../pgweave-parser" }
+pgweave-checker = { path = "../pgweave-checker" }
+pgweave-schema = { path = "../pgweave-schema" }
+pgweave-lint = { path = "../pgweave-lint" }
+pgweave-plugin-wasm = { path = "../pgweave-plugin-wasm" }
+pgweave-semantic = { path = "../pgweave-semantic" }
+tower-lsp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

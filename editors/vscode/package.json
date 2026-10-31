@@ -1,9 +1,9 @@
 {
-  "name": "pgsql-tools",
-  "displayName": "pgsql-tools",
+  "name": "pgweave",
+  "displayName": "pgweave",
   "description": "PostgreSQL SQL + PL/pgSQL language support (type-checking, completion, hover)",
   "version": "0.1.0",
-  "publisher": "pgsql-tools",
+  "publisher": "pgweave",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -34,7 +34,7 @@
       {
         "id": "pgmacro",
         "aliases": [
-          "pgsql-tools macro"
+          "pgweave macro"
         ],
         "extensions": [
           ".pgmacro"
@@ -78,14 +78,14 @@
       }
     ],
     "configuration": {
-      "title": "pgsql-tools",
+      "title": "pgweave",
       "properties": {
-        "pgsql-tools.lspPath": {
+        "pgweave.lspPath": {
           "type": "string",
-          "default": "pgsql-lsp",
-          "description": "Path to the pgsql-lsp binary"
+          "default": "pgweave-lsp",
+          "description": "Path to the pgweave-lsp binary"
         },
-        "pgsql-tools.schemaFile": {
+        "pgweave.schemaFile": {
           "type": "string",
           "default": "",
           "description": "Path to a schema.sql file for type-checking"
@@ -102,14 +102,14 @@
     },
     "commands": [
       {
-        "command": "pgsql-tools.expandMacro",
+        "command": "pgweave.expandMacro",
         "title": "Voir l'expansion de la macro",
-        "category": "pgsql-tools"
+        "category": "pgweave"
       }
     ],
     "keybindings": [
       {
-        "command": "pgsql-tools.expandMacro",
+        "command": "pgweave.expandMacro",
         "key": "ctrl+alt+e",
         "mac": "cmd+alt+e",
         "when": "editorTextFocus && (editorLangId == pgsql || editorLangId == sql)"
@@ -118,9 +118,9 @@
     "menus": {
       "editor/context": [
         {
-          "command": "pgsql-tools.expandMacro",
+          "command": "pgweave.expandMacro",
           "when": "editorLangId == pgsql || editorLangId == sql",
-          "group": "pgsql-tools"
+          "group": "pgweave"
         }
       ]
     }

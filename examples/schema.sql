@@ -1,4 +1,4 @@
--- pgsql-tools — Schéma d'exemple
+-- pgweave — Schéma d'exemple
 --
 -- Cas couverts pour le toolchain :
 --   - DDL multi-table avec FK, CHECK, index

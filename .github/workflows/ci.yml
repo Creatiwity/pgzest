@@ -51,19 +51,19 @@ jobs:
 
       - name: Install (paquet npm)
         run: npm install --no-fund --no-audit
-        working-directory: npm/pgsql-tools
+        working-directory: npm/pgweave
 
       - name: Typecheck (paquet npm)
         run: npx tsc --noEmit
-        working-directory: npm/pgsql-tools
+        working-directory: npm/pgweave
 
       - name: Build (paquet npm)
         run: npx tsc
-        working-directory: npm/pgsql-tools
+        working-directory: npm/pgweave
 
       - name: Test (paquet npm)
         run: node --test "dist/**/*.test.js"
-        working-directory: npm/pgsql-tools
+        working-directory: npm/pgweave
 
       - name: Install (extension VS Code)
         run: npm install --no-fund --no-audit
@@ -103,23 +103,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build CLI
-        run: cargo build -p pgsql
+        run: cargo build -p pgweave
 
       # examples/test.sql référence une table absente du schéma : on attend
       # un exit code 1. Ce test verrouille le contrat "check sort 1 si erreur".
       - name: check détecte l'erreur attendue
         run: |
-          if ./target/debug/pgsql check examples/test.sql; then
-            echo "::error::pgsql check aurait dû sortir en erreur sur examples/test.sql"
+          if ./target/debug/pgweave check examples/test.sql; then
+            echo "::error::pgweave check aurait dû sortir en erreur sur examples/test.sql"
             exit 1
           fi
 
       - name: lint tourne sans planter
-        run: ./target/debug/pgsql lint examples/schema.sql
+        run: ./target/debug/pgweave lint examples/schema.sql
 
       - name: codegen produit une interface TS
         run: |
-          out=$(./target/debug/pgsql codegen --input examples/schema.sql)
+          out=$(./target/debug/pgweave codegen --input examples/schema.sql)
           echo "$out"
           echo "$out" | grep -q "export interface" \
             || { echo "::error::codegen n'a produit aucune interface"; exit 1; }

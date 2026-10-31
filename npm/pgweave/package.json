@@ -1,0 +1,43 @@
+{
+  "name": "pgweave",
+  "version": "0.1.0",
+  "description": "Type-safe PostgreSQL toolchain for TypeScript — check, lint, migrate, typed queries",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./backends/node": {
+      "require": "./dist/backends/node.js",
+      "types": "./dist/backends/node.d.ts"
+    },
+    "./backends/wasm": {
+      "require": "./dist/backends/wasm.js",
+      "types": "./dist/backends/wasm.d.ts"
+    },
+    "./plugins/prisma": {
+      "require": "./dist/plugins/prisma/index.js",
+      "types": "./dist/plugins/prisma/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "peerDependencies": {
+    "pg": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.3.0"
+  },
+  "files": ["dist", "README.md"],
+  "license": "MIT",
+  "keywords": ["postgresql", "sql", "type-safe", "typescript", "linter", "checker"]
+}

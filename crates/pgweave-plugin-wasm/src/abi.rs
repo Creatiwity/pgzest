@@ -1,0 +1,56 @@
+// abi.rs — types sérialisés pour l'ABI
+//
+// ABI WASM (JSON-over-linear-memory):
+//
+// Exports attendus de tout plugin WASM:
+//   pgweave_plugin_name() -> i32          // ptr vers une string UTF-8 null-terminated
+//   pgweave_plugin_version() -> i32       // version int (100*major + minor)
+//   pgweave_alloc(size: i32) -> i32       // allocateur exposé à l'hôte
+//   pgweave_free(ptr: i32)                // libère une allocation
+//   pgweave_check_select(ptr: i32, len: i32) -> i32  // JSON SelectStmt → JSON [Diagnostic]
+//   pgweave_check_table(ptr: i32, len: i32) -> i32   // JSON CreateTable → JSON [Diagnostic]
+//
+// Imports fournis par l'hôte:
+//   env.pgweave_get_table(name_ptr: i32, name_len: i32) -> i32  // → JSON TableSchema ou null
+//   env.pgweave_log(ptr: i32, len: i32)                         // console log depuis le plugin
+//
+// Rule codes:
+//   Plugin rule codes must be prefixed with the plugin name and a `/`,
+//   e.g. `"my-plugin/my-rule"`. This namespacing prevents collisions with
+//   built-in rule IDs (e.g. "column-not-found") and makes the rule origin
+//   unambiguous in diagnostics and config overrides.
+
+use serde::{Deserialize, Serialize};
+
+/// Diagnostic sérialisé pour passage JSON à travers la frontière WASM.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WasmDiagnostic {
+    pub code: String,
+    pub message: String,
+    pub severity: String, // "error" | "warning" | "info"
+    pub hint: Option<String>,
+}
+
+impl From<WasmDiagnostic> for pgweave_diagnostics::Diagnostic {
+    fn from(d: WasmDiagnostic) -> Self {
+        use pgweave_diagnostics::Severity;
+        // Leak the code string to produce a &'static str.
+        // This is intentional: WASM plugin diagnostic codes live for the
+        // duration of the process (the set of distinct codes is bounded).
+        let code: &'static str = Box::leak(d.code.into_boxed_str());
+        let sev = match d.severity.as_str() {
+            "error" => Severity::Error,
+            "info" => Severity::Info,
+            _ => Severity::Warning,
+        };
+        let mut diag = match sev {
+            Severity::Error => pgweave_diagnostics::Diagnostic::error(code, d.message),
+            Severity::Warning => pgweave_diagnostics::Diagnostic::warning(code, d.message),
+            Severity::Info => pgweave_diagnostics::Diagnostic::info(code, d.message),
+        };
+        if let Some(h) = d.hint {
+            diag = diag.with_hint(h);
+        }
+        diag
+    }
+}

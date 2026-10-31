@@ -1,6 +1,6 @@
--- Les macros. Compile avec :  pgsql build queries/06-macros.pgsql
+-- Les macros. Compile avec :  pgweave build queries/06-macros.pgsql
 --
--- Ce fichier est en .pgsql : les macros y vivent, et `pgsql build` en produit
+-- Ce fichier est en .pgsql : les macros y vivent, et `pgweave build` en produit
 -- du .sql standard, lisible par psql et pg_dump.
 
 -- @function : la fonction de schema/functions/user_count.sql, en 5 lignes

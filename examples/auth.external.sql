@@ -1,16 +1,16 @@
--- Supabase + PostGIS external stubs for pgsql-tools.
+-- Supabase + PostGIS external stubs for pgweave.
 --
 -- Files named *.external.sql are loaded by the checker and LSP for type
 -- resolution but are intentionally excluded from migration diff generation
 -- (they describe external schemas not owned by this codebase).
 --
 -- HOW TO USE:
---   Copy this file into the directory referenced by pgsql-tools.schemaFile
+--   Copy this file into the directory referenced by pgweave.schemaFile
 --   (e.g. your "schema/" folder). The checker will then resolve auth.uid(),
 --   auth.users, PostGIS types, etc. without a live database connection.
 --
 --   With the CLI:
---     pgsql-lsp --schema path/to/schema/ your_queries.sql
+--     pgweave-lsp --schema path/to/schema/ your_queries.sql
 
 -- ── PostGIS ───────────────────────────────────────────────────────────────────
 

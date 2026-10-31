@@ -1,4 +1,4 @@
-# pgsql-tools
+# pgweave
 
 PostgreSQL language toolchain in Rust. Parser, type-checker, linter, migration engine, LSP server, and VS Code extension — all sharing the same AST.
 
@@ -30,7 +30,7 @@ code editors/vscode  # puis F5 → « Run Extension (playground) »
 ```
 
 F5 ouvre une fenêtre sur `examples/playground/` — un vrai projet avec
-`schema/`, `migrations/` et `pgsql-tools.config.toml`, dont chaque fichier
+`schema/`, `migrations/` et `pgweave.toml`, dont chaque fichier
 illustre une capacité (erreurs, directives, tolérance du parser, lint).
 Voir `examples/playground/README.md`.
 
@@ -40,7 +40,7 @@ Voir `examples/playground/README.md`.
 
 | Composant | État | Détail |
 |---|:---:|---|
-| Parser SQL + PL/pgSQL | ✅ | sqlparser-rs forké + lexer/parser PL/pgSQL dédié |
+| Parser SQL + PL/pgSQL | ✅ | sqlparser-rs (dialecte PostgreSQL, non forké) + lexer/parser PL/pgSQL dédié |
 | AST + NodeId/Span | ✅ | Spans en byte offsets, traits `Visit`/`VisitMut` |
 | Normalisation ordre logique | ✅ | FROM → JOIN → WHERE → GROUP BY → SELECT |
 | Type-checker | 🟡 | Existence des tables/colonnes OK ; inférence partielle, pas de compat de types complète |
@@ -51,7 +51,7 @@ Voir `examples/playground/README.md`.
 | Extension VS Code | ✅ | Grammaire TextMate + client LSP, lancement F5 |
 | Bindings WASM | 🟡 | Compilent (nécessite `wasm-pack`), vérifiés en CI, pas de tests |
 | Bindings Node (napi-rs) | 🟡 | Compilent ; pas de tests, pas de paquet publié |
-| Paquet npm `pgsql-tools` | 🟡 | ~1000 lignes ; seuls `policy` et `prisma` ont des tests |
+| Paquet npm `pgweave` | 🟡 | ~1000 lignes ; seuls `policy` et `prisma` ont des tests |
 | Plugin PostGIS | 🟡 | Types + signatures spatiales, couverture partielle |
 | Plugins WASM (wasmi) | 🟡 | Hôte fonctionnel, un exemple dans `examples/wasm-plugin` |
 | Extension JetBrains | ❌ | Squelette (2 fichiers Kotlin), non compilé en CI |
@@ -86,7 +86,7 @@ base existante puis de durcir.
 ### Config projet
 
 ```toml
-# pgsql-tools.config.toml
+# pgweave.toml
 [parse]
 unparsable  = "warn"    # "error" | "warn" | "ignore"
 unsupported = "ignore"  # "error" | "warn" | "ignore"
@@ -95,8 +95,8 @@ unsupported = "ignore"  # "error" | "warn" | "ignore"
 Surcharge ponctuelle en ligne de commande :
 
 ```bash
-pgsql check q.sql --on-unparsable error     # durcir en CI
-pgsql check q.sql --on-unparsable ignore    # le temps d'une migration
+pgweave check q.sql --on-unparsable error     # durcir en CI
+pgweave check q.sql --on-unparsable ignore    # le temps d'une migration
 ```
 
 ### Directives en commentaire
@@ -104,27 +104,27 @@ pgsql check q.sql --on-unparsable ignore    # le temps d'une migration
 À la ESLint, en commentaire ligne (`--`) ou bloc (`/* */`) :
 
 ```sql
--- pgsql-disable-next-line                          -- toutes les règles
--- pgsql-disable-next-line column-not-found         -- une seule
--- pgsql-disable-next-line column-not-found, L001   -- plusieurs
--- pgsql-enable-next-line L001                      -- réactive ponctuellement
--- pgsql-disable                                    -- début de bloc
--- pgsql-enable                                     -- fin de bloc
--- pgsql-disable-file                               -- tout le fichier
+-- pgweave-disable-next-line                          -- toutes les règles
+-- pgweave-disable-next-line column-not-found         -- une seule
+-- pgweave-disable-next-line column-not-found, L001   -- plusieurs
+-- pgweave-enable-next-line L001                      -- réactive ponctuellement
+-- pgweave-disable                                    -- début de bloc
+-- pgweave-enable                                     -- fin de bloc
+-- pgweave-disable-file                               -- tout le fichier
 ```
 
-Un `-- pgsql-disable` non refermé porte jusqu'à la fin du fichier. Une
+Un `-- pgweave-disable` non refermé porte jusqu'à la fin du fichier. Une
 justification peut suivre un second `--` et est ignorée :
 
 ```sql
--- pgsql-disable-next-line unparsable-statement -- syntaxe PG 18, cf. #214
+-- pgweave-disable-next-line unparsable-statement -- syntaxe PG 18, cf. #214
 CREATE TABLE … ;
 ```
 
 La suppression est positionnelle : elle s'appuie sur le `span` du diagnostic.
 Type-checker et linter en produisent tous les deux, à la granularité du
 statement — la même que celle du type-checker. Un diagnostic qui n'en aurait
-pas (aucun aujourd'hui) ne serait couvert que par `pgsql-disable-file`.
+pas (aucun aujourd'hui) ne serait couvert que par `pgweave-disable-file`.
 
 Précision : le **type-checker vise l'expression fautive** (`SELECT id, nope`
 souligne `nope`, pas le `SELECT`), y compris dans une sous-expression. Les
@@ -147,15 +147,15 @@ l'information est portée par la syntaxe.
 11 lignes → 5. Les `DECLARE` s'écrivent près de leur usage et sont remontés en
 section avant `BEGIN` à la compilation.
 
-Les macros vivent dans des `.pgsql` ; `pgsql build` produit du `.sql` standard,
+Les macros vivent dans des `.pgsql` ; `pgweave build` produit du `.sql` standard,
 lisible par psql et pg_dump — aucun verrouillage.
 
 ```bash
-pgsql check q.pgsql                # analyse directement, sans compiler
-pgsql macros                       # les macros disponibles
-pgsql macros --verbose             # trous, drapeaux et options de chacune
-pgsql build q.pgsql                # affiche le SQL généré
-pgsql build q.pgsql --out-dir gen  # écrit gen/q.sql
+pgweave check q.pgsql                # analyse directement, sans compiler
+pgweave macros                       # les macros disponibles
+pgweave macros --verbose             # trous, drapeaux et options de chacune
+pgweave build q.pgsql                # affiche le SQL généré
+pgweave build q.pgsql --out-dir gen  # écrit gen/q.sql
 ```
 
 `check` et le serveur LSP désucrent d'eux-mêmes : **`build` n'est nécessaire
@@ -203,7 +203,7 @@ serait un piège.
 
 Curseur hors macro : tout le fichier est désucré.
 
-Sous le capot, une requête LSP custom `pgsql/expandMacro` — même mécanique que
+Sous le capot, une requête LSP custom `pgweave/expandMacro` — même mécanique que
 « Expand macro recursively » de Rust Analyzer.
 
 ### En déclarer une
@@ -229,17 +229,17 @@ Types de trou : `ident`, `word`, `words`, `parens`, `type`, `list`, `keywords`
 gabarits.
 
 Les macros fournies sont écrites dans ce même format
-(`crates/pgsql-macro/src/builtins/`) : un mécanisme d'extension dont les
+(`crates/pgweave-macro/src/builtins/`) : un mécanisme d'extension dont les
 macros fournies ne se servent pas est un mécanisme non testé. Une macro du
 projet portant le nom d'une macro fournie la remplace.
 
 ## Scope du projet
 
-`pgsql check` et le serveur LSP partagent le même modèle : les fichiers du
+`pgweave check` et le serveur LSP partagent le même modèle : les fichiers du
 scope sont **indexés sans être checkés** (tables, fonctions, RLS), puis seul
 le fichier courant est analysé contre cet index.
 
-Le scope est découvert en remontant jusqu'à `pgsql-tools.config.toml` :
+Le scope est découvert en remontant jusqu'à `pgweave.toml` :
 
 ```toml
 [migrations]
@@ -259,9 +259,9 @@ Priorité de résolution, premier trouvé gagne : `--schema` explicite → DDL d
 fichier analysé → index du projet → plugins.
 
 ```bash
-pgsql check queries/q.sql              # utilise l'index du projet
-pgsql check queries/q.sql --no-project # ignore la config, mode isolé
-pgsql check q.sql --schema other.sql   # ajoute une source explicite
+pgweave check queries/q.sql              # utilise l'index du projet
+pgweave check queries/q.sql --no-project # ignore la config, mode isolé
+pgweave check q.sql --schema other.sql   # ajoute une source explicite
 ```
 
 Si un fichier du scope contient un statement illisible, les objets qu'il
@@ -284,7 +284,7 @@ Par ordre d'importance :
 Build:
 
 ```bash
-cargo build -p pgsql
+cargo build -p pgweave
 ```
 
 ### check
@@ -292,8 +292,8 @@ cargo build -p pgsql
 Type-check a SQL file. Exits 1 if any errors are found.
 
 ```bash
-pgsql check query.sql
-pgsql check query.sql --schema schema.sql
+pgweave check query.sql
+pgweave check query.sql --schema schema.sql
 ```
 
 The `--schema` option can point to a `.sql` file or a directory of `.sql` files (read in lexicographic order and concatenated).
@@ -303,7 +303,7 @@ The `--schema` option can point to a `.sql` file or a directory of `.sql` files 
 Check for style and best-practice violations.
 
 ```bash
-pgsql lint query.sql
+pgweave lint query.sql
 ```
 
 Rules: `L001` (SELECT *), `L002` (implicit JOIN), `L003` (missing WHERE on DELETE/UPDATE), `L004` (LIKE without index), `L005`–`L009` (RLS, coalesce, NULL comparisons, etc.).
@@ -313,7 +313,7 @@ Rules: `L001` (SELECT *), `L002` (implicit JOIN), `L003` (missing WHERE on DELET
 Compare the canonical schema against the last snapshot and generate a migration file.
 
 ```bash
-pgsql migrate create <name> [options]
+pgweave migrate create <name> [options]
 ```
 
 **Options:**
@@ -331,7 +331,7 @@ schema/
   users.sql     ← edit this (your canonical CREATE TABLE)
   posts.sql
 
-.schema-snapshots/   ← managed by pgsql, do not edit
+.schema-snapshots/   ← managed by pgweave, do not edit
   users.sql
   posts.sql
 
@@ -340,7 +340,7 @@ migrations/
 ```
 
 1. Edit a file in `schema/`
-2. Run `pgsql migrate create add_email`
+2. Run `pgweave migrate create add_email`
 3. Review the generated migration — dangerous ops (`DROP COLUMN`, `DROP TABLE`) are commented out by default
 4. Uncomment and adjust as needed, add data migration steps
 
@@ -348,14 +348,14 @@ Each migration file is self-documenting:
 
 ```sql
 -- Migration: add_email (20260607-143022)
--- Generated by: pgsql migrate create
+-- Generated by: pgweave migrate create
 --
--- pgsql-schema-hash: users=4f3a0cc242b0477c
+-- pgweave-schema-hash: users=4f3a0cc242b0477c
 
 ALTER TABLE users ADD COLUMN email TEXT;
 ```
 
-The `pgsql-schema-hash` is a stable FNV-1a hash of the canonical CREATE TABLE at migration time — useful for audit and for linking a migration to the exact schema state it was written against.
+The `pgweave-schema-hash` is a stable FNV-1a hash of the canonical CREATE TABLE at migration time — useful for audit and for linking a migration to the exact schema state it was written against.
 
 If no changes are detected, no file is created.
 
@@ -364,7 +364,7 @@ If no changes are detected, no file is created.
 Compare two schema files directly (lower-level utility):
 
 ```bash
-pgsql migrate diff old.sql new.sql
+pgweave migrate diff old.sql new.sql
 ```
 
 ### emit
@@ -372,7 +372,7 @@ pgsql migrate diff old.sql new.sql
 Parse a SQL file and print the AST (useful for debugging):
 
 ```bash
-pgsql emit query.sql
+pgweave emit query.sql
 ```
 
 ### codegen
@@ -380,8 +380,8 @@ pgsql emit query.sql
 Generate TypeScript type interfaces from SQL functions and named queries:
 
 ```bash
-pgsql codegen --input queries.sql
-pgsql codegen --input queries.sql --output types.ts
+pgweave codegen --input queries.sql
+pgweave codegen --input queries.sql --output types.ts
 ```
 
 ---
@@ -396,14 +396,14 @@ Open the extension folder in VS Code, then press F5:
 code editors/vscode/
 ```
 
-The extension auto-discovers the `pgsql-lsp` binary from `target/debug/pgsql-lsp` or `target/release/pgsql-lsp` relative to the extension root — no manual path configuration needed in development.
+The extension auto-discovers the `pgweave-lsp` binary from `target/debug/pgweave-lsp` or `target/release/pgweave-lsp` relative to the extension root — no manual path configuration needed in development.
 
 ### Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `pgsql-tools.lspPath` | `pgsql-lsp` | Path to the LSP binary (auto-detected in dev) |
-| `pgsql-tools.schemaFile` | `""` | Path to a schema `.sql` file **or directory** for type-checking |
+| `pgweave.lspPath` | `pgweave-lsp` | Path to the LSP binary (auto-detected in dev) |
+| `pgweave.schemaFile` | `""` | Path to a schema `.sql` file **or directory** for type-checking |
 
 The `schemaFile` setting accepts:
 - A path to a single `.sql` file
@@ -423,8 +423,8 @@ The `schemaFile` setting accepts:
 Build the LSP server:
 
 ```bash
-cargo build -p pgsql-lsp          # debug
-cargo build --release -p pgsql-lsp # release
+cargo build -p pgweave-lsp          # debug
+cargo build --release -p pgweave-lsp # release
 ```
 
 ---
@@ -433,19 +433,19 @@ cargo build --release -p pgsql-lsp # release
 
 ```
 crates/
-  pgsql-ast/         Types AST (Statement, Expr, nœuds DDL, Span, NodeId)
-  pgsql-diagnostics/ Diagnostic, Severity, Span, codes — socle sans dépendance
-  pgsql-parser/      sqlparser-rs + extension PL/pgSQL → pgsql-ast
-  pgsql-schema/      SchemaProvider + types de schéma, resolver, index, config
-  pgsql-semantic/    Table de symboles, arbre de scopes, inférence de types
-  pgsql-checker/     Type-checker (passe linéaire), CheckRule, règles
-  pgsql-lint/        Règles de lint, LintConfig
-  pgsql-codegen/     Émetteur SQL, moteur de diff, codegen TypeScript
-  pgsql-analysis/    Façade d'orchestration : parse → semantic → check → lint
-  pgsql-plugin/      Système de plugins + plugin PostGIS
-  pgsql-plugin-wasm/ Hôte de plugins WASM (wasmi)
-  pgsql-lsp/         Serveur tower-lsp (diagnostics, hover, complétion)
-  pgsql-cli/         Binaire pgsql (check, lint, migrate, emit, codegen)
+  pgweave-ast/         Types AST (Statement, Expr, nœuds DDL, Span, NodeId)
+  pgweave-diagnostics/ Diagnostic, Severity, Span, codes — socle sans dépendance
+  pgweave-parser/      sqlparser-rs + extension PL/pgSQL → pgweave-ast
+  pgweave-schema/      SchemaProvider + types de schéma, resolver, index, config
+  pgweave-semantic/    Table de symboles, arbre de scopes, inférence de types
+  pgweave-checker/     Type-checker (passe linéaire), CheckRule, règles
+  pgweave-lint/        Règles de lint, LintConfig
+  pgweave-codegen/     Émetteur SQL, moteur de diff, codegen TypeScript
+  pgweave-analysis/    Façade d'orchestration : parse → semantic → check → lint
+  pgweave-plugin/      Système de plugins + plugin PostGIS
+  pgweave-plugin-wasm/ Hôte de plugins WASM (wasmi)
+  pgweave-lsp/         Serveur tower-lsp (diagnostics, hover, complétion)
+  pgweave-cli/         binaire pgweave (check, lint, migrate, emit, codegen)
 
 bindings/
   wasm/            wasm-bindgen bindings
@@ -468,26 +468,26 @@ The `SchemaProvider` trait is the single entry point for schema information. Plu
 Les dépendances internes forment un DAG strict, du bas vers le haut :
 
 ```
-pgsql-ast · pgsql-diagnostics        (aucune dépendance interne)
-  └── pgsql-parser
-       └── pgsql-schema              (SchemaProvider vit ici)
-            ├── pgsql-semantic       ┐
-            ├── pgsql-checker        │ passes indépendantes,
-            ├── pgsql-lint           │ qui ne se connaissent pas
-            └── pgsql-codegen        ┘
-                 └── pgsql-analysis  (façade : enchaîne les passes)
-                      └── pgsql-cli · pgsql-lsp · bindings/*
+pgweave-ast · pgweave-diagnostics        (aucune dépendance interne)
+  └── pgweave-parser
+       └── pgweave-schema              (SchemaProvider vit ici)
+            ├── pgweave-semantic       ┐
+            ├── pgweave-checker        │ passes indépendantes,
+            ├── pgweave-lint           │ qui ne se connaissent pas
+            └── pgweave-codegen        ┘
+                 └── pgweave-analysis  (façade : enchaîne les passes)
+                      └── pgweave-cli · pgweave-lsp · bindings/*
 ```
 
 Deux invariants à ne pas casser :
 
-1. **`pgsql-diagnostics` et `pgsql-schema` ne dépendent de personne d'utile.**
+1. **`pgweave-diagnostics` et `pgweave-schema` ne dépendent de personne d'utile.**
    `Diagnostic` et `SchemaProvider` sont des contrats partagés ; ils vivaient
-   dans `pgsql-checker`, ce qui obligeait le linter à compiler le
-   type-checker et inversait la dépendance de `pgsql-schema`.
-2. **Une passe n'appelle jamais une autre passe.** `pgsql-semantic` n'appelle
-   pas le checker, `pgsql-lint` ne connaît pas le checker. Tout enchaînement
-   vit dans `pgsql-analysis`, au-dessus.
+   dans `pgweave-checker`, ce qui obligeait le linter à compiler le
+   type-checker et inversait la dépendance de `pgweave-schema`.
+2. **Une passe n'appelle jamais une autre passe.** `pgweave-semantic` n'appelle
+   pas le checker, `pgweave-lint` ne connaît pas le checker. Tout enchaînement
+   vit dans `pgweave-analysis`, au-dessus.
 
 See `SPECS.md` for full design decisions, `ARCHITECTURE.md` for internals, and `ROADMAP.md` for what's planned.
 

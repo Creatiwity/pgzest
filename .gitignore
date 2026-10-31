@@ -3,7 +3,7 @@
 
 # Node
 node_modules/
-npm/pgsql-tools/dist/
+npm/pgweave/dist/
 editors/vscode/out/
 
 # WASM

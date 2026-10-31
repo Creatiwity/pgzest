@@ -1,4 +1,4 @@
-# pgsql-tools — développement
+# pgweave — développement
 #
 # Point d'entrée unique. `make help` liste les cibles.
 # Démarrage à froid :  make bootstrap && make demo
@@ -7,9 +7,9 @@ SHELL := /bin/bash
 CARGO ?= cargo
 NPM   ?= npm
 
-NPM_PKG   := npm/pgsql-tools
+NPM_PKG   := npm/pgweave
 VSCODE    := editors/vscode
-CLI       := ./target/debug/pgsql
+CLI       := ./target/debug/pgweave
 EXAMPLES  := examples
 
 .DEFAULT_GOAL := help
@@ -18,7 +18,7 @@ EXAMPLES  := examples
 
 .PHONY: help
 help: ## Affiche cette aide
-	@echo "pgsql-tools — cibles disponibles :"
+	@echo "pgweave — cibles disponibles :"
 	@echo
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | sort \
@@ -54,7 +54,7 @@ release: ## Compile tous les crates Rust (release)
 	$(CARGO) build --workspace --release
 
 .PHONY: ts
-ts: ## Compile le paquet npm pgsql-tools -> dist/
+ts: ## Compile le paquet npm pgweave -> dist/
 	cd $(NPM_PKG) && npx tsc
 
 .PHONY: vscode
@@ -106,29 +106,29 @@ ci: build test fmt-check clippy typecheck ## Ce que la CI vérifie, à l'identiq
 .PHONY: demo
 demo: build ## Exécute la CLI sur examples/ — montre l'outil en action
 	@echo
-	@echo "════ pgsql check examples/test.sql ════"
+	@echo "════ pgweave check examples/test.sql ════"
 	@echo "   (erreur attendue : table inexistante)"
 	@$(CLI) check $(EXAMPLES)/test.sql || true
 	@echo
-	@echo "════ pgsql check examples/schema.sql ════"
+	@echo "════ pgweave check examples/schema.sql ════"
 	@$(CLI) check $(EXAMPLES)/schema.sql || true
 	@echo
-	@echo "════ pgsql lint examples/schema.sql ════"
+	@echo "════ pgweave lint examples/schema.sql ════"
 	@$(CLI) lint $(EXAMPLES)/schema.sql || true
 	@echo
-	@echo "════ pgsql codegen --input examples/schema.sql ════"
+	@echo "════ pgweave codegen --input examples/schema.sql ════"
 	@$(CLI) codegen --input $(EXAMPLES)/schema.sql || true
 	@echo
-	@echo "════ pgsql emit examples/test.sql ════"
+	@echo "════ pgweave emit examples/test.sql ════"
 	@$(CLI) emit $(EXAMPLES)/test.sql || true
 	@echo
 	@echo "Démo terminée. La CLI est dans $(CLI) — voir 'make help'."
 
 .PHONY: lsp
 lsp: ## Compile le serveur LSP et rappelle comment le lancer dans VS Code
-	$(CARGO) build -p pgsql-lsp
+	$(CARGO) build -p pgweave-lsp
 	@echo
-	@echo "Binaire LSP : ./target/debug/pgsql-lsp"
+	@echo "Binaire LSP : ./target/debug/pgweave-lsp"
 	@echo "Pour l'essayer :  make vscode-dev"
 
 .PHONY: vscode-dev
@@ -153,10 +153,10 @@ vscode-dev: lsp vscode ## Prépare tout pour tester dans VS Code, puis explique 
 .PHONY: playground
 playground: build ## Lance la CLI sur le projet de démonstration
 	@cd $(EXAMPLES)/playground && for f in queries/*.sql; do \
-	  echo "════ pgsql check $$f ════"; \
+	  echo "════ pgweave check $$f ════"; \
 	  ../../$(CLI) check "$$f" || true; \
 	done; \
-	echo "════ pgsql lint queries/05-lint.sql ════"; \
+	echo "════ pgweave lint queries/05-lint.sql ════"; \
 	../../$(CLI) lint queries/05-lint.sql || true
 
 # ── Nettoyage ────────────────────────────────────────────────────────────────
