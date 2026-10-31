@@ -15,6 +15,7 @@ members = [
     "crates/pgweave-lsp",
     "crates/pgweave-plugin-wasm",
     "crates/pgweave-query",
+    "crates/pgweave-oracle",
     "bindings/wasm",
     "bindings/node",
 ]
@@ -34,6 +35,8 @@ napi-derive = "2"
 napi-build = "2"
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
+tokio-postgres = "0.7.18"
+insta = "1.49.0"
 wasmi = "1"
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["clock"], default-features = false }

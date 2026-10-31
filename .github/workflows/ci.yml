@@ -39,6 +39,39 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # Oracle différentiel (PLAN.md §7) : le corpus crates/pgweave-oracle/cases
+  # est préparé sur un vrai PostgreSQL 18 et comparé à l'analyse de pgweave.
+  # Le rapport attendu est l'instantané tests/snapshots/oracle__rapport.snap :
+  # tout écart, progrès compris, fait échouer le job jusqu'à sa relecture
+  # (`make oracle-accept` en local).
+  oracle:
+    name: Oracle PostgreSQL 18
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: pgweave
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PGWEAVE_ORACLE_URL: postgres://postgres:pgweave@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Oracle
+        run: cargo test -p pgweave-oracle --test oracle -- --ignored
+
   typescript:
     name: TypeScript (paquet npm + extension)
     runs-on: ubuntu-latest

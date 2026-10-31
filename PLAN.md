@@ -447,9 +447,13 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
 
 - Documentation alignée sur la réalité (`CLAUDE.md`, bandeau `ROADMAP.md`,
   README) — fait avec la création de ce plan.
-- Infrastructure de test : harnais oracle PG (conteneur), `insta`, chargement
-  des corpus par variable d'environnement, premier rapport « taux d'analyse »
-  sur Mesalia (statements non analysés, faux positifs).
+- ✅ Oracle différentiel PG 18 : crate `pgweave-oracle`, corpus
+  `crates/pgweave-oracle/cases`, rapport instantané (`insta`), `make oracle`
+  (Docker) et job CI `postgres:18`. Base : 65 % des colonnes conformes, 0 %
+  des paramètres (aucune inférence de paramètre).
+- Infrastructure de test : chargement des corpus par variable
+  d'environnement, premier rapport « taux d'analyse » sur Mesalia
+  (statements non analysés, faux positifs).
 - Identifiants de nœuds déterministes par fichier (fin du compteur atomique
   global).
 - Spike salsa (D3) avec décision go/no-go écrite.

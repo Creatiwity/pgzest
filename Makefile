@@ -101,6 +101,40 @@ typecheck: ## Typecheck TypeScript sans émettre
 .PHONY: ci
 ci: build test fmt-check clippy typecheck ## Ce que la CI vérifie, à l'identique
 
+# ── Oracle PostgreSQL (PLAN.md §7) ───────────────────────────────────────────
+#
+# Un PostgreSQL 18 jetable dans Docker, sur un port dédié pour ne jamais
+# toucher une base locale. L'oracle y crée puis supprime une base par cas.
+
+ORACLE_CONTAINER := pgweave-oracle-pg18
+ORACLE_PORT      := 54318
+ORACLE_URL       := postgres://postgres:pgweave@localhost:$(ORACLE_PORT)/postgres
+
+.PHONY: oracle-up
+oracle-up: ## Démarre le PostgreSQL 18 de l'oracle (Docker)
+	@command -v docker >/dev/null || { echo "docker introuvable"; exit 1; }
+	@if [ -z "$$(docker ps -q -f name=^$(ORACLE_CONTAINER)$$)" ]; then \
+	  docker rm -f $(ORACLE_CONTAINER) >/dev/null 2>&1 || true; \
+	  docker run -d --name $(ORACLE_CONTAINER) -e POSTGRES_PASSWORD=pgweave \
+	    -p $(ORACLE_PORT):5432 postgres:18 >/dev/null; \
+	fi
+	@for i in $$(seq 1 30); do \
+	  docker exec $(ORACLE_CONTAINER) pg_isready -U postgres -h localhost >/dev/null 2>&1 && exit 0; \
+	  sleep 1; \
+	done; echo "PostgreSQL ne répond pas"; exit 1
+
+.PHONY: oracle
+oracle: oracle-up ## Confronte l'analyse à PostgreSQL 18 (rapport : crates/pgweave-oracle/tests/snapshots)
+	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
+
+.PHONY: oracle-accept
+oracle-accept: oracle-up ## Comme `oracle`, en acceptant le nouveau rapport (à relire avant commit)
+	PGWEAVE_ORACLE_URL=$(ORACLE_URL) INSTA_UPDATE=always $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
+
+.PHONY: oracle-down
+oracle-down: ## Arrête et supprime le PostgreSQL de l'oracle
+	docker rm -f $(ORACLE_CONTAINER)
+
 # ── Démo / smoke ─────────────────────────────────────────────────────────────
 
 .PHONY: demo
