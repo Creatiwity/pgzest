@@ -1,6 +1,6 @@
-# pgsql-tools
+# pgweave (ex-pgsql-tools)
 
-PostgreSQL language toolchain in Rust. **PLAN.md est le document de pilotage** (principes, décisions D1–D10, phases P0–P8) ; SPECS.md et ARCHITECTURE.md sont du contexte historique.
+PostgreSQL language toolchain in Rust. **PLAN.md est le document de pilotage** (principes, décisions D1–D11, phases P0–P8) ; SPECS.md et ARCHITECTURE.md sont du contexte historique.
 
 ## Stack
 

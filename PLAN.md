@@ -1,8 +1,11 @@
-# pgsql-tools — Plan directeur
+# pgweave — Plan directeur
 
 > Rédigé le 2026-10-31. Remplace `ROADMAP.md` comme référence de pilotage.
 > `SPECS.md`, `ARCHITECTURE.md`, `PLPGSQL_SPEC.md` et `SPECS-schema-plpgsql.md`
 > restent des documents de contexte ; en cas de contradiction, ce plan fait foi.
+>
+> **Nom du projet : `pgweave`** (anciennement `pgsql-tools`). Dans ce plan,
+> les noms `pgsql-*` désignent l'existant ; le renommage est une tâche de P0.
 
 ---
 
@@ -249,7 +252,7 @@ Chaque migration générée porte un en-tête machine-lisible indiquant le
 contexte contre lequel elle a été générée et vérifiée :
 
 ```sql
--- pgsql-tools: postgres=18 extensions=btree_gist@1.7,citext@1.6
+-- pgweave: postgres=18 extensions=btree_gist@1.7,citext@1.6
 ```
 
 Le rejeu vérifie la cohérence de cet en-tête avec l'état reconstruit
@@ -352,7 +355,7 @@ Contrat entre l'analyse et toutes les cibles. Format JSON stable, versionné
 - Les types sont des références au catalogue (y compris enums, domaines,
   composites, types d'extension) ; la correspondance vers un type de langage
   est faite par la cible, via la table de correspondance (D9).
-- Cache sur disque (`.pgsql/queries/<fingerprint>.json`), utilisable hors
+- Cache sur disque (`.pgweave/queries/<fingerprint>.json`), utilisable hors
   ligne en CI et par les outils qui ne veulent pas embarquer l'analyseur.
 
 ---
@@ -363,7 +366,7 @@ Illustratif — les noms définitifs sont fixés en P5.
 
 ```rust
 // Requête inline : analysée à la compilation, erreurs SQL au bon span Rust.
-let page = pgsql::query!(
+let page = pgweave::query!(
     "SELECT id, title, creation_date FROM pages WHERE id = $id",
     id = page_id,
 )
@@ -376,7 +379,7 @@ let page = pgsql::query!(
 let rows = queries::pages::list_recent(&client, ListRecentParams { limit: 20 }).await?;
 
 // COPY typé : liste de colonnes vérifiée contre le catalogue, flux CSV ou binaire.
-let n = pgsql::copy_in!("etablissement_staging", columns = @etablissement_columns, format = csv(header))
+let n = pgweave::copy_in!("etablissement_staging", columns = @etablissement_columns, format = csv(header))
     .from_reader(&client, csv_stream)
     .await?;
 ```
@@ -454,7 +457,17 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
 - Format des requêtes nommées figé et documenté (trajectoire Mesalia).
 - Format de config projet figé : `postgres = <major>`, `search_path`,
   schéma par défaut par répertoire.
-- Nom du projet choisi (impacte noms de crates, binaire, en-têtes, config).
+- Renommage en `pgweave`, en un seul commit mécanique, avant tout autre
+  changement de code :
+  - crates `pgsql-*` → `pgweave-*` ; binaires `pgsql` / `pgsql-lsp` →
+    `pgweave` / `pgweave-lsp` ;
+  - config `pgsql-tools.config.toml` → `pgweave.toml` ;
+  - directives `pgsql-disable…` → `pgweave-disable…`, en-tête de migration
+    `-- pgweave:`, cache `.pgweave/` ;
+  - extension VS Code, grammaire, playground, README, CI ;
+  - les extensions de fichier `.pgsql` et `.pgmacro` sont **conservées** :
+    elles décrivent le langage (SQL PostgreSQL + macros), pas l'outil ;
+  - aucun alias de compatibilité : l'outil n'est encore adopté nulle part.
 
 **Sortie** : CI avec oracle opérationnel ; rapport de base Mesalia publié
 dans `docs/` ; décision salsa actée ; formats requêtes nommées et config
@@ -474,7 +487,7 @@ publiés.
   et `VERSION`), `ALTER TYPE … ADD VALUE / RENAME`, `ALTER … SET SCHEMA`,
   `SET search_path`, variantes `ALTER` utilisées par les corpus, `COMMENT ON`.
 - Identifiants quotés conservés avec leur casse dans l'AST (principe 8).
-- En-tête `-- pgsql-tools: postgres=… extensions=…` reconnu (D9).
+- En-tête `-- pgweave: postgres=… extensions=…` reconnu (D9).
 - PL/pgSQL : cas restants de `SPECS-schema-plpgsql.md` §6 (`RETURNING …
   INTO`, variables record, `VALUES` avec variables, `FOR … IN`, `RETURN
   QUERY`, `GET DIAGNOSTICS`, `EXCEPTION`), suppression du repli textuel
@@ -672,9 +685,8 @@ xtask/                catalog-gen, corpus, bench
 
 | Question | Phase |
 |---|---|
-| Nom du projet (et donc des crates, du binaire, de l'en-tête de migration) | P0 |
 | Quelles versions majeures PG générer et maintenir en packs | P2 |
 | Date de bascule « plus de migration Prisma » pour Mesalia | P2 |
 | `time` ou `chrono` par défaut | P5 |
-| Format d'en-tête des requêtes nommées (commentaire vs macro `@query`) | P4 |
+| Format d'en-tête des requêtes nommées (commentaire vs macro `@query`) | P0 (trajectoire Mesalia) |
 | Surcharges générées vs plugin language service pour TS | P8 |
