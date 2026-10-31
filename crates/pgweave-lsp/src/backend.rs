@@ -142,11 +142,13 @@ impl PgsqlBackend {
     async fn rebuild_macros(&self) {
         let mut set = pgweave_macro::MacroSet::builtin();
         if let Some(root) = self.project_root.lock().await.clone() {
+            // Config invalide : déjà signalée par `rebuild_resolver` /
+            // `initialize`. On ne devine pas un répertoire de repli.
             let dir = match ProjectConfig::load(&root.join(ProjectConfig::FILENAME)) {
-                Ok(cfg) => root.join(&cfg.macros.directory),
-                Err(_) => root.join("macros"),
+                Ok(cfg) => Some(root.join(&cfg.macros.directory)),
+                Err(_) => None,
             };
-            if dir.is_dir() {
+            if let Some(dir) = dir.filter(|d| d.is_dir()) {
                 for e in set.load_dir(&dir) {
                     self.client
                         .log_message(MessageType::WARNING, format!("pgweave-lsp: {e}"))
@@ -201,17 +203,19 @@ impl PgsqlBackend {
                     self.rebuild_macros().await;
                     let macros = self.macros().await;
                     let source = config.to_source(root);
-                    SchemaResolver::from_chunks_with_macros(
+                    let resolver = SchemaResolver::from_chunks_with_macros(
                         &pgweave_schema::SchemaSource::chunks(&source),
                         &macros,
-                    )
+                    );
+                    // La config rechargée remplace l'ancienne : sans cela une
+                    // modification de [rules] ou [parse] n'était prise en compte
+                    // qu'au redémarrage du serveur.
+                    *self.config.lock().await = Some(config);
+                    resolver
                 }
                 Err(e) => {
                     self.client
-                        .log_message(
-                            MessageType::WARNING,
-                            format!("pgweave-lsp: failed to reload config: {e}"),
-                        )
+                        .show_message(MessageType::ERROR, format!("pgweave : {e}"))
                         .await;
                     return;
                 }
@@ -287,7 +291,7 @@ impl PgsqlBackend {
         let (parse_cfg, rule_overrides) = {
             let guard = self.config.lock().await;
             match guard.as_ref() {
-                Some(c) => (c.parse.clone(), c.lint.rules.clone()),
+                Some(c) => (c.parse.clone(), c.rule_overrides()),
                 None => (Default::default(), Default::default()),
             }
         };
@@ -406,9 +410,19 @@ impl LanguageServer for PgsqlBackend {
                     .and_then(|u| url_to_path(u.as_ref()))
             });
 
-        if let Some(ref root) = workspace_root
-            && let Some((project_root, config)) = ProjectConfig::find_and_load(root)
-        {
+        let discovered = match workspace_root.as_deref().map(ProjectConfig::find_and_load) {
+            Some(Ok(found)) => found,
+            Some(Err(e)) => {
+                // Config présente mais invalide : le dire à l'utilisateur, et
+                // ne pas analyser avec une config inventée.
+                self.client
+                    .show_message(MessageType::ERROR, format!("pgweave : {e}"))
+                    .await;
+                None
+            }
+            None => None,
+        };
+        if let Some((project_root, config)) = discovered {
             *self.project_root.lock().await = Some(project_root.clone());
             // Macros du projet d'abord : l'index doit voir les objets déclarés
             // par les macros maison, pas seulement par celles fournies.

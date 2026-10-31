@@ -16,13 +16,40 @@ impl PluginRegistry {
         };
         // Register built-in plugins
         r.register(Box::new(crate::builtin::RlsEnforcerPlugin));
-        // Register Prisma plugin
         r.register(Box::new(crate::prisma::plugin::PrismaPlugin));
+        // Documenté depuis longtemps (`postgis = {}`) mais jamais enregistré :
+        // l'activer ne faisait rien, sans le dire.
+        r.register(Box::new(crate::postgis::PostGisPlugin));
         r
     }
 
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
         self.plugins.insert(plugin.name().to_string(), plugin);
+    }
+
+    /// Vérifie que chaque nom désigne un plugin enregistré.
+    ///
+    /// Un nom inconnu (faute de frappe, plugin non fourni) serait sinon
+    /// ignoré en silence : le projet croirait le plugin actif.
+    pub fn check_names<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a String>,
+    ) -> Result<(), String> {
+        let unknown: Vec<&str> = names
+            .into_iter()
+            .filter(|n| !self.plugins.contains_key(n.as_str()))
+            .map(String::as_str)
+            .collect();
+        if unknown.is_empty() {
+            return Ok(());
+        }
+        let mut known: Vec<&str> = self.plugins.keys().map(String::as_str).collect();
+        known.sort_unstable();
+        Err(format!(
+            "[plugins] builtin : plugin(s) inconnu(s) : {} (disponibles : {})",
+            unknown.join(", "),
+            known.join(", ")
+        ))
     }
 
     /// Collect all rules from enabled plugins (those listed in config).

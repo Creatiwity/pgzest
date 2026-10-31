@@ -20,8 +20,9 @@ fn scaffold(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
 
 fn load(root: &Path) -> ProjectConfig {
     ProjectConfig::find_and_load(root)
-        .map(|(_, c)| c)
-        .unwrap_or_default()
+        .expect("config valide")
+        .expect("pgweave.toml présent")
+        .1
 }
 
 #[test]
@@ -31,7 +32,10 @@ fn les_sous_repertoires_sont_indexes() {
     let root = scaffold(
         "recursive",
         &[
-            ("pgweave.toml", "[schema]\ndirectory = \"schema\"\n"),
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n",
+            ),
             (
                 "schema/tables/users.sql",
                 "CREATE TABLE users (id UUID, email TEXT);",
@@ -58,7 +62,7 @@ fn sans_schema_directory_la_racine_est_le_scope() {
     let root = scaffold(
         "rootscope",
         &[
-            ("pgweave.toml", "[schema]\n"),
+            ("pgweave.toml", "[postgres]\nversion = 18\n[schema]\n"),
             ("db/users.sql", "CREATE TABLE users (id UUID);"),
             ("elsewhere/deep/t.sql", "CREATE TABLE deep (a INT);"),
         ],
@@ -85,7 +89,7 @@ fn les_migrations_ne_sont_pas_indexees_deux_fois() {
     let root = scaffold(
         "nodouble",
         &[
-            ("pgweave.toml", "[schema]\n"),
+            ("pgweave.toml", "[postgres]\nversion = 18\n[schema]\n"),
             ("migrations/000001_init.sql", "CREATE TABLE t (a INT);"),
         ],
     );
@@ -116,7 +120,7 @@ fn node_modules_et_target_sont_ignores() {
     let root = scaffold(
         "ignored",
         &[
-            ("pgweave.toml", "[schema]\n"),
+            ("pgweave.toml", "[postgres]\nversion = 18\n[schema]\n"),
             ("real.sql", "CREATE TABLE real_t (a INT);"),
             (
                 "node_modules/pkg/schema.sql",
@@ -145,7 +149,7 @@ fn schema_include_ajoute_des_repertoires() {
         &[
             (
                 "pgweave.toml",
-                "[schema]\ndirectory = \"schema\"\ninclude = [\"extra\"]\n",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\ninclude = [\"extra\"]\n",
             ),
             ("schema/a.sql", "CREATE TABLE a_t (a INT);"),
             ("extra/b.sql", "CREATE TABLE b_t (b INT);"),
@@ -161,4 +165,68 @@ fn schema_include_ajoute_des_repertoires() {
         resolver.get_table("c_t").is_none(),
         "hors scope quand schema.directory est explicite"
     );
+}
+
+#[test]
+fn les_requetes_nommees_ne_sont_pas_indexees_comme_schema() {
+    // Sans schema.directory, la racine est le scope : le répertoire des
+    // requêtes doit en être exclu, et ses fichiers classés Query.
+    let root = scaffold(
+        "queries",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[queries]\ndirectory = \"queries\"\n",
+            ),
+            ("db/t.sql", "CREATE TABLE t (a INT);"),
+            (
+                "queries/pages.sql",
+                "-- name: decoy\nCREATE TABLE decoy (a INT);",
+            ),
+        ],
+    );
+    let cfg = load(&root);
+    let resolver = SchemaResolver::from_source(&cfg.to_source(&root));
+
+    assert!(resolver.get_table("t").is_some());
+    assert!(
+        resolver.get_table("decoy").is_none(),
+        "un fichier de requêtes ne déclare pas d'objets de schéma"
+    );
+    assert_eq!(
+        cfg.classify_file(&root.join("queries/pages.sql"), &root),
+        FileRole::Query
+    );
+}
+
+#[test]
+fn schema_include_est_classe_schema() {
+    // Régression : avec schema.directory présent, un fichier de
+    // schema.include était indexé comme schéma mais classé Query.
+    let root = scaffold(
+        "include-role",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\ninclude = [\"extra\"]\n",
+            ),
+            ("schema/a.sql", "CREATE TABLE a_t (a INT);"),
+            ("extra/b.sql", "CREATE TABLE b_t (b INT);"),
+        ],
+    );
+    let cfg = load(&root);
+    assert_eq!(
+        cfg.classify_file(&root.join("extra/b.sql"), &root),
+        FileRole::Schema
+    );
+}
+
+#[test]
+fn une_config_invalide_est_une_erreur_et_pas_un_defaut() {
+    let root = scaffold(
+        "invalid",
+        &[("pgweave.toml", "[postgres]\nversion = 18\n[shema]\n")],
+    );
+    let err = ProjectConfig::find_and_load(&root).expect_err("clé inconnue");
+    assert!(err.to_string().contains("pgweave.toml"), "{err}");
 }

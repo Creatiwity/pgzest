@@ -190,7 +190,7 @@ fn scaffold(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
     root
 }
 
-const CONFIG: &str = "[schema]\ndirectory = \"schema\"\n[macros]\ndirectory = \"macros\"\n";
+const CONFIG: &str = "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n[macros]\ndirectory = \"macros\"\n";
 const AUDITED: &str = "\
 macro audited
 header {name:ident}

@@ -3,7 +3,7 @@
 ## Overview
 
 WASM plugins let you add custom lint rules to pgweave without modifying the core.
-A WASM plugin is compiled to `.wasm` and loaded via `pgsql.toml`.
+A WASM plugin is compiled to `.wasm` and declared in `pgweave.toml` (see `docs/config.md`).
 
 ## Required Exports
 
@@ -44,10 +44,13 @@ char* pgweave_get_table(char* name, int len);  // → JSON TableSchema or null
 void  pgweave_log(char* msg, int len);         // log to stderr
 ```
 
-## pgsql.toml
+## pgweave.toml
+
+Paths are relative to the config file. A plugin that fails to load is an error.
 
 ```toml
-wasm_plugins = [
+[plugins]
+wasm = [
   "plugins/my-custom-rule.wasm",
   "plugins/naming-enforcer.wasm",
 ]

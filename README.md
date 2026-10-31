@@ -86,7 +86,10 @@ base existante puis de durcir.
 ### Config projet
 
 ```toml
-# pgweave.toml
+# pgweave.toml — format complet : docs/config.md
+[postgres]
+version = 18            # obligatoire
+
 [parse]
 unparsable  = "warn"    # "error" | "warn" | "ignore"
 unsupported = "ignore"  # "error" | "warn" | "ignore"
@@ -242,6 +245,9 @@ le fichier courant est analysé contre cet index.
 Le scope est découvert en remontant jusqu'à `pgweave.toml` :
 
 ```toml
+[postgres]
+version = 18
+
 [migrations]
 directory = "migrations"     # indexé, chaque fichier avec sa séquence
 

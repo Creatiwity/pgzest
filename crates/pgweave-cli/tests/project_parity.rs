@@ -39,7 +39,10 @@ fn check(root: &Path, args: &[&str]) -> (i32, String) {
 }
 
 const PROJECT: &[(&str, &str)] = &[
-    ("pgweave.toml", "[schema]\ndirectory = \"schema\"\n"),
+    (
+        "pgweave.toml",
+        "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n",
+    ),
     (
         "schema/tables/users.sql",
         "CREATE TABLE users (id UUID PRIMARY KEY, email TEXT NOT NULL);",
@@ -94,7 +97,10 @@ fn un_statement_non_indexable_est_signale() {
     let root = scaffold(
         "skipidx",
         &[
-            ("pgweave.toml", "[schema]\ndirectory = \"schema\"\n"),
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n",
+            ),
             ("schema/broken.sql", "CREATE TABL users (id UUID);"),
             ("queries/q.sql", "SELECT id FROM users;"),
         ],
@@ -112,7 +118,10 @@ fn schema_explicite_reste_prioritaire() {
     let root = scaffold(
         "explicit",
         &[
-            ("pgweave.toml", "[schema]\ndirectory = \"schema\"\n"),
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n",
+            ),
             ("schema/a.sql", "CREATE TABLE t (a INT);"),
             ("other.sql", "CREATE TABLE other_t (b INT);"),
             ("q.sql", "SELECT b FROM other_t;"),

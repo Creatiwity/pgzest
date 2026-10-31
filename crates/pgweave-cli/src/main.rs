@@ -172,10 +172,32 @@ fn cmd_check(
     on_unsupported: Option<pgweave_schema::SkipLevel>,
     no_project: bool,
 ) -> i32 {
-    let config = pgweave_plugin::config::PgsqlConfig::load(&std::path::PathBuf::from("pgsql.toml"))
-        .unwrap_or_default();
+    // ── Découverte du projet ───────────────────────────────────────────────────
+    // Même mécanisme que le LSP : on remonte jusqu'à pgweave.toml. Sans ça,
+    // l'éditeur et la CI ne voient pas le même schéma pour un même fichier —
+    // l'un indexe tout le projet, l'autre exige des --schema explicites, et
+    // les diagnostics divergent.
+    let project = if no_project {
+        None
+    } else {
+        match discover_project() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return 2;
+            }
+        }
+    };
 
     let registry = pgweave_plugin::registry::PluginRegistry::new();
+    let builtin_plugins = project
+        .as_ref()
+        .map(|(_, c)| c.builtin_plugins())
+        .unwrap_or_default();
+    if let Err(e) = registry.check_names(builtin_plugins.keys()) {
+        eprintln!("error: {}: {e}", pgweave_schema::ProjectConfig::FILENAME);
+        return 2;
+    }
 
     // ── Parse context/schema files ─────────────────────────────────────────────
     // Each file is kept with its raw SQL so we can detect its default schema.
@@ -198,20 +220,6 @@ fn cmd_check(
         .flat_map(|(_, s)| s.iter().cloned())
         .collect();
 
-    // ── Découverte du projet ───────────────────────────────────────────────────
-    // Même mécanisme que le LSP : on remonte jusqu'à pgweave.toml.
-    // Sans ça, l'éditeur et la CI ne voient pas le même schéma pour un même
-    // fichier — l'un indexe tout le projet, l'autre exige des --schema
-    // explicites, et les diagnostics divergent.
-    let project = if no_project {
-        None
-    } else {
-        std::path::Path::new(".")
-            .canonicalize()
-            .ok()
-            .and_then(|d| pgweave_schema::ProjectConfig::find_and_load(&d))
-    };
-
     // ── Politique de tolérance du parser ───────────────────────────────────────
     let parse_cfg = {
         let mut cfg = project
@@ -232,7 +240,7 @@ fn cmd_check(
 
     // Macros : fournies + celles du projet. Le désucrage est tenté sur tout
     // fichier — une source sans macro est recopiée à l'identique.
-    let (macros, macro_errors) = load_macros();
+    let (macros, macro_errors) = load_macros(project.as_ref());
     for e in &macro_errors {
         eprintln!("warning: {e}");
     }
@@ -340,22 +348,33 @@ fn cmd_check(
         composite.add(Box::new(resolver));
     }
 
-    for provider in registry.collect_schema_providers(&config.plugins) {
+    for provider in registry.collect_schema_providers(&builtin_plugins) {
         composite.add(provider);
     }
 
     let mut checker = pgweave_checker::Checker::with_builtin_rules();
-    for rule in registry.collect_rules(&config.plugins) {
+    for rule in registry.collect_rules(&builtin_plugins) {
         checker.add_rule(rule);
     }
-    // Load external WASM plugins listed in pgsql.toml
-    for wasm_path in &config.wasm_plugins {
-        match pgweave_plugin_wasm::WasmPlugin::from_file(std::path::Path::new(wasm_path)) {
+    // Plugins WASM listés dans [plugins] wasm, relatifs au fichier de config.
+    let wasm_paths: Vec<std::path::PathBuf> = project
+        .as_ref()
+        .map(|(root, c)| c.plugins.wasm.iter().map(|p| root.join(p)).collect())
+        .unwrap_or_default();
+    for wasm_path in &wasm_paths {
+        match pgweave_plugin_wasm::WasmPlugin::from_file(wasm_path) {
             Ok(plugin) => {
                 let rule = pgweave_plugin_wasm::WasmCheckRule::new(std::sync::Arc::new(plugin));
                 checker.add_rule(Box::new(rule));
             }
-            Err(e) => eprintln!("warning: failed to load wasm plugin '{}': {}", wasm_path, e),
+            Err(e) => {
+                eprintln!(
+                    "error: failed to load wasm plugin '{}': {}",
+                    wasm_path.display(),
+                    e
+                );
+                return 2;
+            }
         }
     }
 
@@ -363,12 +382,11 @@ fn cmd_check(
     let mut has_errors = false;
     let show_filename = parsed_targets.len() > 1 || has_external_schema;
 
-    // Build rule overrides map from config.rules.
-    let rule_overrides: std::collections::HashMap<String, String> = config
-        .rules
-        .iter()
-        .map(|(k, v)| (k.clone(), v.level().to_string()))
-        .collect();
+    // Surcharges de sévérité de [rules], checker comme lint.
+    let rule_overrides = project
+        .as_ref()
+        .map(|(_, c)| c.rule_overrides())
+        .unwrap_or_default();
 
     for (file, sql, stmts, skipped, macro_diags) in &parsed_targets {
         let mut diagnostics =
@@ -463,6 +481,12 @@ fn cmd_lint(file: &str) -> i32 {
 
     let config = pgweave_lint::LintConfig::default();
     let mut diagnostics = pgweave_lint::lint_statements(&stmts, &config).diagnostics;
+
+    // Mêmes surcharges de sévérité que `check` et le LSP : une règle mise à
+    // "off" dans [rules] doit être muette partout.
+    if let Some((_, project)) = discover_project_or_exit() {
+        pgweave_diagnostics::apply_rule_overrides(&mut diagnostics, &project.rule_overrides());
+    }
 
     // Mêmes directives en commentaire que `check` : une règle tue là-bas doit
     // l'être ici aussi, sinon `-- pgweave-disable-next-line L001` marcherait dans
@@ -653,15 +677,13 @@ fn main() {
 ///
 /// Les erreurs de définition sont rapportées mais ne bloquent pas : les autres
 /// macros restent utilisables.
-fn load_macros() -> (pgweave_macro::MacroSet, Vec<String>) {
+fn load_macros(
+    project: Option<&(std::path::PathBuf, pgweave_schema::ProjectConfig)>,
+) -> (pgweave_macro::MacroSet, Vec<String>) {
     let mut set = pgweave_macro::MacroSet::builtin();
     let mut errors = Vec::new();
 
-    if let Some((root, config)) = std::path::Path::new(".")
-        .canonicalize()
-        .ok()
-        .and_then(|d| pgweave_schema::ProjectConfig::find_and_load(&d))
-    {
+    if let Some((root, config)) = project {
         let dir = root.join(&config.macros.directory);
         if dir.is_dir() {
             errors = set.load_dir(&dir);
@@ -670,8 +692,33 @@ fn load_macros() -> (pgweave_macro::MacroSet, Vec<String>) {
     (set, errors)
 }
 
+/// Projet découvert en remontant depuis le répertoire courant.
+///
+/// `Ok(None)` : pas de `pgweave.toml`. `Err` : un fichier existe mais est
+/// invalide — à signaler, jamais à remplacer par la config par défaut.
+fn discover_project() -> Result<Option<(std::path::PathBuf, pgweave_schema::ProjectConfig)>, String>
+{
+    let cwd = std::path::Path::new(".")
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve current directory: {e}"))?;
+    pgweave_schema::ProjectConfig::find_and_load(&cwd).map_err(|e| e.to_string())
+}
+
+/// Comme [`discover_project`], pour les commandes qui sortent en erreur
+/// plutôt que de continuer sur une config invalide.
+fn discover_project_or_exit() -> Option<(std::path::PathBuf, pgweave_schema::ProjectConfig)> {
+    match discover_project() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            process::exit(2);
+        }
+    }
+}
+
 fn cmd_macros(verbose: bool) -> i32 {
-    let (set, errors) = load_macros();
+    let project = discover_project_or_exit();
+    let (set, errors) = load_macros(project.as_ref());
     for e in &errors {
         eprintln!("warning: {e}");
     }
@@ -722,7 +769,8 @@ fn cmd_macros(verbose: bool) -> i32 {
 }
 
 fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
-    let (set, errors) = load_macros();
+    let project = discover_project_or_exit();
+    let (set, errors) = load_macros(project.as_ref());
     for e in &errors {
         eprintln!("warning: {e}");
     }

@@ -226,7 +226,7 @@ La version majeure de PostgreSQL et chaque extension sont des
 
 **D'où vient la liste des contributeurs actifs ?**
 
-- **Version majeure** : config projet (`postgres = 18`), seule source.
+- **Version majeure** : `[postgres] version` de `pgweave.toml`, seule source.
 - **Extensions** : déduites de l'état du schéma, pas déclarées à part. Les
   `CREATE EXTENSION` / `DROP EXTENSION` / `ALTER EXTENSION … UPDATE` du
   schéma déclaratif définissent l'état cible ; le rejeu des migrations
@@ -454,8 +454,9 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
   global).
 - Spike salsa (D3) avec décision go/no-go écrite.
 - Format des requêtes nommées figé et documenté (trajectoire Mesalia).
-- Format de config projet figé : `postgres = <major>`, `search_path`,
-  schéma par défaut par répertoire.
+- ✅ Format de config projet figé : `docs/config.md` (`[postgres] version`
+  obligatoire, fichier unique `pgweave.toml`, clés strictes). `search_path`
+  et schéma par défaut par répertoire y sont décrits comme évolutions P2.
 - ✅ Renommage en `pgweave` (crates `pgweave-*`, binaires `pgweave` /
   `pgweave-lsp`, config `pgweave.toml`, directives `pgweave-disable…`,
   extension VS Code, CI). Les extensions de fichier `.pgsql` / `.pgmacro` et

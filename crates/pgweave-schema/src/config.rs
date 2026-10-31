@@ -1,3 +1,19 @@
+//! Configuration projet : `pgweave.toml`, format v1.
+//!
+//! Spécification de référence : `docs/config.md`. Toute évolution de ce
+//! fichier doit y être reportée.
+//!
+//! Règles de conception :
+//! - **Strict** : une clé inconnue est une erreur (`deny_unknown_fields`). Une
+//!   faute de frappe dans une clé ne doit jamais se traduire par un réglage
+//!   silencieusement ignoré.
+//! - **Rien d'accepté sans effet** : une clé n'existe dans le format que si
+//!   l'outil l'applique. Les évolutions prévues sont décrites dans
+//!   `docs/config.md` mais refusées tant qu'elles ne sont pas implémentées.
+//! - **Erreurs remontées** : un fichier illisible ou invalide est une erreur
+//!   pour l'appelant, jamais un repli sur la config par défaut.
+
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -5,30 +21,105 @@ use serde::Deserialize;
 use crate::role::{FileRole, sequence_from_path};
 use crate::source::{DirSource, MigrationDirSource, MultiSource, SchemaSource};
 
+/// Versions majeures de PostgreSQL pour lesquelles l'analyse est disponible.
+///
+/// Une version absente de cette liste est refusée plutôt qu'analysée avec les
+/// règles d'une autre : ce serait deviner (PLAN.md, D9).
+pub const SUPPORTED_POSTGRES_VERSIONS: &[u32] = &[18];
+
 // ── Top-level config ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
+    /// Contexte PostgreSQL cible. Obligatoire.
+    pub postgres: PostgresConfig,
+    #[serde(default)]
+    pub schema: SchemaConfig,
+    #[serde(default)]
+    pub migrations: MigrationsConfig,
+    #[serde(default)]
+    pub queries: QueriesConfig,
     #[serde(default)]
     pub macros: MacrosConfig,
     #[serde(default)]
     pub parse: ParseConfig,
+    /// Surcharges de sévérité par code de diagnostic, checker comme lint.
     #[serde(default)]
-    pub migrations: MigrationsConfig,
-    #[serde(default)]
-    pub schema: SchemaConfig,
-    #[serde(default)]
-    pub instrumentation: InstrumentationConfig,
-    #[serde(default)]
-    pub lint: LintProjectConfig,
+    pub rules: BTreeMap<String, RuleLevel>,
     #[serde(default)]
     pub plugins: PluginsConfig,
+}
+
+// ── PostgreSQL ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PostgresConfig {
+    /// Version majeure ciblée (ex. `18`). Doit figurer dans
+    /// [`SUPPORTED_POSTGRES_VERSIONS`].
+    pub version: u32,
+}
+
+// ── Schema ────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SchemaConfig {
+    /// Répertoire des fichiers de schéma déclaratifs, parcouru récursivement.
+    ///
+    /// Absent : tout fichier hors migrations et requêtes est un fichier de
+    /// schéma, et le scope d'indexation est la racine du projet (voir
+    /// [`ProjectConfig::to_source`]). Présent : seuls les fichiers de ce
+    /// répertoire (et de `include`) sont des fichiers de schéma.
+    pub directory: Option<String>,
+    /// Répertoires supplémentaires à indexer, en plus de `directory`.
+    ///
+    /// Utile quand le DDL est éclaté (`db/tables/`, `db/functions/`) sans
+    /// répertoire parent commun dédié.
+    #[serde(default)]
+    pub include: Vec<String>,
+}
+
+// ── Migrations ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationsConfig {
+    /// Répertoire des migrations. Chaque fichier y est indexé avec la
+    /// séquence tirée de son nom.
+    #[serde(default = "default_migrations_dir")]
+    pub directory: String,
+}
+
+impl Default for MigrationsConfig {
+    fn default() -> Self {
+        Self {
+            directory: default_migrations_dir(),
+        }
+    }
+}
+
+fn default_migrations_dir() -> String {
+    "migrations".into()
+}
+
+// ── Queries ───────────────────────────────────────────────────────────────────
+
+/// Fichiers de requêtes nommées (format : `docs/named-queries.md`).
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct QueriesConfig {
+    /// Répertoire des fichiers de requêtes nommées, parcouru récursivement.
+    /// Absent : le projet n'a pas de requêtes nommées.
+    pub directory: Option<String>,
 }
 
 // ── Macros ────────────────────────────────────────────────────────────────────
 
 /// Où trouver les macros du projet.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MacrosConfig {
     /// Répertoire des `*.pgmacro`, parcouru récursivement.
     ///
@@ -73,20 +164,19 @@ pub enum SkipLevel {
 /// existante. Passer `unparsable = "error"` quand le projet est propre, ou
 /// `"ignore"` le temps de la migration.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ParseConfig {
     /// Statement que sqlparser-rs n'a pas su lire. Peut être du PostgreSQL
-    /// valide hors périmètre (GRANT, CREATE EXTENSION) *ou* une faute de
-    /// syntaxe — les deux sont indiscernables à ce niveau, d'où le défaut
-    /// `warn` plutôt que `error`.
+    /// valide hors périmètre *ou* une faute de syntaxe — les deux sont
+    /// indiscernables à ce niveau, d'où le défaut `warn` plutôt que `error`.
     #[serde(default = "default_unparsable")]
     pub unparsable: SkipLevel,
     /// Statement valide mais volontairement pas modélisé dans l'AST.
     ///
-    /// Défaut passé de `ignore` à `warn` : « on sait que le SQL est bon » ne
-    /// justifiait pas le silence, puisque le statement disparaît quand même de
+    /// Défaut `warn` et non `ignore` : « on sait que le SQL est bon » ne
+    /// justifie pas le silence, puisque le statement disparaît quand même de
     /// l'analyse. Un `CREATE VIEW` ignoré, et la vue n'existe pour aucun autre
-    /// fichier — sans que rien ne le dise. Un warning ne fait pas échouer
-    /// `check`, il rend seulement la lacune visible.
+    /// fichier — sans que rien ne le dise.
     #[serde(default = "default_unsupported")]
     pub unsupported: SkipLevel,
 }
@@ -107,147 +197,138 @@ fn default_unsupported() -> SkipLevel {
     SkipLevel::Warn
 }
 
-// ── Migrations ────────────────────────────────────────────────────────────────
+// ── Rules ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct MigrationsConfig {
-    /// Directory containing numbered migration files.
-    #[serde(default = "default_migrations_dir")]
-    pub directory: String,
-    /// `{sequence:06}_{name}.sql` or timestamp-based, etc.
-    #[serde(default = "default_format")]
-    pub format: String,
-    #[serde(default = "default_hash_journal")]
-    pub hash_journal: String,
+/// Sévérité imposée à un code de diagnostic. Même vocabulaire que `[parse]`
+/// (`warn`, pas `warning`) : un seul jeu de mots pour toute la config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleLevel {
+    Error,
+    #[serde(rename = "warn")]
+    Warning,
+    Info,
+    /// Le diagnostic est retiré.
+    Off,
 }
 
-impl Default for MigrationsConfig {
-    fn default() -> Self {
-        Self {
-            directory: default_migrations_dir(),
-            format: default_format(),
-            hash_journal: default_hash_journal(),
+impl RuleLevel {
+    /// Forme textuelle attendue par `pgweave_diagnostics::apply_rule_overrides`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RuleLevel::Error => "error",
+            RuleLevel::Warning => "warning",
+            RuleLevel::Info => "info",
+            RuleLevel::Off => "off",
         }
     }
-}
-
-fn default_migrations_dir() -> String {
-    "migrations/".into()
-}
-fn default_format() -> String {
-    "{sequence:06}_{name}.sql".into()
-}
-fn default_hash_journal() -> String {
-    "pgweave-hashes.json".into()
-}
-
-// ── Schema ────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct SchemaConfig {
-    /// Répertoire des fichiers DDL statiques (schema.sql, types.sql, …),
-    /// parcouru récursivement.
-    ///
-    /// Absent : tout fichier non-migration est Schema, et le scope
-    /// d'indexation est la racine du projet (voir [`ProjectConfig::to_source`]).
-    /// Présent : seuls les fichiers de ce répertoire sont Schema, les autres
-    /// sont Query.
-    pub directory: Option<String>,
-    /// Répertoires supplémentaires à indexer, en plus de `directory`.
-    ///
-    /// Utile quand le DDL est éclaté (`db/tables/`, `db/functions/`) sans
-    /// répertoire parent commun dédié.
-    #[serde(default)]
-    pub include: Vec<String>,
-    #[serde(default = "default_search_path")]
-    pub search_path: Vec<String>,
-}
-
-fn default_search_path() -> Vec<String> {
-    vec!["public".into()]
-}
-
-// ── Instrumentation ───────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct InstrumentationConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    #[serde(default = "default_log_level")]
-    pub log_level: String,
-    #[serde(default = "default_log_target")]
-    pub log_target: String,
-}
-
-impl Default for InstrumentationConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            log_level: default_log_level(),
-            log_target: default_log_target(),
-        }
-    }
-}
-
-fn default_true() -> bool {
-    true
-}
-fn default_log_level() -> String {
-    "step".into()
-}
-fn default_log_target() -> String {
-    "notify".into()
-}
-
-// ── Lint ──────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct LintProjectConfig {
-    #[serde(default)]
-    pub disabled: Vec<String>,
-    /// Per-rule severity overrides. Key = rule ID (e.g. "column-not-found").
-    /// Values: "error", "warning", "info", "off".
-    #[serde(default)]
-    pub rules: std::collections::HashMap<String, String>,
 }
 
 // ── Plugins ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct PluginsConfig {
+    /// Plugins fournis à activer, avec leurs options : `name = { … }`.
+    /// Un nom inconnu est une erreur, signalée par le chargeur de plugins.
     #[serde(default)]
-    pub enabled: Vec<String>,
-    /// Paths to external WASM plugin files (relative to the config file).
+    pub builtin: BTreeMap<String, serde_json::Value>,
+    /// Plugins WASM externes, chemins relatifs au fichier de config.
     #[serde(default)]
     pub wasm: Vec<String>,
 }
+
+// ── Erreurs ───────────────────────────────────────────────────────────────────
+
+/// Config illisible ou invalide. Le message cite le fichier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigError(pub String);
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ConfigError {}
 
 // ── Loading ───────────────────────────────────────────────────────────────────
 
 impl ProjectConfig {
     pub const FILENAME: &'static str = "pgweave.toml";
 
-    pub fn load(path: &Path) -> Result<Self, String> {
+    /// Charge et valide un fichier de config.
+    pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        toml::from_str(&content).map_err(|e| format!("cannot parse {}: {e}", path.display()))
+            .map_err(|e| ConfigError(format!("cannot read {}: {e}", path.display())))?;
+        Self::parse(&content).map_err(|e| ConfigError(format!("{}: {e}", path.display())))
     }
 
-    /// Walk up from `start` looking for `pgweave.toml`.
-    pub fn find_and_load(start: &Path) -> Option<(PathBuf, Self)> {
+    /// Parse et valide un contenu de config (sans fichier, pour les tests).
+    pub fn parse(content: &str) -> Result<Self, ConfigError> {
+        let config: Self = toml::from_str(content).map_err(|e| ConfigError(e.to_string()))?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> Result<(), ConfigError> {
+        if !SUPPORTED_POSTGRES_VERSIONS.contains(&self.postgres.version) {
+            let supported: Vec<String> = SUPPORTED_POSTGRES_VERSIONS
+                .iter()
+                .map(u32::to_string)
+                .collect();
+            return Err(ConfigError(format!(
+                "[postgres] version = {} : version non prise en charge (disponibles : {})",
+                self.postgres.version,
+                supported.join(", ")
+            )));
+        }
+        Ok(())
+    }
+
+    /// Remonte depuis `start` jusqu'à trouver `pgweave.toml`.
+    ///
+    /// `Ok(None)` : aucun fichier trouvé. `Err` : un fichier existe mais est
+    /// invalide — l'appelant doit le signaler, pas l'ignorer.
+    pub fn find_and_load(start: &Path) -> Result<Option<(PathBuf, Self)>, ConfigError> {
+        let Some(root) = Self::find_root(start) else {
+            return Ok(None);
+        };
+        let config = Self::load(&root.join(Self::FILENAME))?;
+        Ok(Some((root, config)))
+    }
+
+    /// Répertoire contenant le `pgweave.toml` le plus proche de `start`.
+    pub fn find_root(start: &Path) -> Option<PathBuf> {
         let mut dir: &Path = if start.is_file() {
             start.parent()?
         } else {
             start
         };
         loop {
-            let candidate = dir.join(Self::FILENAME);
-            if candidate.exists() {
-                let config = Self::load(&candidate).ok()?;
-                return Some((dir.to_path_buf(), config));
+            if dir.join(Self::FILENAME).exists() {
+                return Some(dir.to_path_buf());
             }
             dir = dir.parent()?;
         }
+    }
+
+    /// Surcharges de sévérité sous la forme attendue par
+    /// `pgweave_diagnostics::apply_rule_overrides`.
+    pub fn rule_overrides(&self) -> std::collections::HashMap<String, String> {
+        self.rules
+            .iter()
+            .map(|(code, level)| (code.clone(), level.as_str().to_string()))
+            .collect()
+    }
+
+    /// Plugins fournis activés, sous la forme attendue par le registre.
+    pub fn builtin_plugins(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        self.plugins
+            .builtin
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     /// Construit le scope d'indexation du projet.
@@ -255,18 +336,15 @@ impl ProjectConfig {
     /// Contenu :
     /// 1. `migrations.directory` (récursif), chaque fichier avec sa séquence
     /// 2. `schema.directory` (récursif) **si configuré**, sinon la racine du
-    ///    projet — pour coïncider avec [`Self::classify_file`], qui traite tout
-    ///    fichier non-migration comme Schema quand `schema.directory` est absent
+    ///    projet hors migrations et requêtes — pour coïncider avec
+    ///    [`Self::classify_file`]
     /// 3. `schema.include` : répertoires supplémentaires
     ///
-    /// Le cas 2 est le point important : sans lui, un fichier pouvait être
-    /// *classé* Schema tout en restant hors du scope indexé, donc ses tables
-    /// n'existaient pour personne. Les répertoires de build et `node_modules`
-    /// sont exclus du parcours.
+    /// Les requêtes nommées ne sont jamais indexées : elles ne déclarent pas
+    /// d'objets de schéma.
     pub fn to_source(&self, base_dir: &Path) -> MultiSource {
         let mut sources: Vec<Box<dyn SchemaSource>> = Vec::new();
 
-        // Migration files — each gets sequence from filename
         let mig_dir = base_dir.join(&self.migrations.directory);
         if mig_dir.is_dir() {
             sources.push(Box::new(MigrationDirSource::new(mig_dir.clone())));
@@ -280,11 +358,15 @@ impl ProjectConfig {
                 }
             }
             // Pas de répertoire dédié : le projet entier est le schéma, sauf
-            // les migrations — déjà indexées ci-dessus avec leur séquence.
+            // les migrations — déjà indexées ci-dessus avec leur séquence — et
+            // les requêtes nommées.
             None => {
-                sources.push(Box::new(
-                    DirSource::new(base_dir.to_path_buf(), FileRole::Schema).excluding(&mig_dir),
-                ));
+                let mut dir =
+                    DirSource::new(base_dir.to_path_buf(), FileRole::Schema).excluding(&mig_dir);
+                if let Some(qdir) = &self.queries.directory {
+                    dir = dir.excluding(base_dir.join(qdir));
+                }
+                sources.push(Box::new(dir));
             }
         }
 
@@ -298,36 +380,121 @@ impl ProjectConfig {
         MultiSource::new(sources)
     }
 
-    /// Classify any file by path relative to the project root.
+    /// Vrai si `path` est dans `[queries] directory`.
+    pub fn is_query_file(&self, path: &Path, base_dir: &Path) -> bool {
+        let Some(qdir) = &self.queries.directory else {
+            return false;
+        };
+        is_within(path, &base_dir.join(qdir))
+    }
+
+    /// Classe un fichier selon sa position dans le projet.
     ///
-    /// Rules (config-driven, no filename heuristics):
-    /// 1. In `migrations.directory` → Migration (sequence from filename)
-    /// 2. In `schema.directory` (if configured) → Schema
-    /// 3. Otherwise:
-    ///    - If no `schema.directory` configured → Schema (the whole project is schema)
-    ///    - If `schema.directory` configured    → Query (SFC/template files, future)
+    /// Règles (pilotées par la config, aucune heuristique sur le nom) :
+    /// 1. Dans `migrations.directory` → Migration (séquence tirée du nom)
+    /// 2. Dans `queries.directory` → Query
+    /// 3. Dans `schema.directory` ou `schema.include` → Schema
+    /// 4. Sinon : Schema si `schema.directory` est absent (tout le projet est
+    ///    schéma), Query s'il est présent
     pub fn classify_file(&self, path: &Path, base_dir: &Path) -> FileRole {
         let mig_dir = base_dir.join(&self.migrations.directory);
-        let mig_canon = mig_dir.canonicalize().unwrap_or(mig_dir);
-        let path_canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-
-        if path_canon.starts_with(&mig_canon) {
+        if is_within(path, &mig_dir) {
+            let path_canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
             return FileRole::Migration {
                 sequence: sequence_from_path(&path_canon),
             };
         }
 
-        if let Some(ref sdir) = self.schema.directory {
-            let schema_dir = base_dir.join(sdir);
-            let schema_canon = schema_dir.canonicalize().unwrap_or(schema_dir);
-            if path_canon.starts_with(&schema_canon) {
-                return FileRole::Schema;
-            }
-            // schema.directory is set but this file isn't in it → Query
+        if self.is_query_file(path, base_dir) {
             return FileRole::Query;
         }
 
-        // No schema.directory configured → every non-migration file is Schema
-        FileRole::Schema
+        let Some(ref sdir) = self.schema.directory else {
+            return FileRole::Schema;
+        };
+        let in_schema = std::iter::once(sdir)
+            .chain(self.schema.include.iter())
+            .any(|d| is_within(path, &base_dir.join(d)));
+        if in_schema {
+            FileRole::Schema
+        } else {
+            FileRole::Query
+        }
+    }
+}
+
+/// `path` est-il sous `dir` ? Compare les chemins canoniques quand ils
+/// existent, pour ne pas dépendre de `./` ou des liens symboliques.
+fn is_within(path: &Path, dir: &Path) -> bool {
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    path.starts_with(&dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn la_config_minimale_ne_demande_que_la_version() {
+        let c = ProjectConfig::parse("[postgres]\nversion = 18\n").unwrap();
+        assert_eq!(c.postgres.version, 18);
+        assert_eq!(c.migrations.directory, "migrations");
+        assert_eq!(c.macros.directory, "macros");
+        assert!(c.queries.directory.is_none());
+        assert_eq!(c.parse.unparsable, SkipLevel::Warn);
+    }
+
+    #[test]
+    fn la_version_postgres_est_obligatoire() {
+        let err = ProjectConfig::parse("[schema]\ndirectory = \"schema\"\n").unwrap_err();
+        assert!(err.0.contains("postgres"), "{err}");
+    }
+
+    #[test]
+    fn une_version_non_prise_en_charge_est_refusee() {
+        let err = ProjectConfig::parse("[postgres]\nversion = 15\n").unwrap_err();
+        assert!(err.0.contains("non prise en charge"), "{err}");
+    }
+
+    #[test]
+    fn une_cle_inconnue_est_une_erreur() {
+        for content in [
+            "[postgres]\nversion = 18\nsearch_paht = [\"public\"]\n",
+            "[postgres]\nversion = 18\n[schema]\ndirectroy = \"schema\"\n",
+            "[postgres]\nversion = 18\n[instrumentation]\nenabled = true\n",
+        ] {
+            assert!(
+                ProjectConfig::parse(content).is_err(),
+                "aurait dû être refusé :\n{content}"
+            );
+        }
+    }
+
+    #[test]
+    fn les_regles_et_plugins_sont_lus() {
+        let c = ProjectConfig::parse(
+            "[postgres]\nversion = 18\n\
+             [rules]\nL001 = \"off\"\n\"column-not-found\" = \"warn\"\n\
+             [plugins]\nbuiltin = { prisma = { schema = \"prisma/schema.prisma\" } }\n\
+             wasm = [\"plugins/a.wasm\"]\n",
+        )
+        .unwrap();
+        let overrides = c.rule_overrides();
+        assert_eq!(overrides["L001"], "off");
+        assert_eq!(overrides["column-not-found"], "warning");
+        assert_eq!(
+            c.builtin_plugins()["prisma"]["schema"],
+            "prisma/schema.prisma"
+        );
+        assert_eq!(c.plugins.wasm, vec!["plugins/a.wasm"]);
+    }
+
+    #[test]
+    fn un_niveau_de_regle_inconnu_est_refuse() {
+        for level in ["warning", "fatal"] {
+            let content = format!("[postgres]\nversion = 18\n[rules]\nL001 = \"{level}\"\n");
+            assert!(ProjectConfig::parse(&content).is_err(), "{level}");
+        }
     }
 }

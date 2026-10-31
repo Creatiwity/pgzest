@@ -10,7 +10,8 @@ pub struct RuleCtx<'a> {
     pub schema: &'a dyn SchemaProvider,
     /// Sink for diagnostics emitted by this rule.
     pub diags: &'a mut Vec<Diagnostic>,
-    /// Rule-specific options (from pgsql.toml), serde_json::Value::Null if absent.
+    /// Rule-specific options. Not populated from `pgweave.toml` (v1 has no
+    /// per-rule options); always `serde_json::Value::Null` today.
     pub options: serde_json::Value,
     /// All CREATE TRIGGER statements in the checked file, keyed by lowercase function name.
     /// Used by function rules to resolve the trigger table for RETURNS TRIGGER functions.

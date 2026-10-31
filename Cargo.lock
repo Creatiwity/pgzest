@@ -941,7 +941,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "toml",
 ]
 
 [[package]]

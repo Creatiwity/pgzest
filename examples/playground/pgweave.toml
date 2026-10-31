@@ -1,5 +1,8 @@
-# Projet de démonstration pour pgweave.
+# Projet de démonstration pour pgweave. Format : docs/config.md.
 # Ouvert automatiquement par F5 depuis editors/vscode/.
+
+[postgres]
+version = 18
 
 [schema]
 # Parcouru récursivement : schema/tables/ et schema/functions/ sont inclus.
@@ -14,7 +17,7 @@ directory = "migrations"
 unparsable = "warn"
 unsupported = "ignore"
 
-[lint.rules]
-# Surcharge de sévérité par règle. Décommente pour voir l'effet.
+[rules]
+# Surcharge de sévérité par code de diagnostic. Décommente pour voir l'effet.
 # "L001" = "off"        # SELECT *
 # "L005" = "error"      # index manquant sur FK
