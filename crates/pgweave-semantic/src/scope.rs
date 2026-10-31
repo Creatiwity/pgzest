@@ -17,6 +17,18 @@ pub struct Scope {
     pub columns: HashMap<String, ColumnBinding>,
     /// Local variables (CTEs, PL/pgSQL vars/params).
     pub locals: HashMap<String, LocalBinding>,
+    /// Relations liées par FROM / JOIN, **dans l'ordre de la requête**, chacune
+    /// avec ses colonnes dans l'ordre de déclaration. `columns` est une table
+    /// de recherche sans ordre ; l'expansion de `*` doit, elle, suivre l'ordre
+    /// de PostgreSQL.
+    pub relations: Vec<BoundRelation>,
+}
+
+/// Une table liée dans un scope, sous son alias.
+#[derive(Debug, Clone)]
+pub struct BoundRelation {
+    pub alias: String,
+    pub columns: Vec<ColumnBinding>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +67,7 @@ impl ScopeTree {
             span,
             columns: HashMap::new(),
             locals: HashMap::new(),
+            relations: Vec::new(),
         });
         id
     }

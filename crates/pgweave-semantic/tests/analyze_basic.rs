@@ -31,6 +31,56 @@ fn analyze_simple_select() {
     );
 }
 
+/// Noms des colonnes de sortie de l'unique SELECT de `sql`.
+fn star_columns(schema_sql: &str, sql: &str) -> Vec<String> {
+    let schema = DdlSchemaProvider::from_sql(schema_sql).expect("parse schema");
+    let stmts = pgweave_parser::parse(sql).expect("parse sql");
+    let result = analyze(&stmts, &schema);
+    let pgweave_ast::Statement::Select(sel) = &stmts[0] else {
+        panic!("SELECT attendu")
+    };
+    result.select_columns[&sel.id]
+        .iter()
+        .map(|c| c.name.clone().unwrap_or_default())
+        .collect()
+}
+
+const TWO_TABLES: &str = "
+    CREATE TABLE authors (id UUID, name TEXT);
+    CREATE TABLE pages (id BIGINT, title TEXT, author_id UUID);
+";
+
+#[test]
+fn star_suit_l_ordre_de_postgresql_sans_doublon() {
+    // Régression (oracle) : l'expansion suivait l'ordre d'une HashMap — un
+    // résultat différent à chaque exécution, avec des doublons.
+    for _ in 0..20 {
+        assert_eq!(
+            star_columns(
+                TWO_TABLES,
+                "SELECT * FROM pages p JOIN authors a ON a.id = p.author_id;"
+            ),
+            ["id", "title", "author_id", "id", "name"],
+            "relations dans l'ordre du FROM, colonnes dans l'ordre de déclaration"
+        );
+    }
+}
+
+#[test]
+fn star_qualifie_ne_prend_que_sa_relation() {
+    assert_eq!(
+        star_columns(
+            TWO_TABLES,
+            "SELECT a.* FROM pages p JOIN authors a ON a.id = p.author_id;"
+        ),
+        ["id", "name"]
+    );
+    assert_eq!(
+        star_columns(TWO_TABLES, "SELECT pages.* FROM pages;"),
+        ["id", "title", "author_id"]
+    );
+}
+
 #[test]
 fn analyze_registers_function() {
     let schema_sql = "

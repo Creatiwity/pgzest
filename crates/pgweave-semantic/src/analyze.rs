@@ -4,7 +4,7 @@ use pgweave_schema::provider::{SchemaProvider, object_name_to_string};
 use std::collections::HashMap;
 
 use crate::infer::{OutputColumn, infer_expr_type};
-use crate::scope::{ColumnBinding, ScopeId, ScopeTree};
+use crate::scope::{BoundRelation, ColumnBinding, ScopeId, ScopeTree};
 use crate::symbol::{Symbol, SymbolKind, SymbolTable};
 use pgweave_ast::expr::ExprKind;
 
@@ -159,28 +159,11 @@ impl<'a> Analyzer<'a> {
         let mut output = Vec::new();
         for item in sel.columns.iter() {
             match item {
-                SelectItem::Wildcard => {
-                    // Expand * — collect all columns from scope
-                    // We need to clone to avoid borrow conflicts
-                    let col_snapshots: Vec<(String, DataType)> = {
-                        let scope = self.scopes.get(scope_id);
-                        if let Some(s) = scope {
-                            s.columns
-                                .values()
-                                .filter(|c| c.table_alias.is_some()) // only qualified entries to avoid duplicates
-                                .map(|c| (c.name.clone(), c.data_type.clone()))
-                                .collect()
-                        } else {
-                            vec![]
-                        }
-                    };
-                    for (name, data_type) in col_snapshots {
-                        output.push(OutputColumn {
-                            name: Some(name),
-                            data_type,
-                            node_id: NodeId::DUMMY,
-                        });
-                    }
+                // Expansion de `*` et `t.*` : relations dans l'ordre du FROM,
+                // colonnes dans l'ordre de déclaration — l'ordre de PostgreSQL.
+                SelectItem::Wildcard => output.extend(self.expand_star(scope_id, None)),
+                SelectItem::QualifiedWildcard(alias) => {
+                    output.extend(self.expand_star(scope_id, Some(&alias.value)))
                 }
                 SelectItem::Expr { expr, alias } => {
                     let ty = self
@@ -196,13 +179,33 @@ impl<'a> Analyzer<'a> {
                         node_id: NodeId::DUMMY,
                     });
                 }
-                SelectItem::QualifiedWildcard(_) => {}
             }
         }
 
         // Store output columns indexed by this SELECT's NodeId
         self.select_columns.insert(sel.id, output.clone());
         output
+    }
+
+    /// Colonnes produites par `*` (`qualifier` absent) ou `qualifier.*`.
+    ///
+    /// Une relation inconnue ne produit aucune colonne : l'erreur est
+    /// signalée par le checker, pas devinée ici.
+    fn expand_star(&self, scope_id: ScopeId, qualifier: Option<&str>) -> Vec<OutputColumn> {
+        let Some(scope) = self.scopes.get(scope_id) else {
+            return Vec::new();
+        };
+        scope
+            .relations
+            .iter()
+            .filter(|r| qualifier.is_none_or(|q| r.alias.eq_ignore_ascii_case(q)))
+            .flat_map(|r| &r.columns)
+            .map(|c| OutputColumn {
+                name: Some(c.name.clone()),
+                data_type: c.data_type.clone(),
+                node_id: NodeId::DUMMY,
+            })
+            .collect()
     }
 
     /// Bind a table reference into the current scope (adds its columns).
@@ -223,6 +226,18 @@ impl<'a> Analyzer<'a> {
                 .collect();
 
             let scope = self.scopes.get_mut(scope_id).unwrap();
+            scope.relations.push(BoundRelation {
+                alias: alias.clone(),
+                columns: col_data
+                    .iter()
+                    .map(|(name, data_type)| ColumnBinding {
+                        name: name.clone(),
+                        table_alias: Some(alias.clone()),
+                        data_type: data_type.clone(),
+                        source_node: NodeId::DUMMY,
+                    })
+                    .collect(),
+            });
             for (col_name, col_type) in col_data {
                 let key = format!("{}.{}", alias.to_lowercase(), col_name.to_lowercase());
                 scope.columns.insert(
