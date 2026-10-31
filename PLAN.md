@@ -152,6 +152,11 @@ parse + déclarations + une résolution de table avant d'engager la migration.
 Critère d'abandon : impossibilité d'exprimer la portée « routine » proprement
 ou surcoût mesuré > 2× sur l'indexation de Mesalia.
 
+**Résultat (2026-11-01) : GO** — `docs/decisions/0001-salsa.md`. Index sans
+parse en 4 ms, toutes les tables de Mesalia en 23 ms (contre 52 ms pour
+l'existant), 134/134 tables identiques à l'existant, 0,07 ms après une
+modification ; portée de routine exprimée sans difficulté.
+
 ### D4 — Un seul analyseur sémantique, sur une représentation résolue
 
 `pgweave-semantic` et le checker font aujourd'hui de la résolution chacun de
@@ -445,8 +450,8 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
 
 ### P0 — Remise à plat (fondations de travail)
 
-- Documentation alignée sur la réalité (`CLAUDE.md`, bandeau `ROADMAP.md`,
-  README) — fait avec la création de ce plan.
+- ✅ Documentation alignée sur la réalité (`CLAUDE.md`, bandeau `ROADMAP.md`,
+  README).
 - ✅ Oracle différentiel PG 18 : crate `pgweave-oracle`, corpus
   `crates/pgweave-oracle/cases`, rapport instantané (`insta`), `make oracle`
   (Docker) et job CI `postgres:18`. Base : 65 % des colonnes conformes, 0 %
@@ -455,9 +460,9 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
   par variable d'environnement, agrégats sans noms), `docs/baselines/`.
   87 % des statements analysés, 220/220 migrations valides sur PG 18,
   27 faux positifs tous dus au repli textuel des corps PL/pgSQL.
-- Identifiants de nœuds déterministes par fichier (fin du compteur atomique
-  global).
-- Spike salsa (D3) avec décision go/no-go écrite.
+- ⏳ Identifiants de nœuds déterministes par fichier (fin du compteur
+  atomique global). Seul item P0 restant.
+- ✅ Spike salsa (D3) : GO, `docs/decisions/0001-salsa.md`.
 - ✅ Format des requêtes nommées figé : `docs/named-queries.md` (en-tête
   `-- name: x [:one|:optional|:many|:none]`, `$name`, vérifié par `check`
   et le LSP).
