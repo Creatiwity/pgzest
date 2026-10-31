@@ -1,0 +1,3 @@
+[alias]
+# Tâches de développement (corpus, plus tard catalog-gen et bench) : PLAN.md §9.
+xtask = "run --quiet --package xtask --"

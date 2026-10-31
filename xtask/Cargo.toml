@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+description = "Tâches de développement de pgweave (cargo xtask …)"
+publish = false
+
+[dependencies]
+pgweave-ast = { path = "../crates/pgweave-ast" }
+pgweave-checker = { path = "../crates/pgweave-checker" }
+pgweave-diagnostics = { workspace = true }
+pgweave-parser = { path = "../crates/pgweave-parser" }
+pgweave-schema = { path = "../crates/pgweave-schema" }
+clap = { workspace = true }
+chrono = { workspace = true }
+sqlparser = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }

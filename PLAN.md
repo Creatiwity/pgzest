@@ -451,9 +451,10 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
   `crates/pgweave-oracle/cases`, rapport instantané (`insta`), `make oracle`
   (Docker) et job CI `postgres:18`. Base : 65 % des colonnes conformes, 0 %
   des paramètres (aucune inférence de paramètre).
-- Infrastructure de test : chargement des corpus par variable
-  d'environnement, premier rapport « taux d'analyse » sur Mesalia
-  (statements non analysés, faux positifs).
+- ✅ Rapport « taux d'analyse » sur Mesalia : `cargo xtask corpus` (corpus
+  par variable d'environnement, agrégats sans noms), `docs/baselines/`.
+  87 % des statements analysés, 220/220 migrations valides sur PG 18,
+  27 faux positifs tous dus au repli textuel des corps PL/pgSQL.
 - Identifiants de nœuds déterministes par fichier (fin du compteur atomique
   global).
 - Spike salsa (D3) avec décision go/no-go écrite.

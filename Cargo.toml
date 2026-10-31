@@ -16,6 +16,7 @@ members = [
     "crates/pgweave-plugin-wasm",
     "crates/pgweave-query",
     "crates/pgweave-oracle",
+    "xtask",
     "bindings/wasm",
     "bindings/node",
 ]
