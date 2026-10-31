@@ -818,6 +818,7 @@ dependencies = [
  "pgweave-lint",
  "pgweave-macro",
  "pgweave-parser",
+ "pgweave-query",
  "pgweave-schema",
  "pgweave-semantic",
 ]
@@ -956,6 +957,14 @@ dependencies = [
  "serde_json",
  "thiserror",
  "wasmi",
+]
+
+[[package]]
+name = "pgweave-query"
+version = "0.1.0"
+dependencies = [
+ "pgweave-diagnostics",
+ "sqlparser",
 ]
 
 [[package]]

@@ -341,14 +341,14 @@ Contrat entre l'analyse et toutes les cibles. Format JSON stable, versionné
     { "name": "title",         "type": { "pg": "pg_catalog.text" },        "nullable": false },
     { "name": "creation_date", "type": { "pg": "pg_catalog.timestamptz" }, "nullable": true }
   ],
-  "cardinality": "zero_or_one",          // many | one | zero_or_one | none
+  "cardinality": "optional",             // many | one | optional | none
   "depends_on": ["public.pages"],        // objets de catalogue, pour l'invalidation
   "fingerprint": "…"                     // hash(sql normalisé + définitions de depends_on)
 }
 ```
 
 - **Cardinalité** inférée de façon conservatrice : égalité sur une clé
-  unique/PK → `zero_or_one` ; `INSERT … VALUES (une ligne) RETURNING` →
+  unique/PK → `optional` ; `INSERT … VALUES (une ligne) RETURNING` →
   `one` ; agrégat sans `GROUP BY` → `one` ; statement sans `RETURNING` →
   `none`. Sinon `many`. Surchargeable explicitement, jamais devinée au-delà.
 - Les types sont des références au catalogue (y compris enums, domaines,
@@ -369,7 +369,7 @@ let page = pgweave::query!(
     "SELECT id, title, creation_date FROM pages WHERE id = $id",
     id = page_id,
 )
-.fetch_optional(&client)        // cardinalité zero_or_one → Option<Row>
+.fetch_optional(&client)        // cardinalité optional → Option<Row>
 .await?;
 // page: Option<PageByIdRow { id: i64, title: String, creation_date: Option<OffsetDateTime> }>
 
@@ -453,7 +453,9 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
 - Identifiants de nœuds déterministes par fichier (fin du compteur atomique
   global).
 - Spike salsa (D3) avec décision go/no-go écrite.
-- Format des requêtes nommées figé et documenté (trajectoire Mesalia).
+- ✅ Format des requêtes nommées figé : `docs/named-queries.md` (en-tête
+  `-- name: x [:one|:optional|:many|:none]`, `$name`, vérifié par `check`
+  et le LSP).
 - ✅ Format de config projet figé : `docs/config.md` (`[postgres] version`
   obligatoire, fichier unique `pgweave.toml`, clés strictes). `search_path`
   et schéma par défaut par répertoire y sont décrits comme évolutions P2.
@@ -682,5 +684,4 @@ xtask/                catalog-gen, corpus, bench
 | Quelles versions majeures PG générer et maintenir en packs | P2 |
 | Date de bascule « plus de migration Prisma » pour Mesalia | P2 |
 | `time` ou `chrono` par défaut | P5 |
-| Format d'en-tête des requêtes nommées (commentaire vs macro `@query`) | P0 (trajectoire Mesalia) |
 | Surcharges générées vs plugin language service pour TS | P8 |

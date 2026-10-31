@@ -89,6 +89,33 @@ fn hint_for(reason: &SkipReason) -> &'static str {
     }
 }
 
+// ── Requêtes nommées ──────────────────────────────────────────────────────────
+
+/// Diagnostics de format d'un fichier de `[queries] directory`
+/// (`docs/named-queries.md`). S'ajoutent à l'analyse habituelle du fichier,
+/// qui vérifie déjà chaque statement contre le schéma.
+///
+/// Partagé par la CLI et le LSP : un fichier de requêtes doit être jugé de la
+/// même façon dans l'éditeur et en CI.
+pub fn query_file_diagnostics(path: &std::path::Path, sql: &str) -> Vec<Diagnostic> {
+    let is_sql = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("sql"));
+    if !is_sql {
+        return vec![
+            Diagnostic::error(
+                codes::QUERY_FILE_EXTENSION,
+                "un fichier de requêtes nommées est un `.sql`",
+            )
+            .with_hint(
+                "les macros (.pgsql) ne sont pas encore prises en charge dans les \
+                 requêtes nommées (PLAN.md, P6)",
+            ),
+        ];
+    }
+    pgweave_query::parse_query_file(sql).diagnostics
+}
+
 // ── Lint ──────────────────────────────────────────────────────────────────────
 
 /// Parse `sql` puis le lint, directives en commentaire appliquées.

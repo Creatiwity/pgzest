@@ -298,6 +298,20 @@ impl PgsqlBackend {
 
         // ── Macros et statements écartés ──────────────────────────────────────
         let mut diags = prepared.diagnostics.clone();
+
+        // Fichier de requêtes nommées : format vérifié en plus, comme en CLI.
+        if let (Some(path), Some(root)) = (uri_to_path(uri), self.project_root.lock().await.clone())
+        {
+            let is_query_file = self
+                .config
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|c| c.is_query_file(&path, &root));
+            if is_query_file {
+                diags.extend(pgweave_analysis::query_file_diagnostics(&path, text));
+            }
+        }
         diags.extend(pgweave_analysis::skipped_to_diagnostics(
             &outcome.skipped,
             &parse_cfg,

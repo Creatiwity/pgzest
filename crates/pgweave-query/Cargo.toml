@@ -1,0 +1,9 @@
+[package]
+name = "pgweave-query"
+version = "0.1.0"
+edition = "2024"
+description = "Requêtes nommées : format de fichier, paramètres, réécriture positionnelle"
+
+[dependencies]
+pgweave-diagnostics = { workspace = true }
+sqlparser = { workspace = true }

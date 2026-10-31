@@ -142,3 +142,79 @@ fn sans_config_le_mode_autonome_est_conserve() {
     let (code, out) = check(&root, &["q.sql"]);
     assert_eq!(code, 0, "sortie:\n{out}");
 }
+
+const QUERIES_PROJECT: &[(&str, &str)] = &[
+    (
+        "pgweave.toml",
+        "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+         [queries]\ndirectory = \"queries\"\n",
+    ),
+    (
+        "schema/pages.sql",
+        "CREATE TABLE pages (id BIGINT PRIMARY KEY, title TEXT NOT NULL);",
+    ),
+    (
+        "queries/pages.sql",
+        "-- name: page_by_id :optional\nSELECT id, title FROM pages WHERE id = $id;\n\n\
+         -- name: rename_page\nUPDATE pages SET title = $title WHERE id = $id;\n",
+    ),
+    (
+        "queries/mixed.sql",
+        "-- name: mixed\nSELECT id FROM pages WHERE id = $id OR id = $1;\n",
+    ),
+    ("queries/unnamed.sql", "SELECT id FROM pages;\n"),
+    (
+        "queries/bad_column.sql",
+        "-- name: q\nSELECT nope FROM pages;\n",
+    ),
+];
+
+#[test]
+fn un_fichier_de_requetes_nommees_valide_passe() {
+    let root = scaffold("queries-ok", QUERIES_PROJECT);
+    let (code, out) = check(&root, &["queries/pages.sql"]);
+    assert_eq!(code, 0, "sortie:\n{out}");
+}
+
+#[test]
+fn le_format_des_requetes_nommees_est_verifie() {
+    let root = scaffold("queries-format", QUERIES_PROJECT);
+    let (code, out) = check(&root, &["queries/mixed.sql"]);
+    assert_eq!(code, 1, "sortie:\n{out}");
+    assert!(out.contains("query-mixed-parameters"), "sortie:\n{out}");
+
+    let (code, out) = check(&root, &["queries/unnamed.sql"]);
+    assert_eq!(code, 1, "sortie:\n{out}");
+    assert!(out.contains("query-without-name"), "sortie:\n{out}");
+}
+
+#[test]
+fn une_requete_nommee_est_aussi_verifiee_contre_le_schema() {
+    let root = scaffold("queries-schema", QUERIES_PROJECT);
+    let (code, out) = check(&root, &["queries/bad_column.sql"]);
+    assert_eq!(code, 1, "sortie:\n{out}");
+    assert!(out.contains("column-not-found"), "sortie:\n{out}");
+}
+
+#[test]
+fn le_format_ne_s_applique_qu_au_repertoire_des_requetes() {
+    // Un fichier hors [queries] directory n'a pas à porter d'en-tête.
+    let root = scaffold("queries-scope", QUERIES_PROJECT);
+    fs::write(root.join("adhoc.sql"), "SELECT id FROM pages;\n").unwrap();
+    let (code, out) = check(&root, &["adhoc.sql"]);
+    assert_eq!(code, 0, "sortie:\n{out}");
+}
+
+#[test]
+fn une_config_invalide_arrete_check() {
+    let root = scaffold(
+        "badconfig",
+        &[
+            ("pgweave.toml", "[postgres]\nversion = 18\n[shema]\n"),
+            ("q.sql", "SELECT 1;"),
+        ],
+    );
+    let (code, out) = check(&root, &["q.sql"]);
+    assert_eq!(code, 2, "sortie:\n{out}");
+    assert!(out.contains("pgweave.toml"), "sortie:\n{out}");
+}

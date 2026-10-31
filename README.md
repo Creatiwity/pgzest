@@ -236,6 +236,21 @@ Les macros fournies sont écrites dans ce même format
 macros fournies ne se servent pas est un mécanisme non testé. Une macro du
 projet portant le nom d'une macro fournie la remplace.
 
+## Requêtes nommées
+
+Les requêtes appelées depuis le code vivent dans `[queries] directory`, une
+par en-tête `-- name:` :
+
+```sql
+-- name: page_by_id :optional
+SELECT id, title FROM pages WHERE id = $id;
+```
+
+`pgweave check` vérifie leur format (nom, paramètres `$name`, un statement
+par requête) et chaque requête contre le schéma. Elles serviront de source à
+la génération d'appels typés (Rust, puis TypeScript). Format complet :
+[`docs/named-queries.md`](docs/named-queries.md).
+
 ## Scope du projet
 
 `pgweave check` et le serveur LSP partagent le même modèle : les fichiers du

@@ -417,6 +417,15 @@ fn cmd_check(
 
         // Statements écartés par le parser → diagnostics selon la config.
         let mut all = macro_diags.clone();
+        // Fichier de requêtes nommées : son format est vérifié en plus.
+        if let Some((root, cfg)) = &project
+            && cfg.is_query_file(Path::new(file), root)
+        {
+            all.extend(pgweave_analysis::query_file_diagnostics(
+                Path::new(file),
+                sql,
+            ));
+        }
         all.extend(pgweave_analysis::skipped_to_diagnostics(
             skipped,
             &analysis_opts.parse,

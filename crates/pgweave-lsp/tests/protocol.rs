@@ -338,3 +338,36 @@ fn expand_macro_le_dit_quand_il_ny_a_pas_de_macro() {
         "une note explicative est attendue : {resp}"
     );
 }
+
+#[test]
+fn le_format_des_requetes_nommees_est_verifie_comme_en_cli() {
+    let root = scaffold(
+        "queries",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+                 [queries]\ndirectory = \"queries\"\n",
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE pages (id BIGINT PRIMARY KEY);\n",
+            ),
+            (
+                "queries/q.sql",
+                "-- name: mixed\nSELECT id FROM pages WHERE id = $id OR id = $1;\n",
+            ),
+        ],
+    );
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let uri = lsp.open(&root.join("queries/q.sql"), "sql");
+
+    let diags = lsp.await_diagnostics(&uri);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.get("code").and_then(|c| c.as_str()) == Some("query-mixed-parameters")),
+        "query-mixed-parameters attendu, obtenu : {diags:?}"
+    );
+}

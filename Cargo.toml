@@ -14,6 +14,7 @@ members = [
     "crates/pgweave-codegen",
     "crates/pgweave-lsp",
     "crates/pgweave-plugin-wasm",
+    "crates/pgweave-query",
     "bindings/wasm",
     "bindings/node",
 ]

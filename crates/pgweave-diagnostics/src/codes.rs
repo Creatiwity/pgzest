@@ -26,3 +26,24 @@ pub const UNSUPPORTED_STATEMENT: &str = "unsupported-statement";
 pub const UNPARSED_FUNCTION_BODY: &str = "unparsed-function-body";
 /// Expression que l'AST ne modélise pas. L'analyse la traverse sans conclure.
 pub const UNSUPPORTED_EXPRESSION: &str = "unsupported-expression";
+
+// ── Requêtes nommées (docs/named-queries.md) ─────────────────────────────────
+
+/// En-tête `-- name:` mal formé (nom, cardinalité, position).
+pub const QUERY_HEADER_INVALID: &str = "query-header-invalid";
+/// SQL placé hors d'une requête nommée dans un fichier de requêtes.
+pub const QUERY_WITHOUT_NAME: &str = "query-without-name";
+/// En-tête sans SQL.
+pub const QUERY_EMPTY: &str = "query-empty";
+/// Plus d'un statement sous un même en-tête.
+pub const QUERY_MULTIPLE_STATEMENTS: &str = "query-multiple-statements";
+/// Deux requêtes de même nom dans un fichier.
+pub const QUERY_DUPLICATE_NAME: &str = "query-duplicate-name";
+/// `$nom` et `$1` dans la même requête.
+pub const QUERY_MIXED_PARAMETERS: &str = "query-mixed-parameters";
+/// Paramètres positionnels avec un trou (`$1`, `$3` sans `$2`).
+pub const QUERY_PARAMETER_GAP: &str = "query-parameter-gap";
+/// Fichier de `[queries] directory` qui n'est pas un `.sql`.
+pub const QUERY_FILE_EXTENSION: &str = "query-file-extension";
+/// Paramètre mal formé (`$0`, `$pageId`).
+pub const QUERY_PARAMETER_INVALID: &str = "query-parameter-invalid";
