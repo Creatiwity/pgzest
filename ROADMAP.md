@@ -1,5 +1,10 @@
 # pgsql-tools — Roadmap
 
+> **Archivé le 2026-10-31 — remplacé par [PLAN.md](PLAN.md).**
+> Les statuts « ✅ Livrée » ci-dessous surestiment l'état réel (ex. : pas de
+> nullabilité, pas de compatibilité de types, génération TS heuristique,
+> `db.query<T>` réduit à un cast). Conservé pour l'historique.
+
 > Mise à jour : juin 2026. Basée sur l'audit complet du codebase et l'analyse architecturale OXC/datafusion.
 
 ---
