@@ -4,15 +4,24 @@
 //! test : toutes les vérifications passaient par la CLI, dont le chemin est
 //! différent. Ces tests parlent JSON-RPC sur stdio, comme VS Code.
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_pgweave-lsp");
+
+/// Délai maximal d'attente d'un message. Large : la CI exécute les tests en
+/// parallèle et le serveur peut être lent à démarrer. Ce n'est qu'un garde-fou
+/// contre un blocage, pas une hypothèse de timing.
+const TIMEOUT: Duration = Duration::from_secs(30);
 
 struct Lsp {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    /// Messages lus par un thread dédié : une lecture bloquante sur stdout
+    /// gèlerait le test pour toujours si le serveur ne répondait jamais.
+    messages: Receiver<serde_json::Value>,
     next_id: i64,
 }
 
@@ -25,11 +34,19 @@ impl Lsp {
             .spawn()
             .expect("le binaire pgweave-lsp doit démarrer");
         let stdin = child.stdin.take().expect("stdin");
-        let stdout = BufReader::new(child.stdout.take().expect("stdout"));
+        let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+        let (tx, messages) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            while let Some(msg) = read_message(&mut stdout) {
+                if tx.send(msg).is_err() {
+                    break;
+                }
+            }
+        });
         Self {
             child,
             stdin,
-            stdout,
+            messages,
             next_id: 0,
         }
     }
@@ -56,41 +73,49 @@ impl Lsp {
         }));
     }
 
-    /// Lit un message, ou `None` si le flux est clos.
-    fn read(&mut self) -> Option<serde_json::Value> {
-        let mut len = 0usize;
-        loop {
-            let mut line = String::new();
-            if self.stdout.read_line(&mut line).ok()? == 0 {
-                return None;
-            }
-            if line == "\r\n" || line == "\n" {
-                break;
-            }
-            if let Some(v) = line.strip_prefix("Content-Length:") {
-                len = v.trim().parse().ok()?;
+    /// Prochain message du serveur, ou panique si rien n'arrive avant
+    /// `deadline` ou si le serveur a fermé son flux.
+    fn next_message(&self, deadline: Instant, waiting_for: &str) -> serde_json::Value {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match self.messages.recv_timeout(remaining) {
+            Ok(msg) => msg,
+            Err(RecvTimeoutError::Timeout) => panic!("délai dépassé en attendant {waiting_for}"),
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("le serveur a fermé son flux en attendant {waiting_for}")
             }
         }
-        let mut buf = vec![0u8; len];
-        self.stdout.read_exact(&mut buf).ok()?;
-        serde_json::from_slice(&buf).ok()
     }
 
-    /// Lit jusqu'à la réponse portant `id`, en collectant les diagnostics vus.
-    fn await_response(&mut self, id: i64) -> (serde_json::Value, Vec<serde_json::Value>) {
-        let mut diags = Vec::new();
-        for _ in 0..200 {
-            let Some(msg) = self.read() else { break };
+    /// Lit jusqu'à la réponse portant `id`. Les autres messages sont ignorés.
+    fn await_response(&mut self, id: i64) -> serde_json::Value {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let msg = self.next_message(deadline, &format!("la réponse à la requête {id}"));
             if msg.get("id").and_then(|v| v.as_i64()) == Some(id) {
-                return (msg, diags);
-            }
-            if msg.get("method").and_then(|v| v.as_str()) == Some("textDocument/publishDiagnostics")
-                && let Some(d) = msg.pointer("/params/diagnostics")
-            {
-                diags.push(d.clone());
+                return msg;
             }
         }
-        panic!("aucune réponse pour la requête {id}");
+    }
+
+    /// Lit jusqu'à une publication de diagnostics pour `uri`.
+    ///
+    /// Le serveur traite `didOpen` de façon asynchrone : rien ne garantit
+    /// l'ordre entre cette publication et la réponse à une requête envoyée
+    /// ensuite. Il faut donc attendre la publication elle-même.
+    fn await_diagnostics(&mut self, uri: &str) -> Vec<serde_json::Value> {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let msg = self.next_message(deadline, &format!("des diagnostics pour {uri}"));
+            if msg.get("method").and_then(|v| v.as_str()) == Some("textDocument/publishDiagnostics")
+                && msg.pointer("/params/uri").and_then(|v| v.as_str()) == Some(uri)
+            {
+                return msg
+                    .pointer("/params/diagnostics")
+                    .and_then(|d| d.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+            }
+        }
     }
 
     /// initialize + initialized, avec la racine donnée.
@@ -106,7 +131,7 @@ impl Lsp {
             }),
         );
         // tower-lsp refuse tout avant d'avoir répondu à initialize.
-        let (resp, _) = self.await_response(id);
+        let resp = self.await_response(id);
         assert!(resp.get("result").is_some(), "initialize a échoué : {resp}");
         self.notify("initialized", serde_json::json!({}));
     }
@@ -124,6 +149,26 @@ impl Lsp {
         );
         uri
     }
+}
+
+/// Lit un message LSP (en-têtes + corps JSON), ou `None` si le flux est clos.
+fn read_message(stdout: &mut impl BufRead) -> Option<serde_json::Value> {
+    let mut len = 0usize;
+    loop {
+        let mut line = String::new();
+        if stdout.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        if line == "\r\n" || line == "\n" {
+            break;
+        }
+        if let Some(v) = line.strip_prefix("Content-Length:") {
+            len = v.trim().parse().ok()?;
+        }
+    }
+    let mut buf = vec![0u8; len];
+    stdout.read_exact(&mut buf).ok()?;
+    serde_json::from_slice(&buf).ok()
 }
 
 impl Drop for Lsp {
@@ -174,19 +219,11 @@ fn un_pgsql_propre_ne_produit_aucun_diagnostic() {
     lsp.init(&root);
     let uri = lsp.open(&root.join("schema/t.pgsql"), "pgsql");
 
-    let id = lsp.request(
-        "pgweave/expandMacro",
-        serde_json::json!({ "textDocument": { "uri": uri } }),
+    let diags = lsp.await_diagnostics(&uri);
+    assert!(
+        diags.is_empty(),
+        "aucun diagnostic attendu sur un .pgsql valide, obtenu : {diags:?}"
     );
-    let (_, diags) = lsp.await_response(id);
-
-    for d in &diags {
-        assert_eq!(
-            d.as_array().map(Vec::len),
-            Some(0),
-            "aucun diagnostic attendu sur un .pgsql valide, obtenu : {d}"
-        );
-    }
 }
 
 #[test]
@@ -214,15 +251,9 @@ fn une_erreur_dans_un_corps_de_macro_est_signalee_a_la_bonne_ligne() {
     lsp.init(&root);
     let uri = lsp.open(&root.join("schema/f.pgsql"), "pgsql");
 
-    let id = lsp.request(
-        "pgweave/expandMacro",
-        serde_json::json!({ "textDocument": { "uri": uri } }),
-    );
-    let (_, diags) = lsp.await_response(id);
-
+    let diags = lsp.await_diagnostics(&uri);
     let found = diags
         .iter()
-        .flat_map(|d| d.as_array().unwrap())
         .find(|d| d.get("code").and_then(|c| c.as_str()) == Some("column-not-found"));
     let d = found.unwrap_or_else(|| panic!("column-not-found attendu, obtenu : {diags:?}"));
 
@@ -259,7 +290,7 @@ fn expand_macro_rend_le_sql_desucre() {
             "position": { "line": 1, "character": 6 }
         }),
     );
-    let (resp, _) = lsp.await_response(id);
+    let resp = lsp.await_response(id);
     let sql = resp
         .pointer("/result/sql")
         .and_then(|v| v.as_str())
@@ -293,7 +324,7 @@ fn expand_macro_le_dit_quand_il_ny_a_pas_de_macro() {
         "pgweave/expandMacro",
         serde_json::json!({ "textDocument": { "uri": uri } }),
     );
-    let (resp, _) = lsp.await_response(id);
+    let resp = lsp.await_response(id);
 
     assert_eq!(
         resp.pointer("/result/sql").and_then(|v| v.as_str()),
