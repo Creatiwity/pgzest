@@ -1224,6 +1224,7 @@ dependencies = [
  "pgweave-ast",
  "pgweave-checker",
  "serde",
+ "serde_json",
  "sqlparser",
  "thiserror",
 ]

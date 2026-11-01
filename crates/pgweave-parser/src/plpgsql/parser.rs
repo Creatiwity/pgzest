@@ -43,6 +43,7 @@ pub fn parse_plpgsql_body_mapped(
     body_offset_in_input: usize,
     offsets: &crate::Offsets,
 ) -> Result<PlpgsqlBody, PlParseError> {
+    let _ids = crate::ids::session();
     let file_body_offset = body_offset_in_input;
     let offsets = offsets.clone();
     let mut lexer = Lexer::new(body);

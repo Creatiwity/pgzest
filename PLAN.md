@@ -448,7 +448,7 @@ Mise en place dès P0 ; chaque phase l'enrichit.
 Chaque phase a des critères de sortie vérifiables. On ne démarre pas la
 suivante sur une phase non terminée, sauf parallélisation explicitement notée.
 
-### P0 — Remise à plat (fondations de travail)
+### P0 — Remise à plat (fondations de travail) — ✅ terminée (2026-11-01)
 
 - ✅ Documentation alignée sur la réalité (`CLAUDE.md`, bandeau `ROADMAP.md`,
   README).
@@ -460,8 +460,9 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
   par variable d'environnement, agrégats sans noms), `docs/baselines/`.
   87 % des statements analysés, 220/220 migrations valides sur PG 18,
   27 faux positifs tous dus au repli textuel des corps PL/pgSQL.
-- ⏳ Identifiants de nœuds déterministes par fichier (fin du compteur
-  atomique global). Seul item P0 restant.
+- ✅ Identifiants de nœuds déterministes : numérotation par parse
+  (`crates/pgweave-parser/src/ids.rs`), le couple (fichier, `NodeId`)
+  identifie un nœud.
 - ✅ Spike salsa (D3) : GO, `docs/decisions/0001-salsa.md`.
 - ✅ Format des requêtes nommées figé : `docs/named-queries.md` (en-tête
   `-- name: x [:one|:optional|:many|:none]`, `$name`, vérifié par `check`

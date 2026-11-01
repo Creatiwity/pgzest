@@ -1,15 +1,10 @@
 mod convert;
 pub mod error;
+mod ids;
 pub mod normalize;
 pub mod plpgsql;
 
-use std::sync::atomic::{AtomicU32, Ordering};
-
-static NODE_COUNTER: AtomicU32 = AtomicU32::new(1);
-
-pub(crate) fn next_node_id() -> pgweave_ast::NodeId {
-    pgweave_ast::NodeId(NODE_COUNTER.fetch_add(1, Ordering::Relaxed))
-}
+pub(crate) use ids::next_node_id;
 
 pub use error::ParseError;
 pub use normalize::{NormalizedSelect, normalize_select};
@@ -704,6 +699,7 @@ pub fn parse_mapped_with_outcome(
 }
 
 fn parse_with_offsets(sql: &str, offsets: Offsets) -> Result<ParseOutcome, ParseError> {
+    let _ids = ids::session();
     let dialect = PostgreSqlDialect {};
 
     // Split into individual statement strings (respecting dollar-quotes).
@@ -1129,6 +1125,7 @@ fn split_statements(sql: &str) -> Vec<(String, usize)> {
 /// Expose single-statement conversion for testing purposes.
 /// Takes a pre-parsed sqlparser statement and converts it to a pgweave_ast Statement.
 pub fn convert_statement_pub(stmt: sqlparser::ast::Statement) -> Result<Statement, ParseError> {
+    let _ids = ids::session();
     convert::convert_statement(stmt)
 }
 

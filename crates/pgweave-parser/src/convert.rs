@@ -61,6 +61,7 @@ pub fn convert_statement_at(
 }
 
 pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
+    let _ids = crate::ids::session();
     match stmt {
         sp::Statement::Query(q) => {
             let sel = convert_query(*q)?;
