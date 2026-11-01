@@ -254,6 +254,9 @@ pub struct Assignment {
     /// Colonnes affectées : une seule (`a = v`), ou plusieurs pour la forme
     /// multi-colonnes `(a, b) = (v1, v2)` / `(a, b) = (SELECT …)`.
     pub columns: Vec<Ident>,
+    /// Champs d'une colonne composite affectée : `SET home.city = …` donne
+    /// `columns = [home]`, `subfields = [city]`. Vide sinon.
+    pub subfields: Vec<Ident>,
     pub value: Expr,
 }
 

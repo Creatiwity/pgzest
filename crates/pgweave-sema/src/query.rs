@@ -418,6 +418,7 @@ impl<'c> Analyzer<'c> {
     fn table_ref(&mut self, t: &TableRef, scope: &Scope) -> Result<Source, SemaError> {
         // Table (pas une vue ni une CTE) : colonnes système visibles.
         let mut system = false;
+        let mut rowtype = None;
         let (name, mut columns) = match &t.source {
             TableSource::Table(obj) => {
                 let (schema, n) = split_name(obj);
@@ -440,6 +441,7 @@ impl<'c> Analyzer<'c> {
                                 )
                             })?;
                         system = !matches!(rel.kind, RelationKind::View);
+                        rowtype = Some(rel.name.clone());
                         rel.columns
                             .iter()
                             .map(|c| Column {
@@ -494,7 +496,8 @@ impl<'c> Analyzer<'c> {
         for (c, a) in columns.iter_mut().zip(&t.column_aliases) {
             c.name = a.value.clone();
         }
-        let source = Source::new(t.alias.as_ref().map(|a| a.value.clone()).or(name), columns);
+        let mut source = Source::new(t.alias.as_ref().map(|a| a.value.clone()).or(name), columns);
+        source.rowtype = rowtype;
         Ok(if system {
             source.with_system_columns()
         } else {
@@ -700,7 +703,9 @@ impl<'c> Analyzer<'c> {
             Some(alias.map_or_else(|| n.to_string(), |a| a.value.clone())),
             columns,
         );
-        Ok((source.with_system_columns(), qname))
+        let mut source = source.with_system_columns();
+        source.rowtype = Some(qname.clone());
+        Ok((source, qname))
     }
 
     /// Valeur affectée à une colonne (contexte d'affectation).
@@ -784,7 +789,19 @@ impl<'c> Analyzer<'c> {
                 }
             }
             InsertSource::Select(q) => {
-                let cols = self.select(q, None, true)?;
+                // Les littéraux et paramètres sans type de la liste sont
+                // convertis vers les colonnes cibles, pas figés en `text`.
+                let mut cols = self.select(q, None, false)?;
+                if q.set_ops.is_empty() && q.values.is_empty() {
+                    for ((o, item), c) in cols.iter_mut().zip(&q.columns).zip(&targets) {
+                        if let (SelectItem::Expr { expr, .. }, Some(t)) = (item, &c.ty)
+                            && o.ty == pg("unknown")
+                        {
+                            self.coerce_to(expr, t);
+                            o.ty = t.clone();
+                        }
+                    }
+                }
                 for (o, c) in cols.iter().zip(&targets) {
                     if let Some(t) = &c.ty
                         && !self.ts.can_coerce(
@@ -854,6 +871,29 @@ impl<'c> Analyzer<'c> {
             })
             .collect::<Result<_, _>>()?;
         match (cols.as_slice(), &a.value.kind) {
+            // `SET home.city = …` : le champ du composite reçoit la valeur.
+            ([c], _) if !a.subfields.is_empty() => {
+                let mut target = c.clone();
+                let mut ty = c.ty.clone();
+                for f in &a.subfields {
+                    let base = ty.as_ref().map(|t| self.ts.base_type(t));
+                    ty = base.and_then(|b| self.composite_attribute(&b, &f.value));
+                    if ty.is_none() {
+                        return Err(SemaError::new(
+                            "column-not-found",
+                            format!(
+                                "cannot assign to field \"{}\" of column \"{}\"",
+                                f.value, c.name
+                            ),
+                            a.value.span,
+                        ));
+                    }
+                }
+                target.name = a.subfields.last().map_or(target.name, |f| f.value.clone());
+                target.ty = ty;
+                target.modifiers.clear();
+                self.assign(&a.value, &target, scope)
+            }
             ([c], _) => self.assign(&a.value, c, scope),
             (_, ExprKind::Tuple(values)) => {
                 for (v, c) in values.iter().zip(&cols) {

@@ -274,7 +274,7 @@ fn eval(cat: &Catalog, expr: &Expr, b: &Bindings) -> Option<Value> {
                 },
                 UnaryOp::IsNull => Value::Bool(v == Value::Null),
                 UnaryOp::IsNotNull => Value::Bool(v != Value::Null),
-                UnaryOp::Neg => return None,
+                UnaryOp::Neg | UnaryOp::Prefix(_) => return None,
             }
         }
         ExprKind::BinaryOp { left, op, right } => match op {

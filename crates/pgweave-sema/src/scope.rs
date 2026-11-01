@@ -54,6 +54,8 @@ pub struct Source {
     /// Colonnes visibles par leur nom mais absentes de `*` : colonnes
     /// système d'une table (`ctid`, `xmin`, `xmax`…).
     pub hidden: Vec<Column>,
+    /// Type ligne de la source : celui de la relation, `record` sinon.
+    pub rowtype: Option<Ty>,
 }
 
 impl Source {
@@ -62,6 +64,7 @@ impl Source {
             name,
             columns,
             hidden: Vec::new(),
+            rowtype: None,
         }
     }
 
@@ -201,6 +204,19 @@ impl<'p> Scope<'p> {
             .filter(|(s, c)| self.sources[*s].columns[*c].name == column)
             .count()
             == 1
+    }
+
+    /// Type de la ligne entière de la source nommée `name`, ici puis dans
+    /// les portées englobantes.
+    pub fn whole_row(&self, name: &str) -> Option<Ty> {
+        match self.source(name) {
+            Some(s) => Some(
+                s.rowtype
+                    .clone()
+                    .unwrap_or_else(|| crate::types::pg("record")),
+            ),
+            None => self.parent.and_then(|p| p.whole_row(name)),
+        }
     }
 
     /// Source visible sous ce nom.

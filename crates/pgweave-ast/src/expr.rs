@@ -94,6 +94,8 @@ pub enum UnaryOp {
     Neg,
     IsNull,
     IsNotNull,
+    /// Autre opérateur préfixe, par son symbole : `+`, `@`, `~`, `|/`, `||/`.
+    Prefix(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

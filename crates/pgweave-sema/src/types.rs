@@ -125,7 +125,9 @@ impl<'c> TypeSystem<'c> {
     /// `ISCOMPLEX` : type composite (y compris le type ligne d'une table,
     /// ou un domaine sur l'un d'eux), ou `record`.
     pub fn is_complex(&self, ty: &Ty) -> bool {
+        let base = self.base_type(ty);
         *ty == pg("record")
+            || self.catalog.relations.contains_key(&base)
             || matches!(
                 self.def(&self.base_type(ty)).map(|d| &d.kind),
                 Some(TypeKind::Composite { .. })

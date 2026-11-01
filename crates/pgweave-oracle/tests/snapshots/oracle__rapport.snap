@@ -4,7 +4,7 @@ expression: report
 ---
 # Oracle différentiel — PostgreSQL 18
 
-Requêtes : 90 · Colonnes conformes : 283/283 (100 %) · Paramètres conformes : 57/57 (100 %)
+Requêtes : 134 · Colonnes conformes : 413/413 (100 %) · Paramètres conformes : 80/80 (100 %)
 
 ## 01-basics
 
@@ -931,3 +931,444 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `id int8` | `id int8` | ✓ |
+
+
+## 07-schema-objects
+
+### `domain_columns`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `login citext` | `login citext` | ✓ |
+| 2 | `balance numeric` | `balance numeric` | ✓ |
+| 3 | `?column? numeric` | `?column? numeric` | ✓ |
+| 4 | `?column? text` | `?column? text` | ✓ |
+| 5 | `upper text` | `upper text` | ✓ |
+
+### `domain_param`
+
+Paramètres — PostgreSQL : `citext`, `numeric` · pgweave : `citext`, `numeric` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+
+### `domain_insert`
+
+Paramètres — PostgreSQL : `email`, `money_amount` · pgweave : `email`, `money_amount` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+| 2 | `login citext` | `login citext` | ✓ |
+| 3 | `balance numeric` | `balance numeric` | ✓ |
+
+### `composite_fields`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `city text` | `city text` | ✓ |
+| 2 | `zip varchar` | `zip varchar` | ✓ |
+| 3 | `home address` | `home address` | ✓ |
+
+### `composite_constructor`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `row address` | `row address` | ✓ |
+| 2 | `city text` | `city text` | ✓ |
+
+### `enum_ops`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `plan plan` | `plan plan` | ✓ |
+| 2 | `plan text` | `plan text` | ✓ |
+| 3 | `?column? bool` | `?column? bool` | ✓ |
+| 4 | `plans_seen plan[]` | `plans_seen plan[]` | ✓ |
+| 5 | `?column? bool` | `?column? bool` | ✓ |
+| 6 | `array_length int4` | `array_length int4` | ✓ |
+
+### `enum_param_array`
+
+Paramètres — PostgreSQL : `plan[]` · pgweave : `plan[]` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+
+### `enum_range`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `enum_range plan[]` | `enum_range plan[]` | ✓ |
+| 2 | `enum_first plan` | `enum_first plan` | ✓ |
+
+### `view_select`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+| 2 | `login citext` | `login citext` | ✓ |
+| 3 | `plan plan` | `plan plan` | ✓ |
+| 4 | `total numeric` | `total numeric` | ✓ |
+| 5 | `invoices int8` | `invoices int8` | ✓ |
+| 6 | `last_issue date` | `last_issue date` | ✓ |
+
+### `view_filter_param`
+
+Paramètres — PostgreSQL : `numeric` · pgweave : `numeric` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `login citext` | `login citext` | ✓ |
+| 2 | `total numeric` | `total numeric` | ✓ |
+
+### `schema_view`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `days_late int4` | `days_late int4` | ✓ |
+| 3 | `amount numeric` | `amount numeric` | ✓ |
+
+### `qualified_table`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `due_on date` | `due_on date` | ✓ |
+| 3 | `terms int4` | `terms int4` | ✓ |
+| 4 | `?column? jsonb` | `?column? jsonb` | ✓ |
+
+### `identity_insert`
+
+Paramètres — PostgreSQL : `int4`, `money_amount`, `date` · pgweave : `int4`, `money_amount`, `date` · 3/3
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `due_on date` | `due_on date` | ✓ |
+
+### `setof_function`
+
+Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `amount numeric` | `amount numeric` | ✓ |
+
+### `setof_function_star`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `account_id int4` | `account_id int4` | ✓ |
+| 3 | `amount numeric` | `amount numeric` | ✓ |
+| 4 | `issued_on date` | `issued_on date` | ✓ |
+| 5 | `due_on date` | `due_on date` | ✓ |
+| 6 | `lines jsonb` | `lines jsonb` | ✓ |
+
+### `returns_table_function`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `plan plan` | `plan plan` | ✓ |
+| 2 | `n int8` | `n int8` | ✓ |
+
+### `rowtype_argument`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `account_label text` | `account_label text` | ✓ |
+
+### `out_params_function`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `share numeric` | `share numeric` | ✓ |
+| 2 | `remainder numeric` | `remainder numeric` | ✓ |
+
+### `out_params_scalar`
+
+Paramètres — PostgreSQL : `numeric`, `int4` · pgweave : `numeric`, `int4` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `split_amount record` | `split_amount record` | ✓ |
+
+### `citext_compare`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+
+### `json_aggregation`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `account_id int4` | `account_id int4` | ✓ |
+| 2 | `json_agg json` | `json_agg json` | ✓ |
+| 3 | `jsonb_agg jsonb` | `jsonb_agg jsonb` | ✓ |
+| 4 | `jsonb_object_agg jsonb` | `jsonb_object_agg jsonb` | ✓ |
+
+### `row_to_json`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `row_to_json json` | `row_to_json json` | ✓ |
+| 2 | `to_json json` | `to_json json` | ✓ |
+
+### `regex`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `?column? bool` | `?column? bool` | ✓ |
+| 2 | `?column? bool` | `?column? bool` | ✓ |
+| 3 | `regexp_replace text` | `regexp_replace text` | ✓ |
+| 4 | `regexp_matches text[]` | `regexp_matches text[]` | ✓ |
+| 5 | `substring text` | `substring text` | ✓ |
+
+### `string_array`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `string_to_array text[]` | `string_to_array text[]` | ✓ |
+| 2 | `array_to_string text` | `array_to_string text` | ✓ |
+| 3 | `unnest plan` | `unnest plan` | ✓ |
+
+### `date_arith`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `?column? int4` | `?column? int4` | ✓ |
+| 2 | `?column? date` | `?column? date` | ✓ |
+| 3 | `?column? timestamp` | `?column? timestamp` | ✓ |
+| 4 | `?column? interval` | `?column? interval` | ✓ |
+| 5 | `created date` | `created date` | ✓ |
+| 6 | `extract numeric` | `extract numeric` | ✓ |
+
+### `series_timestamps`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `d timestamptz` | `d timestamptz` | ✓ |
+
+### `integer_division`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `?column? int4` | `?column? int4` | ✓ |
+| 2 | `?column? numeric` | `?column? numeric` | ✓ |
+| 3 | `?column? int4` | `?column? int4` | ✓ |
+| 4 | `?column? float8` | `?column? float8` | ✓ |
+| 5 | `?column? float8` | `?column? float8` | ✓ |
+| 6 | `?column? int4` | `?column? int4` | ✓ |
+| 7 | `?column? int4` | `?column? int4` | ✓ |
+| 8 | `?column? int4` | `?column? int4` | ✓ |
+| 9 | `?column? int4` | `?column? int4` | ✓ |
+| 10 | `?column? int4` | `?column? int4` | ✓ |
+| 11 | `?column? int4` | `?column? int4` | ✓ |
+
+### `numeric_rounding`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `round numeric` | `round numeric` | ✓ |
+| 2 | `trunc numeric` | `trunc numeric` | ✓ |
+| 3 | `ceil numeric` | `ceil numeric` | ✓ |
+| 4 | `floor numeric` | `floor numeric` | ✓ |
+| 5 | `amount int4` | `amount int4` | ✓ |
+| 6 | `round numeric` | `round numeric` | ✓ |
+| 7 | `round float8` | `round float8` | ✓ |
+
+### `window_frames`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `sum numeric` | `sum numeric` | ✓ |
+| 3 | `avg numeric` | `avg numeric` | ✓ |
+| 4 | `ntile int4` | `ntile int4` | ✓ |
+| 5 | `cume_dist float8` | `cume_dist float8` | ✓ |
+
+### `grouping_aggregates`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `account_id int4` | `account_id int4` | ✓ |
+| 2 | `every bool` | `every bool` | ✓ |
+| 3 | `bool_or bool` | `bool_or bool` | ✓ |
+| 4 | `stddev numeric` | `stddev numeric` | ✓ |
+| 5 | `variance numeric` | `variance numeric` | ✓ |
+| 6 | `count int8` | `count int8` | ✓ |
+
+### `param_is_null_or`
+
+Paramètres — PostgreSQL : `plan`, `timestamptz` · pgweave : `plan`, `timestamptz` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+
+### `param_between`
+
+Paramètres — PostgreSQL : `date`, `date` · pgweave : `date`, `date` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+
+### `param_like_concat`
+
+Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+
+### `param_insert_select`
+
+Paramètres — PostgreSQL : `money_amount`, `plan` · pgweave : `money_amount`, `plan` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+
+### `update_from_values`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+| 2 | `plan plan` | `plan plan` | ✓ |
+
+### `update_composite_field`
+
+Paramètres — PostgreSQL : `text`, `int4` · pgweave : `text`, `int4` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `home address` | `home address` | ✓ |
+
+### `delete_returning_all`
+
+Paramètres — PostgreSQL : `date` · pgweave : `date` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `account_id int4` | `account_id int4` | ✓ |
+| 3 | `amount numeric` | `amount numeric` | ✓ |
+| 4 | `issued_on date` | `issued_on date` | ✓ |
+| 5 | `due_on date` | `due_on date` | ✓ |
+| 6 | `lines jsonb` | `lines jsonb` | ✓ |
+
+### `fetch_first_for_update`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+| 2 | `plan plan` | `plan plan` | ✓ |
+
+### `exists_correlated_view`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `login citext` | `login citext` | ✓ |
+
+### `intersect_except`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+
+### `nested_cte_view`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `login citext` | `login citext` | ✓ |
+| 2 | `invoices int8` | `invoices int8` | ✓ |
+| 3 | `amount numeric` | `amount numeric` | ✓ |
+
+### `case_enum_text`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `price int4` | `price int4` | ✓ |
+| 2 | `case plan` | `case plan` | ✓ |
+
+### `coalesce_domain`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `coalesce numeric` | `coalesce numeric` | ✓ |
+| 2 | `coalesce address` | `coalesce address` | ✓ |
+
+### `array_param_unnest`
+
+Paramètres — PostgreSQL : `int4[]` · pgweave : `int4[]` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `x int4` | `x int4` | ✓ |

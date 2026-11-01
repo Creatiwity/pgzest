@@ -248,11 +248,21 @@ impl<'c> Analyzer<'c> {
                 ))
             }
             ExprKind::Column(c) => {
-                let col = scope.lookup(
+                let col = match scope.lookup(
                     c.table.as_ref().map(|t| t.value.as_str()),
                     &c.column.value,
                     span,
-                )?;
+                ) {
+                    Ok(col) => col,
+                    // Nom d'une source : la ligne entière, de son type ligne.
+                    Err(e) if e.code == "column-not-found" && c.table.is_none() => {
+                        return match scope.whole_row(&c.column.value) {
+                            Some(ty) => Ok(Typed::new(ty, Nullability::Unknown)),
+                            None => Err(e),
+                        };
+                    }
+                    Err(e) => return Err(e),
+                };
                 let ty = col.ty.clone().ok_or_else(|| {
                     SemaError::not_analyzed(format!("type de la colonne « {} »", col.name), span)
                 })?;
@@ -272,6 +282,7 @@ impl<'c> Analyzer<'c> {
                     Ok(Typed::new(pg("bool"), Nullability::NonNull))
                 }
                 UnaryOp::Neg => self.operator("-", None, expr, scope, span),
+                UnaryOp::Prefix(op) => self.operator(op, None, expr, scope, span),
             },
             ExprKind::FunctionCall { .. } => self.function(e, scope),
             ExprKind::Case {
@@ -658,7 +669,7 @@ impl<'c> Analyzer<'c> {
     }
 
     /// Type d'un attribut de type composite (type ligne d'une table compris).
-    fn composite_attribute(&self, ty: &Ty, field: &str) -> Option<Ty> {
+    pub(crate) fn composite_attribute(&self, ty: &Ty, field: &str) -> Option<Ty> {
         use pgweave_catalog::model::TypeKind;
         if let Some(TypeKind::Composite { attributes }) = self.ts.def(ty).map(|d| &d.kind) {
             return attributes
@@ -700,6 +711,13 @@ impl<'c> Analyzer<'c> {
             for x in spec.exprs() {
                 self.expr(x, scope)?;
             }
+        }
+        // `ROW(a, b)` : constructeur de ligne, comme `(a, b)`.
+        if name.0.len() == 1 && name.0[0].value == "row" && !name.0[0].quoted {
+            for a in args {
+                self.expr(a, scope)?;
+            }
+            return Ok(Typed::new(pg("record"), Nullability::NonNull));
         }
         if let Some(elems) = is_array_constructor(e) {
             return self.array_constructor(elems, scope, span);

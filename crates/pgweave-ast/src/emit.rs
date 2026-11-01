@@ -588,6 +588,7 @@ pub fn emit_expr(expr: &Expr) -> String {
         ),
         ExprKind::UnaryOp { op, expr } => match op {
             UnaryOp::Not => format!("(NOT {})", emit_expr(expr)),
+            UnaryOp::Prefix(op) => format!("({op} {})", emit_expr(expr)),
             UnaryOp::Neg => format!("(-{})", emit_expr(expr)),
             UnaryOp::IsNull => format!("({} IS NULL)", emit_expr(expr)),
             UnaryOp::IsNotNull => format!("({} IS NOT NULL)", emit_expr(expr)),
@@ -1716,7 +1717,11 @@ fn emit_insert(ins: &InsertStmt) -> String {
 
 fn emit_assignment(a: &Assignment) -> String {
     let target = match a.columns.as_slice() {
-        [one] => emit_ident(one),
+        [one] => std::iter::once(one)
+            .chain(&a.subfields)
+            .map(emit_ident)
+            .collect::<Vec<_>>()
+            .join("."),
         many => format!(
             "({})",
             many.iter().map(emit_ident).collect::<Vec<_>>().join(", ")

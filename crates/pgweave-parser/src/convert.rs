@@ -1075,6 +1075,11 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             let uop = match op {
                 sp::UnaryOperator::Not => UnaryOp::Not,
                 sp::UnaryOperator::Minus => UnaryOp::Neg,
+                sp::UnaryOperator::Plus => UnaryOp::Prefix("+".into()),
+                sp::UnaryOperator::PGAbs => UnaryOp::Prefix("@".into()),
+                sp::UnaryOperator::BitwiseNot => UnaryOp::Prefix("~".into()),
+                sp::UnaryOperator::PGSquareRoot => UnaryOp::Prefix("|/".into()),
+                sp::UnaryOperator::PGCubeRoot => UnaryOp::Prefix("||/".into()),
                 _ => {
                     return Err(ParseError::Unsupported(format!(
                         "unsupported unary op: {:?}",
@@ -1891,23 +1896,45 @@ fn convert_on_conflict(oc: sp::OnConflict) -> Result<OnConflict, ParseError> {
 }
 
 fn convert_assignment(a: sp::Assignment) -> Result<Assignment, ParseError> {
-    let column = |name: sp::ObjectName| {
-        name.0
+    // Cible de `SET` : la colonne, puis les champs d'un composite
+    // (`home.city`) ; jamais un nom de table.
+    let path = |name: sp::ObjectName| -> Result<Vec<Ident>, ParseError> {
+        let parts: Vec<Ident> = name
+            .0
             .into_iter()
             .filter_map(part_to_ident)
-            .next_back()
             .map(convert_ident)
-            .ok_or_else(|| ParseError::Unsupported("empty assignment target".to_string()))
+            .collect();
+        if parts.is_empty() {
+            return Err(ParseError::Unsupported(
+                "empty assignment target".to_string(),
+            ));
+        }
+        Ok(parts)
     };
-    let columns = match a.target {
-        sp::AssignmentTarget::ColumnName(name) => vec![column(name)?],
-        sp::AssignmentTarget::Tuple(names) => names
-            .into_iter()
-            .map(column)
-            .collect::<Result<Vec<_>, _>>()?,
+    let (columns, subfields) = match a.target {
+        sp::AssignmentTarget::ColumnName(name) => {
+            let mut parts = path(name)?;
+            let rest = parts.split_off(1);
+            (parts, rest)
+        }
+        sp::AssignmentTarget::Tuple(names) => {
+            let mut cols = Vec::new();
+            for n in names {
+                let parts = path(n)?;
+                if parts.len() > 1 {
+                    return Err(ParseError::Unsupported(
+                        "champ de composite dans une affectation multi-colonnes".to_string(),
+                    ));
+                }
+                cols.extend(parts);
+            }
+            (cols, Vec::new())
+        }
     };
     Ok(Assignment {
         columns,
+        subfields,
         value: convert_expr(a.value)?,
     })
 }
