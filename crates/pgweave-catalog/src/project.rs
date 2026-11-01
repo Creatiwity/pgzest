@@ -3,15 +3,19 @@
 //!
 //! Remplace `SchemaResolver` et `DdlSchemaProvider` : un seul moteur
 //! d'application des DDL (D2). La vue [`SchemaProvider`] sert les
-//! consommateurs pas encore migrés ; l'index de navigation (LSP) est
-//! conservé tel quel.
+//! consommateurs pas encore migrés.
+//!
+//! [`ProjectBuilder`] porte le rejeu fichier par fichier : la CLI l'alimente
+//! en parsant les fragments ([`ProjectCatalog::from_chunks_with_macros`]),
+//! la base incrémentale (`pgweave-project`) avec ses parses mémorisés. Les
+//! deux suivent donc exactement les mêmes règles.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pgweave_ast::Statement;
 use pgweave_diagnostics::{Diagnostic, codes};
-use pgweave_parser::SkippedStatement;
-use pgweave_schema::SchemaIndex;
+use pgweave_parser::{ParseError, ParseOutcome, SkippedStatement};
+use pgweave_schema::FileRole;
 use pgweave_schema::provider::{
     FunctionSignature, RlsAwareSchemaProvider, SchemaProvider, TableSchema,
 };
@@ -29,8 +33,6 @@ pub struct ProjectCatalog {
     pub catalog: Catalog,
     /// `search_path` en fin de rejeu.
     pub search_path: SearchPath,
-    /// Index des définitions par fichier, pour la navigation.
-    pub index: SchemaIndex,
     /// Statements écartés pendant le parse, avec leur fichier : l'état
     /// reconstruit peut être incomplet.
     pub skipped: Vec<(PathBuf, SkippedStatement)>,
@@ -45,38 +47,121 @@ fn base() -> Replay {
     )
 }
 
-impl ProjectCatalog {
-    fn finish(
-        replay: Replay,
-        index: SchemaIndex,
-        skipped: Vec<(PathBuf, SkippedStatement)>,
-        diagnostics: Vec<(PathBuf, Diagnostic)>,
-    ) -> Self {
-        let view = CatalogSchema::new(&replay.catalog, &replay.search_path);
-        ProjectCatalog {
-            catalog: replay.catalog,
-            search_path: replay.search_path,
-            index,
-            skipped,
-            diagnostics,
-            view,
+/// Parse d'un fragment du projet, macros désucrées. `offset` est la position
+/// du fragment dans son document : les spans sont exprimés dans le repère du
+/// document hôte.
+pub fn parse_source(
+    sql: &str,
+    offset: usize,
+    macros: &pgweave_macro::MacroSet,
+) -> Result<ParseOutcome, ParseError> {
+    let expansion = pgweave_macro::expand_source(sql, macros);
+    if expansion.is_passthrough() {
+        pgweave_parser::parse_at_with_outcome(sql, offset)
+    } else {
+        pgweave_parser::parse_mapped_with_outcome(&expansion.sql, &expansion.map)
+    }
+}
+
+/// Rejeu ordonné des fichiers d'un projet (schéma, puis migrations par
+/// séquence), chacun déjà parsé.
+pub struct ProjectBuilder {
+    replay: Replay,
+    skipped: Vec<(PathBuf, SkippedStatement)>,
+    diagnostics: Vec<(PathBuf, Diagnostic)>,
+    /// Première migration sans en-tête, et leur nombre.
+    without_header: Option<(PathBuf, usize)>,
+}
+
+impl Default for ProjectBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProjectBuilder {
+    pub fn new() -> Self {
+        ProjectBuilder {
+            replay: base(),
+            skipped: Vec::new(),
+            diagnostics: Vec::new(),
+            without_header: None,
         }
     }
 
+    /// Applique un fichier : `sql` est son texte (en-tête de migration),
+    /// `parsed` son parse. Un fichier illisible n'apporte rien au catalogue ;
+    /// l'erreur de parse est signalée par la vérification du fichier.
+    pub fn add_file(
+        &mut self,
+        path: &Path,
+        sql: &str,
+        role: &FileRole,
+        parsed: Result<&ParseOutcome, &ParseError>,
+    ) {
+        let is_migration = matches!(role, FileRole::Migration { .. });
+        if is_migration && pgweave_schema::MigrationHeader::find(sql).is_none() {
+            let e = self.without_header.get_or_insert((path.to_path_buf(), 0));
+            e.1 += 1;
+        }
+        let Ok(outcome) = parsed else {
+            return;
+        };
+        self.skipped.extend(
+            outcome
+                .skipped
+                .iter()
+                .map(|sk| (path.to_path_buf(), sk.clone())),
+        );
+        let mut diags = Vec::new();
+        for s in &outcome.statements {
+            self.replay.apply(s, &mut diags);
+        }
+        if is_migration {
+            check_header(sql, &self.replay.catalog, &mut diags);
+        }
+        self.diagnostics
+            .extend(diags.into_iter().map(|d| (path.to_path_buf(), d)));
+    }
+
+    pub fn finish(mut self) -> ProjectCatalog {
+        if let Some((first, n)) = self.without_header {
+            self.diagnostics.push((
+                first,
+                Diagnostic::info(
+                    codes::MIGRATION_WITHOUT_HEADER,
+                    format!(
+                        "{n} migration(s) sans en-tête `-- pgweave:` : analysées avec postgres@{DEFAULT_POSTGRES}"
+                    ),
+                ),
+            ));
+        }
+        let view = CatalogSchema::new(&self.replay.catalog, &self.replay.search_path);
+        ProjectCatalog {
+            catalog: self.replay.catalog,
+            search_path: self.replay.search_path,
+            skipped: self.skipped,
+            diagnostics: self.diagnostics,
+            view,
+        }
+    }
+}
+
+impl ProjectCatalog {
     /// Catalogue de base, sans objet du projet.
     pub fn empty() -> Self {
-        Self::finish(base(), SchemaIndex::default(), Vec::new(), Vec::new())
+        ProjectBuilder::new().finish()
     }
 
     /// Rejeu de statements déjà parsés, dans l'ordre.
     pub fn from_statements(stmts: &[Statement]) -> Self {
-        let mut replay = base();
-        let mut diags = Vec::new();
-        for s in stmts {
-            replay.apply(s, &mut diags);
-        }
-        let diagnostics = diags.into_iter().map(|d| (PathBuf::new(), d)).collect();
-        Self::finish(replay, SchemaIndex::default(), Vec::new(), diagnostics)
+        let mut b = ProjectBuilder::new();
+        let outcome = ParseOutcome {
+            statements: stmts.to_vec(),
+            skipped: Vec::new(),
+        };
+        b.add_file(Path::new(""), "", &FileRole::Schema, Ok(&outcome));
+        b.finish()
     }
 
     /// Rejeu d'un texte SQL (tests, fichier isolé).
@@ -93,55 +178,12 @@ impl ProjectCatalog {
     /// (fichiers de schéma, puis migrations par séquence). Les macros sont
     /// désucrées d'abord : une table déclarée par une macro existe.
     pub fn from_chunks_with_macros(chunks: &[SqlChunk], macros: &pgweave_macro::MacroSet) -> Self {
-        let mut replay = base();
-        let mut skipped = Vec::new();
-        let mut diagnostics = Vec::new();
-        let mut without_header: Option<(PathBuf, usize)> = None;
+        let mut b = ProjectBuilder::new();
         for chunk in chunks {
-            if matches!(chunk.role, pgweave_schema::FileRole::Migration { .. })
-                && pgweave_schema::MigrationHeader::find(&chunk.sql).is_none()
-            {
-                let e = without_header.get_or_insert((chunk.origin.path.clone(), 0));
-                e.1 += 1;
-            }
-            let expansion = pgweave_macro::expand_source(&chunk.sql, macros);
-            let parsed = if expansion.is_passthrough() {
-                pgweave_parser::parse_at_with_outcome(&chunk.sql, chunk.origin.byte_range.start)
-            } else {
-                pgweave_parser::parse_mapped_with_outcome(&expansion.sql, &expansion.map)
-            };
-            let Ok(outcome) = parsed else {
-                continue;
-            };
-            for sk in outcome.skipped {
-                skipped.push((chunk.origin.path.clone(), sk));
-            }
-            let mut diags = Vec::new();
-            for s in &outcome.statements {
-                replay.apply(s, &mut diags);
-            }
-            if matches!(chunk.role, pgweave_schema::FileRole::Migration { .. }) {
-                check_header(&chunk.sql, &replay.catalog, &mut diags);
-            }
-            diagnostics.extend(diags.into_iter().map(|d| (chunk.origin.path.clone(), d)));
+            let parsed = parse_source(&chunk.sql, chunk.origin.byte_range.start, macros);
+            b.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());
         }
-        if let Some((first, n)) = without_header {
-            diagnostics.push((
-                first,
-                Diagnostic::info(
-                    codes::MIGRATION_WITHOUT_HEADER,
-                    format!(
-                        "{n} migration(s) sans en-tête `-- pgweave:` : analysées avec postgres@{DEFAULT_POSTGRES}"
-                    ),
-                ),
-            ));
-        }
-        Self::finish(
-            replay,
-            SchemaIndex::from_chunks(chunks),
-            skipped,
-            diagnostics,
-        )
+        b.finish()
     }
 }
 

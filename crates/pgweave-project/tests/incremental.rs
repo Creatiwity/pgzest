@@ -1,10 +1,11 @@
 //! Critère de sortie de P2 : modifier un fichier ne recalcule que ce qui en
 //! dépend.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use pgweave_project::{Database, Project, SourceFile, check_file};
-use pgweave_schema::FileRole;
+use pgweave_project::{Database, Project, SourceFile, Workspace, check_file};
+use pgweave_schema::{FileRole, SourceOrigin, SqlChunk};
 use salsa::Setter;
 
 struct Fixture {
@@ -22,20 +23,27 @@ fn fixture() -> Fixture {
         PathBuf::from("schema.sql"),
         "CREATE TABLE t (a INT, b TEXT);\n".into(),
         FileRole::Schema,
+        0,
     );
     let q1 = SourceFile::new(
         &db,
         PathBuf::from("q1.sql"),
         "SELECT a FROM t;".into(),
         FileRole::Query,
+        0,
     );
     let q2 = SourceFile::new(
         &db,
         PathBuf::from("q2.sql"),
         "SELECT c FROM t;".into(),
         FileRole::Query,
+        0,
     );
-    let project = Project::new(&db, vec![schema, q1, q2]);
+    let project = Project::new(
+        &db,
+        vec![schema, q1, q2],
+        Arc::new(pgweave_macro::MacroSet::builtin()),
+    );
     Fixture {
         db,
         project,
@@ -98,6 +106,79 @@ fn un_schema_inchange_en_substance_coupe_la_propagation() {
         !executed.iter().any(|e| e.starts_with("check_file")),
         "catalogue identique : aucune vérification relancée — {executed:?}"
     );
+}
+
+#[test]
+fn changer_les_macros_relit_tous_les_fichiers() {
+    let mut f = fixture();
+    check_all(&f);
+    f.db.take_executions();
+
+    f.project
+        .set_macros(&mut f.db)
+        .to(Arc::new(pgweave_macro::MacroSet::builtin()));
+    check_all(&f);
+    let executed = f.db.take_executions();
+    for file in ["schema.sql", "q1.sql", "q2.sql"] {
+        assert!(
+            executed.contains(&format!("parse_file({file})")),
+            "{executed:?}"
+        );
+    }
+}
+
+fn chunk(path: &str, sql: &str, role: FileRole) -> SqlChunk {
+    SqlChunk {
+        origin: SourceOrigin {
+            path: PathBuf::from(path),
+            byte_range: 0..sql.len(),
+        },
+        sql: sql.into(),
+        role,
+    }
+}
+
+#[test]
+fn espace_de_travail_suit_le_texte_de_l_editeur() {
+    let mut ws = Workspace::new(
+        &[
+            chunk("schema.sql", "CREATE TABLE t (a INT);", FileRole::Schema),
+            chunk(
+                "m1.sql",
+                "ALTER TABLE t ADD COLUMN b nope;",
+                FileRole::Migration { sequence: 1 },
+            ),
+        ],
+        Arc::new(pgweave_macro::MacroSet::builtin()),
+    );
+    let has_b = |ws: &Workspace| {
+        ws.catalog()
+            .catalog
+            .relations
+            .values()
+            .any(|r| r.columns.iter().any(|c| c.name == "b"))
+    };
+    assert!(has_b(&ws));
+    let not_found = |ws: &Workspace| {
+        ws.replay_diagnostics(Path::new("m1.sql"))
+            .iter()
+            .filter(|d| d.code == "type-not-found")
+            .count()
+    };
+    assert_eq!(not_found(&ws), 1);
+    assert!(ws.replay_diagnostics(Path::new("schema.sql")).is_empty());
+
+    // Texte non sauvegardé : pris en compte sans relire le disque.
+    assert!(ws.set_text(Path::new("m1.sql"), "SELECT 1;"));
+    assert!(!has_b(&ws));
+    assert_eq!(not_found(&ws), 0);
+    assert!(!ws.set_text(Path::new("inconnu.sql"), "SELECT 1;"));
+
+    // Même texte : rien n'est recalculé.
+    ws.take_executions();
+    assert!(ws.set_text(Path::new("m1.sql"), "SELECT 1;"));
+    ws.catalog();
+    assert!(ws.take_executions().is_empty());
 }
 
 #[test]

@@ -371,3 +371,63 @@ fn le_format_des_requetes_nommees_est_verifie_comme_en_cli() {
         "query-mixed-parameters attendu, obtenu : {diags:?}"
     );
 }
+
+#[test]
+fn le_schema_non_sauvegarde_fait_foi_jusqu_a_sa_fermeture() {
+    let root = scaffold(
+        "buffer",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+                 [queries]\ndirectory = \"queries\"\n",
+            ),
+            ("schema/t.sql", "CREATE TABLE t (a INT);\n"),
+            ("queries/q.sql", "-- name: q\nSELECT b FROM t;\n"),
+        ],
+    );
+    let codes = |diags: &[serde_json::Value]| -> Vec<String> {
+        diags
+            .iter()
+            .filter_map(|d| d.get("code").and_then(|c| c.as_str()).map(str::to_string))
+            .collect()
+    };
+    let change = |lsp: &mut Lsp, uri: &str, version: i64, text: &str| {
+        lsp.notify(
+            "textDocument/didChange",
+            serde_json::json!({
+                "textDocument": { "uri": uri, "version": version },
+                "contentChanges": [{ "text": text }]
+            }),
+        );
+    };
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let q = lsp.open(&root.join("queries/q.sql"), "sql");
+    let diags = lsp.await_diagnostics(&q);
+    assert!(
+        codes(&diags).contains(&"column-not-found".to_string()),
+        "{diags:?}"
+    );
+
+    // La colonne est ajoutée dans l'éditeur, sans sauvegarde.
+    let t = lsp.open(&root.join("schema/t.sql"), "sql");
+    lsp.await_diagnostics(&t);
+    change(&mut lsp, &t, 2, "CREATE TABLE t (a INT, b INT);\n");
+    lsp.await_diagnostics(&t);
+    change(&mut lsp, &q, 2, "-- name: q\nSELECT b FROM t;\n");
+    let diags = lsp.await_diagnostics(&q);
+    assert!(codes(&diags).is_empty(), "{diags:?}");
+
+    // Fermé sans sauvegarde : le disque refait foi.
+    lsp.notify(
+        "textDocument/didClose",
+        serde_json::json!({ "textDocument": { "uri": t } }),
+    );
+    change(&mut lsp, &q, 3, "-- name: q\nSELECT b FROM t;\n");
+    let diags = lsp.await_diagnostics(&q);
+    assert!(
+        codes(&diags).contains(&"column-not-found".to_string()),
+        "{diags:?}"
+    );
+}

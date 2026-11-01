@@ -543,8 +543,11 @@ format(…)` : à reprendre avec l'interprétation des corps (P3+).
 Reste, dans l'ordre :
 1. ✅ siren (défauts `DEFAULT NULL` stockés selon la coercion, pack
    `btree_gin` enregistré : l'import passe).
-2. Brancher le LSP sur `pgweave-project` (passer les macros du projet en
-   entrée salsa, diagnostics de rejeu par fichier).
+2. ✅ LSP sur `pgweave-project` : `Workspace` salsa (macros du projet en
+   entrée, texte de l'éditeur prioritaire sur le disque jusqu'à fermeture,
+   diagnostics de rejeu par fichier comme `pgweave check`) ; `ProjectBuilder`
+   partagé avec la CLI ; `SchemaIndex` (sans consommateur, double parse)
+   supprimé.
 3. Portées routine/bloc dans le catalogue : reportées en P3 avec le HIR
    (le `TypeContext` du checker les porte en attendant).
 4. Clore P2 : baselines (`docs/baselines/`), statut ci-dessous.

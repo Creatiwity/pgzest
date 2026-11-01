@@ -6,6 +6,7 @@ use pgweave_catalog::ProjectCatalog;
 use pgweave_diagnostics::{Diagnostic, Severity};
 use pgweave_lint::config::LintConfig;
 use pgweave_plugin_wasm::{WasmCheckRule, WasmPlugin};
+use pgweave_project::Workspace;
 use pgweave_schema::provider::SchemaProvider;
 use pgweave_schema::{FileRole, ProjectConfig, check_ddl_role};
 use tokio::sync::Mutex;
@@ -48,8 +49,10 @@ pub struct ExpandMacroResult {
 pub struct PgsqlBackend {
     client: Client,
     documents: Mutex<HashMap<String, String>>,
-    /// Shared schema resolver — rebuilt when schema/migration files change.
-    resolver: Mutex<Arc<ProjectCatalog>>,
+    /// Projet en base incrémentale : fichiers lus au chargement, remplacés par
+    /// le texte de l'éditeur à mesure qu'il change. Le catalogue n'est
+    /// recalculé que si un fichier de schéma ou une migration change.
+    workspace: Mutex<Workspace>,
     /// Project root and config (from pgweave.toml).
     project_root: Mutex<Option<PathBuf>>,
     config: Mutex<Option<ProjectConfig>>,
@@ -69,7 +72,10 @@ impl PgsqlBackend {
         Self {
             client,
             documents: Mutex::new(HashMap::new()),
-            resolver: Mutex::new(Arc::new(ProjectCatalog::empty())),
+            workspace: Mutex::new(Workspace::new(
+                &[],
+                Arc::new(pgweave_macro::MacroSet::builtin()),
+            )),
             project_root: Mutex::new(None),
             config: Mutex::new(None),
             legacy_schema_path: Mutex::new(None),
@@ -157,12 +163,33 @@ impl PgsqlBackend {
                 }
             }
         }
-        *self.macros.lock().await = Arc::new(set);
+        let set = Arc::new(set);
+        *self.macros.lock().await = set.clone();
+        self.workspace.lock().await.set_macros(set);
     }
 
-    /// Clone the current resolver out of the lock (cheap — Arc clone).
+    /// Catalogue du projet à jour (rejeu mémorisé, clone d'Arc).
     async fn resolver(&self) -> Arc<ProjectCatalog> {
-        self.resolver.lock().await.clone()
+        self.workspace.lock().await.catalog()
+    }
+
+    /// Charge le projet formé de `chunks`, puis y reporte le texte des
+    /// documents ouverts : l'éditeur fait foi sur le disque.
+    async fn load_workspace(&self, chunks: Vec<pgweave_schema::SqlChunk>) {
+        let chunks: Vec<_> = chunks
+            .into_iter()
+            .map(|mut c| {
+                c.origin.path = canonical(&c.origin.path);
+                c
+            })
+            .collect();
+        let mut ws = Workspace::new(&chunks, self.macros().await);
+        for (uri, text) in self.documents.lock().await.iter() {
+            if let Some(path) = uri_to_path(uri) {
+                ws.set_text(&path, text);
+            }
+        }
+        *self.workspace.lock().await = ws;
     }
 
     /// Determine the `FileRole` of a URI.
@@ -190,29 +217,27 @@ impl PgsqlBackend {
         FileRole::Schema
     }
 
-    /// Rebuild the resolver from the project config (or legacy path).
-    async fn rebuild_resolver(&self) {
+    /// Recharge le projet depuis le disque (config, ou chemin historique) :
+    /// nouveau fichier, config modifiée. Une simple modification de texte
+    /// passe par [`Workspace::set_text`], sans relecture.
+    async fn reload_workspace(&self) {
         let root = self.project_root.lock().await.clone();
 
-        let new_resolver = if let Some(ref root) = root {
+        let chunks = if let Some(ref root) = root {
             let config_path = root.join(ProjectConfig::FILENAME);
             match ProjectConfig::load(&config_path) {
                 Ok(config) => {
-                    // Macros du projet chargées d'abord : l'index doit voir les
-                    // objets déclarés par les macros maison, pas seulement par
-                    // celles fournies.
+                    // Macros du projet chargées d'abord : le catalogue doit
+                    // voir les objets déclarés par les macros maison, pas
+                    // seulement par celles fournies.
                     self.rebuild_macros().await;
-                    let macros = self.macros().await;
                     let source = config.to_source(root);
-                    let resolver = ProjectCatalog::from_chunks_with_macros(
-                        &pgweave_schema::SchemaSource::chunks(&source),
-                        &macros,
-                    );
+                    let chunks = pgweave_schema::SchemaSource::chunks(&source);
                     // La config rechargée remplace l'ancienne : sans cela une
                     // modification de [rules] ou [parse] n'était prise en compte
                     // qu'au redémarrage du serveur.
                     *self.config.lock().await = Some(config);
-                    resolver
+                    chunks
                 }
                 Err(e) => {
                     self.client
@@ -222,18 +247,15 @@ impl PgsqlBackend {
                 }
             }
         } else if let Some(ref path) = *self.legacy_schema_path.lock().await {
-            match load_schema_sql(path) {
-                Ok(sql) => {
-                    ProjectCatalog::from_sql(&sql).unwrap_or_else(|_| ProjectCatalog::empty())
-                }
+            match legacy_chunks(path) {
+                Ok(chunks) => chunks,
                 Err(_) => return,
             }
         } else {
             return;
         };
 
-        *self.resolver.lock().await = Arc::new(new_resolver);
-        self.rebuild_macros().await;
+        self.load_workspace(chunks).await;
     }
 
     /// Build a Checker with built-in rules + any loaded WASM plugins.
@@ -340,6 +362,12 @@ impl PgsqlBackend {
         };
         diags.extend(checker_diags);
 
+        // Diagnostics du rejeu du projet rattachés à ce fichier (types
+        // introuvables, en-têtes de migration…), comme `pgweave check`.
+        if let Some(path) = uri_to_path(uri) {
+            diags.extend(self.workspace.lock().await.replay_diagnostics(&path));
+        }
+
         // ── Lint + règles de rôle ─────────────────────────────────────────────
         diags.extend(pgweave_lint::lint_statements(&stmts, &LintConfig::default()).diagnostics);
         diags.extend(check_ddl_role(&stmts, &role));
@@ -439,16 +467,12 @@ impl LanguageServer for PgsqlBackend {
         };
         if let Some((project_root, config)) = discovered {
             *self.project_root.lock().await = Some(project_root.clone());
-            // Macros du projet d'abord : l'index doit voir les objets déclarés
-            // par les macros maison, pas seulement par celles fournies.
+            // Macros du projet d'abord : le catalogue doit voir les objets
+            // déclarés par les macros maison, pas seulement par celles fournies.
             self.rebuild_macros().await;
-            let macros = self.macros().await;
             let source = config.to_source(&project_root);
-            let resolver = ProjectCatalog::from_chunks_with_macros(
-                &pgweave_schema::SchemaSource::chunks(&source),
-                &macros,
-            );
-            *self.resolver.lock().await = Arc::new(resolver);
+            self.load_workspace(pgweave_schema::SchemaSource::chunks(&source))
+                .await;
 
             // Load WASM plugins listed in [plugins] wasm = [...]
             let mut loaded: Vec<Arc<WasmPlugin>> = Vec::new();
@@ -502,12 +526,8 @@ impl LanguageServer for PgsqlBackend {
             && !path.is_empty()
         {
             *self.legacy_schema_path.lock().await = Some(path.to_string());
-            match load_schema_sql(path) {
-                Ok(sql) => {
-                    if let Ok(r) = ProjectCatalog::from_sql(&sql) {
-                        *self.resolver.lock().await = Arc::new(r);
-                    }
-                }
+            match legacy_chunks(path) {
+                Ok(chunks) => self.load_workspace(chunks).await,
                 Err(e) => {
                     self.client
                         .log_message(
@@ -568,10 +588,27 @@ impl LanguageServer for PgsqlBackend {
                 .await
                 .insert(uri.clone(), text.clone());
 
-            // Rebuild schema if a schema/migration file changed.
-            let role = self.role_of(&uri).await;
-            if matches!(role, FileRole::Schema | FileRole::Migration { .. }) {
-                self.rebuild_resolver().await;
+            let path = uri_to_path(&uri);
+            if path
+                .as_deref()
+                .and_then(Path::extension)
+                .is_some_and(|e| e == "pgmacro")
+            {
+                // Macro du projet : tous les fichiers sont relus.
+                self.rebuild_macros().await;
+            } else if matches!(
+                self.role_of(&uri).await,
+                FileRole::Schema | FileRole::Migration { .. }
+            ) {
+                // Fichier connu : seul ce qui en dépend est recalculé.
+                // Nouveau fichier : le projet est rechargé.
+                let known = match &path {
+                    Some(p) => self.workspace.lock().await.set_text(p, &text),
+                    None => false,
+                };
+                if !known {
+                    self.reload_workspace().await;
+                }
             }
 
             self.run_diagnostics(&uri, &text).await;
@@ -579,10 +616,14 @@ impl LanguageServer for PgsqlBackend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.documents
-            .lock()
-            .await
-            .remove(&params.text_document.uri.to_string());
+        let uri = params.text_document.uri.to_string();
+        self.documents.lock().await.remove(&uri);
+        // Modifications abandonnées : le disque refait foi.
+        if let Some(path) = uri_to_path(&uri)
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
+            self.workspace.lock().await.set_text(&path, &text);
+        }
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
@@ -958,41 +999,52 @@ impl SchemaProvider for GlobalResolver {
 
 // ── Schema loading (legacy schemaFile path) ───────────────────────────────────
 
-fn load_schema_sql(path: &str) -> std::io::Result<String> {
+/// Fragments du schéma désigné par `schemaFile` : le fichier, ou les `.sql`
+/// du répertoire (non récursif), triés par nom.
+fn legacy_chunks(path: &str) -> std::io::Result<Vec<pgweave_schema::SqlChunk>> {
     let p = Path::new(path);
-    if p.is_file() {
-        return std::fs::read_to_string(p);
-    }
-    if p.is_dir() {
-        let mut entries: Vec<_> = std::fs::read_dir(p)?
+    let files = if p.is_file() {
+        vec![p.to_path_buf()]
+    } else if p.is_dir() {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(p)?
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .extension()
+            .map(|e| e.path())
+            .filter(|f| {
+                f.extension()
                     .and_then(|s| s.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
-                    .unwrap_or(false)
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("sql"))
             })
             .collect();
-        entries.sort_by_key(|e| e.file_name());
-        let parts: Vec<String> = entries
-            .into_iter()
-            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-            .collect();
-        return Ok(parts.join("\n"));
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        format!("{path} is neither a file nor a directory"),
-    ))
+        files.sort();
+        files
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("{path} is neither a file nor a directory"),
+        ));
+    };
+    Ok(files
+        .into_iter()
+        .flat_map(|f| {
+            pgweave_schema::SchemaSource::chunks(&pgweave_schema::FileSource::new(
+                f,
+                FileRole::Schema,
+            ))
+        })
+        .collect())
 }
 
 // ── URI / path helpers ────────────────────────────────────────────────────────
 
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let path_str = uri.strip_prefix("file://").unwrap_or(uri);
-    let p = PathBuf::from(path_str);
-    p.canonicalize().ok().or(Some(p))
+    Some(canonical(Path::new(path_str)))
+}
+
+/// Chemin canonique s'il existe, tel quel sinon : clé commune aux fichiers
+/// du projet et aux documents de l'éditeur.
+fn canonical(p: &Path) -> PathBuf {
+    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
 }
 
 fn url_to_path(url: &str) -> Option<PathBuf> {
