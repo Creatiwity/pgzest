@@ -718,6 +718,7 @@ impl Snapshot {
             language: r.get(14),
             definition: None,
             order: 0,
+            catalog_effects: false,
         }
     }
 }

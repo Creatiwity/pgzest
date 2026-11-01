@@ -128,7 +128,7 @@ fn une_extension_apporte_ses_types_dans_son_schema() {
          CREATE EXTENSION citext SCHEMA ext;\n\
          SET search_path TO public, ext;\n\
          CREATE TABLE t (a citext);\n\
-         CREATE EXTENSION postgis;",
+         CREATE EXTENSION hstore;",
     );
     assert_eq!(d.len(), 1, "{d:?}");
     assert_eq!(d[0].code, "extension-unavailable");

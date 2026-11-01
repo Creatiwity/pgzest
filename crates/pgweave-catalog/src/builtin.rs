@@ -21,6 +21,11 @@ const PACKS: &[(&str, &str, &str)] = &[
     ),
     ("pg_trgm", "1.6", include_str!("../packs/pg_trgm-1.6.json")),
     (
+        "postgis",
+        "3.6.4",
+        include_str!("../packs/postgis-3.6.4.json"),
+    ),
+    (
         "unaccent",
         "1.1",
         include_str!("../packs/unaccent-1.1.json"),

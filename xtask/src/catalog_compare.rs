@@ -382,6 +382,11 @@ fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
             })
         })
         .collect();
+    let ext_relations: BTreeSet<&QName> = cat
+        .extension_packs
+        .values()
+        .flat_map(|p| p.relations.iter().map(|r| &r.name))
+        .collect();
     let user = |q: &QName| !is_system(&q.schema);
 
     let mut d: BTreeMap<&'static str, BTreeMap<String, String>> = BTreeMap::new();
@@ -458,7 +463,11 @@ fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
     let mut relations = BTreeMap::new();
     let mut columns = BTreeMap::new();
     let mut constraints = BTreeMap::new();
-    for r in cat.relations.values().filter(|r| user(&r.name)) {
+    for r in cat
+        .relations
+        .values()
+        .filter(|r| user(&r.name) && !ext_relations.contains(&r.name))
+    {
         relations.insert(
             r.name.to_string(),
             format!("{:?} {:?}", r.kind, r.persistence),

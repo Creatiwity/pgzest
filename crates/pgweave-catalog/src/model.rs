@@ -341,6 +341,10 @@ pub struct Routine {
     /// Rang de création dans le rejeu (dépendances à l'export).
     #[serde(default, skip_serializing)]
     pub order: u64,
+    /// Le corps peut modifier le catalogue (DDL, SQL dynamique) : un appel
+    /// a des effets que le rejeu ne reproduit pas.
+    #[serde(default, skip_serializing)]
+    pub catalog_effects: bool,
 }
 
 impl Routine {

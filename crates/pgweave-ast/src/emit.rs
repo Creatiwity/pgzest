@@ -1112,7 +1112,7 @@ pub fn emit_create_function(cf: &CreateFunction) -> String {
     }
     options.push_str(&emit_settings(&cf.settings));
     format!(
-        "CREATE {}FUNCTION {}({})\nRETURNS {}\nLANGUAGE {}{}\nAS {};",
+        "CREATE {}FUNCTION {}({}){}\nLANGUAGE {}{}\nAS {};",
         or_replace,
         emit_object_name(&cf.name),
         params.join(", "),
@@ -1188,8 +1188,10 @@ fn emit_function_param(param: &FunctionParam) -> String {
     )
 }
 
+/// Clause `RETURNS …` complète, vide sans clause (`OutParams`).
 fn emit_return_type(rt: &ReturnType) -> String {
-    match rt {
+    let t = match rt {
+        ReturnType::OutParams => return String::new(),
         ReturnType::Scalar(dt) => emit_data_type(dt),
         ReturnType::Table(cols) => {
             let cols: Vec<String> = cols
@@ -1201,7 +1203,8 @@ fn emit_return_type(rt: &ReturnType) -> String {
         ReturnType::SetOf(dt) => format!("SETOF {}", emit_data_type(dt)),
         ReturnType::Trigger => "TRIGGER".to_string(),
         ReturnType::Void => "VOID".to_string(),
-    }
+    };
+    format!("\nRETURNS {t}")
 }
 
 fn emit_function_language(lang: &FunctionLanguage) -> &str {

@@ -122,11 +122,8 @@ fn parametres_out_sans_returns() {
         "CREATE FUNCTION f(a int, OUT doubled int, OUT label text) LANGUAGE sql
          AS $$ SELECT a * 2, 'x' $$",
     );
-    let ReturnType::Table(cols) = &f.return_type else {
-        panic!("{:?}", f.return_type)
-    };
-    let names: Vec<_> = cols.iter().map(|(n, _)| n.value.as_str()).collect();
-    assert_eq!(names, ["doubled", "label"]);
+    // Ni `RETURNS TABLE` ni `SETOF` : une seule ligne, typée par les OUT.
+    assert_eq!(f.return_type, ReturnType::OutParams);
 }
 
 #[test]

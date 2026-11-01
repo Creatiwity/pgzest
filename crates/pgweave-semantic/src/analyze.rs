@@ -91,7 +91,7 @@ impl<'a> Analyzer<'a> {
                     DdlStatement::CreateFunction(cf) => {
                         // Register function in symbol table
                         let name = object_name_to_string(&cf.name);
-                        let ret_type = return_type_to_data_type(&cf.return_type);
+                        let ret_type = return_type_to_data_type(&cf.return_type, &cf.params);
                         self.symbols.add_function(
                             name.clone(),
                             Symbol {
@@ -309,9 +309,23 @@ impl<'a> Analyzer<'a> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn return_type_to_data_type(rt: &pgweave_ast::ddl::ReturnType) -> DataType {
-    use pgweave_ast::ddl::ReturnType;
+fn return_type_to_data_type(
+    rt: &pgweave_ast::ddl::ReturnType,
+    params: &[pgweave_ast::ddl::FunctionParam],
+) -> DataType {
+    use pgweave_ast::ddl::{ParamMode, ReturnType};
     match rt {
+        // Le seul paramètre OUT donne son type ; plusieurs : `record`.
+        ReturnType::OutParams => {
+            let outs: Vec<_> = params
+                .iter()
+                .filter(|p| matches!(p.mode, ParamMode::Out | ParamMode::InOut))
+                .collect();
+            match outs.as_slice() {
+                [one] => one.data_type.clone(),
+                _ => DataType::Custom("record".into()),
+            }
+        }
         ReturnType::Scalar(dt) | ReturnType::SetOf(dt) => dt.clone(),
         ReturnType::Table(_) => DataType::Custom("table".into()),
         ReturnType::Void => DataType::Custom("void".into()),

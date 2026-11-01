@@ -98,6 +98,11 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
         .flat_map(|p| p.routines.iter().map(|r| &r.name))
         .collect();
 
+    let ext_relations: BTreeSet<&QName> = cat
+        .extension_packs
+        .values()
+        .flat_map(|p| p.relations.iter().map(|r| &r.name))
+        .collect();
     let mut out = Out::default();
     let mut graph: Vec<Node> = Vec::new();
 
@@ -206,6 +211,7 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
     // 5. Tables, puis 7. clés étrangères et contraintes NOT VALID.
     for r in cat.relations.values() {
         if is_system(&r.name.schema)
+            || ext_relations.contains(&r.name)
             || !matches!(r.kind, RelationKind::Table | RelationKind::PartitionedTable)
         {
             continue;

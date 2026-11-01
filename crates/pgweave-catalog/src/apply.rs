@@ -54,6 +54,7 @@ impl Replay {
             cat: &mut self.catalog,
             path: &mut self.search_path,
             out,
+            pending_indexes: Vec::new(),
         };
         a.statement(stmt);
     }
@@ -63,6 +64,9 @@ struct Applier<'a> {
     cat: &'a mut Catalog,
     path: &'a mut SearchPath,
     out: &'a mut Vec<Diagnostic>,
+    /// Index copiés par `LIKE … INCLUDING INDEXES`, créés une fois la table
+    /// enregistrée.
+    pending_indexes: Vec<pgweave_ast::ddl::CreateIndex>,
 }
 
 /// Nom écrit, découpé : `(schéma explicite, nom)`.
@@ -255,6 +259,7 @@ impl Applier<'_> {
                         }
                     }
                 }
+                UtilityKind::Call { .. } => self.calls_with_effects(stmt),
                 UtilityKind::Do { body, .. } => match body {
                     FunctionBody::Parsed(b) => {
                         let _ = self.exec_block(&b.block);
@@ -265,11 +270,11 @@ impl Applier<'_> {
                 _ => {}
             },
             // Les requêtes et modifications de données ne changent pas le
-            // catalogue.
+            // catalogue — sauf par les routines qu'elles appellent.
             Statement::Select(_)
             | Statement::Insert(_)
             | Statement::Update(_)
-            | Statement::Delete(_) => {}
+            | Statement::Delete(_) => self.calls_with_effects(stmt),
         }
     }
 
@@ -350,6 +355,40 @@ impl Applier<'_> {
                     self.not_replayed("SQL dynamique, boucle ou CASE dans un bloc DO");
                 }
                 true
+            }
+        }
+    }
+
+    /// Appels de routines du projet dont le corps modifie le catalogue :
+    /// leurs effets ne sont pas rejoués, on le dit.
+    fn calls_with_effects(&mut self, stmt: &Statement) {
+        let Ok(v) = serde_json::to_value(stmt) else {
+            return;
+        };
+        let mut names = Vec::new();
+        collect_calls(&v, &mut names);
+        if let Statement::Utility(pgweave_ast::Utility {
+            kind: UtilityKind::Call { name, .. },
+            ..
+        }) = stmt
+        {
+            names.push(name.0.iter().map(|i| i.value.clone()).collect());
+        }
+        for parts in names {
+            let (schema, name) = match parts.as_slice() {
+                [n] => (None, n.as_str()),
+                [s, n] => (Some(s.as_str()), n.as_str()),
+                _ => continue,
+            };
+            let effects = self
+                .cat
+                .resolve_routines(schema, name, self.path)
+                .iter()
+                .any(|r| r.catalog_effects);
+            if effects {
+                self.not_replayed(&format!(
+                    "appel de « {name} », dont le corps modifie le catalogue"
+                ));
             }
         }
     }
@@ -745,6 +784,9 @@ impl Applier<'_> {
         for (tc, column) in pending {
             self.add_constraint(&name, &tc, column.as_deref(), false);
         }
+        for ci in std::mem::take(&mut self.pending_indexes) {
+            self.create_index(&ci);
+        }
     }
 
     /// Copie les colonnes d'un `LIKE` ; `false` si la source n'existe pas
@@ -808,6 +850,39 @@ impl Applier<'_> {
                 not_valid: con.not_valid,
             });
         }
+        // Index ordinaires de la source, recréés sur la nouvelle table avec un
+        // nom choisi comme PostgreSQL (`<table>_<colonnes>_idx`).
+        if indexes {
+            let sources: Vec<Index> = self
+                .cat
+                .indexes
+                .values()
+                .filter(|i| i.table == src_name)
+                .cloned()
+                .collect();
+            for idx in sources {
+                let Ok(stmts) = pgweave_parser::parse(&idx.definition) else {
+                    continue;
+                };
+                let Some(Statement::Ddl(DdlStatement::CreateIndex(mut ci))) =
+                    stmts.into_iter().next()
+                else {
+                    continue;
+                };
+                ci.name = None;
+                ci.table = ObjectName(vec![
+                    Ident {
+                        value: rel.name.schema.clone(),
+                        quoted: true,
+                    },
+                    Ident {
+                        value: rel.name.name.clone(),
+                        quoted: true,
+                    },
+                ]);
+                self.pending_indexes.push(ci);
+            }
+        }
         true
     }
 
@@ -823,7 +898,7 @@ impl Applier<'_> {
             name: col.name.value.clone(),
             ty: TypeRef::Unknown,
             not_null: !col.nullable,
-            default: col.default.as_ref().map(emit_expr),
+            default: col.default.as_ref().and_then(stored_default),
             identity: col.identity.map(|i| match i {
                 pgweave_ast::ddl::Identity::Always => IdentityKind::Always,
                 pgweave_ast::ddl::Identity::ByDefault => IdentityKind::ByDefault,
@@ -865,7 +940,7 @@ impl Applier<'_> {
                     continue;
                 }
                 ColumnConstraint::Default(e) => {
-                    column.default = Some(emit_expr(e));
+                    column.default = stored_default(e);
                     continue;
                 }
                 ColumnConstraint::PrimaryKey => {
@@ -1021,7 +1096,7 @@ impl Applier<'_> {
                     .iter()
                     .map(|e| match &e.element {
                         IndexElement::Column(c) => c.value.clone(),
-                        IndexElement::Expr(_) => "expr".to_string(),
+                        IndexElement::Expr(x) => index_column_name(x),
                     })
                     .collect();
                 (
@@ -1167,7 +1242,7 @@ impl Applier<'_> {
                     return;
                 };
                 match action {
-                    AlterColumnAction::SetDefault(e) => c.default = Some(emit_expr(e)),
+                    AlterColumnAction::SetDefault(e) => c.default = stored_default(e),
                     AlterColumnAction::DropDefault => c.default = None,
                     AlterColumnAction::SetNotNull => c.not_null = true,
                     AlterColumnAction::DropNotNull => c.not_null = false,
@@ -1427,7 +1502,7 @@ impl Applier<'_> {
                     .iter()
                     .map(|e| match e {
                         IndexElement::Column(c) => c.value.clone(),
-                        IndexElement::Expr(_) => "expr".to_string(),
+                        IndexElement::Expr(x) => index_column_name(x),
                     })
                     .collect();
                 let add = columns_addition(cols.iter().map(String::as_str));
@@ -1741,6 +1816,17 @@ impl Applier<'_> {
         };
         let mut args = self.args(&cf.params);
         let (returns, returns_set) = match &cf.return_type {
+            // Sans RETURNS : le seul paramètre OUT, ou `record`.
+            ReturnType::OutParams => {
+                let outs: Vec<&Arg> = args
+                    .iter()
+                    .filter(|a| matches!(a.mode, ArgMode::Out | ArgMode::InOut))
+                    .collect();
+                match outs.as_slice() {
+                    [one] => (one.ty.clone(), false),
+                    _ => (TypeRef::named(QName::pg_catalog("record")), false),
+                }
+            }
             ReturnType::Scalar(dt) => (self.type_ref(dt), false),
             ReturnType::SetOf(dt) => (self.type_ref(dt), true),
             ReturnType::Table(cols) => {
@@ -1777,6 +1863,7 @@ impl Applier<'_> {
                 definition: Some(emit_statement(&Statement::Ddl(
                     DdlStatement::CreateFunction(cf.clone()),
                 ))),
+                catalog_effects: body_has_effects(&cf.body),
                 order,
             },
             cf.or_replace,
@@ -1804,6 +1891,7 @@ impl Applier<'_> {
                 definition: Some(emit_statement(&Statement::Ddl(
                     DdlStatement::CreateProcedure(cp.clone()),
                 ))),
+                catalog_effects: body_has_effects(&cp.body),
                 order,
             },
             cp.or_replace,
@@ -2241,4 +2329,56 @@ fn unnamed(tc: &TableConstraint) -> TableConstraint {
         | TableConstraint::Exclude { name, .. } => *name = None,
     }
     tc
+}
+
+/// Défaut tel que PostgreSQL le conserve : `DEFAULT NULL` (éventuellement
+/// converti, `NULL::text`) n'est pas enregistré.
+fn stored_default(e: &pgweave_ast::Expr) -> Option<String> {
+    let mut x = e;
+    while let ExprKind::Cast { expr, .. } = &x.kind {
+        x = expr;
+    }
+    if matches!(x.kind, ExprKind::Literal(pgweave_ast::expr::Literal::Null)) {
+        None
+    } else {
+        Some(emit_expr(e))
+    }
+}
+
+/// Nom d'une colonne d'index portant une expression (`FigureIndexColname`) :
+/// nom de la fonction ou de la colonne, sinon `expr`.
+fn index_column_name(e: &pgweave_ast::Expr) -> String {
+    match output_name(e).as_str() {
+        "?column?" => "expr".to_string(),
+        n => n.to_string(),
+    }
+}
+
+/// Le corps d'une routine contient-il du DDL ou du SQL dynamique ?
+fn body_has_effects(body: &FunctionBody) -> bool {
+    match body {
+        FunctionBody::Parsed(b) => has_effect(&b.block.statements),
+        FunctionBody::Sql(stmts) => stmts.iter().any(|s| matches!(s, Statement::Ddl(_))),
+        _ => false,
+    }
+}
+
+/// Noms des fonctions appelées dans un AST sérialisé.
+fn collect_calls(v: &serde_json::Value, out: &mut Vec<Vec<String>>) {
+    match v {
+        serde_json::Value::Object(map) => {
+            if let Some(f) = map.get("FunctionCall")
+                && let Some(parts) = f.get("name").and_then(|n| n.as_array())
+            {
+                let names: Option<Vec<String>> = parts
+                    .iter()
+                    .map(|i| i.get("value").and_then(|x| x.as_str()).map(str::to_string))
+                    .collect();
+                out.extend(names);
+            }
+            map.values().for_each(|c| collect_calls(c, out));
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|c| collect_calls(c, out)),
+        _ => {}
+    }
 }

@@ -12,7 +12,6 @@ use pgweave_ast::ddl::{
     CreateFunction, CreateProcedure, DdlStatement, FunctionBody, FunctionLanguage, FunctionParam,
     FunctionSetting, Parallel, ParamMode, ReturnType, SettingValue, Volatility,
 };
-use pgweave_ast::expr::Ident;
 use pgweave_ast::node::Span;
 use sqlparser::ast as sp;
 use sqlparser::keywords::Keyword;
@@ -137,21 +136,7 @@ pub(crate) fn parse_routine(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, 
                 .iter()
                 .any(|p| matches!(p.mode, ParamMode::Out | ParamMode::InOut)) =>
             {
-                ReturnType::Table(
-                    params
-                        .iter()
-                        .filter(|p| matches!(p.mode, ParamMode::Out | ParamMode::InOut))
-                        .map(|p| {
-                            (
-                                p.name.clone().unwrap_or(Ident {
-                                    value: "?column?".into(),
-                                    quoted: false,
-                                }),
-                                p.data_type.clone(),
-                            )
-                        })
-                        .collect(),
-                )
+                ReturnType::OutParams
             }
             None => {
                 return Err(ParseError::Unsupported(

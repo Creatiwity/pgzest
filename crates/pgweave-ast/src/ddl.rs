@@ -314,6 +314,10 @@ pub enum SettingValue {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ReturnType {
+    /// Pas de clause `RETURNS` : le résultat est défini par les paramètres
+    /// `OUT`/`INOUT` — le type du seul paramètre, ou `record` s'il y en a
+    /// plusieurs. Une seule ligne (pas `SETOF`).
+    OutParams,
     Scalar(DataType),
     Table(Vec<(Ident, DataType)>),
     SetOf(DataType),
