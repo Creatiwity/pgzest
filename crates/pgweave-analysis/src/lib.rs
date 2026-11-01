@@ -199,6 +199,7 @@ pub fn analyze_source(
 
     let semantic = analyze(&outcome.statements, schema);
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
+    diagnostics.extend(header_diagnostic(sql));
     diagnostics.extend(pgweave_checker::check_statements(
         &outcome.statements,
         schema,
@@ -211,6 +212,22 @@ pub fn analyze_source(
         skipped: outcome.skipped,
         suppressions,
     }
+}
+
+/// En-tête de migration mal formé (PLAN.md, D9) : un en-tête mal lu ferait
+/// analyser le fichier contre un autre contexte que celui annoncé.
+fn header_diagnostic(text: &str) -> Option<Diagnostic> {
+    let Some(Err(e)) = pgweave_schema::MigrationHeader::find(text) else {
+        return None;
+    };
+    Some(
+        Diagnostic::error(codes::MIGRATION_HEADER_INVALID, e.message)
+            .with_span(pgweave_diagnostics::Span {
+                start: e.span.start,
+                end: e.span.end,
+            })
+            .with_hint("forme attendue : `-- pgweave: postgres=18 extensions=nom@version,…`"),
+    )
 }
 
 /// Variante autonome : le schéma est dérivé du DDL contenu dans la source.
@@ -582,6 +599,7 @@ pub fn analyze_source_with_macros(
 
     let semantic = analyze(&outcome.statements, schema);
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
+    diagnostics.extend(header_diagnostic(source));
     diagnostics.extend(pgweave_checker::check_statements(
         &outcome.statements,
         schema,

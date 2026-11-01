@@ -29,6 +29,10 @@ pub const UNSUPPORTED_EXPRESSION: &str = "unsupported-expression";
 
 // ── Requêtes nommées (docs/named-queries.md) ─────────────────────────────────
 
+/// En-tête de migration `-- pgweave: postgres=… extensions=…` mal formé,
+/// dupliqué ou mal placé (PLAN.md, D9).
+pub const MIGRATION_HEADER_INVALID: &str = "migration-header-invalid";
+
 /// En-tête `-- name:` mal formé (nom, cardinalité, position).
 pub const QUERY_HEADER_INVALID: &str = "query-header-invalid";
 /// SQL placé hors d'une requête nommée dans un fichier de requêtes.

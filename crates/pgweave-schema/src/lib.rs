@@ -1,6 +1,7 @@
 pub mod config;
 pub mod index;
 pub mod lint;
+pub mod migration_header;
 pub mod provider;
 pub mod resolver;
 pub mod role;
@@ -9,6 +10,7 @@ pub mod source;
 pub use config::{MacrosConfig, ParseConfig, ProjectConfig, SkipLevel};
 pub use index::SchemaIndex;
 pub use lint::check_ddl_role;
+pub use migration_header::{ExtensionRef, HeaderError, MigrationHeader};
 pub use provider::{
     ColumnInfo, CompositeSchemaProvider, DdlSchemaProvider, FunctionSignature,
     IntrospectionJsonProvider, RlsAwareSchemaProvider, SchemaProvider, TableSchema,
