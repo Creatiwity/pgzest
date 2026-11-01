@@ -74,8 +74,10 @@ impl TypeSystem<'_> {
             };
         }
         // Sans entrée de `pg_cast` : tableau vers tableau si les éléments
-        // se convertissent…
-        if let (Some(te), Some(se)) = (self.element(&target), self.element(&source))
+        // se convertissent (jamais vers `oidvector` ni `int2vector`)…
+        if target != pg("oidvector")
+            && target != pg("int2vector")
+            && let (Some(te), Some(se)) = (self.element(&target), self.element(&source))
             && self.pathway(&se, &te, ctx) != Pathway::None
         {
             return Pathway::ArrayCoerce;

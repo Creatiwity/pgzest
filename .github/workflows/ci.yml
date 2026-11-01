@@ -72,6 +72,9 @@ jobs:
       - name: Oracle
         run: cargo test -p pgweave-oracle --test oracle -- --ignored
 
+      - name: Résolution des surcharges (balayage)
+        run: cargo test -p pgweave-sema --test oracle_sweep -- --ignored
+
   typescript:
     name: TypeScript (paquet npm + extension)
     runs-on: ubuntu-latest

@@ -6,3 +6,7 @@ description = "Analyse sémantique de pgweave : système de types fidèle à Pos
 
 [dependencies]
 pgweave-catalog = { path = "../pgweave-catalog" }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }

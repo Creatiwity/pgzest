@@ -1320,6 +1320,8 @@ name = "pgweave-sema"
 version = "0.1.0"
 dependencies = [
  "pgweave-catalog",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]

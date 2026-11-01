@@ -126,6 +126,7 @@ oracle-up: ## Démarre le PostgreSQL 18 de l'oracle (Docker)
 .PHONY: oracle
 oracle: oracle-up ## Confronte l'analyse à PostgreSQL 18 (rapport : crates/pgweave-oracle/tests/snapshots)
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
+	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-sema --test oracle_sweep -- --ignored
 
 .PHONY: oracle-accept
 oracle-accept: oracle-up ## Comme `oracle`, en acceptant le nouveau rapport (à relire avant commit)

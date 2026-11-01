@@ -459,7 +459,10 @@ impl Snapshot {
         let Some(t) = self.all_types.get(&oid) else {
             return TypeRef::Unresolved(format!("oid {oid}"));
         };
-        if t.typtype == "b" && t.category == "A" && t.elem != 0 {
+        // `élément[]` seulement pour le tableau attitré de l'élément
+        // (`typarray`) : `oidvector` a `oid` pour élément sans être `oid[]`.
+        let canonical_array = self.all_types.get(&t.elem).is_some_and(|e| e.array == oid);
+        if t.typtype == "b" && t.category == "A" && t.elem != 0 && canonical_array {
             let inner = formatted.map(|f| f.trim_end_matches("[]"));
             return TypeRef::Array(Box::new(self.type_ref(t.elem, inner)));
         }
