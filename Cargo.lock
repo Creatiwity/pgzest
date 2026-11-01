@@ -1235,7 +1235,7 @@ dependencies = [
  "pgweave-parser",
  "pgweave-query",
  "pgweave-schema",
- "pgweave-semantic",
+ "pgweave-sema",
  "tokio",
  "tokio-postgres",
 ]
@@ -1319,7 +1319,9 @@ dependencies = [
 name = "pgweave-sema"
 version = "0.1.0"
 dependencies = [
+ "pgweave-ast",
  "pgweave-catalog",
+ "pgweave-parser",
  "tokio",
  "tokio-postgres",
 ]

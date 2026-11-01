@@ -1,8 +1,6 @@
-use pgweave_ast::Statement;
-use pgweave_ast::types::DataType;
 use pgweave_catalog::ProjectCatalog;
 use pgweave_parser::{SkipReason, SkippedStatement};
-use pgweave_query::Params;
+use pgweave_sema::{Analyzer, Ty, TypeSystem};
 
 use crate::case::Case;
 
@@ -38,18 +36,14 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
         .iter()
         .map(|q| {
             let mut notes = schema_notes.clone();
-            let params = match q.params {
-                // Aucune inférence de type de paramètre n'existe encore :
-                // pgweave ne peut se prononcer que sur l'absence de paramètre.
-                Params::None => Some(Vec::new()),
-                _ => None,
-            };
-            let outcome = match pgweave_parser::parse_with_outcome(&q.sql) {
+            // Le SQL positionnel, comme celui que prépare PostgreSQL : même
+            // numérotation des paramètres.
+            let outcome = match pgweave_parser::parse_with_outcome(&q.positional_sql()) {
                 Ok(o) => o,
                 Err(e) => {
                     notes.push(format!("requête illisible : {e}"));
                     return OurDescription {
-                        params,
+                        params: None,
                         columns: None,
                         notes,
                     };
@@ -63,27 +57,41 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
             );
             let [stmt] = outcome.statements.as_slice() else {
                 return OurDescription {
-                    params,
+                    params: None,
                     columns: None,
                     notes,
                 };
             };
-            let semantic = pgweave_semantic::analyze(&outcome.statements, &schema);
-            let columns = match stmt {
-                Statement::Select(s) => semantic.select_columns.get(&s.id).map(|cols| {
-                    cols.iter()
-                        .map(|c| (c.name.clone(), pg_name(&c.data_type)))
-                        .collect()
-                }),
-                Statement::Insert(s) if s.returning.is_empty() => Some(Vec::new()),
-                Statement::Update(s) if s.returning.is_empty() => Some(Vec::new()),
-                Statement::Delete(s) if s.returning.is_empty() => Some(Vec::new()),
-                _ => None,
-            };
-            OurDescription {
-                params,
-                columns,
-                notes,
+            let ts = TypeSystem::new(&schema.catalog);
+            let mut analyzer =
+                Analyzer::new(TypeSystem::new(&schema.catalog), schema.search_path.clone());
+            match analyzer.describe(stmt) {
+                Ok(d) => OurDescription {
+                    // Un paramètre que rien n'a typé : pgweave ne se prononce
+                    // pas sur la liste.
+                    params: d
+                        .params
+                        .iter()
+                        .map(|p| p.ty.as_ref().map(|t| pg_name(&ts, t)))
+                        .collect(),
+                    columns: Some(
+                        d.columns
+                            .iter()
+                            // Le protocole décrit une colonne de domaine par
+                            // son type de base (`printtup.c`).
+                            .map(|c| (Some(c.name.clone()), pg_name(&ts, &ts.base_type(&c.ty))))
+                            .collect(),
+                    ),
+                    notes,
+                },
+                Err(e) => {
+                    notes.push(format!("analyse : [{}] {}", e.code, e.message));
+                    OurDescription {
+                        params: None,
+                        columns: None,
+                        notes,
+                    }
+                }
             }
         })
         .collect()
@@ -107,33 +115,11 @@ fn describe_skip(s: &SkippedStatement) -> String {
     format!("`{head} …` {reason}")
 }
 
-/// Nom interne PostgreSQL du type, pour comparaison avec le `Prepare`.
-fn pg_name(dt: &DataType) -> String {
-    use DataType::*;
-    match dt {
-        SmallInt => "int2".into(),
-        Integer => "int4".into(),
-        BigInt => "int8".into(),
-        Numeric { .. } => "numeric".into(),
-        Real => "float4".into(),
-        DoublePrecision => "float8".into(),
-        Text => "text".into(),
-        Varchar(_) => "varchar".into(),
-        Char(_) => "bpchar".into(),
-        Date => "date".into(),
-        Time(_) => "time".into(),
-        TimeTz(_) => "timetz".into(),
-        Timestamp(_) => "timestamp".into(),
-        TimestampTz(_) => "timestamptz".into(),
-        Interval => "interval".into(),
-        Boolean => "bool".into(),
-        Bytea => "bytea".into(),
-        Json => "json".into(),
-        Jsonb => "jsonb".into(),
-        Uuid => "uuid".into(),
-        Array(inner) => format!("{}[]", pg_name(inner)),
-        Custom(name) => name.clone(),
-        // Le `Prepare` rapporte le type sans ses modificateurs.
-        Modified { name, .. } => name.clone(),
+/// Nom du type tel que le rapporte le `Prepare` : nom interne, `[]` pour
+/// le tableau attitré d'un élément.
+fn pg_name(ts: &TypeSystem, ty: &Ty) -> String {
+    match ts.element(ty) {
+        Some(e) if ts.array_of(&e).as_ref() == Some(ty) => format!("{}[]", e.name),
+        _ => ty.name.clone(),
     }
 }

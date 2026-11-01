@@ -4,7 +4,7 @@ expression: report
 ---
 # Oracle différentiel — PostgreSQL 18
 
-Requêtes : 41 · Colonnes conformes : 84/112 (75 %) · Paramètres conformes : 0/29 (0 %)
+Requêtes : 41 · Colonnes conformes : 112/112 (100 %) · Paramètres conformes : 29/29 (100 %)
 
 ## 01-basics
 
@@ -70,7 +70,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `one int4` | `one int4` | ✓ |
-| 2 | `ratio numeric` | `ratio float8` | ✗ |
+| 2 | `ratio numeric` | `ratio numeric` | ✓ |
 | 3 | `letter text` | `letter text` | ✓ |
 | 4 | `flag bool` | `flag bool` | ✓ |
 | 5 | `nothing text` | `nothing text` | ✓ |
@@ -82,7 +82,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `next_views int4` | `next_views int4` | ✓ |
-| 2 | `scaled numeric` | `scaled int4` | ✗ |
+| 2 | `scaled numeric` | `scaled numeric` | ✓ |
 | 3 | `mixed int8` | `mixed int8` | ✓ |
 
 ### `text_ops`
@@ -102,7 +102,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `popular bool` | `popular bool` | ✓ |
-| 2 | `empty bool` | `empty text` | ✗ |
+| 2 | `empty bool` | `empty bool` | ✓ |
 | 3 | `starts_a bool` | `starts_a bool` | ✓ |
 
 ### `case_coalesce`
@@ -113,7 +113,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 |--:|---|---|:-:|
 | 1 | `status text` | `status text` | ✓ |
 | 2 | `body_or_empty text` | `body_or_empty text` | ✓ |
-| 3 | `rating_or_zero numeric` | `rating_or_zero text` | ✗ |
+| 3 | `rating_or_zero numeric` | `rating_or_zero numeric` | ✓ |
 
 ### `casts`
 
@@ -133,10 +133,10 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 |--:|---|---|:-:|
 | 1 | `n int8` | `n int8` | ✓ |
 | 2 | `with_body int8` | `with_body int8` | ✓ |
-| 3 | `total_views int8` | `total_views numeric` | ✗ |
+| 3 | `total_views int8` | `total_views int8` | ✓ |
 | 4 | `mean_views numeric` | `mean_views numeric` | ✓ |
-| 5 | `latest timestamptz` | `latest text` | ✗ |
-| 6 | `worst numeric` | `worst text` | ✗ |
+| 5 | `latest timestamptz` | `latest timestamptz` | ✓ |
+| 6 | `worst numeric` | `worst numeric` | ✓ |
 
 ### `group_by`
 
@@ -155,11 +155,11 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 |--:|---|---|:-:|
 | 1 | `at timestamptz` | `at timestamptz` | ✓ |
 | 2 | `tags text[]` | `tags text[]` | ✓ |
-| 3 | `tag_count int4` | `tag_count text` | ✗ |
+| 3 | `tag_count int4` | `tag_count int4` | ✓ |
 
 ### `by_id`
 
-Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -168,7 +168,7 @@ Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
 
 ### `search`
 
-Paramètres — PostgreSQL : `text`, `int4`, `int8` · pgweave : non inféré · 0/3
+Paramètres — PostgreSQL : `text`, `int4`, `int8` · pgweave : `text`, `int4`, `int8` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -177,7 +177,7 @@ Paramètres — PostgreSQL : `text`, `int4`, `int8` · pgweave : non inféré ·
 
 ### `by_ids`
 
-Paramètres — PostgreSQL : `int8[]` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `int8[]` · pgweave : `int8[]` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -185,7 +185,7 @@ Paramètres — PostgreSQL : `int8[]` · pgweave : non inféré · 0/1
 
 ### `in_window`
 
-Paramètres — PostgreSQL : `timestamptz`, `timestamptz` · pgweave : non inféré · 0/2
+Paramètres — PostgreSQL : `timestamptz`, `timestamptz` · pgweave : `timestamptz`, `timestamptz` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -216,7 +216,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `using_join`
 
-Paramètres — PostgreSQL : `uuid` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `uuid` · pgweave : `uuid` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -230,7 +230,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `id uuid` | `id uuid` | ✓ |
-| 2 | `page_count int8` | `page_count text` | ✗ |
+| 2 | `page_count int8` | `page_count int8` | ✓ |
 
 ### `exists_filter`
 
@@ -247,7 +247,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `name text` | `name text` | ✓ |
-| 2 | `total int8` | `total text` | ✗ |
+| 2 | `total int8` | `total int8` | ✓ |
 
 ### `union_all`
 
@@ -267,62 +267,62 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | 1 | `id uuid` | `id uuid` | ✓ |
 | 2 | `name text` | `name text` | ✓ |
 | 3 | `pages int8` | `pages int8` | ✓ |
-| 4 | `views int8` | `views text` | ✗ |
+| 4 | `views int8` | `views int8` | ✓ |
 
 
 ## 03-dml
 
 ### `insert_page`
 
-Paramètres — PostgreSQL : `int8`, `text`, `text` · pgweave : non inféré · 0/3
+Paramètres — PostgreSQL : `int8`, `text`, `text` · pgweave : `int8`, `text`, `text` · 3/3
 
 Aucune colonne de sortie ✓
 
 ### `insert_returning`
 
-Paramètres — PostgreSQL : `int8`, `text` · pgweave : non inféré · 0/2
+Paramètres — PostgreSQL : `int8`, `text` · pgweave : `int8`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | non inféré | ✗ |
-| 2 | `title text` | non inféré | ✗ |
-| 3 | `views int4` | non inféré | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `title text` | `title text` | ✓ |
+| 3 | `views int4` | `views int4` | ✓ |
 
 ### `upsert`
 
-Paramètres — PostgreSQL : `int8`, `text` · pgweave : non inféré · 0/2
+Paramètres — PostgreSQL : `int8`, `text` · pgweave : `int8`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | non inféré | ✗ |
-| 2 | `updated_at timestamptz` | non inféré | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `updated_at timestamptz` | `updated_at timestamptz` | ✓ |
 
 ### `rename`
 
-Paramètres — PostgreSQL : `text`, `int8` · pgweave : non inféré · 0/2
+Paramètres — PostgreSQL : `text`, `int8` · pgweave : `text`, `int8` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | non inféré | ✗ |
-| 2 | `title text` | non inféré | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `title text` | `title text` | ✓ |
 
 ### `bump_views`
 
-Paramètres — PostgreSQL : `int4`, `int8` · pgweave : non inféré · 0/2
+Paramètres — PostgreSQL : `int4`, `int8` · pgweave : `int4`, `int8` · 2/2
 
 Aucune colonne de sortie ✓
 
 ### `delete_page`
 
-Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | non inféré | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
 
 ### `insert_select`
 
-Paramètres — PostgreSQL : `int4` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 Aucune colonne de sortie ✓
 
@@ -338,14 +338,14 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | 1 | `id int8` | `id int8` | ✓ |
 | 2 | `sku citext` | `sku citext` | ✓ |
 | 3 | `status page_status` | `status page_status` | ✓ |
-| 4 | `quantity int4` | `quantity positive_int` | ✗ |
+| 4 | `quantity int4` | `quantity int4` | ✓ |
 | 5 | `unit_price numeric` | `unit_price numeric` | ✓ |
 | 6 | `total_stored numeric` | `total_stored numeric` | ✓ |
 | 7 | `price_with_tax numeric` | `price_with_tax numeric` | ✓ |
 
 ### `by_sku`
 
-Paramètres — PostgreSQL : `citext` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `citext` · pgweave : `citext` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -354,7 +354,7 @@ Paramètres — PostgreSQL : `citext` · pgweave : non inféré · 0/1
 
 ### `by_status`
 
-Paramètres — PostgreSQL : `page_status` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `page_status` · pgweave : `page_status` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -362,13 +362,13 @@ Paramètres — PostgreSQL : `page_status` · pgweave : non inféré · 0/1
 
 ### `insert_product`
 
-Paramètres — PostgreSQL : `citext`, `positive_int`, `numeric` · pgweave : non inféré · 0/3
+Paramètres — PostgreSQL : `citext`, `positive_int`, `numeric` · pgweave : `citext`, `positive_int`, `numeric` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | non inféré | ✗ |
-| 2 | `total_stored numeric` | non inféré | ✗ |
-| 3 | `price_with_tax numeric` | non inféré | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `total_stored numeric` | `total_stored numeric` | ✓ |
+| 3 | `price_with_tax numeric` | `price_with_tax numeric` | ✓ |
 
 ### `enum_cast`
 
@@ -384,13 +384,13 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `table_function`
 
-Paramètres — PostgreSQL : `int4` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `page_id int8` | — | ✗ |
-| 2 | `page_title text` | — | ✗ |
-| 3 | `score float8` | — | ✗ |
+| 1 | `page_id int8` | `page_id int8` | ✓ |
+| 2 | `page_title text` | `page_title text` | ✓ |
+| 3 | `score float8` | `score float8` | ✓ |
 
 ### `table_function_columns`
 
@@ -398,12 +398,12 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `page_id int8` | `page_id text` | ✗ |
-| 2 | `score float8` | `score text` | ✗ |
+| 1 | `page_id int8` | `page_id int8` | ✓ |
+| 2 | `score float8` | `score float8` | ✓ |
 
 ### `scalar_function`
 
-Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -411,6 +411,6 @@ Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
 
 ### `call_procedure`
 
-Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
+Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
-Aucune colonne de sortie ✗ (pgweave : non inféré)
+Aucune colonne de sortie ✓

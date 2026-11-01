@@ -5,6 +5,8 @@ edition = "2024"
 description = "Analyse sémantique de pgweave : système de types fidèle à PostgreSQL, HIR typé (PLAN.md D4, P3)"
 
 [dependencies]
+pgweave-ast = { path = "../pgweave-ast" }
+pgweave-parser = { path = "../pgweave-parser" }
 pgweave-catalog = { path = "../pgweave-catalog" }
 
 [dev-dependencies]
