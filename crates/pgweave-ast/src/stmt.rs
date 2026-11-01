@@ -189,6 +189,9 @@ pub struct InsertStmt {
     pub with: Vec<Cte>,
     pub with_recursive: bool,
     pub table: ObjectName,
+    /// `INSERT INTO t AS alias` : nom de la table cible dans `ON CONFLICT` et
+    /// `RETURNING`.
+    pub alias: Option<Ident>,
     pub columns: Vec<Ident>,
     pub source: InsertSource,
     pub on_conflict: Option<OnConflict>,
@@ -199,6 +202,8 @@ pub struct InsertStmt {
 pub enum InsertSource {
     Values(Vec<Vec<Expr>>),
     Select(Box<SelectStmt>),
+    /// `DEFAULT VALUES` : une ligne, chaque colonne à sa valeur par défaut.
+    DefaultValues,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -596,6 +596,8 @@ pub enum AlterExtensionOp {
 pub struct CreateSchema {
     pub name: Ident,
     pub if_not_exists: bool,
+    /// `AUTHORIZATION rôle` : propriétaire du schéma.
+    pub authorization: Option<Ident>,
 }
 
 // ── Vues et séquences ─────────────────────────────────────────────────────────

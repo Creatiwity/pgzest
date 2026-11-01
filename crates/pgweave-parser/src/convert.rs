@@ -120,17 +120,34 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
         sp::Statement::CreateSchema {
             schema_name,
             if_not_exists,
-            ..
+            options,
+            default_collate_spec,
+            clone,
+            with,
         } => {
-            let name = match schema_name {
-                sp::SchemaName::Simple(n) | sp::SchemaName::NamedAuthorization(n, _) => {
-                    last_ident(n)?
+            if options.is_some()
+                || default_collate_spec.is_some()
+                || clone.is_some()
+                || with.is_some()
+            {
+                return Err(ParseError::Unsupported(
+                    "options de CREATE SCHEMA hors PostgreSQL".to_string(),
+                ));
+            }
+            // `CREATE SCHEMA AUTHORIZATION r` : le schéma prend le nom du rôle.
+            let (name, authorization) = match schema_name {
+                sp::SchemaName::Simple(n) => (last_ident(n)?, None),
+                sp::SchemaName::NamedAuthorization(n, owner) => {
+                    (last_ident(n)?, Some(convert_ident(owner)))
                 }
-                sp::SchemaName::UnnamedAuthorization(owner) => convert_ident(owner),
+                sp::SchemaName::UnnamedAuthorization(owner) => {
+                    (convert_ident(owner.clone()), Some(convert_ident(owner)))
+                }
             };
             Ok(Statement::Ddl(DdlStatement::CreateSchema(CreateSchema {
                 name,
                 if_not_exists,
+                authorization,
             })))
         }
         sp::Statement::Drop {
@@ -232,8 +249,18 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             )?))
         }
         sp::Statement::Set(set) => utility(convert_set(set)?),
+        // Modes de transaction (`ISOLATION LEVEL`, `READ ONLY`…) et `AND
+        // CHAIN` : non modélisés, refusés plutôt que perdus.
+        sp::Statement::StartTransaction {
+            modes, statements, ..
+        } if !modes.is_empty() || !statements.is_empty() => Err(ParseError::Unsupported(
+            "BEGIN avec modes de transaction".to_string(),
+        )),
         sp::Statement::StartTransaction { .. } => {
             utility(UtilityKind::Transaction(TransactionCommand::Begin))
+        }
+        sp::Statement::Commit { chain: true, .. } | sp::Statement::Rollback { chain: true, .. } => {
+            Err(ParseError::Unsupported("AND CHAIN".to_string()))
         }
         sp::Statement::Commit { .. } => {
             utility(UtilityKind::Transaction(TransactionCommand::Commit))
@@ -1614,6 +1641,15 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
         .collect();
 
     let source = if let Some(q) = ins.source {
+        let plain_values = q.with.is_none()
+            && q.order_by.is_none()
+            && q.limit_clause.is_none()
+            && matches!(*q.body, sp::SetExpr::Values(_));
+        if !plain_values && matches!(*q.body, sp::SetExpr::Values(_)) {
+            return Err(ParseError::Unsupported(
+                "VALUES avec WITH / ORDER BY / LIMIT dans un INSERT".to_string(),
+            ));
+        }
         match *q.body {
             sp::SetExpr::Values(v) => {
                 // In 0.62, rows is Vec<Parens<Vec<Expr>>>; access .content
@@ -1635,7 +1671,8 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
             }
         }
     } else {
-        InsertSource::Values(vec![])
+        // Pas de source : `INSERT INTO t DEFAULT VALUES`.
+        InsertSource::DefaultValues
     };
 
     let on_conflict = ins
@@ -1664,6 +1701,7 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
         with: vec![],
         with_recursive: false,
         table,
+        alias: ins.table_alias.map(|a| convert_ident(a.alias)),
         columns,
         source,
         on_conflict,
@@ -2275,9 +2313,12 @@ fn convert_create_policy(
     let roles = to
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|owner| match owner {
-            sp::Owner::Ident(id) => Some(convert_ident(id)),
-            _ => None,
+        .map(|owner| match owner {
+            sp::Owner::Ident(id) => convert_ident(id),
+            // Mots-clés de rôle : non quotés, PostgreSQL les relit comme tels.
+            sp::Owner::CurrentRole => Ident::new("current_role"),
+            sp::Owner::CurrentUser => Ident::new("current_user"),
+            sp::Owner::SessionUser => Ident::new("session_user"),
         })
         .collect();
 

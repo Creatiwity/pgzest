@@ -524,6 +524,22 @@ fn emit_order_by(ob: &OrderByExpr) -> String {
 
 // ── EXPRESSIONS ───────────────────────────────────────────────────────────────
 
+/// Fonctions SQL appelées sans parenthèses (« SQL value functions »).
+const SQL_VALUE_FUNCTIONS: &[&str] = &[
+    "current_catalog",
+    "current_date",
+    "current_role",
+    "current_schema",
+    "current_time",
+    "current_timestamp",
+    "current_user",
+    "localtime",
+    "localtimestamp",
+    "session_user",
+    "system_user",
+    "user",
+];
+
 pub fn emit_expr(expr: &Expr) -> String {
     match &expr.kind {
         ExprKind::Literal(lit) => emit_literal(lit),
@@ -577,6 +593,17 @@ pub fn emit_expr(expr: &Expr) -> String {
             if name.0.len() == 1 && !name.0[0].quoted && name.0[0].value == "array" {
                 let items: Vec<String> = args.iter().map(emit_expr).collect();
                 return format!("ARRAY[{}]", items.join(", "));
+            }
+            // Fonctions-valeurs SQL (`current_user`, `current_date`…) : des
+            // mots-clés, que PostgreSQL refuse suivis de `()`.
+            if args.is_empty()
+                && over.is_none()
+                && filter.is_none()
+                && name.0.len() == 1
+                && !name.0[0].quoted
+                && SQL_VALUE_FUNCTIONS.contains(&name.0[0].value.as_str())
+            {
+                return fn_name;
             }
             let distinct_kw = if *distinct { "DISTINCT " } else { "" };
             let args_str: Vec<String> = args.iter().map(emit_expr).collect();
@@ -791,13 +818,17 @@ pub fn emit_ddl(ddl: &DdlStatement) -> String {
         DdlStatement::CreateExtension(ce) => emit_create_extension(ce),
         DdlStatement::AlterExtension(ae) => emit_alter_extension(ae),
         DdlStatement::CreateSchema(cs) => format!(
-            "CREATE SCHEMA {}{};",
+            "CREATE SCHEMA {}{}{};",
             if cs.if_not_exists {
                 "IF NOT EXISTS "
             } else {
                 ""
             },
-            emit_ident(&cs.name)
+            emit_ident(&cs.name),
+            cs.authorization
+                .as_ref()
+                .map(|a| format!(" AUTHORIZATION {}", emit_ident(a)))
+                .unwrap_or_default()
         ),
         DdlStatement::CreateView(cv) => emit_create_view(cv),
         DdlStatement::CreateSequence(cs) => emit_create_sequence(cs),
@@ -1632,6 +1663,7 @@ fn emit_insert(ins: &InsertStmt) -> String {
             format!("VALUES {}", rows.join(", "))
         }
         InsertSource::Select(sel) => emit_select(sel),
+        InsertSource::DefaultValues => "DEFAULT VALUES".to_string(),
     };
     let on_conflict = ins
         .on_conflict
@@ -1640,9 +1672,13 @@ fn emit_insert(ins: &InsertStmt) -> String {
         .unwrap_or_default();
     let returning = emit_returning(&ins.returning);
     format!(
-        "{}INSERT INTO {}{} {}{}{}",
+        "{}INSERT INTO {}{}{} {}{}{}",
         emit_with(&ins.with, ins.with_recursive),
         emit_object_name(&ins.table),
+        ins.alias
+            .as_ref()
+            .map(|a| format!(" AS {}", emit_ident(a)))
+            .unwrap_or_default(),
         cols,
         source,
         on_conflict,

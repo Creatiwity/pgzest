@@ -104,6 +104,7 @@ fn types_domaines_extensions_schemas() {
         "ALTER EXTENSION citext UPDATE TO '1.6'",
         "ALTER EXTENSION citext SET SCHEMA public",
         "CREATE SCHEMA IF NOT EXISTS app",
+        "CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION owner_role",
     ] {
         roundtrip(sql);
     }
@@ -118,6 +119,7 @@ fn vues_sequences_index_triggers() {
         "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS i ON t USING gin (a, (lower(b))) WHERE c",
         "CREATE TRIGGER tr AFTER INSERT ON t REFERENCING NEW TABLE AS inserted FOR EACH STATEMENT EXECUTE FUNCTION f()",
         "CREATE OR REPLACE TRIGGER tr BEFORE UPDATE OF a ON t FOR EACH ROW WHEN (old.a IS DISTINCT FROM new.a) EXECUTE FUNCTION f()",
+        "CREATE POLICY p ON t FOR SELECT TO current_user, app_reader USING (owner = current_user)",
     ] {
         roundtrip(sql);
     }
@@ -226,6 +228,8 @@ fn requetes() {
         "SELECT ARRAY[1, 2, 3], ARRAY[]::int[]",
         "SELECT make_interval(days => 1, hours => 2)",
         "SELECT x FROM f(a => 1) AS x",
+        "INSERT INTO t DEFAULT VALUES",
+        "INSERT INTO t AS x (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = x.a + 1",
     ] {
         roundtrip(sql);
     }
