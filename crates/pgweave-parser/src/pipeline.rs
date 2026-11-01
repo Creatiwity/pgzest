@@ -65,14 +65,20 @@ fn parse_statement(
     out: &mut ParseOutcome,
 ) -> Result<(), ParseError> {
     let (start, end) = (st.start, st.end);
-    let mut p = Parser::new(&DIALECT).with_tokens_with_locations(st.tokens);
-
-    let parsed = match crate::grammar::parse(&mut p, ctx) {
-        Some(ours) => ours,
-        None => {
-            sqlparser_statement(&mut p).and_then(|s| Ok((convert::convert_statement(s)?, None)))
+    let mut tokens = st.tokens;
+    let parsed = crate::grammar::returning::extract(&mut tokens).and_then(|aliases| {
+        let mut p = Parser::new(&DIALECT).with_tokens_with_locations(tokens);
+        let mut parsed = match crate::grammar::parse(&mut p, ctx) {
+            Some(ours) => ours,
+            None => {
+                sqlparser_statement(&mut p).and_then(|s| Ok((convert::convert_statement(s)?, None)))
+            }
+        };
+        if let (Some(a), Ok((stmt, _))) = (aliases, &mut parsed) {
+            crate::grammar::returning::apply(stmt, a)?;
         }
-    };
+        parsed
+    });
 
     let (mut stmt, body) = match parsed {
         Ok(ok) => ok,
@@ -128,11 +134,17 @@ pub(crate) fn statement_from_tokens(
     tokens: Vec<sqlparser::tokenizer::TokenWithSpan>,
     ctx: &Ctx,
 ) -> Result<Statement, ParseError> {
+    let mut tokens = tokens;
+    let aliases = crate::grammar::returning::extract(&mut tokens)?;
     let mut p = Parser::new(&DIALECT).with_tokens_with_locations(tokens);
-    match crate::grammar::parse(&mut p, ctx) {
+    let mut stmt = match crate::grammar::parse(&mut p, ctx) {
         Some(r) => r.map(|(s, _)| s),
         None => sqlparser_statement(&mut p).and_then(convert::convert_statement),
+    }?;
+    if let Some(a) = aliases {
+        crate::grammar::returning::apply(&mut stmt, a)?;
     }
+    Ok(stmt)
 }
 
 /// Un statement par sqlparser, qui doit consommer tous les tokens.

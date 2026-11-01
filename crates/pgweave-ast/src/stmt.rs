@@ -165,6 +165,21 @@ pub enum JoinConstraint {
     None,
 }
 
+/// Noms donnés aux lignes avant (`OLD`) et après (`NEW`) modification dans
+/// le `RETURNING` d'un statement de modification (PostgreSQL 18). Absents,
+/// ce sont `old` et `new`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReturningAliases {
+    pub old: Option<Ident>,
+    pub new: Option<Ident>,
+}
+
+impl ReturningAliases {
+    pub fn is_empty(&self) -> bool {
+        self.old.is_none() && self.new.is_none()
+    }
+}
+
 /// `WINDOW nom AS (spécification)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NamedWindow {
@@ -196,6 +211,8 @@ pub struct InsertStmt {
     pub source: InsertSource,
     pub on_conflict: Option<OnConflict>,
     pub returning: Vec<SelectItem>,
+    /// `RETURNING WITH (OLD AS o, NEW AS n)` (PostgreSQL 18).
+    pub returning_aliases: ReturningAliases,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -252,6 +269,8 @@ pub struct UpdateStmt {
     pub joins: Vec<Join>,
     pub where_clause: Option<Expr>,
     pub returning: Vec<SelectItem>,
+    /// `RETURNING WITH (OLD AS o, NEW AS n)` (PostgreSQL 18).
+    pub returning_aliases: ReturningAliases,
 }
 
 // ── DELETE ───────────────────────────────────────────────────────────────────
@@ -269,6 +288,8 @@ pub struct DeleteStmt {
     pub joins: Vec<Join>,
     pub where_clause: Option<Expr>,
     pub returning: Vec<SelectItem>,
+    /// `RETURNING WITH (OLD AS o, NEW AS n)` (PostgreSQL 18).
+    pub returning_aliases: ReturningAliases,
 }
 
 // Suppress unused import warning — DataType is part of the public API surface

@@ -1670,7 +1670,7 @@ fn emit_insert(ins: &InsertStmt) -> String {
         .as_ref()
         .map(emit_on_conflict)
         .unwrap_or_default();
-    let returning = emit_returning(&ins.returning);
+    let returning = emit_returning(&ins.returning, &ins.returning_aliases);
     format!(
         "{}INSERT INTO {}{}{} {}{}{}",
         emit_with(&ins.with, ins.with_recursive),
@@ -1741,7 +1741,7 @@ fn emit_update(upd: &UpdateStmt) -> String {
         .as_ref()
         .map(|w| format!(" WHERE {}", emit_expr(w)))
         .unwrap_or_default();
-    let returning = emit_returning(&upd.returning);
+    let returning = emit_returning(&upd.returning, &upd.returning_aliases);
     format!(
         "{}UPDATE {} SET {}{}{}{}",
         emit_with(&upd.with, upd.with_recursive),
@@ -1770,7 +1770,7 @@ fn emit_delete(del: &DeleteStmt) -> String {
         .as_ref()
         .map(|w| format!(" WHERE {}", emit_expr(w)))
         .unwrap_or_default();
-    let returning = emit_returning(&del.returning);
+    let returning = emit_returning(&del.returning, &del.returning_aliases);
     format!(
         "{}DELETE FROM {}{}{}{}",
         emit_with(&del.with, del.with_recursive),
@@ -1781,12 +1781,24 @@ fn emit_delete(del: &DeleteStmt) -> String {
     )
 }
 
-fn emit_returning(items: &[SelectItem]) -> String {
+fn emit_returning(items: &[SelectItem], aliases: &ReturningAliases) -> String {
     if items.is_empty() {
         return String::new();
     }
     let cols: Vec<String> = items.iter().map(emit_select_item).collect();
-    format!(" RETURNING {}", cols.join(", "))
+    let mut with: Vec<String> = Vec::new();
+    if let Some(o) = &aliases.old {
+        with.push(format!("OLD AS {}", emit_ident(o)));
+    }
+    if let Some(n) = &aliases.new {
+        with.push(format!("NEW AS {}", emit_ident(n)));
+    }
+    let with = if with.is_empty() {
+        String::new()
+    } else {
+        format!("WITH ({}) ", with.join(", "))
+    };
+    format!(" RETURNING {}{}", with, cols.join(", "))
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────

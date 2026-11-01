@@ -230,6 +230,9 @@ fn requetes() {
         "SELECT x FROM f(a => 1) AS x",
         "INSERT INTO t DEFAULT VALUES",
         "INSERT INTO t AS x (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = x.a + 1",
+        "UPDATE t SET a = a + 1 RETURNING old.a, new.a",
+        "UPDATE t SET a = a + 1 RETURNING WITH (OLD AS o, NEW AS n) o.a, n.a",
+        "DELETE FROM t RETURNING WITH (OLD AS avant) avant.*",
     ] {
         roundtrip(sql);
     }
@@ -251,4 +254,15 @@ fn with_devant_une_modification_est_restitue() {
     };
     assert_eq!(ins.with.len(), 1);
     assert!(emit_statement(&stmts[0]).starts_with("WITH x AS ("));
+}
+
+#[test]
+fn returning_with_conserve_ses_alias() {
+    let stmts = parse_clean("UPDATE t SET a = 1 RETURNING WITH (NEW AS n, OLD AS o) o.a, n.a");
+    let Statement::Update(u) = &stmts[0] else {
+        panic!("UPDATE attendu")
+    };
+    assert_eq!(u.returning_aliases.old.as_ref().unwrap().value, "o");
+    assert_eq!(u.returning_aliases.new.as_ref().unwrap().value, "n");
+    assert!(emit_statement(&stmts[0]).contains("RETURNING WITH (OLD AS o, NEW AS n) o.a, n.a"));
 }

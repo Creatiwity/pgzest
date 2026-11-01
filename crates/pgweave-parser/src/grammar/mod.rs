@@ -6,6 +6,7 @@
 //! reste des statements passe par `Parser::parse_statement`.
 
 pub(crate) mod ddl;
+pub(crate) mod returning;
 pub(crate) mod routine;
 pub(crate) mod utility;
 

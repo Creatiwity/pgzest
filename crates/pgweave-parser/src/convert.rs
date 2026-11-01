@@ -1706,6 +1706,7 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
         source,
         on_conflict,
         returning,
+        returning_aliases: Default::default(),
     })
 }
 
@@ -1814,6 +1815,7 @@ fn convert_update(
         joins,
         where_clause,
         returning: ret,
+        returning_aliases: Default::default(),
     })
 }
 
@@ -1851,6 +1853,7 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
         joins,
         where_clause,
         returning,
+        returning_aliases: Default::default(),
     })
 }
 
