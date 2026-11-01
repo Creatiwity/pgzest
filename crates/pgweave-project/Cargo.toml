@@ -1,0 +1,16 @@
+[package]
+name = "pgweave-project"
+version = "0.1.0"
+edition = "2024"
+description = "Base de projet incrémentale de pgweave (salsa) : fichiers, parse, catalogue, vérification"
+
+[dependencies]
+pgweave-ast = { path = "../pgweave-ast" }
+pgweave-catalog = { path = "../pgweave-catalog" }
+pgweave-checker = { path = "../pgweave-checker" }
+pgweave-diagnostics = { workspace = true }
+pgweave-macro = { path = "../pgweave-macro" }
+pgweave-parser = { path = "../pgweave-parser" }
+pgweave-schema = { path = "../pgweave-schema" }
+# Épinglée (décision 0001) : montée de version délibérée et isolée.
+salsa = "=0.28.5"
