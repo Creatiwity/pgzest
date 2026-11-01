@@ -109,7 +109,8 @@ fn prisma_type_to_pg(t: &str) -> DataType {
             scale: None,
         },
         "Boolean" => Boolean,
-        "DateTime" => TimestampTz,
+        // Prisma génère `TIMESTAMP(3)`, sans fuseau horaire.
+        "DateTime" => Timestamp(Some(3)),
         "Json" => Jsonb,
         "Bytes" => Bytea,
         _ => Text, // fallback for relations, custom types
@@ -173,7 +174,7 @@ mod tests {
         assert_eq!(prisma_type_to_pg("String"), Text);
         assert_eq!(prisma_type_to_pg("Int"), Integer);
         assert_eq!(prisma_type_to_pg("Boolean"), Boolean);
-        assert_eq!(prisma_type_to_pg("DateTime"), TimestampTz);
+        assert_eq!(prisma_type_to_pg("DateTime"), Timestamp(Some(3)));
         assert_eq!(prisma_type_to_pg("Json"), Jsonb);
         assert_eq!(prisma_type_to_pg("Bytes"), Bytea);
     }

@@ -18,10 +18,11 @@ pub enum DataType {
     Char(Option<u64>),
     // Temporal
     Date,
-    Time,
-    TimeTz,
-    Timestamp,
-    TimestampTz,
+    /// Précision des secondes fractionnaires (`time(3)`), absente = 6.
+    Time(Option<u64>),
+    TimeTz(Option<u64>),
+    Timestamp(Option<u64>),
+    TimestampTz(Option<u64>),
     Interval,
     // Other
     Boolean,

@@ -1,5 +1,6 @@
 //! Tâches de développement de pgweave : `cargo xtask <commande>`.
 
+mod catalog_compare;
 mod catalog_gen;
 mod corpus;
 

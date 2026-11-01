@@ -1,6 +1,6 @@
 # Corpus `mesalia` — taux d'analyse
 
-> Généré le 2026-11-01 par `cargo xtask corpus mesalia` (pgweave `641fda9`).
+> Généré le 2026-11-01 par `cargo xtask corpus mesalia` (pgweave `b0508d9`).
 > Fichiers retenus : Prisma : `*/migration.sql`, triés par répertoire horodaté.
 > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
 
@@ -34,10 +34,33 @@ Fichiers avec au moins une erreur : 1/220. Statements absents de l'index : 0.
 
 PostgreSQL 18 : 220/220 migrations appliquées sur une base vierge.
 
+## Catalogue reconstruit par pgweave
+
+Rejeu des migrations dans l'ordre sur le catalogue `postgres@18` (packs d'extension compris).
+
+Aucun diagnostic de rejeu.
+
+Comparaison au catalogue réel (objets du projet, hors membres d'extensions ; expressions comparées par leur présence) :
+
+| Objets | Réels | Identiques | Non établis (P3) | Différents | Manquants | En trop |
+|---|--:|--:|--:|--:|--:|--:|
+| colonnes | 1622 | 1598 | 24 | 0 | 0 | 0 |
+| contraintes | 488 | 488 | 0 | 0 | 0 | 0 |
+| extensions | 2 | 2 | 0 | 0 | 0 | 0 |
+| index | 405 | 405 | 0 | 0 | 0 | 0 |
+| policies | 0 | 0 | 0 | 0 | 0 | 0 |
+| relations | 122 | 122 | 0 | 0 | 0 | 0 |
+| routines | 9 | 9 | 0 | 0 | 0 | 0 |
+| schémas | 1 | 1 | 0 | 0 | 0 | 0 |
+| séquences | 2 | 2 | 0 | 0 | 0 | 0 |
+| triggers | 14 | 14 | 0 | 0 | 0 | 0 |
+| types | 254 | 254 | 0 | 0 | 0 | 0 |
+
 ## Temps (indicatif, dépend de la machine)
 
 | Étape | Durée |
 |---|--:|
-| Parse de tous les fichiers | 139 ms |
-| Construction de l'index (`SchemaResolver`) | 259 ms |
-| Vérification de tous les fichiers | 8 ms |
+| Parse de tous les fichiers | 141 ms |
+| Construction de l'index (`SchemaResolver`) | 270 ms |
+| Vérification de tous les fichiers | 7 ms |
+| Rejeu sur le catalogue (`pgweave-catalog`) | 4461 ms |

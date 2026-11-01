@@ -7,11 +7,15 @@
 //! - [`catalog`] : le catalogue en mémoire et la résolution par
 //!   `search_path`.
 
+pub mod apply;
 pub mod builtin;
 pub mod catalog;
 pub mod model;
+pub mod names;
 pub mod pack;
+pub mod query;
 
+pub use apply::Replay;
 pub use catalog::{Catalog, SearchPath};
 pub use model::{QName, TypeRef};
 pub use pack::{Contributor, Pack, PackError};

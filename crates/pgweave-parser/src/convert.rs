@@ -172,24 +172,17 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             };
             Ok(drop(kind, names, if_exists, cascade, table))
         }
-        sp::Statement::DropFunction(df) => Ok(drop(
+        sp::Statement::DropFunction(df) => drop_routines(
             ObjectKind::Function,
-            df.func_desc.into_iter().map(|d| d.name).collect(),
+            df.func_desc,
             df.if_exists,
-            matches!(df.drop_behavior, Some(sp::DropBehavior::Cascade)),
-            None,
-        )),
+            df.drop_behavior,
+        ),
         sp::Statement::DropProcedure {
             if_exists,
             proc_desc,
             drop_behavior,
-        } => Ok(drop(
-            ObjectKind::Procedure,
-            proc_desc.into_iter().map(|d| d.name).collect(),
-            if_exists,
-            matches!(drop_behavior, Some(sp::DropBehavior::Cascade)),
-            None,
-        )),
+        } => drop_routines(ObjectKind::Procedure, proc_desc, if_exists, drop_behavior),
         sp::Statement::DropTrigger(dt) => Ok(drop(
             ObjectKind::Trigger,
             vec![dt.trigger_name],
@@ -1914,7 +1907,40 @@ fn drop(
         if_exists,
         cascade,
         on_table: on_table.map(convert_object_name),
+        signatures: Vec::new(),
     }))
+}
+
+/// `DROP FUNCTION/PROCEDURE f(types), …` : noms et signatures d'entrée.
+fn drop_routines(
+    kind: ObjectKind,
+    descs: Vec<sp::FunctionDesc>,
+    if_exists: bool,
+    drop_behavior: Option<sp::DropBehavior>,
+) -> Result<Statement, ParseError> {
+    let mut names = Vec::new();
+    let mut signatures = Vec::new();
+    for d in descs {
+        names.push(convert_object_name(d.name));
+        signatures.push(
+            d.args
+                .map(|args| {
+                    args.into_iter()
+                        .filter(|a| !matches!(a.mode, Some(sp::ArgMode::Out)))
+                        .map(|a| convert_data_type(a.data_type))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+        );
+    }
+    Ok(Statement::Ddl(DdlStatement::Drop(DropObject {
+        kind,
+        names,
+        if_exists,
+        cascade: cascade(drop_behavior),
+        on_table: None,
+        signatures,
+    })))
 }
 
 fn convert_create_type(
@@ -2513,16 +2539,21 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
         }
         // Temporal
         sp::DataType::Date | sp::DataType::Date32 => Ok(DataType::Date),
-        sp::DataType::Time(_, tz) => match tz {
-            sp::TimezoneInfo::WithTimeZone | sp::TimezoneInfo::Tz => Ok(DataType::TimeTz),
-            _ => Ok(DataType::Time),
+        sp::DataType::Time(p, tz) => match tz {
+            sp::TimezoneInfo::WithTimeZone | sp::TimezoneInfo::Tz => Ok(DataType::TimeTz(p)),
+            _ => Ok(DataType::Time(p)),
         },
-        sp::DataType::Timestamp(_, tz) => match tz {
-            sp::TimezoneInfo::WithTimeZone | sp::TimezoneInfo::Tz => Ok(DataType::TimestampTz),
-            _ => Ok(DataType::Timestamp),
+        sp::DataType::Timestamp(p, tz) => match tz {
+            sp::TimezoneInfo::WithTimeZone | sp::TimezoneInfo::Tz => Ok(DataType::TimestampTz(p)),
+            _ => Ok(DataType::Timestamp(p)),
         },
-        // In 0.62, Interval is a struct variant
-        sp::DataType::Interval { .. } => Ok(DataType::Interval),
+        sp::DataType::Interval {
+            fields: None,
+            precision: None,
+        } => Ok(DataType::Interval),
+        sp::DataType::Interval { .. } => Err(ParseError::Unsupported(
+            "INTERVAL avec champs ou précision".to_string(),
+        )),
         // Boolean
         sp::DataType::Boolean | sp::DataType::Bool => Ok(DataType::Boolean),
         // Binary

@@ -107,7 +107,7 @@ fn make_timestamptz_col(name: &str, default_expr: Option<&str>) -> ColumnDef {
     };
     ColumnDef {
         name: Ident::new(name),
-        data_type: DataType::TimestampTz,
+        data_type: DataType::TimestampTz(None),
         nullable: false,
         default,
         generated: None,
@@ -119,7 +119,7 @@ fn make_timestamptz_col(name: &str, default_expr: Option<&str>) -> ColumnDef {
 fn make_nullable_timestamptz_col(name: &str) -> ColumnDef {
     ColumnDef {
         name: Ident::new(name),
-        data_type: DataType::TimestampTz,
+        data_type: DataType::TimestampTz(None),
         nullable: true,
         default: None,
         generated: None,

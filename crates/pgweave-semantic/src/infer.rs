@@ -131,7 +131,7 @@ pub fn infer_expr_type(
                     scale: None,
                 }),
                 "min" | "max" => None, // depends on argument — skip for now
-                "now" | "current_timestamp" => Some(DataType::TimestampTz),
+                "now" | "current_timestamp" => Some(DataType::TimestampTz(None)),
                 "lower" | "upper" | "trim" | "concat" | "substr" | "replace" => {
                     Some(DataType::Text)
                 }
@@ -212,7 +212,7 @@ pub fn data_type_to_ts(dt: &DataType) -> &'static str {
         Text => "string",
         Varchar(_) | Char(_) => "string",
         Uuid => "string",
-        Date | Time | TimeTz | Timestamp | TimestampTz => "string", // ISO 8601
+        Date | Time(_) | TimeTz(_) | Timestamp(_) | TimestampTz(_) => "string", // ISO 8601
         Json | Jsonb => "unknown",
         Bytea => "Uint8Array",
         Array(inner) => match inner.as_ref() {
@@ -222,6 +222,13 @@ pub fn data_type_to_ts(dt: &DataType) -> &'static str {
         },
         Interval => "string",
         Custom(_) | Modified { .. } => "unknown",
+    }
+}
+
+fn with_precision(name: &str, p: Option<u64>) -> String {
+    match p {
+        Some(n) => format!("{name}({n})"),
+        None => name.to_string(),
     }
 }
 
@@ -250,10 +257,10 @@ pub fn data_type_to_sql(dt: &DataType) -> String {
         Char(None) => "char".into(),
         Boolean => "boolean".into(),
         Date => "date".into(),
-        Time => "time".into(),
-        TimeTz => "timetz".into(),
-        Timestamp => "timestamp".into(),
-        TimestampTz => "timestamptz".into(),
+        Time(p) => with_precision("time", *p),
+        TimeTz(p) => with_precision("timetz", *p),
+        Timestamp(p) => with_precision("timestamp", *p),
+        TimestampTz(p) => with_precision("timestamptz", *p),
         Interval => "interval".into(),
         Bytea => "bytea".into(),
         Json => "json".into(),

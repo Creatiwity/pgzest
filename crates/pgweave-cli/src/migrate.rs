@@ -37,10 +37,22 @@ fn canonical_type(dt: &DataType) -> String {
             .unwrap_or_else(|| "char".into()),
         DataType::Boolean => "boolean".into(),
         DataType::Date => "date".into(),
-        DataType::Time => "time".into(),
-        DataType::TimeTz => "timetz".into(),
-        DataType::Timestamp => "timestamp".into(),
-        DataType::TimestampTz => "timestamptz".into(),
+        DataType::Time(p) => match p {
+            Some(n) => format!("time({n})"),
+            None => "time".into(),
+        },
+        DataType::TimeTz(p) => match p {
+            Some(n) => format!("timetz({n})"),
+            None => "timetz".into(),
+        },
+        DataType::Timestamp(p) => match p {
+            Some(n) => format!("timestamp({n})"),
+            None => "timestamp".into(),
+        },
+        DataType::TimestampTz(p) => match p {
+            Some(n) => format!("timestamptz({n})"),
+            None => "timestamptz".into(),
+        },
         DataType::Interval => "interval".into(),
         DataType::Bytea => "bytea".into(),
         DataType::Json => "json".into(),

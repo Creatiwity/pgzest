@@ -1,4 +1,5 @@
 pub mod ddl;
+pub mod emit;
 pub mod expr;
 pub mod node;
 pub mod plpgsql;

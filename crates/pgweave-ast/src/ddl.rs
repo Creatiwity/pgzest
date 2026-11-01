@@ -641,6 +641,10 @@ pub struct DropObject {
     /// Table portant l'objet : `DROP TRIGGER t ON table`, `DROP POLICY p ON
     /// table`.
     pub on_table: Option<ObjectName>,
+    /// Fonctions et procédures : types des arguments d'entrée de chaque nom
+    /// (`DROP FUNCTION f(int)`), `None` sans parenthèses. Parallèle à `names`
+    /// pour ces types d'objet, vide sinon.
+    pub signatures: Vec<Option<Vec<DataType>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

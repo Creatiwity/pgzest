@@ -1,5 +1,7 @@
-use pgweave_ast::expr::ExprKind;
-use pgweave_ast::*;
+//! Rendu SQL de l'AST : le texte émis se relit en un AST équivalent.
+
+use crate::expr::ExprKind;
+use crate::*;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -17,9 +19,7 @@ pub fn emit_statement(stmt: &Statement) -> String {
 // ── Utilitaires ───────────────────────────────────────────────────────────────
 
 pub fn emit_utility(u: &UtilityKind) -> String {
-    use pgweave_ast::utility::{
-        CommentTarget, CopyOption, CopySource, CopyTarget, TransactionCommand,
-    };
+    use crate::utility::{CommentTarget, CopyOption, CopySource, CopyTarget, TransactionCommand};
     match u {
         UtilityKind::Do { language, body, .. } => format!(
             "DO LANGUAGE {} {};",
@@ -175,8 +175,8 @@ pub fn emit_utility(u: &UtilityKind) -> String {
             tables,
         } => {
             let mut out = match command {
-                pgweave_ast::utility::MaintenanceCommand::Analyze => "ANALYZE".to_string(),
-                pgweave_ast::utility::MaintenanceCommand::Vacuum => "VACUUM".to_string(),
+                crate::utility::MaintenanceCommand::Analyze => "ANALYZE".to_string(),
+                crate::utility::MaintenanceCommand::Vacuum => "VACUUM".to_string(),
             };
             let (legacy, modern): (Vec<_>, Vec<_>) = options.iter().partition(|o| o.legacy);
             for o in legacy {
@@ -957,7 +957,7 @@ pub fn emit_column_def(col: &ColumnDef) -> String {
     parts.join(" ")
 }
 
-fn emit_table_constraint(tc: &TableConstraint) -> String {
+pub fn emit_table_constraint(tc: &TableConstraint) -> String {
     let named = tc
         .name()
         .map(|n| format!("CONSTRAINT {} ", emit_ident(n)))
@@ -1634,7 +1634,19 @@ pub fn emit_drop(d: &DropObject) -> String {
         if d.if_exists { "IF EXISTS " } else { "" },
         d.names
             .iter()
-            .map(emit_object_name)
+            .enumerate()
+            .map(|(i, n)| match d.signatures.get(i) {
+                Some(Some(types)) => format!(
+                    "{}({})",
+                    emit_object_name(n),
+                    types
+                        .iter()
+                        .map(emit_data_type)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                _ => emit_object_name(n),
+            })
             .collect::<Vec<_>>()
             .join(", "),
         on,
@@ -1831,6 +1843,11 @@ pub fn emit_object_name(name: &ObjectName) -> String {
     name.0.iter().map(emit_ident).collect::<Vec<_>>().join(".")
 }
 
+/// `(n)` d'une précision de secondes fractionnaires, ou rien.
+fn precision(p: Option<u64>) -> String {
+    p.map(|n| format!("({n})")).unwrap_or_default()
+}
+
 pub fn emit_data_type(dt: &DataType) -> String {
     match dt {
         DataType::SmallInt => "SMALLINT".to_string(),
@@ -1853,10 +1870,10 @@ pub fn emit_data_type(dt: &DataType) -> String {
             None => "CHAR".to_string(),
         },
         DataType::Date => "DATE".to_string(),
-        DataType::Time => "TIME".to_string(),
-        DataType::TimeTz => "TIME WITH TIME ZONE".to_string(),
-        DataType::Timestamp => "TIMESTAMP".to_string(),
-        DataType::TimestampTz => "TIMESTAMPTZ".to_string(),
+        DataType::Time(p) => format!("TIME{}", precision(*p)),
+        DataType::TimeTz(p) => format!("TIME{} WITH TIME ZONE", precision(*p)),
+        DataType::Timestamp(p) => format!("TIMESTAMP{}", precision(*p)),
+        DataType::TimestampTz(p) => format!("TIMESTAMP{} WITH TIME ZONE", precision(*p)),
         DataType::Interval => "INTERVAL".to_string(),
         DataType::Boolean => "BOOLEAN".to_string(),
         DataType::Bytea => "BYTEA".to_string(),

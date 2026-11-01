@@ -51,3 +51,25 @@ pub const QUERY_PARAMETER_GAP: &str = "query-parameter-gap";
 pub const QUERY_FILE_EXTENSION: &str = "query-file-extension";
 /// Paramètre mal formé (`$0`, `$pageId`).
 pub const QUERY_PARAMETER_INVALID: &str = "query-parameter-invalid";
+
+// ── Catalogue (rejeu des DDL) ────────────────────────────────────────────────
+
+/// Type référencé introuvable dans le catalogue (ni intégré, ni d'extension
+/// active, ni déclaré par le projet).
+pub const TYPE_NOT_FOUND: &str = "type-not-found";
+/// Objet modifié ou supprimé qui n'existe pas à ce point du rejeu.
+pub const OBJECT_NOT_FOUND: &str = "object-not-found";
+/// Objet créé alors qu'il existe déjà (sans `IF NOT EXISTS` / `OR REPLACE`).
+pub const OBJECT_ALREADY_EXISTS: &str = "object-already-exists";
+/// Schéma inexistant.
+pub const SCHEMA_NOT_FOUND: &str = "schema-not-found";
+/// Extension dont aucun pack n'est disponible pour cette version (PLAN.md, D9).
+pub const EXTENSION_UNAVAILABLE: &str = "extension-unavailable";
+/// Nom de routine sans signature qui désigne plusieurs surcharges.
+pub const AMBIGUOUS_ROUTINE: &str = "ambiguous-routine";
+/// Suppression refusée par PostgreSQL faute de `CASCADE` (objets dépendants).
+pub const DEPENDENT_OBJECTS: &str = "dependent-objects";
+/// DDL d'un bloc `DO` que le rejeu n'a pas pu appliquer : condition non
+/// évaluable sur le catalogue, SQL dynamique, boucle, corps non analysé. Le
+/// catalogue peut alors différer de celui de la base.
+pub const DDL_NOT_REPLAYED: &str = "ddl-not-replayed";

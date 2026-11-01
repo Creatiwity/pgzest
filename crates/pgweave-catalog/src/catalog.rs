@@ -28,6 +28,9 @@ pub struct Catalog {
     pub triggers: BTreeMap<QName, BTreeMap<String, Trigger>>,
     pub policies: BTreeMap<QName, BTreeMap<String, Policy>>,
     pub extensions: BTreeMap<String, Extension>,
+    /// Pack chargé par chaque extension active (dans son schéma), pour la
+    /// décharger à `DROP EXTENSION` ou à une mise à jour.
+    pub extension_packs: BTreeMap<String, Pack>,
 }
 
 /// `search_path` effectif : schémas consultés dans l'ordre pour un nom non
@@ -192,6 +195,61 @@ impl Catalog {
                 .filter_map(|s| self.routines.get(&QName::new(s, name)))
                 .flatten()
                 .collect(),
+        }
+    }
+
+    /// Retire les objets apportés par une extension.
+    pub fn unload_extension(&mut self, name: &str) {
+        self.extensions.remove(name);
+        let Some(pack) = self.extension_packs.remove(name) else {
+            return;
+        };
+        self.contributors.retain(|c| *c != pack.contributor);
+        for t in &pack.types {
+            self.types.remove(&t.name);
+        }
+        for r in &pack.routines {
+            if let Some(list) = self.routines.get_mut(&r.name) {
+                let sig = signature(r);
+                list.retain(|o| signature(o) != sig);
+                if list.is_empty() {
+                    self.routines.remove(&r.name);
+                }
+            }
+        }
+        for o in &pack.operators {
+            if let Some(list) = self.operators.get_mut(&o.name) {
+                list.retain(|x| (&x.left, &x.right) != (&o.left, &o.right));
+                if list.is_empty() {
+                    self.operators.remove(&o.name);
+                }
+            }
+        }
+        self.casts.retain(|c| !pack.casts.contains(c));
+        self.opclasses.retain(|c| !pack.opclasses.contains(c));
+        for r in &pack.relations {
+            self.relations.remove(&r.name);
+        }
+    }
+
+    /// `DROP SCHEMA … CASCADE` : retire tout ce que le schéma contient.
+    pub fn drop_schema_objects(&mut self, schema: &str) {
+        self.types.retain(|q, _| q.schema != schema);
+        self.routines.retain(|q, _| q.schema != schema);
+        self.operators.retain(|q, _| q.schema != schema);
+        self.relations.retain(|q, _| q.schema != schema);
+        self.indexes.retain(|q, _| q.schema != schema);
+        self.sequences.retain(|q, _| q.schema != schema);
+        self.triggers.retain(|q, _| q.schema != schema);
+        self.policies.retain(|q, _| q.schema != schema);
+        let gone: Vec<String> = self
+            .extensions
+            .values()
+            .filter(|e| e.schema == schema)
+            .map(|e| e.name.clone())
+            .collect();
+        for e in gone {
+            self.unload_extension(&e);
         }
     }
 

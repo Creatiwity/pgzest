@@ -75,6 +75,9 @@ pub enum TypeRef {
     /// Nom écrit que la résolution n'a pas trouvé. Jamais deviné : il est
     /// conservé tel qu'écrit, et signalé.
     Unresolved(String),
+    /// Type qu'aucune analyse n'a encore établi (colonne de vue avant
+    /// l'analyse sémantique) : inconnu, pas supposé.
+    Unknown,
 }
 
 impl TypeRef {
@@ -93,6 +96,7 @@ impl fmt::Display for TypeRef {
             TypeRef::Named { name, modifiers } => write!(f, "{name}({})", modifiers.join(",")),
             TypeRef::Array(inner) => write!(f, "{inner}[]"),
             TypeRef::Unresolved(s) => write!(f, "?{s}"),
+            TypeRef::Unknown => write!(f, "?"),
         }
     }
 }
@@ -144,6 +148,9 @@ impl std::str::FromStr for QName {
 impl std::str::FromStr for TypeRef {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, String> {
+        if s == "?" {
+            return Ok(TypeRef::Unknown);
+        }
         if let Some(written) = s.strip_prefix('?') {
             return Ok(TypeRef::Unresolved(written.to_string()));
         }
@@ -198,6 +205,7 @@ mod tests {
             "pg_catalog.int4[][]",
             "\"@extschema@\".citext",
             "?mon_type",
+            "?",
         ] {
             let t: TypeRef = s.parse().unwrap();
             assert_eq!(t.to_string(), s);
@@ -396,6 +404,10 @@ pub struct Relation {
     pub constraints: Vec<Constraint>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub row_level_security: bool,
+    /// Colonnes non établies (vue dont la requête n'a pas pu être
+    /// développée) : leur absence ne prouve rien.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub opaque: bool,
 }
 
 impl Relation {
@@ -454,9 +466,14 @@ pub enum ConstraintKind {
     },
     Check {
         expr: String,
+        /// Colonnes citées : la contrainte disparaît avec l'une d'elles.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        columns: Vec<String>,
     },
     Exclude {
         definition: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        columns: Vec<String>,
     },
 }
 
@@ -467,6 +484,10 @@ pub struct Index {
     pub unique: bool,
     /// Définition émise (`CREATE INDEX …`), pour le diff de migration.
     pub definition: String,
+    /// Colonnes indexées ou citées par une expression ou le prédicat :
+    /// l'index disparaît avec l'une d'elles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

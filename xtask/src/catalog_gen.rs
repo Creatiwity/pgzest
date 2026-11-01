@@ -202,7 +202,7 @@ struct TypeRow {
 }
 
 /// Ce qu'un PostgreSQL contient dans un ensemble de schémas.
-struct Snapshot {
+pub(crate) struct Snapshot {
     /// Tous les types du serveur, pour nommer n'importe quel OID.
     all_types: HashMap<i64, TypeRow>,
     schemas: Vec<String>,
@@ -231,6 +231,27 @@ impl Snapshot {
             .iter()
             .map(|r| (r.get(0), r.get(1)))
             .collect())
+    }
+
+    /// Objets des schémas `schemas`. `user` : catalogue d'un projet — les
+    /// membres d'extensions (fournis par leurs packs) sont exclus.
+    pub(crate) async fn take_user(client: &Client, schemas: &[&str]) -> Result<Snapshot, String> {
+        let mut snap = Self::take(client, schemas).await?;
+        let members: HashSet<i64> = client
+            .query("SELECT objid::int8 FROM pg_depend WHERE deptype = 'e'", &[])
+            .await
+            .map_err(err)?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        snap.types.retain(|t| !members.contains(&t.oid));
+        let keep = |r: &tokio_postgres::Row| !members.contains(&r.get::<_, i64>(0));
+        snap.routines.retain(keep);
+        snap.operators.retain(keep);
+        snap.relations.retain(keep);
+        snap.casts.clear();
+        snap.opclasses.clear();
+        Ok(snap)
     }
 
     async fn take(client: &Client, schemas: &[&str]) -> Result<Snapshot, String> {
@@ -458,7 +479,7 @@ impl Snapshot {
         }
     }
 
-    fn into_pack(
+    pub(crate) fn into_pack(
         self,
         contributor: Contributor,
         postgres: Option<String>,
@@ -623,6 +644,7 @@ impl Snapshot {
                     .unwrap_or_default(),
                 constraints: Vec::new(),
                 row_level_security: r.get(5),
+                opaque: false,
             });
         }
         pack

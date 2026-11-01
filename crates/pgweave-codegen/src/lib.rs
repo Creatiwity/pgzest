@@ -1,5 +1,6 @@
 pub mod diff;
-pub mod emit;
+/// Rendu SQL de l'AST, désormais dans `pgweave-ast`.
+pub use pgweave_ast::emit;
 pub mod inject;
 pub mod migration_safety;
 pub mod ts_types;

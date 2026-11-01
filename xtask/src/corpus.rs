@@ -163,7 +163,43 @@ pub fn run(
         None => None,
     };
 
-    let report = render(name, layout, sources.len(), &stats, pg.as_ref());
+    // Rejeu par pgweave : le catalogue reconstruit migration par migration,
+    // confronté au catalogue réel quand il est disponible.
+    let mut replay = pgweave_catalog::Replay::new(
+        pgweave_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
+    );
+    let replay_start = Instant::now();
+    for (path, _, stmts) in &parsed_files {
+        let mut diags = Vec::new();
+        for st in stmts {
+            replay.apply(st, &mut diags);
+        }
+        for d in &diags {
+            *stats.replay_diagnostics.entry(d.code).or_default() += 1;
+            if details {
+                eprintln!("{}: rejeu : [{}] {}", path.display(), d.code, d.message);
+            }
+        }
+    }
+    stats.replay_time = replay_start.elapsed();
+    let comparison = pg
+        .as_ref()
+        .and_then(|p| p.catalog.as_ref())
+        .map(|real| crate::catalog_compare::compare(real, &replay.catalog));
+    if details && let Some(c) = &comparison {
+        for d in &c.details {
+            eprintln!("catalogue : {d}");
+        }
+    }
+
+    let report = render(
+        name,
+        layout,
+        sources.len(),
+        &stats,
+        pg.as_ref(),
+        comparison.as_ref(),
+    );
     match out {
         Some(path) => std::fs::write(&path, report).map_err(|e| format!("{}: {e}", path.display())),
         None => {
@@ -212,6 +248,9 @@ struct Stats {
     parse_time: Duration,
     index_time: Duration,
     check_time: Duration,
+    /// Diagnostics du rejeu pgweave, par code.
+    replay_diagnostics: BTreeMap<&'static str, usize>,
+    replay_time: Duration,
 }
 
 impl Stats {
@@ -288,6 +327,9 @@ fn shape(sql: &str) -> String {
 struct PgReplay {
     major: u32,
     applied: usize,
+    /// Catalogue du projet dans PostgreSQL, si toutes les migrations ont été
+    /// appliquées.
+    catalog: Option<pgweave_catalog::Catalog>,
     /// Rang (1-basé) de la première migration refusée et message masqué.
     first_failure: Option<(usize, String)>,
 }
@@ -332,11 +374,12 @@ fn replay_on_postgres(
                     if details {
                         eprintln!("{}: refusée par PostgreSQL : {msg}", path.display());
                     }
-                    return Ok::<_, String>((applied, Some((i + 1, redact(&msg)))));
+                    return Ok::<_, String>((applied, Some((i + 1, redact(&msg))), None));
                 }
                 applied += 1;
             }
-            Ok((applied, None))
+            let catalog = crate::catalog_compare::real_catalog(&client).await?;
+            Ok((applied, None, Some(catalog)))
         }
         .await;
 
@@ -344,10 +387,11 @@ fn replay_on_postgres(
             .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
             .await
             .map_err(|e| db_message(&e))?;
-        let (applied, first_failure) = result?;
+        let (applied, first_failure, catalog) = result?;
         Ok(PgReplay {
             major: major as u32,
             applied,
+            catalog,
             first_failure,
         })
     })
@@ -396,7 +440,14 @@ fn db_message(e: &tokio_postgres::Error) -> String {
 
 // ── Rendu ─────────────────────────────────────────────────────────────────────
 
-fn render(name: &str, layout: Layout, files: usize, s: &Stats, pg: Option<&PgReplay>) -> String {
+fn render(
+    name: &str,
+    layout: Layout,
+    files: usize,
+    s: &Stats,
+    pg: Option<&PgReplay>,
+    comparison: Option<&crate::catalog_compare::Comparison>,
+) -> String {
     let mut o = String::new();
     let skipped_unparsable: usize = s.unparsable.values().sum();
     let skipped_unsupported: usize = s.unsupported.values().sum();
@@ -491,6 +542,46 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, pg: Option<&PgRep
         }
     }
 
+    let _ = writeln!(o, "\n## Catalogue reconstruit par pgweave\n");
+    let _ = writeln!(
+        o,
+        "Rejeu des migrations dans l'ordre sur le catalogue `postgres@18` (packs d'extension compris)."
+    );
+    if s.replay_diagnostics.is_empty() {
+        let _ = writeln!(o, "\nAucun diagnostic de rejeu.");
+    } else {
+        let _ = writeln!(o, "\n| Diagnostic du rejeu | Nombre |\n|---|--:|");
+        for (code, n) in &s.replay_diagnostics {
+            let _ = writeln!(o, "| `{code}` | {n} |");
+        }
+    }
+    match comparison {
+        None => {
+            let _ = writeln!(
+                o,
+                "\nComparaison au catalogue réel : non effectuée (rejeu PostgreSQL absent ou incomplet)."
+            );
+        }
+        Some(c) => {
+            let _ = writeln!(
+                o,
+                "\nComparaison au catalogue réel (objets du projet, hors membres d'extensions ; \
+                 expressions comparées par leur présence) :\n"
+            );
+            let _ = writeln!(
+                o,
+                "| Objets | Réels | Identiques | Non établis (P3) | Différents | Manquants | En trop |\n|---|--:|--:|--:|--:|--:|--:|"
+            );
+            for (cat, r) in &c.categories {
+                let _ = writeln!(
+                    o,
+                    "| {cat} | {} | {} | {} | {} | {} | {} |",
+                    r.real, r.matched, r.unknown, r.different, r.missing, r.extra
+                );
+            }
+        }
+    }
+
     let _ = writeln!(o, "\n## Temps (indicatif, dépend de la machine)\n");
     let _ = writeln!(o, "| Étape | Durée |\n|---|--:|");
     let _ = writeln!(
@@ -507,6 +598,11 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, pg: Option<&PgRep
         o,
         "| Vérification de tous les fichiers | {} ms |",
         s.check_time.as_millis()
+    );
+    let _ = writeln!(
+        o,
+        "| Rejeu sur le catalogue (`pgweave-catalog`) | {} ms |",
+        s.replay_time.as_millis()
     );
     o
 }
