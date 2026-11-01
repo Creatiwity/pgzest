@@ -518,7 +518,7 @@ des fonctions intégrées ou d'extensions (catalogue généré, packs D9).
 justifié par un ticket ; fuzzing sans panique ; aucune réécriture textuelle
 restante.
 
-### P2 — Catalogue — 🚧 en cours (état au 2026-11-01, `eb58037`)
+### P2 — Catalogue — ✅ terminée (2026-11-01, `26e08b8`)
 
 Fait : crate `pgweave-catalog` (modèle D2/D11, casse exacte), packs générés
 (`cargo xtask catalog-gen` : postgres@18, citext, btree_gist, btree_gin,
@@ -540,17 +540,18 @@ par `diesel_manage_updated_at` (SQL dynamique : `ddl-not-replayed`).
 Exécuter ce helper Diesel, très courant, demanderait d'évaluer `EXECUTE
 format(…)` : à reprendre avec l'interprétation des corps (P3+).
 
-Reste, dans l'ordre :
-1. ✅ siren (défauts `DEFAULT NULL` stockés selon la coercion, pack
-   `btree_gin` enregistré : l'import passe).
-2. ✅ LSP sur `pgweave-project` : `Workspace` salsa (macros du projet en
-   entrée, texte de l'éditeur prioritaire sur le disque jusqu'à fermeture,
-   diagnostics de rejeu par fichier comme `pgweave check`) ; `ProjectBuilder`
-   partagé avec la CLI ; `SchemaIndex` (sans consommateur, double parse)
-   supprimé.
-3. Portées routine/bloc dans le catalogue : reportées en P3 avec le HIR
-   (le `TypeContext` du checker les porte en attendant).
-4. Clore P2 : baselines (`docs/baselines/`), statut ci-dessous.
+LSP sur `pgweave-project` : `Workspace` salsa (macros du projet en entrée,
+texte de l'éditeur prioritaire sur le disque jusqu'à fermeture, diagnostics
+de rejeu par fichier comme `pgweave check`), `ProjectBuilder` partagé avec
+la CLI. Baselines régénérées (`docs/baselines/`).
+
+Critères de sortie : atteints. Reporté en P3, explicitement :
+- types des colonnes de vues (24 colonnes Mesalia « non établies ») : ils
+  demandent le typage des requêtes ;
+- portées routine/bloc dans le catalogue, avec le HIR (le `TypeContext` du
+  checker les porte en attendant) ;
+- exécution du SQL dynamique des corps (`EXECUTE format(…)`, cas
+  `diesel_manage_updated_at`), aujourd'hui signalé `ddl-not-replayed`.
 
 - Crate `pgweave-catalog` : modèle D2, couches, schémas et `search_path`
   (D11), clés sensibles à la casse (principe 8).
