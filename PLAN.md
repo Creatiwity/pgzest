@@ -518,7 +518,33 @@ des fonctions intégrées ou d'extensions (catalogue généré, packs D9).
 justifié par un ticket ; fuzzing sans panique ; aucune réécriture textuelle
 restante.
 
-### P2 — Catalogue
+### P2 — Catalogue — 🚧 en cours (état au 2026-11-01, `eb58037`)
+
+Fait : crate `pgweave-catalog` (modèle D2/D11, casse exacte), packs générés
+(`cargo xtask catalog-gen` : postgres@18, citext, btree_gist, btree_gin,
+pg_trgm, unaccent, fuzzystrmatch, postgis@3.6.4), rejeu ordonné des DDL
+(`Replay`, blocs `DO` évalués sur tables virtuelles, `ddl-not-replayed`
+sinon), `ProjectCatalog` qui remplace `SchemaResolver`/`DdlSchemaProvider`/
+`builtins.rs` (supprimés) pour checker, analyse, CLI et LSP, résolution
+exacte partout, diagnostics D9 (extension manquante suggérée, en-têtes de
+migration), import brownfield `pgweave schema import`, base salsa
+`pgweave-project` avec test d'incrémentalité. Mesalia : catalogue reconstruit
+identique au réel, 0 diagnostic de `check`, import vérifié (schéma exporté →
+base vierge → catalogue identique).
+
+Reste, dans l'ordre :
+1. siren : 2 défauts manquants sur `unite_legale(_staging).societe_mission`
+   (`cargo xtask corpus siren --path ~/dev/creat/siren/migrations --layout
+   diesel --pg-url postgres://postgres:pgweave@localhost:54319/postgres
+   --details`, serveur PostGIS : conteneur `pgweave-postgis`, image
+   `postgis/postgis:18-3.6` en amd64) ; puis l'import siren refusé
+   (« text has no default operator class » : opclass d'index, probablement
+   `gin_trgm_ops` perdue à l'émission d'un `CREATE INDEX`).
+2. Brancher le LSP sur `pgweave-project` (passer les macros du projet en
+   entrée salsa, diagnostics de rejeu par fichier).
+3. Portées routine/bloc dans le catalogue : reportées en P3 avec le HIR
+   (le `TypeContext` du checker les porte en attendant).
+4. Clore P2 : baselines (`docs/baselines/`), statut ci-dessous.
 
 - Crate `pgweave-catalog` : modèle D2, couches, schémas et `search_path`
   (D11), clés sensibles à la casse (principe 8).
