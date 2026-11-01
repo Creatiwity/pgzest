@@ -781,6 +781,7 @@ fn check_sql_expr_idents(
             }
         }
         ExprKind::FieldAccess { root, .. } => check_sql_expr_idents(root, ctx, diags),
+        ExprKind::NamedArgument { value, .. } => check_sql_expr_idents(value, ctx, diags),
 
         // `EXISTS` ouvre une portée de requête : ses colonnes n'ont pas à être
         // des variables du corps.

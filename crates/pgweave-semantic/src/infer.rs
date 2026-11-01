@@ -181,6 +181,11 @@ pub fn infer_expr_type(
         // résoudre le type de la base puis de le décomposer — pas encore fait.
         ExprKind::FieldAccess { .. } => None,
 
+        // Un argument nommé a le type de sa valeur.
+        ExprKind::NamedArgument { value, .. } => {
+            infer_expr_type(value, scope_id, scopes, symbols, schema)
+        }
+
         // Comparaison à chaque élément d'un ensemble : toujours booléenne.
         ExprKind::Quantified { .. } => Some(DataType::Boolean),
 

@@ -255,7 +255,7 @@ pub(crate) fn parse_alter_table(p: &mut Parser) -> Result<Statement> {
     p.expect_keyword_is(Keyword::ALTER).map_err(pe)?;
     p.expect_keyword_is(Keyword::TABLE).map_err(pe)?;
     let if_exists = p.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
-    let _only = p.parse_keyword(Keyword::ONLY);
+    let only = p.parse_keyword(Keyword::ONLY);
     let name = convert_object_name(p.parse_object_name(false).map_err(pe)?);
     let mut operations = Vec::new();
     loop {
@@ -266,7 +266,12 @@ pub(crate) fn parse_alter_table(p: &mut Parser) -> Result<Statement> {
                 at(1) || (keyword_at(p, 1) == Some(Keyword::CONSTRAINT) && at(3))
             } {
             p.next_token();
-            AlterTableOp::AddConstraint(parse_exclude(p)?)
+            let constraint = parse_exclude(p)?;
+            let not_valid = p.parse_keywords(&[Keyword::NOT, Keyword::VALID]);
+            AlterTableOp::AddConstraint {
+                constraint,
+                not_valid,
+            }
         } else if p.parse_keywords(&[Keyword::SET, Keyword::SCHEMA]) {
             AlterTableOp::SetSchema(convert_ident(p.parse_identifier().map_err(pe)?))
         } else {
@@ -281,6 +286,7 @@ pub(crate) fn parse_alter_table(p: &mut Parser) -> Result<Statement> {
     Ok(Statement::Ddl(DdlStatement::AlterTable(AlterTable {
         name,
         if_exists,
+        only,
         operations,
     })))
 }

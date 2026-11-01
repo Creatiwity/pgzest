@@ -30,7 +30,10 @@ pub fn check(stmt: &Statement, config: &LintConfig) -> Vec<Diagnostic> {
         .unwrap_or("<unknown>");
 
     for op in &at.operations {
-        if let AlterTableOp::AddColumn(col_def) = op {
+        if let AlterTableOp::AddColumn {
+            column: col_def, ..
+        } = op
+        {
             let is_not_null = !col_def.nullable;
             let has_default = col_def.default.is_some()
                 || col_def

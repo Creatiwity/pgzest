@@ -230,7 +230,9 @@ fn apply_statements(
                         AlterTableOp::DisableRowLevelSecurity => {
                             rls_enabled.remove(&table_key);
                         }
-                        AlterTableOp::AddColumn(col_def) => {
+                        AlterTableOp::AddColumn {
+                            column: col_def, ..
+                        } => {
                             if let Some(table) = find_table_mut(tables, &table_key) {
                                 // Avoid duplicate if already present
                                 let col_lower = col_def.name.value.to_lowercase();
@@ -264,9 +266,9 @@ fn apply_statements(
                                     match action {
                                         AlterColumnAction::SetNotNull => col.nullable = false,
                                         AlterColumnAction::DropNotNull => col.nullable = true,
-                                        AlterColumnAction::SetDataType(dt) => {
-                                            col.data_type = dt.clone()
-                                        }
+                                        AlterColumnAction::SetDataType {
+                                            data_type: dt, ..
+                                        } => col.data_type = dt.clone(),
                                         _ => {}
                                     }
                                 }

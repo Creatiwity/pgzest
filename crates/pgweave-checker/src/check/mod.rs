@@ -217,6 +217,9 @@ fn check_policy_expr(
         ExprKind::FieldAccess { root, .. } => {
             check_policy_expr(root, clause, policy_name, table_schema, schema, diags)
         }
+        ExprKind::NamedArgument { value, .. } => {
+            check_policy_expr(value, clause, policy_name, table_schema, schema, diags)
+        }
 
         // Une sous-requête de policy a sa propre portée : hors périmètre ici.
         ExprKind::Exists { .. } => {}

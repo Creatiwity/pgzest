@@ -102,7 +102,7 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             Ok(Statement::Ddl(DdlStatement::CreatePolicy(ddl)))
         }
         sp::Statement::AlterTable(at) => {
-            let ddl = convert_alter_table(at.name, at.operations)?;
+            let ddl = convert_alter_table(at)?;
             Ok(Statement::Ddl(DdlStatement::AlterTable(ddl)))
         }
         sp::Statement::CreateType {
@@ -747,6 +747,26 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
             None => (None, Vec::new()),
         }
     };
+    if let sp::TableFactor::Table {
+        with_hints,
+        version,
+        partitions,
+        json_path,
+        sample,
+        index_hints,
+        ..
+    } = &factor
+        && (!with_hints.is_empty()
+            || version.is_some()
+            || !partitions.is_empty()
+            || json_path.is_some()
+            || sample.is_some()
+            || !index_hints.is_empty())
+    {
+        return Err(ParseError::Unsupported(format!(
+            "option de table non modélisée (TABLESAMPLE…) : {factor}"
+        )));
+    }
     let (source, alias) = match factor {
         // `FROM f(…)` : sqlparser le range dans Table, avec des arguments.
         sp::TableFactor::Table {
@@ -836,21 +856,43 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
     })
 }
 
+/// Argument d'une fonction en `FROM` : expression, éventuellement nommée.
 fn convert_function_arg_expr(arg: sp::FunctionArg) -> Result<Expr, ParseError> {
     match arg {
-        sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Expr(e))
-        | sp::FunctionArg::Named {
+        sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Expr(e)) => convert_expr(e),
+        sp::FunctionArg::Named {
+            name,
             arg: sp::FunctionArgExpr::Expr(e),
             ..
         }
         | sp::FunctionArg::ExprNamed {
+            name: sp::Expr::Identifier(name),
             arg: sp::FunctionArgExpr::Expr(e),
             ..
-        } => convert_expr(e),
+        } => convert_named_arg(name, e),
         other => Err(ParseError::Unsupported(format!(
             "argument de fonction en FROM : {other}"
         ))),
     }
+}
+
+/// `nom => valeur` (ou l'ancienne forme `nom := valeur`).
+fn convert_named_arg(name: sp::Ident, value: sp::Expr) -> Result<Expr, ParseError> {
+    use sqlparser::ast::Spanned;
+    let sp_span = name.span.union(&value.span());
+    let span = SPAN_CTX.with(|c| {
+        c.borrow()
+            .as_ref()
+            .map(|ctx| ctx.resolve(sp_span))
+            .unwrap_or(Span::DUMMY)
+    });
+    Ok(Expr::new(
+        ExprKind::NamedArgument {
+            name: convert_ident(name),
+            value: Box::new(convert_expr(value)?),
+        },
+        span,
+    ))
 }
 
 fn convert_join(join: sp::Join) -> Result<Join, ParseError> {
@@ -1077,6 +1119,18 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
                 .ok_or_else(|| ParseError::Unsupported("empty qualified wildcard".to_string()))?;
             Ok(ExprKind::QualifiedWildcard(convert_ident(last)))
         }
+        sp::Expr::Like { any: true, .. }
+        | sp::Expr::ILike { any: true, .. }
+        | sp::Expr::Like {
+            escape_char: Some(_),
+            ..
+        }
+        | sp::Expr::ILike {
+            escape_char: Some(_),
+            ..
+        } => Err(ParseError::Unsupported(
+            "LIKE … ESCAPE / LIKE ANY non modélisés".to_string(),
+        )),
         sp::Expr::Like {
             negated,
             expr,
@@ -1516,18 +1570,19 @@ fn convert_function_args(args: sp::FunctionArguments) -> Result<Vec<Expr>, Parse
                             })?;
                     Ok(Expr::bare(ExprKind::QualifiedWildcard(convert_ident(last))))
                 }
-                sp::FunctionArg::Named { arg, .. } => match arg {
-                    sp::FunctionArgExpr::Expr(e) => convert_expr(e),
-                    _ => Err(ParseError::Unsupported(
-                        "named wildcard function arg not supported".to_string(),
-                    )),
-                },
-                sp::FunctionArg::ExprNamed { arg, .. } => match arg {
-                    sp::FunctionArgExpr::Expr(e) => convert_expr(e),
-                    _ => Err(ParseError::Unsupported(
-                        "unsupported ExprNamed function arg".to_string(),
-                    )),
-                },
+                sp::FunctionArg::Named {
+                    name,
+                    arg: sp::FunctionArgExpr::Expr(e),
+                    ..
+                }
+                | sp::FunctionArg::ExprNamed {
+                    name: sp::Expr::Identifier(name),
+                    arg: sp::FunctionArgExpr::Expr(e),
+                    ..
+                } => convert_named_arg(name, e),
+                other => Err(ParseError::Unsupported(format!(
+                    "argument de fonction hors PostgreSQL : {other}"
+                ))),
             })
             .collect(),
     }
@@ -2241,19 +2296,17 @@ fn convert_create_policy(
 
 // ── ALTER TABLE ───────────────────────────────────────────────────────────────
 
-fn convert_alter_table(
-    name: sp::ObjectName,
-    operations: Vec<sp::AlterTableOperation>,
-) -> Result<AlterTable, ParseError> {
-    let tname = convert_object_name(name);
-    let ops = operations
+fn convert_alter_table(at: sp::AlterTable) -> Result<AlterTable, ParseError> {
+    let operations = at
+        .operations
         .into_iter()
         .map(convert_alter_table_op)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(AlterTable {
-        name: tname,
-        if_exists: false,
-        operations: ops,
+        name: convert_object_name(at.name),
+        if_exists: at.if_exists,
+        only: at.only,
+        operations,
     })
 }
 
@@ -2265,37 +2318,57 @@ pub(crate) fn convert_alter_table_op(
         sp::AlterTableOperation::DisableRowLevelSecurity => {
             Ok(AlterTableOp::DisableRowLevelSecurity)
         }
-        sp::AlterTableOperation::AddColumn { column_def, .. } => {
-            Ok(AlterTableOp::AddColumn(convert_column_def(column_def)?))
+        sp::AlterTableOperation::AddColumn {
+            column_def,
+            if_not_exists,
+            column_position,
+            ..
+        } => {
+            if column_position.is_some() {
+                return Err(ParseError::Unsupported(
+                    "position de colonne (FIRST / AFTER) hors PostgreSQL".to_string(),
+                ));
+            }
+            Ok(AlterTableOp::AddColumn {
+                column: convert_column_def(column_def)?,
+                if_not_exists,
+            })
         }
-        // In 0.62, DropColumn uses column_names (Vec) instead of column_name
         sp::AlterTableOperation::DropColumn {
             column_names,
             if_exists,
+            drop_behavior,
             ..
         } => {
-            let name = column_names
-                .into_iter()
-                .next()
-                .map(convert_ident)
-                .ok_or_else(|| {
-                    ParseError::Unsupported("DROP COLUMN with no column name".to_string())
-                })?;
-            Ok(AlterTableOp::DropColumn { name, if_exists })
+            let [name] = <[sp::Ident; 1]>::try_from(column_names).map_err(|_| {
+                ParseError::Unsupported("DROP COLUMN : une colonne par clause".to_string())
+            })?;
+            Ok(AlterTableOp::DropColumn {
+                name: convert_ident(name),
+                if_exists,
+                cascade: cascade(drop_behavior),
+            })
         }
         sp::AlterTableOperation::AlterColumn { column_name, op } => Ok(AlterTableOp::AlterColumn {
             name: convert_ident(column_name),
             action: convert_alter_column_op(op)?,
         }),
         // In 0.62, AddConstraint is a struct variant
-        sp::AlterTableOperation::AddConstraint { constraint, .. } => Ok(
-            AlterTableOp::AddConstraint(convert_table_constraint(constraint)?),
-        ),
+        sp::AlterTableOperation::AddConstraint {
+            constraint,
+            not_valid,
+        } => Ok(AlterTableOp::AddConstraint {
+            constraint: convert_table_constraint(constraint)?,
+            not_valid,
+        }),
         sp::AlterTableOperation::DropConstraint {
-            name, if_exists, ..
+            name,
+            if_exists,
+            drop_behavior,
         } => Ok(AlterTableOp::DropConstraint {
             name: convert_ident(name),
             if_exists,
+            cascade: cascade(drop_behavior),
         }),
         sp::AlterTableOperation::RenameColumn {
             old_column_name,
@@ -2326,14 +2399,22 @@ fn convert_alter_column_op(op: sp::AlterColumnOperation) -> Result<AlterColumnAc
         sp::AlterColumnOperation::DropDefault => Ok(AlterColumnAction::DropDefault),
         sp::AlterColumnOperation::SetNotNull => Ok(AlterColumnAction::SetNotNull),
         sp::AlterColumnOperation::DropNotNull => Ok(AlterColumnAction::DropNotNull),
-        sp::AlterColumnOperation::SetDataType { data_type, .. } => Ok(
-            AlterColumnAction::SetDataType(convert_data_type(data_type)?),
-        ),
+        sp::AlterColumnOperation::SetDataType {
+            data_type, using, ..
+        } => Ok(AlterColumnAction::SetDataType {
+            data_type: convert_data_type(data_type)?,
+            using: using.map(convert_expr).transpose()?,
+        }),
         other => Err(ParseError::Unsupported(format!(
             "unsupported ALTER COLUMN operation: {}",
             other
         ))),
     }
+}
+
+/// `CASCADE` explicite ; `RESTRICT` est le comportement par défaut.
+fn cascade(behavior: Option<sp::DropBehavior>) -> bool {
+    matches!(behavior, Some(sp::DropBehavior::Cascade))
 }
 
 // ── Data type conversion ──────────────────────────────────────────────────────

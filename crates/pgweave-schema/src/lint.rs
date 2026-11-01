@@ -60,7 +60,7 @@ fn ddl_schema_error(ddl: &DdlStatement) -> Option<Diagnostic> {
 
     for op in &at.operations {
         let msg: Option<&'static str> = match op {
-            AlterTableOp::AddColumn(_) => Some(
+            AlterTableOp::AddColumn { .. } => Some(
                 "ADD COLUMN in a schema file makes CREATE TABLE incomplete — \
                  add the column directly to the CREATE TABLE definition",
             ),

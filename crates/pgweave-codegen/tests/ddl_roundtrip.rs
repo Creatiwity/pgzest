@@ -81,6 +81,10 @@ fn alter_table() {
         "ALTER TABLE t VALIDATE CONSTRAINT c",
         "ALTER TABLE t ADD CONSTRAINT ex EXCLUDE USING gist (r WITH =, d WITH &&)",
         "ALTER TABLE t ALTER COLUMN a SET DATA TYPE text, DROP COLUMN b",
+        "ALTER TABLE ONLY t ADD COLUMN IF NOT EXISTS a INT",
+        "ALTER TABLE t DROP COLUMN a CASCADE, DROP CONSTRAINT IF EXISTS c CASCADE",
+        "ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY (a) REFERENCES u (id) NOT VALID",
+        "ALTER TABLE t ALTER COLUMN a SET DATA TYPE BIGINT USING a::bigint",
     ] {
         roundtrip(sql);
     }
@@ -220,6 +224,8 @@ fn requetes() {
         "SELECT sum(a) OVER (RANGE UNBOUNDED PRECEDING) FROM t",
         "SELECT sum(a) OVER w, avg(a) OVER (w ORDER BY b) FROM t WINDOW w AS (PARTITION BY c)",
         "SELECT ARRAY[1, 2, 3], ARRAY[]::int[]",
+        "SELECT make_interval(days => 1, hours => 2)",
+        "SELECT x FROM f(a => 1) AS x",
     ] {
         roundtrip(sql);
     }

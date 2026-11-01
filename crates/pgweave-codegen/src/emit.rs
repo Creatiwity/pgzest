@@ -705,6 +705,9 @@ pub fn emit_expr(expr: &Expr) -> String {
             format!("{}{}", emit_expr(root), path.join(""))
         }
         ExprKind::Parameter(p) => p.clone(),
+        ExprKind::NamedArgument { name, value } => {
+            format!("{} => {}", emit_ident(name), emit_expr(value))
+        }
 
         // Une expression non modélisée ne peut pas être ré-émise fidèlement.
         //
@@ -1315,22 +1318,40 @@ pub fn emit_create_policy(cp: &CreatePolicy) -> String {
 fn emit_alter_table(at: &AlterTable) -> String {
     let ops: Vec<String> = at.operations.iter().map(emit_alter_table_op).collect();
     format!(
-        "ALTER TABLE {}{}\n  {};",
+        "ALTER TABLE {}{}{}\n  {};",
         if at.if_exists { "IF EXISTS " } else { "" },
+        if at.only { "ONLY " } else { "" },
         emit_object_name(&at.name),
         ops.join(",\n  ")
     )
 }
 
 fn emit_alter_table_op(op: &AlterTableOp) -> String {
+    let cascade_kw = |c: bool| if c { " CASCADE" } else { "" };
     match op {
         AlterTableOp::EnableRowLevelSecurity => "ENABLE ROW LEVEL SECURITY".to_string(),
         AlterTableOp::DisableRowLevelSecurity => "DISABLE ROW LEVEL SECURITY".to_string(),
         AlterTableOp::ForceRowLevelSecurity => "FORCE ROW LEVEL SECURITY".to_string(),
-        AlterTableOp::AddColumn(col) => format!("ADD COLUMN {}", emit_column_def(col)),
-        AlterTableOp::DropColumn { name, if_exists } => {
+        AlterTableOp::AddColumn {
+            column,
+            if_not_exists,
+        } => format!(
+            "ADD COLUMN {}{}",
+            if *if_not_exists { "IF NOT EXISTS " } else { "" },
+            emit_column_def(column)
+        ),
+        AlterTableOp::DropColumn {
+            name,
+            if_exists,
+            cascade,
+        } => {
             let ie = if *if_exists { "IF EXISTS " } else { "" };
-            format!("DROP COLUMN {}{}", ie, emit_ident(name))
+            format!(
+                "DROP COLUMN {}{}{}",
+                ie,
+                emit_ident(name),
+                cascade_kw(*cascade)
+            )
         }
         AlterTableOp::AlterColumn { name, action } => {
             let action_str = match action {
@@ -1340,18 +1361,37 @@ fn emit_alter_table_op(op: &AlterTableOp) -> String {
                 AlterColumnAction::DropDefault => "DROP DEFAULT".to_string(),
                 AlterColumnAction::SetNotNull => "SET NOT NULL".to_string(),
                 AlterColumnAction::DropNotNull => "DROP NOT NULL".to_string(),
-                AlterColumnAction::SetDataType(dt) => {
-                    format!("SET DATA TYPE {}", emit_data_type(dt))
-                }
+                AlterColumnAction::SetDataType { data_type, using } => match using {
+                    Some(u) => format!(
+                        "SET DATA TYPE {} USING {}",
+                        emit_data_type(data_type),
+                        emit_expr(u)
+                    ),
+                    None => format!("SET DATA TYPE {}", emit_data_type(data_type)),
+                },
             };
             format!("ALTER COLUMN {} {}", emit_ident(name), action_str)
         }
-        AlterTableOp::AddConstraint(tc) => {
-            format!("ADD {}", emit_table_constraint(tc))
-        }
-        AlterTableOp::DropConstraint { name, if_exists } => {
+        AlterTableOp::AddConstraint {
+            constraint,
+            not_valid,
+        } => format!(
+            "ADD {}{}",
+            emit_table_constraint(constraint),
+            if *not_valid { " NOT VALID" } else { "" }
+        ),
+        AlterTableOp::DropConstraint {
+            name,
+            if_exists,
+            cascade,
+        } => {
             let ie = if *if_exists { "IF EXISTS " } else { "" };
-            format!("DROP CONSTRAINT {}{}", ie, emit_ident(name))
+            format!(
+                "DROP CONSTRAINT {}{}{}",
+                ie,
+                emit_ident(name),
+                cascade_kw(*cascade)
+            )
         }
         AlterTableOp::RenameColumn { from, to } => {
             format!("RENAME COLUMN {} TO {}", emit_ident(from), emit_ident(to))

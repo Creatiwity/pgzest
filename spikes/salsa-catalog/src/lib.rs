@@ -338,7 +338,7 @@ fn apply_to_table(stmt: &Statement, key: &str, table: &mut Option<TableDef>) {
             let Some(t) = table.as_mut() else { return };
             for op in &at.operations {
                 match op {
-                    AlterTableOp::AddColumn(c) => {
+                    AlterTableOp::AddColumn { column: c, .. } => {
                         let lower = c.name.value.to_lowercase();
                         if !t.columns.iter().any(|x| x.name.to_lowercase() == lower) {
                             t.columns.push(Column {
@@ -362,7 +362,7 @@ fn apply_to_table(stmt: &Statement, key: &str, table: &mut Option<TableDef>) {
                             match action {
                                 AlterColumnAction::SetNotNull => col.nullable = false,
                                 AlterColumnAction::DropNotNull => col.nullable = true,
-                                AlterColumnAction::SetDataType(dt) => {
+                                AlterColumnAction::SetDataType { data_type: dt, .. } => {
                                     col.data_type = format!("{dt:?}")
                                 }
                                 _ => {}

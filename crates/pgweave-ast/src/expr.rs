@@ -190,6 +190,12 @@ pub enum ExprKind {
         quantifier: Quantifier,
         right: Box<Expr>,
     },
+    /// Argument nommé d'un appel de fonction : `nom => valeur`. N'apparaît
+    /// que dans les arguments d'un `FunctionCall` ou d'une fonction en `FROM`.
+    NamedArgument {
+        name: Ident,
+        value: Box<Expr>,
+    },
     /// Paramètre lié : `$1`, `:nom`.
     ///
     /// Son type dépend du contexte d'appel, donc il n'est pas décidé ici — mais
@@ -309,6 +315,7 @@ impl Expr {
             }
             ExprKind::Tuple(items) => out.extend(items),
             ExprKind::FieldAccess { root, .. } => out.push(root),
+            ExprKind::NamedArgument { value, .. } => out.push(value),
             ExprKind::Subquery(_)
             | ExprKind::Exists { .. }
             | ExprKind::Column(_)

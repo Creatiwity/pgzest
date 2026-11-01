@@ -728,6 +728,9 @@ fn check_expr_inner(
         ExprKind::FieldAccess { root, .. } => {
             check_expr(root, ctx, schema, plvars, phantom_qualifiers, diags)
         }
+        ExprKind::NamedArgument { value, .. } => {
+            check_expr(value, ctx, schema, plvars, phantom_qualifiers, diags)
+        }
 
         ExprKind::Literal(_)
         | ExprKind::Wildcard

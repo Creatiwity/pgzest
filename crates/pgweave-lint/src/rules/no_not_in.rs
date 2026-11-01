@@ -149,6 +149,7 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             }
         }
         ExprKind::FieldAccess { root, .. } => visit_expr(root, config, out),
+        ExprKind::NamedArgument { value, .. } => visit_expr(value, config, out),
 
         ExprKind::Literal(_)
         | ExprKind::Column(_)

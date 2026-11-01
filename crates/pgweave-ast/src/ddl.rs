@@ -443,6 +443,9 @@ pub enum PolicyCommand {
 pub struct AlterTable {
     pub name: ObjectName,
     pub if_exists: bool,
+    /// `ONLY` : la table seule, sans ses tables filles (héritage,
+    /// partitions).
+    pub only: bool,
     pub operations: Vec<AlterTableOp>,
 }
 
@@ -451,19 +454,30 @@ pub enum AlterTableOp {
     EnableRowLevelSecurity,
     DisableRowLevelSecurity,
     ForceRowLevelSecurity,
-    AddColumn(ColumnDef),
+    AddColumn {
+        column: ColumnDef,
+        if_not_exists: bool,
+    },
     DropColumn {
         name: Ident,
         if_exists: bool,
+        /// `CASCADE` : supprime aussi les objets qui en dépendent.
+        cascade: bool,
     },
     AlterColumn {
         name: Ident,
         action: AlterColumnAction,
     },
-    AddConstraint(TableConstraint),
+    AddConstraint {
+        constraint: TableConstraint,
+        /// `NOT VALID` : les lignes existantes ne sont pas vérifiées (voir
+        /// `ValidateConstraint`).
+        not_valid: bool,
+    },
     DropConstraint {
         name: Ident,
         if_exists: bool,
+        cascade: bool,
     },
     RenameColumn {
         from: Ident,
@@ -482,7 +496,12 @@ pub enum AlterColumnAction {
     DropDefault,
     SetNotNull,
     DropNotNull,
-    SetDataType(DataType),
+    /// `[SET DATA] TYPE t [USING expr]` : `using` convertit les valeurs
+    /// existantes.
+    SetDataType {
+        data_type: DataType,
+        using: Option<Expr>,
+    },
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
