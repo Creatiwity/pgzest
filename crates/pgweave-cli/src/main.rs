@@ -5,6 +5,7 @@ use std::process;
 use clap::{Parser, Subcommand};
 use pgweave_ast::Statement;
 
+mod import;
 mod migrate;
 
 #[derive(Parser)]
@@ -96,6 +97,12 @@ enum Command {
         action: MigrateAction,
     },
 
+    /// Schema subcommands
+    Schema {
+        #[command(subcommand)]
+        action: SchemaAction,
+    },
+
     /// Parse and re-emit the SQL AST (normalization round-trip).
     Emit {
         /// SQL file to emit
@@ -110,6 +117,29 @@ enum Command {
         /// TypeScript output file (default: stdout)
         #[arg(long)]
         output: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum SchemaAction {
+    /// Import an existing project: replay its migrations and write the
+    /// resulting declarative schema (one `<schema>/schema.sql` per
+    /// PostgreSQL schema) plus a baseline migration with its header.
+    Import {
+        /// Migrations directory
+        migrations: String,
+        /// How migrations are laid out
+        #[arg(long, value_enum, default_value = "flat")]
+        layout: import::Layout,
+        /// Output directory for the declarative schema
+        #[arg(long, default_value = "schema")]
+        out: String,
+        /// Baseline migration file (default: `<out>/baseline.sql`)
+        #[arg(long)]
+        baseline: Option<String>,
+        /// Write even if the replay reported errors
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -663,6 +693,21 @@ fn main() {
         Command::Macros { verbose } => cmd_macros(verbose),
         Command::Build { files, out_dir } => cmd_build(&files, out_dir.as_deref()),
         Command::Lint { file } => cmd_lint(&file),
+        Command::Schema { action } => match action {
+            SchemaAction::Import {
+                migrations,
+                layout,
+                out,
+                baseline,
+                force,
+            } => import::run(
+                Path::new(&migrations),
+                layout,
+                Path::new(&out),
+                baseline.as_deref().map(Path::new),
+                force,
+            ),
+        },
         Command::Migrate { action } => match action {
             MigrateAction::Diff { old, new } => cmd_migrate_diff(&old, &new),
             MigrateAction::Create {

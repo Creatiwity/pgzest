@@ -645,6 +645,8 @@ impl Snapshot {
                 constraints: Vec::new(),
                 row_level_security: r.get(5),
                 opaque: false,
+                definition: None,
+                order: 0,
             });
         }
         pack
@@ -714,6 +716,8 @@ impl Snapshot {
             strict: r.get(12),
             security_definer: r.get(13),
             language: r.get(14),
+            definition: None,
+            order: 0,
         }
     }
 }

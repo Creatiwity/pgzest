@@ -588,7 +588,7 @@ pub fn emit_expr(expr: &Expr) -> String {
             within_group,
             over,
         } => {
-            let fn_name = emit_object_name(name);
+            let fn_name = emit_routine_name(name);
             // `ARRAY[…]` est représenté comme un appel à `array`.
             if name.0.len() == 1 && !name.0[0].quoted && name.0[0].value == "array" {
                 let items: Vec<String> = args.iter().map(emit_expr).collect();
@@ -1818,8 +1818,13 @@ fn emit_returning(items: &[SelectItem], aliases: &ReturningAliases) -> String {
 /// Un identifiant quoté le reste ; un identifiant que PostgreSQL ne relirait
 /// pas à l'identique sans guillemets (majuscules, caractères spéciaux) est
 /// quoté, pour ne jamais désigner un autre objet.
+///
+/// Un identifiant non quoté égal à un mot-clé n'a pu être lu qu'à une
+/// position où le mot-clé est admis (`current_user` comme rôle) : il reste
+/// tel quel. Les noms qui ne viennent pas du parse (export du catalogue)
+/// passent par `is_plain_identifier`, qui quote aussi les mots-clés.
 pub fn emit_ident(ident: &Ident) -> String {
-    if ident.quoted || !is_plain_identifier(&ident.value) {
+    if ident.quoted || !has_plain_shape(&ident.value) {
         quote_ident(&ident.value)
     } else {
         ident.value.clone()
@@ -1830,13 +1835,36 @@ fn quote_ident(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 
-/// `[a-z_][a-z0-9_$]*` : relu tel quel sans guillemets.
-fn is_plain_identifier(value: &str) -> bool {
+/// `[a-z_][a-z0-9_$]*` et pas un mot-clé : relu tel quel sans guillemets.
+pub fn is_plain_identifier(value: &str) -> bool {
+    has_plain_shape(value) && !crate::keywords::needs_quoting(value)
+}
+
+/// `[a-z_][a-z0-9_$]*`. Suffit pour un nom de fonction ou de type, où les
+/// mots-clés (`coalesce`, `bit`) s'écrivent sans guillemets — quotés, ils
+/// désigneraient un autre objet.
+pub fn has_plain_shape(value: &str) -> bool {
     let mut chars = value.chars();
     chars
         .next()
         .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$')
+}
+
+/// Nom de fonction ou de type : quoté seulement s'il l'était, ou si sa
+/// forme l'exige.
+fn emit_routine_name(name: &ObjectName) -> String {
+    name.0
+        .iter()
+        .map(|i| {
+            if i.quoted || !has_plain_shape(&i.value) {
+                quote_ident(&i.value)
+            } else {
+                i.value.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 pub fn emit_object_name(name: &ObjectName) -> String {
@@ -1887,7 +1915,7 @@ pub fn emit_data_type(dt: &DataType) -> String {
         DataType::Custom(name) => name
             .split('.')
             .map(|part| {
-                if is_plain_identifier(part) {
+                if has_plain_shape(part) {
                     part.to_string()
                 } else {
                     quote_ident(part)

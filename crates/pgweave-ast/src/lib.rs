@@ -1,6 +1,7 @@
 pub mod ddl;
 pub mod emit;
 pub mod expr;
+pub mod keywords;
 pub mod node;
 pub mod plpgsql;
 pub mod source_map;

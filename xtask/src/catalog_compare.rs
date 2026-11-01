@@ -145,6 +145,7 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
         rel.constraints.push(pgweave_catalog::model::Constraint {
             name: r.get(2),
             kind,
+            definition: None,
             not_valid: r.get(5),
         });
     }
@@ -208,7 +209,14 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
             (Some(s), Some(t), Some(c)) => Some((q(s, t), c)),
             _ => None,
         };
-        cat.sequences.insert(name.clone(), Sequence { name, owned_by });
+        cat.sequences.insert(
+            name.clone(),
+            Sequence {
+                name,
+                owned_by,
+                definition: None,
+            },
+        );
     }
 
     for r in client
@@ -239,6 +247,7 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
                 for_each_row: r.get(5),
                 old_table: None,
                 new_table: None,
+                definition: None,
             },
         );
     }
@@ -265,6 +274,7 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
                 roles: vec![],
                 using: None,
                 with_check: None,
+                definition: None,
             },
         );
     }

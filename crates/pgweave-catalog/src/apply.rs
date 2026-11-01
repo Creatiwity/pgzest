@@ -135,6 +135,11 @@ impl Applier<'_> {
         self.out.push(Diagnostic::error(code, msg));
     }
 
+    fn next_order(&mut self) -> u64 {
+        self.cat.next_order += 1;
+        self.cat.next_order
+    }
+
     // ── Noms ─────────────────────────────────────────────────────────────────
 
     /// Nom qualifié d'un objet créé : schéma explicite, `pg_temp` pour un
@@ -238,6 +243,17 @@ impl Applier<'_> {
                     if name.eq_ignore_ascii_case("search_path") =>
                 {
                     self.set_search_path(value);
+                }
+                UtilityKind::Comment { target, name, text } => {
+                    let key = format!("{target:?} {}", written(name));
+                    match text {
+                        Some(_) => {
+                            self.cat.comments.insert(key, emit_statement(stmt));
+                        }
+                        None => {
+                            self.cat.comments.remove(&key);
+                        }
+                    }
                 }
                 UtilityKind::Do { body, .. } => match body {
                     FunctionBody::Parsed(b) => {
@@ -393,7 +409,7 @@ impl Applier<'_> {
                     self.alter_table(&name, op);
                 }
             }
-            DdlStatement::CreateIndex(ci) => self.create_index(ci, ddl),
+            DdlStatement::CreateIndex(ci) => self.create_index(ci),
             DdlStatement::CreateType(ct) => self.create_type(ct),
             DdlStatement::AlterType(at) => self.alter_type(at),
             DdlStatement::CreateDomain(cd) => {
@@ -490,6 +506,7 @@ impl Applier<'_> {
                         for_each_row: matches!(ct.for_each, TriggerForEach::Row),
                         old_table,
                         new_table,
+                        definition: Some(emit_statement(&Statement::Ddl(ddl.clone()))),
                     },
                 );
             }
@@ -522,6 +539,7 @@ impl Applier<'_> {
                         roles: cp.roles.iter().map(|r| r.value.clone()).collect(),
                         using: cp.using.as_ref().map(emit_expr),
                         with_check: cp.with_check.as_ref().map(emit_expr),
+                        definition: Some(emit_statement(&Statement::Ddl(ddl.clone()))),
                     },
                 );
             }
@@ -548,9 +566,14 @@ impl Applier<'_> {
                     }
                     _ => None,
                 });
-                self.cat
-                    .sequences
-                    .insert(name.clone(), Sequence { name, owned_by });
+                self.cat.sequences.insert(
+                    name.clone(),
+                    Sequence {
+                        name,
+                        owned_by,
+                        definition: Some(emit_statement(&Statement::Ddl(ddl.clone()))),
+                    },
+                );
             }
             DdlStatement::Drop(d) => self.drop(d),
         }
@@ -688,6 +711,8 @@ impl Applier<'_> {
             constraints: Vec::new(),
             row_level_security: false,
             opaque: false,
+            definition: None,
+            order: self.next_order(),
         };
         // Insérée d'abord : les contraintes nommées automatiquement doivent
         // voir la table, et une FK peut se référencer elle-même.
@@ -779,6 +804,7 @@ impl Applier<'_> {
             rel.constraints.push(Constraint {
                 name,
                 kind: con.kind.clone(),
+                definition: con.definition.clone(),
                 not_valid: con.not_valid,
             });
         }
@@ -888,6 +914,7 @@ impl Applier<'_> {
             Sequence {
                 name: q.clone(),
                 owned_by: Some((table.clone(), column.to_string())),
+                definition: None,
             },
         );
         q
@@ -1050,6 +1077,7 @@ impl Applier<'_> {
         rel.constraints.push(Constraint {
             name,
             kind,
+            definition: Some(pgweave_ast::emit::emit_table_constraint(&unnamed(tc))),
             not_valid,
         });
     }
@@ -1387,7 +1415,7 @@ impl Applier<'_> {
 
     // ── Index ────────────────────────────────────────────────────────────────
 
-    fn create_index(&mut self, ci: &pgweave_ast::ddl::CreateIndex, ddl: &DdlStatement) {
+    fn create_index(&mut self, ci: &pgweave_ast::ddl::CreateIndex) {
         let Some(table) = self.relation_name(&ci.table) else {
             return;
         };
@@ -1436,10 +1464,19 @@ impl Applier<'_> {
         self.cat.indexes.insert(
             name.clone(),
             Index {
-                name,
+                name: name.clone(),
                 table,
                 unique: ci.unique,
-                definition: emit_statement(&Statement::Ddl(ddl.clone())),
+                // Avec le nom effectif : un index non nommé l'est par
+                // PostgreSQL, et l'export doit le recréer à l'identique.
+                definition: {
+                    let mut named = ci.clone();
+                    named.name = Some(Ident {
+                        value: name.name.clone(),
+                        quoted: false,
+                    });
+                    emit_statement(&Statement::Ddl(DdlStatement::CreateIndex(named)))
+                },
                 columns,
             },
         );
@@ -1720,6 +1757,7 @@ impl Applier<'_> {
             ReturnType::Trigger => (TypeRef::named(QName::pg_catalog("trigger")), false),
             ReturnType::Void => (TypeRef::named(QName::pg_catalog("void")), false),
         };
+        let order = self.next_order();
         self.add_routine(
             Routine {
                 name,
@@ -1736,6 +1774,10 @@ impl Applier<'_> {
                 strict: cf.strict,
                 security_definer: cf.security_definer,
                 language: language(&cf.language),
+                definition: Some(emit_statement(&Statement::Ddl(
+                    DdlStatement::CreateFunction(cf.clone()),
+                ))),
+                order,
             },
             cf.or_replace,
         );
@@ -1746,6 +1788,7 @@ impl Applier<'_> {
             return;
         };
         let args = self.args(&cp.params);
+        let order = self.next_order();
         self.add_routine(
             Routine {
                 name,
@@ -1758,6 +1801,10 @@ impl Applier<'_> {
                 strict: false,
                 security_definer: cp.security_definer,
                 language: language(&cp.language),
+                definition: Some(emit_statement(&Statement::Ddl(
+                    DdlStatement::CreateProcedure(cp.clone()),
+                ))),
+                order,
             },
             cp.or_replace,
         );
@@ -1788,6 +1835,7 @@ impl Applier<'_> {
         if !existed {
             self.add_rowtype_array(&name);
         }
+        let order = self.next_order();
         self.cat.relations.insert(
             name.clone(),
             Relation {
@@ -1818,6 +1866,10 @@ impl Applier<'_> {
                 constraints: Vec::new(),
                 row_level_security: false,
                 opaque,
+                definition: Some(emit_statement(&Statement::Ddl(DdlStatement::CreateView(
+                    cv.clone(),
+                )))),
+                order,
             },
         );
     }
@@ -2175,4 +2227,18 @@ fn has_effect(stmts: &[PlStatement]) -> bool {
         PlStatementKind::Block(b) => has_effect(&b.statements),
         _ => false,
     })
+}
+
+/// La contrainte sans son nom : le corps de sa définition, le nom (écrit ou
+/// choisi) étant porté à part.
+fn unnamed(tc: &TableConstraint) -> TableConstraint {
+    let mut tc = tc.clone();
+    match &mut tc {
+        TableConstraint::PrimaryKey { name, .. }
+        | TableConstraint::Unique { name, .. }
+        | TableConstraint::ForeignKey { name, .. }
+        | TableConstraint::Check { name, .. }
+        | TableConstraint::Exclude { name, .. } => *name = None,
+    }
+    tc
 }

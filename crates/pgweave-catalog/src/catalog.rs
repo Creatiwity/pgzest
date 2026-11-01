@@ -31,6 +31,11 @@ pub struct Catalog {
     /// Pack chargé par chaque extension active (dans son schéma), pour la
     /// décharger à `DROP EXTENSION` ou à une mise à jour.
     pub extension_packs: BTreeMap<String, Pack>,
+    /// Compteur de création (rang des routines et vues, pour l'export).
+    pub next_order: u64,
+    /// `COMMENT ON …` en vigueur, par cible (`TABLE public.t`), sous forme
+    /// de statement émis. Sans effet sur l'analyse, restitué à l'export.
+    pub comments: BTreeMap<String, String>,
 }
 
 /// `search_path` effectif : schémas consultés dans l'ordre pour un nom non

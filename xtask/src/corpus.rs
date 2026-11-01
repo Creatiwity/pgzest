@@ -154,10 +154,40 @@ pub fn run(
     }
     stats.check_time = check_start.elapsed();
 
-    let pg = match pg_url.or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok()) {
-        Some(url) => Some(replay_on_postgres(&url, &sources, details)?),
+    let pg_url_for_import = pg_url.or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok());
+    let pg = match &pg_url_for_import {
+        Some(url) => Some(replay_on_postgres(url, &sources, details)?),
         None => None,
     };
+
+    // Import : le catalogue reconstruit, exporté en SQL et appliqué à une base
+    // vierge, doit redonner le catalogue réel.
+    let import_comparison = match (
+        pg_url_for_import.as_deref(),
+        pg.as_ref().and_then(|p| p.catalog.as_ref()),
+    ) {
+        (Some(url), Some(real)) => {
+            let dump = pgweave_catalog::dump::dump(&replay.catalog, 18);
+            if let Some(path) = std::env::var_os("PGWEAVE_IMPORT_DUMP") {
+                let _ = std::fs::write(path, &dump.baseline);
+            }
+            Some(match apply_on_fresh_db(url, &dump.baseline) {
+                Ok(imported) => Ok(crate::catalog_compare::compare(real, &imported)),
+                Err(e) => Err(redact(&e)),
+            })
+        }
+        _ => None,
+    };
+    if details && let Some(Ok(c)) = &import_comparison {
+        for d in &c.details {
+            eprintln!("import : {d}");
+        }
+    }
+    if let Some(Err(e)) = &import_comparison
+        && details
+    {
+        eprintln!("import refusé par PostgreSQL : {e}");
+    }
 
     let comparison = pg
         .as_ref()
@@ -176,6 +206,7 @@ pub fn run(
         &stats,
         pg.as_ref(),
         comparison.as_ref(),
+        import_comparison.as_ref(),
     );
     match out {
         Some(path) => std::fs::write(&path, report).map_err(|e| format!("{}: {e}", path.display())),
@@ -373,6 +404,42 @@ fn replay_on_postgres(
     })
 }
 
+/// Applique un script à une base vierge et rend son catalogue de projet.
+fn apply_on_fresh_db(url: &str, sql: &str) -> Result<pgweave_catalog::Catalog, String> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    rt.block_on(async {
+        let admin = connect(url).await?;
+        let db = format!("pgweave_import_{}", std::process::id());
+        admin
+            .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
+            .await
+            .map_err(|e| db_message(&e))?;
+        admin
+            .batch_execute(&format!("CREATE DATABASE \"{db}\""))
+            .await
+            .map_err(|e| db_message(&e))?;
+        let mut config: tokio_postgres::Config = url.parse().map_err(|e| format!("URL : {e}"))?;
+        config.dbname(&db);
+        let result = async {
+            let client = connect_config(&config).await?;
+            client
+                .batch_execute(sql)
+                .await
+                .map_err(|e| db_message(&e))?;
+            crate::catalog_compare::real_catalog(&client).await
+        }
+        .await;
+        admin
+            .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
+            .await
+            .map_err(|e| db_message(&e))?;
+        result
+    })
+}
+
 /// Masque les identifiants cités entre guillemets par PostgreSQL.
 fn redact(msg: &str) -> String {
     let mut out = String::new();
@@ -423,6 +490,7 @@ fn render(
     s: &Stats,
     pg: Option<&PgReplay>,
     comparison: Option<&crate::catalog_compare::Comparison>,
+    import: Option<&Result<crate::catalog_compare::Comparison, String>>,
 ) -> String {
     let mut o = String::new();
     let skipped_unparsable: usize = s.unparsable.values().sum();
@@ -553,6 +621,41 @@ fn render(
                     o,
                     "| {cat} | {} | {} | {} | {} | {} | {} |",
                     r.real, r.matched, r.unknown, r.different, r.missing, r.extra
+                );
+            }
+        }
+    }
+
+    let _ = writeln!(o, "\n## Import (schéma déclaratif)\n");
+    match import {
+        None => {
+            let _ = writeln!(o, "Non vérifié (rejeu PostgreSQL absent ou incomplet).");
+        }
+        Some(Err(e)) => {
+            let _ = writeln!(
+                o,
+                "Le SQL exporté a été refusé par PostgreSQL : « {e} » (noms masqués)."
+            );
+        }
+        Some(Ok(c)) => {
+            let _ = writeln!(
+                o,
+                "Le catalogue reconstruit, exporté en SQL (`pgweave_catalog::dump`) et appliqué à une \
+                 base vierge, comparé au catalogue réel des migrations :\n"
+            );
+            let _ = writeln!(
+                o,
+                "| Objets | Réels | Identiques | Différents | Manquants | En trop |\n|---|--:|--:|--:|--:|--:|"
+            );
+            for (cat, r) in &c.categories {
+                let _ = writeln!(
+                    o,
+                    "| {cat} | {} | {} | {} | {} | {} |",
+                    r.real,
+                    r.matched,
+                    r.different + r.unknown,
+                    r.missing,
+                    r.extra
                 );
             }
         }

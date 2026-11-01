@@ -1,6 +1,6 @@
 # Corpus `mesalia` — taux d'analyse
 
-> Généré le 2026-11-01 par `cargo xtask corpus mesalia` (pgweave `b0508d9`).
+> Généré le 2026-11-01 par `cargo xtask corpus mesalia` (pgweave `79ee324`).
 > Fichiers retenus : Prisma : `*/migration.sql`, triés par répertoire horodaté.
 > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
 
@@ -21,14 +21,11 @@
 
 ## Diagnostics de `check`
 
-Chaque migration est vérifiée contre l'index de **tout** le corpus (état final), comme le fait `pgweave check` aujourd'hui. Les migrations ayant été appliquées en production, une erreur est a priori un faux positif.
+Chaque migration est vérifiée contre le catalogue rejoué jusqu'à elle (incluse), catalogue `postgres@18` et extensions compris. Les migrations ayant été appliquées en production, une erreur est a priori un faux positif.
 
-Fichiers avec au moins une erreur : 1/220. Statements absents de l'index : 0.
+Fichiers avec au moins une erreur : 0/220. Statements absents de l'index : 0.
 
-| Sévérité | Code | Nombre |
-|---|---|--:|
-| error | `column-not-found` | 10 |
-| warning | `function-not-found` | 53 |
+Aucun diagnostic.
 
 ## Rejeu sur PostgreSQL
 
@@ -56,11 +53,28 @@ Comparaison au catalogue réel (objets du projet, hors membres d'extensions ; ex
 | triggers | 14 | 14 | 0 | 0 | 0 | 0 |
 | types | 254 | 254 | 0 | 0 | 0 | 0 |
 
+## Import (schéma déclaratif)
+
+Le catalogue reconstruit, exporté en SQL (`pgweave_catalog::dump`) et appliqué à une base vierge, comparé au catalogue réel des migrations :
+
+| Objets | Réels | Identiques | Différents | Manquants | En trop |
+|---|--:|--:|--:|--:|--:|
+| colonnes | 1622 | 1622 | 0 | 0 | 0 |
+| contraintes | 488 | 488 | 0 | 0 | 0 |
+| extensions | 2 | 2 | 0 | 0 | 0 |
+| index | 405 | 405 | 0 | 0 | 0 |
+| policies | 0 | 0 | 0 | 0 | 0 |
+| relations | 122 | 122 | 0 | 0 | 0 |
+| routines | 9 | 9 | 0 | 0 | 0 |
+| schémas | 1 | 1 | 0 | 0 | 0 |
+| séquences | 2 | 2 | 0 | 0 | 0 |
+| triggers | 14 | 14 | 0 | 0 | 0 |
+| types | 254 | 254 | 0 | 0 | 0 |
+
 ## Temps (indicatif, dépend de la machine)
 
 | Étape | Durée |
 |---|--:|
-| Parse de tous les fichiers | 141 ms |
-| Construction de l'index (`SchemaResolver`) | 270 ms |
-| Vérification de tous les fichiers | 7 ms |
-| Rejeu sur le catalogue (`pgweave-catalog`) | 4461 ms |
+| Parse de tous les fichiers | 144 ms |
+| Vérification de tous les fichiers | 4389 ms |
+| Rejeu sur le catalogue (`pgweave-catalog`) | 4255 ms |

@@ -44,14 +44,21 @@ impl fmt::Display for QName {
     }
 }
 
-/// `[a-z_][a-z0-9_$]*` se relit tel quel ; le reste est quoté.
+/// Forme textuelle d'un nom du catalogue : quoté si sa forme l'exige.
+/// (Pour du SQL à exécuter, voir [`quote_sql_ident`], qui quote aussi les
+/// mots-clés.)
 pub fn quote_ident(s: &str) -> String {
-    let mut chars = s.chars();
-    let plain = chars
-        .next()
-        .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$');
-    if plain {
+    if pgweave_ast::emit::has_plain_shape(s) {
+        s.to_string()
+    } else {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    }
+}
+
+/// Identifiant pour du SQL exécutable : quoté si sa forme l'exige ou si
+/// c'est un mot-clé (`default`, `user`), comme `quote_ident` de PostgreSQL.
+pub fn quote_sql_ident(s: &str) -> String {
+    if pgweave_ast::emit::is_plain_identifier(s) {
         s.to_string()
     } else {
         format!("\"{}\"", s.replace('"', "\"\""))
@@ -328,6 +335,12 @@ pub struct Routine {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub security_definer: bool,
     pub language: String,
+    /// `CREATE …` émis, pour une routine du projet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+    /// Rang de création dans le rejeu (dépendances à l'export).
+    #[serde(default, skip_serializing)]
+    pub order: u64,
 }
 
 impl Routine {
@@ -408,6 +421,11 @@ pub struct Relation {
     /// développée) : leur absence ne prouve rien.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub opaque: bool,
+    /// `CREATE VIEW …` émis, pour une vue du projet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub order: u64,
 }
 
 impl Relation {
@@ -446,6 +464,9 @@ pub struct Column {
 pub struct Constraint {
     pub name: String,
     pub kind: ConstraintKind,
+    /// Texte complet émis (actions de FK comprises), pour l'export.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
     /// `NOT VALID` : les lignes existantes ne sont pas garanties.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub not_valid: bool,
@@ -496,6 +517,10 @@ pub struct Sequence {
     /// Colonne qui la possède (`OWNED BY`, `serial`, identité).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owned_by: Option<(QName, String)>,
+    /// `CREATE SEQUENCE …` émis (paramètres compris), pour une séquence créée
+    /// explicitement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -513,6 +538,8 @@ pub struct Trigger {
     pub old_table: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_table: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -526,6 +553,8 @@ pub struct Policy {
     pub using: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub with_check: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
