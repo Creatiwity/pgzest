@@ -50,6 +50,10 @@ pub struct SelectStmt {
     /// du résultat sont nommées par ce premier SELECT ; `order_by`, `limit` et
     /// `offset` s'appliquent alors à l'ensemble.
     pub set_ops: Vec<SetOperation>,
+    /// `VALUES (…), (…)` : corps fait de lignes de valeurs, colonnes nommées
+    /// `column1`, `column2`… Les clauses propres à `SELECT` sont alors
+    /// vides ; `order_by`, `limit`, `offset` et `set_ops` s'appliquent.
+    pub values: Vec<Vec<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

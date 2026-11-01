@@ -94,6 +94,9 @@ pub struct NormalizedSelect {
     /// et OFFSET portent alors sur leur résultat.
     pub set_ops: Vec<SetOperation>,
 
+    /// `VALUES` : lignes de valeurs, à la place de la projection.
+    pub values: Vec<Vec<Expr>>,
+
     // ── Derived metadata ─────────────────────────────────────────────────────
     /// Alias → Expr map built from the SELECT list.
     ///
@@ -140,6 +143,7 @@ pub fn normalize_select(stmt: SelectStmt) -> NormalizedSelect {
         offset: stmt.offset,
 
         set_ops: stmt.set_ops,
+        values: stmt.values,
 
         // Derived
         resolved_aliases,
@@ -231,6 +235,7 @@ mod tests {
             limit: Some(Expr::bare(ExprKind::Literal(Literal::Number("10".into())))),
             offset: None,
             set_ops: vec![],
+            values: vec![],
         }
     }
 
@@ -283,6 +288,7 @@ mod tests {
             limit: None,
             offset: None,
             set_ops: vec![],
+            values: vec![],
         };
         let norm = normalize_select(stmt);
         assert!(norm.resolved_aliases.is_empty());

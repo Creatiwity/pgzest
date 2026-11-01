@@ -28,6 +28,7 @@ fn empty_select(columns: Vec<SelectItem>) -> Statement {
         limit: None,
         offset: None,
         set_ops: vec![],
+        values: vec![],
     })
 }
 
@@ -281,6 +282,7 @@ fn not_in_subquery_triggers_warning() {
         limit: None,
         offset: None,
         set_ops: vec![],
+        values: vec![],
     });
 
     let where_clause = Expr::bare(ExprKind::InSubquery {
@@ -310,6 +312,7 @@ fn not_in_subquery_triggers_warning() {
         limit: None,
         offset: None,
         set_ops: vec![],
+        values: vec![],
     });
 
     let config = LintConfig::default();

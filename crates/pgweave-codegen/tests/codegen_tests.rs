@@ -23,6 +23,7 @@ fn make_select(columns: Vec<SelectItem>, from: Vec<TableRef>) -> SelectStmt {
         limit: None,
         offset: None,
         set_ops: vec![],
+        values: vec![],
     }
 }
 
@@ -132,6 +133,7 @@ fn emit_select_with_where_and_limit() {
         )))),
         offset: None,
         set_ops: vec![],
+        values: vec![],
     });
 
     let sql = emit_statement(&stmt);

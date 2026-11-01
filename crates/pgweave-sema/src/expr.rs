@@ -731,11 +731,21 @@ impl<'c> Analyzer<'c> {
                 }
                 _ => {}
             }
+            // Fonctions SQL sans parenthèses (`SQLValueFunction`), de type fixe.
+            if args.is_empty()
+                && let Some((ty, nullable)) = sql_value_function(fname)
+            {
+                return Ok(Typed::new(pg(ty), nullable));
+            }
         }
-        // `count(*)` : appel sans argument.
+        // `count(*)` : appel sans argument. Agrégat d'ensemble ordonné : les
+        // expressions de `WITHIN GROUP` suivent les arguments directs.
         let args: Vec<&Expr> = match args.as_slice() {
             [a] if matches!(a.kind, ExprKind::Wildcard) => Vec::new(),
-            _ => args.iter().collect(),
+            _ => args
+                .iter()
+                .chain(within_group.iter().map(|o| &o.expr))
+                .collect(),
         };
         let mut typed = Vec::with_capacity(args.len());
         for a in &args {
@@ -861,6 +871,23 @@ impl<'c> Analyzer<'c> {
     ) -> Result<Vec<crate::query::OutputColumn>, SemaError> {
         self.select(q, Some(scope), true)
     }
+}
+
+/// Type et nullabilité des fonctions SQL sans parenthèses (`SQLValueFunction`).
+fn sql_value_function(name: &str) -> Option<(&'static str, Nullability)> {
+    Some(match name {
+        "current_date" => ("date", Nullability::NonNull),
+        "current_time" => ("timetz", Nullability::NonNull),
+        "current_timestamp" => ("timestamptz", Nullability::NonNull),
+        "localtime" => ("time", Nullability::NonNull),
+        "localtimestamp" => ("timestamp", Nullability::NonNull),
+        "current_role" | "current_user" | "user" | "session_user" | "current_catalog" => {
+            ("name", Nullability::NonNull)
+        }
+        // NULL si aucun schéma du chemin n'existe.
+        "current_schema" => ("name", Nullability::Nullable),
+        _ => return None,
+    })
 }
 
 /// Éléments d'un constructeur `ARRAY[…]` (appel non quoté à `array`).

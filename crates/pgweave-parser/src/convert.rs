@@ -607,6 +607,38 @@ fn convert_set_expr(body: sp::SetExpr) -> Result<SelectStmt, ParseError> {
             });
             Ok(stmt)
         }
+        sp::SetExpr::Values(v) => {
+            let values = v
+                .rows
+                .into_iter()
+                .map(|row| {
+                    row.content
+                        .into_iter()
+                        .map(convert_expr)
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(SelectStmt {
+                id: crate::next_node_id(),
+                span: Span::DUMMY,
+                with: vec![],
+                with_recursive: false,
+                distinct: false,
+                distinct_on: vec![],
+                columns: vec![],
+                from: vec![],
+                joins: vec![],
+                where_clause: None,
+                group_by: vec![],
+                having: None,
+                windows: vec![],
+                order_by: vec![],
+                limit: None,
+                offset: None,
+                set_ops: vec![],
+                values,
+            })
+        }
         other => Err(ParseError::Unsupported(format!(
             "unsupported query body: {}",
             other
@@ -717,6 +749,7 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
         limit: None,
         offset: None,
         set_ops: vec![],
+        values: vec![],
     })
 }
 
@@ -1336,8 +1369,114 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             over: None,
         }),
 
+        // Syntaxes SQL ramenées par la grammaire de PostgreSQL à des appels
+        // de fonctions système (`gram.y`, `SystemFuncName`).
+        sp::Expr::Position { expr, r#in } => {
+            system_call("position", vec![convert_expr(*r#in)?, convert_expr(*expr)?])
+        }
+        // `substr(x, a, b)` : lu par sqlparser comme `SUBSTRING` abrégé, mais
+        // c'est un appel ordinaire à la fonction `substr`.
+        sp::Expr::Substring {
+            expr,
+            substring_from,
+            substring_for,
+            shorthand: true,
+            ..
+        } => {
+            let mut args = vec![convert_expr(*expr)?];
+            for a in substring_from.into_iter().chain(substring_for) {
+                args.push(convert_expr(*a)?);
+            }
+            Ok(ExprKind::FunctionCall {
+                name: ObjectName::unquoted(&["substr"]),
+                args,
+                order_by: vec![],
+                filter: None,
+                distinct: false,
+                within_group: vec![],
+                over: None,
+            })
+        }
+        sp::Expr::Substring {
+            expr,
+            substring_from,
+            substring_for,
+            ..
+        } => {
+            let mut args = vec![convert_expr(*expr)?];
+            match (substring_from, substring_for) {
+                (Some(from), Some(len)) => {
+                    args.push(convert_expr(*from)?);
+                    args.push(convert_expr(*len)?);
+                }
+                (Some(from), None) => args.push(convert_expr(*from)?),
+                // `SUBSTRING(x FOR n)` : à partir du premier caractère.
+                (None, Some(len)) => {
+                    args.push(Expr::bare(ExprKind::Literal(Literal::Number("1".into()))));
+                    args.push(convert_expr(*len)?);
+                }
+                (None, None) => {}
+            }
+            system_call("substring", args)
+        }
+        sp::Expr::Trim {
+            expr,
+            trim_where,
+            trim_what,
+            trim_characters: None,
+        } => {
+            let name = match trim_where {
+                Some(sp::TrimWhereField::Leading) => "ltrim",
+                Some(sp::TrimWhereField::Trailing) => "rtrim",
+                Some(sp::TrimWhereField::Both) | None => "btrim",
+            };
+            let mut args = vec![convert_expr(*expr)?];
+            if let Some(what) = trim_what {
+                args.push(convert_expr(*what)?);
+            }
+            system_call(name, args)
+        }
+        sp::Expr::Overlay {
+            expr,
+            overlay_what,
+            overlay_from,
+            overlay_for,
+        } => {
+            let mut args = vec![
+                convert_expr(*expr)?,
+                convert_expr(*overlay_what)?,
+                convert_expr(*overlay_from)?,
+            ];
+            if let Some(len) = overlay_for {
+                args.push(convert_expr(*len)?);
+            }
+            system_call("overlay", args)
+        }
+        sp::Expr::Ceil {
+            expr,
+            field: sp::CeilFloorKind::DateTimeField(sp::DateTimeField::NoDateTime),
+        } => system_call("ceil", vec![convert_expr(*expr)?]),
+        sp::Expr::Floor {
+            expr,
+            field: sp::CeilFloorKind::DateTimeField(sp::DateTimeField::NoDateTime),
+        } => system_call("floor", vec![convert_expr(*expr)?]),
+
         _other => Ok(ExprKind::Unsupported(describe_sp_expr(&_other))),
     }
+}
+
+/// Appel à `pg_catalog.name(args)`, forme que PostgreSQL donne aux syntaxes
+/// SQL `POSITION`, `SUBSTRING`, `TRIM`, `OVERLAY`.
+fn system_call(name: &str, args: Vec<Expr>) -> Result<ExprKind, ParseError> {
+    Ok(ExprKind::FunctionCall {
+        name: ObjectName::unquoted(&["pg_catalog", name]),
+        args,
+        order_by: vec![],
+        filter: None,
+        distinct: false,
+        within_group: vec![],
+        over: None,
+    })
 }
 
 /// Nom court de la construction sqlparser, pour un diagnostic lisible.

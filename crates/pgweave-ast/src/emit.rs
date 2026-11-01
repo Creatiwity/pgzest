@@ -330,6 +330,19 @@ pub fn emit_select(sel: &SelectStmt) -> String {
 /// `SELECT … FROM … WHERE … GROUP BY … HAVING …`, sans opérations
 /// ensemblistes ni ORDER BY / LIMIT.
 fn emit_select_core(sel: &SelectStmt) -> String {
+    if !sel.values.is_empty() {
+        let rows: Vec<String> = sel
+            .values
+            .iter()
+            .map(|r| {
+                format!(
+                    "({})",
+                    r.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+                )
+            })
+            .collect();
+        return format!("VALUES {}", rows.join(", "));
+    }
     let mut out = String::new();
     out.push_str("SELECT ");
     if !sel.distinct_on.is_empty() {

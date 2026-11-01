@@ -49,6 +49,40 @@ pub struct Source {
     /// Nom sous lequel la source est visible (alias, sinon nom).
     pub name: Option<String>,
     pub columns: Vec<Column>,
+    /// Colonnes visibles par leur nom mais absentes de `*` : colonnes
+    /// système d'une table (`ctid`, `xmin`, `xmax`…).
+    pub hidden: Vec<Column>,
+}
+
+impl Source {
+    pub fn new(name: Option<String>, columns: Vec<Column>) -> Self {
+        Source {
+            name,
+            columns,
+            hidden: Vec::new(),
+        }
+    }
+
+    /// Ajoute les colonnes système d'une table (`heap.c`, `SysAtt`).
+    pub fn with_system_columns(mut self) -> Self {
+        let sys = [
+            ("tableoid", "oid"),
+            ("cmax", "cid"),
+            ("xmax", "xid"),
+            ("cmin", "cid"),
+            ("xmin", "xid"),
+            ("ctid", "tid"),
+        ];
+        self.hidden = sys
+            .iter()
+            .map(|(n, t)| Column {
+                name: (*n).to_string(),
+                ty: Some(crate::types::pg(t)),
+                nullable: Nullability::NonNull,
+            })
+            .collect();
+        self
+    }
 }
 
 /// Erreur d'analyse, avec le code du diagnostic qu'elle produit.
@@ -119,6 +153,13 @@ impl<'p> Scope<'p> {
                 table_seen = true;
             }
             found.extend(s.columns.iter().filter(|c| c.name == column));
+        }
+        if found.is_empty() {
+            for s in &self.sources {
+                if table.is_none_or(|t| s.name.as_deref() == Some(t)) {
+                    found.extend(s.hidden.iter().filter(|c| c.name == column));
+                }
+            }
         }
         match found.as_slice() {
             [one] => Ok(one),

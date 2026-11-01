@@ -8,7 +8,7 @@ use pgweave_ast::stmt::{
     TableSource,
 };
 use pgweave_ast::utility::UtilityKind;
-use pgweave_catalog::model::{ArgMode, TypeKind};
+use pgweave_catalog::model::{ArgMode, RelationKind, TypeKind};
 use pgweave_parser::normalize_select;
 
 use crate::coerce::CoercionContext;
@@ -58,7 +58,11 @@ fn figure(e: &Expr) -> Option<(String, u8)> {
             _ => Some((cast_type_name(data_type), 1)),
         },
         ExprKind::Collate { expr, .. } => figure(expr),
-        ExprKind::Case { .. } => Some(("case".into(), 1)),
+        // Le nom du `ELSE` s'il est réel, sinon `case`.
+        ExprKind::Case { else_clause, .. } => match else_clause.as_deref().and_then(figure) {
+            Some((n, 2)) => Some((n, 2)),
+            _ => Some(("case".into(), 1)),
+        },
         ExprKind::Exists { .. } => Some(("exists".into(), 2)),
         ExprKind::Subquery(q) => q.columns.first().and_then(|item| match item {
             SelectItem::Expr { alias: Some(a), .. } => Some((a.value.clone(), 2)),
@@ -206,7 +210,11 @@ impl<'c> Analyzer<'c> {
         }
 
         let leaf = !n.set_ops.is_empty();
-        let mut columns = self.projection(&n.columns, &scope, resolve_unknowns && !leaf)?;
+        let mut columns = if n.values.is_empty() {
+            self.projection(&n.columns, &scope, resolve_unknowns && !leaf)?
+        } else {
+            self.values(&n.values, &scope)?
+        };
 
         for d in &n.distinct_on {
             self.group_or_order(d, &n.columns, &scope)?;
@@ -272,6 +280,51 @@ impl<'c> Analyzer<'c> {
             }
         }
         Ok(columns)
+    }
+
+    /// `VALUES` (`transformValuesClause`) : colonnes `column1`… du type
+    /// commun de leurs lignes.
+    fn values(
+        &mut self,
+        rows: &[Vec<Expr>],
+        scope: &Scope,
+    ) -> Result<Vec<OutputColumn>, SemaError> {
+        let width = rows[0].len();
+        let mut typed: Vec<Vec<crate::expr::Typed>> = Vec::new();
+        for row in rows {
+            if row.len() != width {
+                return Err(SemaError::new(
+                    "values-columns",
+                    "VALUES lists must all be the same length",
+                    row.first().map_or(Span::DUMMY, |e| e.span),
+                ));
+            }
+            let mut t = Vec::with_capacity(width);
+            for e in row {
+                t.push(self.expr(e, scope)?);
+            }
+            typed.push(t);
+        }
+        let mut out = Vec::with_capacity(width);
+        for i in 0..width {
+            let types: Vec<Ty> = typed.iter().map(|r| r[i].ty.clone()).collect();
+            let common = self.ts.common_type(&types).map_err(|e| {
+                SemaError::new(
+                    "type-mismatch",
+                    format!("VALUES types cannot be matched: {e:?}"),
+                    rows[0][i].span,
+                )
+            })?;
+            for row in rows {
+                self.coerce_to(&row[i], &common);
+            }
+            out.push(OutputColumn {
+                name: format!("column{}", i + 1),
+                ty: common,
+                nullable: Nullability::strict(typed.iter().map(|r| r[i].nullable)),
+            });
+        }
+        Ok(out)
     }
 
     /// `GROUP BY` / `ORDER BY` : position, alias de sortie, ou expression.
@@ -354,6 +407,8 @@ impl<'c> Analyzer<'c> {
 
     /// Source de `FROM`.
     fn table_ref(&mut self, t: &TableRef, scope: &Scope) -> Result<Source, SemaError> {
+        // Table (pas une vue ni une CTE) : colonnes système visibles.
+        let mut system = false;
         let (name, mut columns) = match &t.source {
             TableSource::Table(obj) => {
                 let (schema, n) = split_name(obj);
@@ -375,6 +430,7 @@ impl<'c> Analyzer<'c> {
                                     Span::DUMMY,
                                 )
                             })?;
+                        system = !matches!(rel.kind, RelationKind::View);
                         rel.columns
                             .iter()
                             .map(|c| Column {
@@ -406,7 +462,14 @@ impl<'c> Analyzer<'c> {
                 ..
             } => {
                 let (_, fname) = split_name(name);
-                let mut cols = self.table_function(name, args, scope)?;
+                let (mut cols, scalar) = self.table_function(name, args, scope)?;
+                // Fonction scalaire : sa colonne porte l'alias de la source.
+                if scalar
+                    && t.column_aliases.is_empty()
+                    && let Some(a) = &t.alias
+                {
+                    cols[0].name = a.value.clone();
+                }
                 if *with_ordinality {
                     cols.push(Column {
                         name: "ordinality".into(),
@@ -420,9 +483,11 @@ impl<'c> Analyzer<'c> {
         for (c, a) in columns.iter_mut().zip(&t.column_aliases) {
             c.name = a.value.clone();
         }
-        Ok(Source {
-            name: t.alias.as_ref().map(|a| a.value.clone()).or(name),
-            columns,
+        let source = Source::new(t.alias.as_ref().map(|a| a.value.clone()).or(name), columns);
+        Ok(if system {
+            source.with_system_columns()
+        } else {
+            source
         })
     }
 
@@ -433,7 +498,7 @@ impl<'c> Analyzer<'c> {
         name: &pgweave_ast::ObjectName,
         args: &[Expr],
         scope: &Scope,
-    ) -> Result<Vec<Column>, SemaError> {
+    ) -> Result<(Vec<Column>, bool), SemaError> {
         let call = Expr::bare(ExprKind::FunctionCall {
             name: name.clone(),
             args: args.to_vec(),
@@ -463,30 +528,30 @@ impl<'c> Analyzer<'c> {
                 .filter(|a| matches!(a.mode, ArgMode::Out | ArgMode::InOut | ArgMode::Table))
                 .collect();
             if outs.len() > 1 || (outs.len() == 1 && t.ty == pg("record")) {
-                return outs
+                let cols: Vec<Column> = outs
                     .iter()
-                    .map(|a| {
-                        Ok(Column {
-                            name: a.name.clone().unwrap_or_default(),
-                            ty: self.ts.of_ref(&a.ty),
-                            nullable: Nullability::Unknown,
-                        })
+                    .map(|a| Column {
+                        name: a.name.clone().unwrap_or_default(),
+                        ty: self.ts.of_ref(&a.ty),
+                        nullable: Nullability::Unknown,
                     })
                     .collect();
+                return Ok((cols, false));
             }
         }
         if let Some(TypeKind::Composite { attributes }) = self.ts.def(&t.ty).map(|d| &d.kind) {
-            return Ok(attributes
+            let cols: Vec<Column> = attributes
                 .iter()
                 .map(|a| Column {
                     name: a.name.clone(),
                     ty: self.ts.of_ref(&a.ty),
                     nullable: Nullability::Unknown,
                 })
-                .collect());
+                .collect();
+            return Ok((cols, false));
         }
         if let Some(rel) = self.ts.catalog.relations.get(&t.ty) {
-            return Ok(rel
+            let cols: Vec<Column> = rel
                 .columns
                 .iter()
                 .map(|c| Column {
@@ -494,13 +559,17 @@ impl<'c> Analyzer<'c> {
                     ty: self.ts.of_ref(&c.ty),
                     nullable: Nullability::Unknown,
                 })
-                .collect());
+                .collect();
+            return Ok((cols, false));
         }
-        Ok(vec![Column {
-            name: fname.to_string(),
-            ty: Some(t.ty),
-            nullable: t.nullable,
-        }])
+        Ok((
+            vec![Column {
+                name: fname.to_string(),
+                ty: Some(t.ty),
+                nullable: t.nullable,
+            }],
+            true,
+        ))
     }
 
     /// Jointure : nullabilité des côtés externes, colonnes `USING`
@@ -611,13 +680,11 @@ impl<'c> Analyzer<'c> {
                 },
             })
             .collect();
-        Ok((
-            Source {
-                name: Some(alias.map_or_else(|| n.to_string(), |a| a.value.clone())),
-                columns,
-            },
-            qname,
-        ))
+        let source = Source::new(
+            Some(alias.map_or_else(|| n.to_string(), |a| a.value.clone())),
+            columns,
+        );
+        Ok((source.with_system_columns(), qname))
     }
 
     /// Valeur affectée à une colonne (contexte d'affectation).
