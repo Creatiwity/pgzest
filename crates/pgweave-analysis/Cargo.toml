@@ -15,4 +15,5 @@ pgweave-checker = { path = "../pgweave-checker" }
 pgweave-lint = { path = "../pgweave-lint" }
 
 [dev-dependencies]
+pgweave-codegen = { path = "../pgweave-codegen" }
 pgweave-parser = { path = "../pgweave-parser" }
