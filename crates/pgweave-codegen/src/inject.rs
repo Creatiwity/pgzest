@@ -58,8 +58,12 @@ pub fn generate_updated_at_trigger(table_name: &str) -> Vec<Statement> {
         ),
         security_definer: false,
         volatility: Volatility::Volatile,
+        strict: false,
+        leakproof: false,
+        parallel: None,
         cost: None,
         rows: None,
+        settings: Vec::new(),
     }));
 
     let trigger = Statement::Ddl(DdlStatement::CreateTrigger(CreateTrigger {

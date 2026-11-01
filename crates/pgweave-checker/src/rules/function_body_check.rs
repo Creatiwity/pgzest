@@ -77,12 +77,18 @@ impl CheckRule for FunctionBodyCheck {
                     ctx.diags,
                 );
             }
-            FunctionBody::Raw(raw) => {
-                crate::check::plpgsql::check_plpgsql_body(
-                    raw, &proc_name, None, ctx.schema, ctx.diags,
-                );
-            }
-            FunctionBody::SqlQuery(_) => {}
+            FunctionBody::Sql(stmts) => crate::check::plpgsql::check_sql_function_body(
+                stmts,
+                &return_type,
+                &cp.params,
+                ctx.schema,
+                ctx.diags,
+            ),
+            // Corps non analysé : l'écart est déjà signalé par le parser
+            // (`unparsed-function-body`). Rien n'est vérifié plutôt que des
+            // vérifications approximatives qui produisent des faux positifs.
+            FunctionBody::Raw(raw) => check_empty_raw_body(raw, &proc_name, ctx.diags),
+            FunctionBody::SqlQuery(_) | FunctionBody::SqlReturn(_) => {}
         }
     }
 }
@@ -106,13 +112,33 @@ fn check_function_body(
                 diags,
             );
         }
-        FunctionBody::Raw(raw) => {
-            // Raw path can't do plvar-aware analysis; pass table name for
-            // the text-based NEW/OLD column checker at least.
-            let tbl = trigger_ctx.as_ref().map(|tc| tc.table.as_str());
-            crate::check::plpgsql::check_plpgsql_body(raw, func_name, tbl, schema, diags);
-        }
-        FunctionBody::SqlQuery(_) => {} // handled by SelectColumnCheck
+        FunctionBody::Sql(stmts) => crate::check::plpgsql::check_sql_function_body(
+            stmts,
+            &cf.return_type,
+            &cf.params,
+            schema,
+            diags,
+        ),
+        // Corps non analysé : signalé par le parser, rien n'est vérifié (voir
+        // check_procedure).
+        FunctionBody::Raw(raw) => check_empty_raw_body(raw, func_name, diags),
+        // SqlQuery : vérifié par SelectColumnCheck. SqlReturn : une expression
+        // sans table, rien à résoudre avant l'analyse des types (P3).
+        FunctionBody::SqlQuery(_) | FunctionBody::SqlReturn(_) => {}
+    }
+}
+
+/// Un corps vide est la seule chose certaine qu'on puisse dire d'un corps non
+/// analysé : PostgreSQL le refuserait (« syntax error at end of input »).
+fn check_empty_raw_body(raw: &str, name: &str, diags: &mut Vec<Diagnostic>) {
+    if raw.trim().is_empty() {
+        diags.push(
+            Diagnostic::warning(
+                codes::EMPTY_FUNCTION_BODY,
+                format!("function '{name}' has an empty body"),
+            )
+            .with_hint("add a BEGIN … END block or a RETURN statement"),
+        );
     }
 }
 

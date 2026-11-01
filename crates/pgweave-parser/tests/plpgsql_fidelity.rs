@@ -24,7 +24,9 @@ fn body_of(sql: &str) -> pgweave_ast::plpgsql::PlpgsqlBody {
                 FunctionBody::Raw(raw) => {
                     panic!("corps non parsé (retombé en Raw) :\n{raw}")
                 }
-                FunctionBody::SqlQuery(_) => panic!("corps SQL inattendu"),
+                FunctionBody::SqlQuery(_) | FunctionBody::Sql(_) | FunctionBody::SqlReturn(_) => {
+                    panic!("corps SQL inattendu")
+                }
             };
         }
     }

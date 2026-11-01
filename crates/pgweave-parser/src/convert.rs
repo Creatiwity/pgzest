@@ -5,10 +5,9 @@
 use pgweave_ast::{
     Statement,
     ddl::{
-        AlterColumnAction, AlterTable, AlterTableOp, ColumnConstraint, ColumnDef, CreateFunction,
-        CreateIndex, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger, DdlStatement,
-        FunctionBody, FunctionLanguage, FunctionParam, ParamMode, PolicyCommand, ReferentialAction,
-        ReturnType, TableConstraint, TriggerEvent, TriggerForEach, TriggerTiming, Volatility,
+        AlterColumnAction, AlterTable, AlterTableOp, ColumnConstraint, ColumnDef, CreateIndex,
+        CreatePolicy, CreateTable, CreateTrigger, DdlStatement, PolicyCommand, ReferentialAction,
+        ReturnType, TableConstraint, TriggerEvent, TriggerForEach, TriggerTiming,
     },
     expr::{BinaryOp, ColumnRef, Expr, Ident, Literal, ObjectName, UnaryOp},
     node::Span,
@@ -41,24 +40,6 @@ fn convert_index_column(ic: sp::IndexColumn) -> Result<Ident, ParseError> {
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
-
-/// Convertit un statement en attachant aux expressions leur position dans le
-/// document.
-///
-/// `source` est le texte exact soumis à sqlparser et `base` son offset dans le
-/// document. Les deux doivent correspondre : si le texte a été réécrit avant le
-/// parse (neutralisation des CHECK, prétraitement des fonctions), les positions
-/// ne sont plus celles du document et l'appelant doit utiliser
-/// [`convert_statement`], qui laisse les spans à `DUMMY`.
-pub fn convert_statement_at(
-    stmt: sp::Statement,
-    source: &str,
-    stmt_offset: usize,
-    offsets: crate::Offsets,
-) -> Result<Statement, ParseError> {
-    let _guard = enter_span_ctx(source, stmt_offset, offsets);
-    convert_statement(stmt)
-}
 
 pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
     let _ids = crate::ids::session();
@@ -93,20 +74,11 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             let ddl = convert_create_index(ci)?;
             Ok(Statement::Ddl(DdlStatement::CreateIndex(ddl)))
         }
-        sp::Statement::CreateFunction(cf) => {
-            let ddl = convert_create_function(cf)?;
-            Ok(Statement::Ddl(DdlStatement::CreateFunction(ddl)))
-        }
-        sp::Statement::CreateProcedure {
-            or_alter,
-            name,
-            params,
-            body,
-            language: _,
-        } => {
-            let ddl = convert_create_procedure(or_alter, name, params, body)?;
-            Ok(Statement::Ddl(DdlStatement::CreateProcedure(ddl)))
-        }
+        // Les routines sont lues par la grammaire de pgweave (`grammar::routine`),
+        // jamais par sqlparser : y arriver ici serait une erreur d'aiguillage.
+        sp::Statement::CreateFunction(_) | sp::Statement::CreateProcedure { .. } => Err(
+            ParseError::Unsupported("routine hors de la grammaire de pgweave".to_string()),
+        ),
         sp::Statement::CreateTrigger(ct) => {
             let ddl = convert_create_trigger(ct)?;
             Ok(Statement::Ddl(DdlStatement::CreateTrigger(ddl)))
@@ -140,7 +112,7 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
 
 // ── Query / SELECT ────────────────────────────────────────────────────────────
 
-fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> {
+pub(crate) fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> {
     // WITH clause
     let with_ctes = if let Some(with) = query.with {
         with.cte_tables
@@ -386,7 +358,7 @@ fn convert_order_by_expr(o: sp::OrderByExpr) -> Result<OrderByExpr, ParseError> 
 /// Point de passage unique : le corps produit un [`ExprKind`], et c'est ici
 /// que le span est attaché. Toute expression issue du parse passe par cette
 /// fonction, donc il n'y a qu'un endroit à corriger pour la position.
-fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
+pub(crate) fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
     let span = sp_expr_span(&expr);
     let kind = convert_expr_kind(expr)?;
     Ok(Expr::new(kind, span))
@@ -1292,89 +1264,8 @@ fn convert_ident_from_expr(expr: sp::Expr) -> Result<Ident, ParseError> {
     }
 }
 
-// ── CREATE FUNCTION ───────────────────────────────────────────────────────────
-
-fn convert_create_function(cf: sp::CreateFunction) -> Result<CreateFunction, ParseError> {
-    let name = convert_object_name(cf.name);
-    let or_replace = cf.or_replace;
-
-    let params = cf
-        .args
-        .unwrap_or_default()
-        .into_iter()
-        .map(convert_function_arg)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // Determine language
-    let language = match cf
-        .language
-        .as_ref()
-        .map(|l| l.value.to_lowercase())
-        .as_deref()
-    {
-        Some("sql") => FunctionLanguage::Sql,
-        Some("plpgsql") => FunctionLanguage::PlPgSql,
-        Some("c") => FunctionLanguage::C,
-        Some("internal") => FunctionLanguage::Internal,
-        Some(other) => FunctionLanguage::Other(other.to_string()),
-        None => FunctionLanguage::Other("unknown".to_string()),
-    };
-
-    // Return type — in 0.62, return_type is Option<FunctionReturnType>
-    let return_type = match cf.return_type {
-        None => ReturnType::Void,
-        Some(sp::FunctionReturnType::DataType(dt)) => convert_return_type_from_dt(dt)?,
-        Some(sp::FunctionReturnType::SetOf(dt)) => ReturnType::SetOf(convert_data_type(dt)?),
-    };
-
-    // Volatility
-    let volatility = match cf.behavior {
-        Some(sp::FunctionBehavior::Immutable) => Volatility::Immutable,
-        Some(sp::FunctionBehavior::Stable) => Volatility::Stable,
-        _ => Volatility::Volatile,
-    };
-
-    let security_definer = false;
-
-    // Body
-    let body = convert_function_body(cf.function_body, &language)?;
-
-    Ok(CreateFunction {
-        id: crate::next_node_id(),
-        span: Span::DUMMY,
-        body_start: 0,
-        name,
-        or_replace,
-        params,
-        return_type,
-        language,
-        body,
-        security_definer,
-        volatility,
-        cost: None,
-        rows: None,
-    })
-}
-
-fn convert_function_arg(arg: sp::OperateFunctionArg) -> Result<FunctionParam, ParseError> {
-    let mode = match arg.mode {
-        None | Some(sp::ArgMode::In) => ParamMode::In,
-        Some(sp::ArgMode::Out) => ParamMode::Out,
-        Some(sp::ArgMode::InOut) => ParamMode::InOut,
-        Some(sp::ArgMode::Variadic) => ParamMode::Variadic,
-    };
-    let data_type = convert_data_type(arg.data_type)?;
-    let default = arg.default_expr.map(convert_expr).transpose()?;
-    Ok(FunctionParam {
-        name: arg.name.map(convert_ident),
-        data_type,
-        mode,
-        default,
-    })
-}
-
 /// Convert a sqlparser DataType to pgweave_ast ReturnType.
-fn convert_return_type_from_dt(dt: sp::DataType) -> Result<ReturnType, ParseError> {
+pub(crate) fn convert_return_type_from_dt(dt: sp::DataType) -> Result<ReturnType, ParseError> {
     match &dt {
         sp::DataType::Trigger => Ok(ReturnType::Trigger),
         sp::DataType::Custom(name, _) => {
@@ -1391,139 +1282,6 @@ fn convert_return_type_from_dt(dt: sp::DataType) -> Result<ReturnType, ParseErro
         }
         other => Ok(ReturnType::Scalar(convert_data_type(other.clone())?)),
     }
-}
-
-pub(crate) fn parse_simple_type_pub(s: &str) -> DataType {
-    parse_simple_type(s)
-}
-
-fn parse_simple_type(s: &str) -> DataType {
-    match s.to_uppercase().as_str() {
-        "UUID" => DataType::Uuid,
-        "TEXT" => DataType::Text,
-        "INTEGER" | "INT" | "INT4" => DataType::Integer,
-        "BIGINT" | "INT8" => DataType::BigInt,
-        "SMALLINT" | "INT2" => DataType::SmallInt,
-        "NUMERIC" | "DECIMAL" | "DEC" => DataType::Numeric {
-            precision: None,
-            scale: None,
-        },
-        "REAL" | "FLOAT4" | "FLOAT" => DataType::Real,
-        "DOUBLE PRECISION" | "FLOAT8" => DataType::DoublePrecision,
-        "BOOLEAN" | "BOOL" => DataType::Boolean,
-        "TIMESTAMPTZ" | "TIMESTAMP WITH TIME ZONE" => DataType::TimestampTz,
-        "TIMESTAMP" => DataType::Timestamp,
-        "DATE" => DataType::Date,
-        "TIME" => DataType::Time,
-        "INTERVAL" => DataType::Interval,
-        "JSON" => DataType::Json,
-        "JSONB" => DataType::Jsonb,
-        "BYTEA" => DataType::Bytea,
-        "VARCHAR" | "CHARACTER VARYING" => DataType::Varchar(None),
-        "CHAR" | "CHARACTER" => DataType::Char(None),
-        _ => DataType::Custom(s.to_string()),
-    }
-}
-
-fn convert_function_body(
-    body: Option<sp::CreateFunctionBody>,
-    language: &FunctionLanguage,
-) -> Result<FunctionBody, ParseError> {
-    let raw = match body {
-        None => return Err(ParseError::Unsupported("function with no body".to_string())),
-        // AsBeforeOptions is a struct variant in 0.62; other variants are tuple or struct
-        Some(sp::CreateFunctionBody::AsBeforeOptions { body: e, .. })
-        | Some(sp::CreateFunctionBody::AsAfterOptions(e))
-        | Some(sp::CreateFunctionBody::Return(e))
-        | Some(sp::CreateFunctionBody::AsReturnExpr(e)) => extract_body_string(e),
-        Some(sp::CreateFunctionBody::AsBeginEnd(bes)) => bes
-            .statements
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-            .join("; "),
-        Some(sp::CreateFunctionBody::AsReturnSelect(select)) => {
-            format!("SELECT {select}")
-        }
-    };
-
-    // PL/pgSQL bodies are parsed later in lib.rs::parse() after the file-level
-    // byte offset is known, so that inner SQL fragment spans point to the correct
-    // source line. For now, leave them as Raw; lib.rs upgrades them to Parsed.
-
-    // For LANGUAGE sql, try to parse as a SelectStmt
-    if matches!(language, FunctionLanguage::Sql) {
-        let dialect = sqlparser::dialect::PostgreSqlDialect {};
-        if let Ok(stmts) = sqlparser::parser::Parser::parse_sql(&dialect, raw.trim())
-            && let Some(sp::Statement::Query(q)) = stmts.into_iter().next()
-            && let Ok(sel) = convert_query(*q)
-        {
-            return Ok(FunctionBody::SqlQuery(Box::new(sel)));
-        }
-    }
-
-    Ok(FunctionBody::Raw(raw))
-}
-
-fn extract_body_string(expr: sp::Expr) -> String {
-    match expr {
-        sp::Expr::Value(v) => match v.value {
-            sp::Value::DollarQuotedString(dqs) => dqs.value,
-            sp::Value::SingleQuotedString(s) => s,
-            other => format!("{other}"),
-        },
-        other => other.to_string(),
-    }
-}
-
-// ── CREATE PROCEDURE ──────────────────────────────────────────────────────────
-
-fn convert_create_procedure(
-    _or_alter: bool,
-    name: sp::ObjectName,
-    params: Option<Vec<sp::ProcedureParam>>,
-    body: sp::ConditionalStatements,
-) -> Result<CreateProcedure, ParseError> {
-    let pname = convert_object_name(name);
-    let or_replace = _or_alter;
-
-    let params_out = params
-        .unwrap_or_default()
-        .into_iter()
-        .map(|p| {
-            Ok(FunctionParam {
-                name: Some(convert_ident(p.name)),
-                data_type: convert_data_type(p.data_type)?,
-                mode: ParamMode::In,
-                default: None,
-            })
-        })
-        .collect::<Result<Vec<_>, ParseError>>()?;
-
-    // In 0.62, body is ConditionalStatements; extract the statement list
-    let stmts: Vec<sp::Statement> = match body {
-        sp::ConditionalStatements::Sequence { statements } => statements,
-        sp::ConditionalStatements::BeginEnd(bes) => bes.statements,
-    };
-    let raw_body = stmts
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
-        .join("; ");
-
-    // PL/pgSQL parsing is deferred to lib.rs (with correct file offset).
-    let parsed_body = FunctionBody::Raw(raw_body);
-
-    Ok(CreateProcedure {
-        id: crate::next_node_id(),
-        span: Span::DUMMY,
-        body_start: 0,
-        name: pname,
-        or_replace,
-        params: params_out,
-        language: FunctionLanguage::PlPgSql,
-        body: parsed_body,
-    })
 }
 
 // ── CREATE TRIGGER ────────────────────────────────────────────────────────────
@@ -1720,7 +1478,7 @@ fn convert_alter_column_op(op: sp::AlterColumnOperation) -> Result<AlterColumnAc
 
 // ── Data type conversion ──────────────────────────────────────────────────────
 
-fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
+pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
     match dt {
         // Integer family
         sp::DataType::SmallInt(_) | sp::DataType::Int2(_) => Ok(DataType::SmallInt),
@@ -1825,7 +1583,7 @@ fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError> {
 
 // ── Identifier helpers ────────────────────────────────────────────────────────
 
-fn convert_ident(id: sp::Ident) -> Ident {
+pub(crate) fn convert_ident(id: sp::Ident) -> Ident {
     Ident {
         value: id.value,
         quoted: id.quote_style.is_some(),
@@ -1834,7 +1592,7 @@ fn convert_ident(id: sp::Ident) -> Ident {
 
 /// In 0.62, ObjectName holds Vec<ObjectNamePart> instead of Vec<Ident>.
 /// We filter out any Function parts (dialect-specific) and keep Identifiers.
-fn convert_object_name(name: sp::ObjectName) -> ObjectName {
+pub(crate) fn convert_object_name(name: sp::ObjectName) -> ObjectName {
     ObjectName(
         name.0
             .into_iter()
@@ -1940,18 +1698,31 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-/// Garde RAII : retire le contexte de position à la sortie de portée.
-struct SpanCtxGuard;
+/// Garde RAII : restaure le contexte de position précédent à la sortie de
+/// portée. Les contextes s'empilent : le corps d'une routine est parsé à
+/// l'intérieur du parse de son fichier, et le fichier doit retrouver son
+/// contexte ensuite.
+pub(crate) struct SpanCtxGuard {
+    previous: Option<SpanCtx>,
+}
 
 impl Drop for SpanCtxGuard {
     fn drop(&mut self) {
-        SPAN_CTX.with(|c| *c.borrow_mut() = None);
+        let previous = self.previous.take();
+        SPAN_CTX.with(|c| *c.borrow_mut() = previous);
     }
 }
 
-fn enter_span_ctx(source: &str, stmt_offset: usize, offsets: crate::Offsets) -> SpanCtxGuard {
-    SPAN_CTX.with(|c| *c.borrow_mut() = Some(SpanCtx::new(source, stmt_offset, offsets)));
-    SpanCtxGuard
+/// Entre dans le contexte de position d'un texte : `source` est le texte
+/// soumis au tokenizer, `stmt_offset` sa position dans le texte soumis au
+/// parse englobant, `offsets` la traduction vers le document.
+pub(crate) fn enter_span_ctx(
+    source: &str,
+    stmt_offset: usize,
+    offsets: crate::Offsets,
+) -> SpanCtxGuard {
+    let previous = SPAN_CTX.with(|c| c.replace(Some(SpanCtx::new(source, stmt_offset, offsets))));
+    SpanCtxGuard { previous }
 }
 
 /// Span d'une expression sqlparser, en offsets octets dans le document.

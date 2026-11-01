@@ -156,70 +156,41 @@ pub fn check_plpgsql_ast(
     check_block(&body.block, &ctx, diags);
 }
 
-/// Text-based checker (fallback when the body is not parsed).
-///
-/// Diagnostic codes:
-/// - W002  empty body
-/// - E001  column referenced via OLD./NEW. does not exist on the trigger table
-pub fn check_plpgsql_body(
-    body: &str,
-    function_name: &str,
-    trigger_table: Option<&str>,
+/// Corps `LANGUAGE sql` (plusieurs statements, ou `BEGIN ATOMIC`) : chaque
+/// statement est vérifié avec les paramètres de la routine en portée, et les
+/// tables temporaires créées dans le corps.
+pub fn check_sql_function_body(
+    stmts: &[Statement],
+    return_type: &ReturnType,
+    fn_params: &[FunctionParam],
     schema: &dyn SchemaProvider,
     diags: &mut Vec<Diagnostic>,
 ) {
-    // empty-function-body — empty body.
-    if body.trim().is_empty() {
-        diags.push(
-            Diagnostic::warning(
-                codes::EMPTY_FUNCTION_BODY,
-                format!("function '{}' has an empty body", function_name),
-            )
-            .with_hint("add a BEGIN … END block or a RETURN statement"),
-        );
-        return;
-    }
-
-    let trigger_table_schema: Option<&TableSchema> =
-        trigger_table.and_then(|t| schema.get_table(t));
-
-    for line in body.lines() {
-        let trimmed = line.trim();
-        let upper = trimmed.to_uppercase();
-
-        // --- RAISE EXCEPTION / WARNING / NOTICE — always valid, skip.
-        if upper.starts_with("RAISE") {
-            continue;
-        }
-
-        // --- Embedded SQL queries: attempt to parse and check them.
-        // E002 (table/alias not in FROM) is suppressed here — without knowing
-        // the declared variables, qualified refs like `v_rec.col` always fire
-        // false positives. E001 and E003 are kept as best-effort signals.
-        if contains_dml_keyword(&upper)
-            && let Some(sql_fragment) = extract_sql_fragment(trimmed)
-        {
-            // Fragment parse failures are expected for multi-line or
-            // PL/pgSQL-variable-containing queries — ignore silently.
-            if let Ok(stmts) = pgweave_parser::parse(sql_fragment) {
-                let inner = super::check_statements(&stmts, schema);
-                for mut d in inner {
-                    if d.code == codes::TABLE_NOT_IN_SCOPE {
-                        continue;
-                    }
-                    d.message = format!("[in {}] {}", function_name, d.message);
-                    // Clear fragment-relative spans so the outer checker can
-                    // backfill them with the function body offset (body_start).
-                    d.span = None;
-                    diags.push(d);
-                }
+    let params: HashMap<String, DataType> = fn_params
+        .iter()
+        .filter_map(|p| Some((p.name.as_ref()?.value.to_lowercase(), p.data_type.clone())))
+        .collect();
+    let temp_tables: HashMap<String, TableSchema> = stmts
+        .iter()
+        .filter_map(|s| match s {
+            Statement::Ddl(DdlStatement::CreateTable(ct)) if ct.temporary => {
+                Some(temp_table_schema(ct))
             }
-        }
-
-        // --- OLD.column / NEW.column references in trigger bodies.
-        if let Some(ts) = trigger_table_schema {
-            check_old_new_refs(trimmed, ts, function_name, diags);
-        }
+            _ => None,
+        })
+        .collect();
+    let ctx = TypeContext {
+        vars: HashMap::new(),
+        params,
+        is_trigger: false,
+        trigger_table: None,
+        trigger_ctx: None,
+        temp_tables,
+        schema,
+        return_type,
+    };
+    for stmt in stmts {
+        check_sql_in_body(stmt, &ctx, diags);
     }
 }
 
@@ -739,6 +710,22 @@ fn check_sql_expr_idents(
 
 /// First pass over a block: collect all `CREATE TEMP TABLE` statements so the
 /// rest of the body can reference them without false-positive E003 errors.
+/// Schéma d'une table temporaire créée dans un corps, avec sa clé de
+/// recherche (nom en minuscules).
+fn temp_table_schema(ct: &pgweave_ast::ddl::CreateTable) -> (String, TableSchema) {
+    let name = object_name_to_string(&ct.name);
+    let columns = ct
+        .columns
+        .iter()
+        .map(|col| ColumnInfo {
+            name: col.name.value.clone(),
+            data_type: col.data_type.clone(),
+            nullable: col.nullable,
+        })
+        .collect();
+    (name.to_lowercase(), TableSchema { name, columns })
+}
+
 fn collect_temp_tables(block: &Block) -> HashMap<String, TableSchema> {
     let mut out: HashMap<String, TableSchema> = HashMap::new();
     collect_temp_tables_in_block(block, &mut out);
@@ -750,17 +737,8 @@ fn collect_temp_tables_in_block(block: &Block, out: &mut HashMap<String, TableSc
         if let PlStatement::Sql(Statement::Ddl(DdlStatement::CreateTable(ct))) = stmt
             && ct.temporary
         {
-            let name = object_name_to_string(&ct.name);
-            let columns = ct
-                .columns
-                .iter()
-                .map(|col| ColumnInfo {
-                    name: col.name.value.clone(),
-                    data_type: col.data_type.clone(),
-                    nullable: col.nullable,
-                })
-                .collect();
-            out.insert(name.to_lowercase(), TableSchema { name, columns });
+            let (key, table) = temp_table_schema(ct);
+            out.insert(key, table);
         }
         // Recurse into nested blocks.
         match stmt {
@@ -898,98 +876,6 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
         // Other DDL (CREATE INDEX, etc.) — fall back to full checker with body schema.
         _ => {
             diags.extend(super::check_statements(std::slice::from_ref(stmt), &body));
-        }
-    }
-}
-
-// ── Text-based checker helpers ────────────────────────────────────────────────
-
-/// Returns true if the (already-uppercased) line contains a DML keyword at a
-/// word boundary (to avoid false-positive matches inside identifiers or strings).
-fn contains_dml_keyword(upper: &str) -> bool {
-    for kw in &["SELECT", "INSERT", "UPDATE", "DELETE"] {
-        if let Some(pos) = upper.find(kw) {
-            let before_ok = pos == 0
-                || !upper
-                    .as_bytes()
-                    .get(pos - 1)
-                    .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
-                    .unwrap_or(false);
-            let after_pos = pos + kw.len();
-            let after_ok = after_pos >= upper.len()
-                || !upper
-                    .as_bytes()
-                    .get(after_pos)
-                    .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
-                    .unwrap_or(false);
-            if before_ok && after_ok {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Try to extract a plausible SQL fragment from a PL/pgSQL body line.
-fn extract_sql_fragment(line: &str) -> Option<&str> {
-    let t = line.trim();
-    // Skip comment lines.
-    if t.starts_with("--") {
-        return None;
-    }
-    // Strip trailing semicolon for the parser.
-    let t = t.strip_suffix(';').unwrap_or(t).trim();
-    // If the line starts with an assignment (e.g. `v_count := SELECT ...`),
-    // strip the left side.
-    let t = if let Some(idx) = t.find(":=") {
-        t[idx + 2..].trim()
-    } else {
-        t
-    };
-    if t.is_empty() { None } else { Some(t) }
-}
-
-/// Scan a single body line for `OLD.<col>` and `NEW.<col>` references.
-fn check_old_new_refs(
-    line: &str,
-    trigger_table_schema: &TableSchema,
-    function_name: &str,
-    diags: &mut Vec<Diagnostic>,
-) {
-    let upper_line = line.to_uppercase();
-
-    for prefix in &["OLD.", "NEW."] {
-        let mut search_start = 0;
-        while let Some(rel_pos) = upper_line[search_start..].find(prefix) {
-            let abs_pos = search_start + rel_pos;
-            let rest = &line[abs_pos + prefix.len()..];
-            let col_name: String = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-
-            if !col_name.is_empty() && trigger_table_schema.get_column(&col_name).is_none() {
-                diags.push(
-                    Diagnostic::error(
-                        codes::COLUMN_NOT_FOUND,
-                        format!(
-                            "[in {}] column '{}' does not exist on trigger table '{}'",
-                            function_name, col_name, trigger_table_schema.name
-                        ),
-                    )
-                    .with_hint(format!(
-                        "available columns: {}",
-                        trigger_table_schema
-                            .columns
-                            .iter()
-                            .map(|c| c.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )),
-                );
-            }
-
-            search_start = abs_pos + prefix.len();
         }
     }
 }

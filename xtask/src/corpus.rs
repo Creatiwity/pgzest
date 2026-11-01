@@ -223,7 +223,9 @@ impl Stats {
                 self.functions += 1;
                 match body {
                     FunctionBody::Parsed(_) => self.bodies_parsed += 1,
-                    FunctionBody::SqlQuery(_) => self.bodies_sql += 1,
+                    FunctionBody::SqlQuery(_)
+                    | FunctionBody::Sql(_)
+                    | FunctionBody::SqlReturn(_) => self.bodies_sql += 1,
                     FunctionBody::Raw(_) => {}
                 }
             }

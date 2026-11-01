@@ -27,7 +27,9 @@ fn parse_full_schema_plpgsql_functions() {
             match body {
                 FunctionBody::Parsed(_) => parsed_count += 1,
                 FunctionBody::Raw(_) => raw_count += 1,
-                FunctionBody::SqlQuery(_) => sql_query_count += 1,
+                FunctionBody::SqlQuery(_) | FunctionBody::Sql(_) | FunctionBody::SqlReturn(_) => {
+                    sql_query_count += 1
+                }
             }
         }
     }

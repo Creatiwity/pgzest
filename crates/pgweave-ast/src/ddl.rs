@@ -119,12 +119,44 @@ pub enum FunctionLanguage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FunctionBody {
-    /// Corps brut non parsé (ou parse échoué avec dégradation gracieuse)
+    /// Corps non analysé : langage externe (`C`, `internal` — le corps est un
+    /// symbole), ou corps dont l'analyse a échoué (signalé à part).
     Raw(String),
-    /// Corps LANGUAGE sql parsé comme un SELECT
+    /// Corps `LANGUAGE sql` réduit à un seul SELECT.
     SqlQuery(Box<SelectStmt>),
+    /// Corps `LANGUAGE sql` de plusieurs statements, ou `BEGIN ATOMIC … END`.
+    /// Le résultat de la routine est celui du dernier statement.
+    Sql(Vec<crate::stmt::Statement>),
+    /// Corps SQL standard `RETURN expr`.
+    SqlReturn(Expr),
     /// Corps LANGUAGE plpgsql parsé en AST structuré
     Parsed(Box<crate::plpgsql::PlpgsqlBody>),
+}
+
+/// `PARALLEL { UNSAFE | RESTRICTED | SAFE }`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Parallel {
+    Unsafe,
+    Restricted,
+    Safe,
+}
+
+/// Clause `SET param { TO | = } valeur [, …]` ou `SET param FROM CURRENT`
+/// d'une routine : la valeur s'applique pendant l'exécution du corps.
+/// Indispensable pour `search_path` (résolution des noms du corps, et règle
+/// `SECURITY DEFINER` sans `search_path` fixé).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FunctionSetting {
+    pub name: String,
+    pub value: SettingValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingValue {
+    /// Valeurs, telles qu'écrites (identifiants sans guillemets, chaînes sans
+    /// délimiteurs). `DEFAULT` donne une liste vide.
+    Values(Vec<String>),
+    FromCurrent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -151,8 +183,14 @@ pub struct CreateFunction {
     pub body: FunctionBody,
     pub security_definer: bool,
     pub volatility: Volatility,
+    /// `STRICT` / `RETURNS NULL ON NULL INPUT` : renvoie NULL dès qu'un
+    /// argument est NULL. Compte pour l'inférence de nullabilité.
+    pub strict: bool,
+    pub leakproof: bool,
+    pub parallel: Option<Parallel>,
     pub cost: Option<u64>,
     pub rows: Option<u64>,
+    pub settings: Vec<FunctionSetting>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -173,6 +211,8 @@ pub struct CreateProcedure {
     pub params: Vec<FunctionParam>,
     pub language: FunctionLanguage,
     pub body: FunctionBody,
+    pub security_definer: bool,
+    pub settings: Vec<FunctionSetting>,
 }
 
 // ── CREATE TRIGGER ───────────────────────────────────────────────────────────

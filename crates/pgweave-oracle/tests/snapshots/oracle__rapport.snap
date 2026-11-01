@@ -4,7 +4,7 @@ expression: report
 ---
 # Oracle différentiel — PostgreSQL 18
 
-Requêtes : 41 · Colonnes conformes : 73/112 (65 %) · Paramètres conformes : 0/29 (0 %)
+Requêtes : 41 · Colonnes conformes : 81/112 (72 %) · Paramètres conformes : 0/29 (0 %)
 
 ## 01-basics
 
@@ -337,21 +337,19 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | `id text` | ✗ |
-| 2 | `sku citext` | `sku text` | ✗ |
-| 3 | `status page_status` | `status text` | ✗ |
-| 4 | `quantity int4` | `quantity text` | ✗ |
-| 5 | `unit_price numeric` | `unit_price text` | ✗ |
-| 6 | `total_stored numeric` | `total_stored text` | ✗ |
-| 7 | `price_with_tax numeric` | `price_with_tax text` | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `sku citext` | `sku CITEXT` | ✗ |
+| 3 | `status page_status` | `status page_status` | ✓ |
+| 4 | `quantity int4` | `quantity positive_int` | ✗ |
+| 5 | `unit_price numeric` | `unit_price numeric` | ✓ |
+| 6 | `total_stored numeric` | `total_stored numeric` | ✓ |
+| 7 | `price_with_tax numeric` | `price_with_tax numeric` | ✓ |
 
 > pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
 
 > pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
 
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (true))
-
-> pgweave — schéma : `CREATE TABLE products ( …` illisible (sql parser error: Expected: STORED, found: VIRTUAL at Line: 12, Column: 74)
+> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
 
 ### `by_sku`
 
@@ -359,16 +357,14 @@ Paramètres — PostgreSQL : `citext` · pgweave : non inféré · 0/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | `id text` | ✗ |
-| 2 | `status page_status` | `status text` | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `status page_status` | `status page_status` | ✓ |
 
 > pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
 
 > pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
 
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (true))
-
-> pgweave — schéma : `CREATE TABLE products ( …` illisible (sql parser error: Expected: STORED, found: VIRTUAL at Line: 12, Column: 74)
+> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
 
 ### `by_status`
 
@@ -376,15 +372,13 @@ Paramètres — PostgreSQL : `page_status` · pgweave : non inféré · 0/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `id int8` | `id text` | ✗ |
+| 1 | `id int8` | `id int8` | ✓ |
 
 > pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
 
 > pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
 
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (true))
-
-> pgweave — schéma : `CREATE TABLE products ( …` illisible (sql parser error: Expected: STORED, found: VIRTUAL at Line: 12, Column: 74)
+> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
 
 ### `insert_product`
 
@@ -400,9 +394,7 @@ Paramètres — PostgreSQL : `citext`, `positive_int`, `numeric` · pgweave : no
 
 > pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
 
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (true))
-
-> pgweave — schéma : `CREATE TABLE products ( …` illisible (sql parser error: Expected: STORED, found: VIRTUAL at Line: 12, Column: 74)
+> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
 
 ### `enum_cast`
 
@@ -417,9 +409,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 > pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
 
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (true))
-
-> pgweave — schéma : `CREATE TABLE products ( …` illisible (sql parser error: Expected: STORED, found: VIRTUAL at Line: 12, Column: 74)
+> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
 
 
 ## 05-functions

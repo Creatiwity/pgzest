@@ -535,25 +535,42 @@ pub fn emit_create_function(cf: &CreateFunction) -> String {
     let returns = emit_return_type(&cf.return_type);
     let lang = emit_function_language(&cf.language);
     let body = emit_function_body(&cf.body);
-    let security = if cf.security_definer {
-        "\nSECURITY DEFINER"
-    } else {
-        ""
-    };
-    let volatility = match cf.volatility {
-        Volatility::Volatile => "",
-        Volatility::Stable => "\nSTABLE",
-        Volatility::Immutable => "\nIMMUTABLE",
-    };
+    let mut options = String::new();
+    match cf.volatility {
+        Volatility::Volatile => {}
+        Volatility::Stable => options.push_str("\nSTABLE"),
+        Volatility::Immutable => options.push_str("\nIMMUTABLE"),
+    }
+    if cf.strict {
+        options.push_str("\nSTRICT");
+    }
+    if cf.leakproof {
+        options.push_str("\nLEAKPROOF");
+    }
+    if cf.security_definer {
+        options.push_str("\nSECURITY DEFINER");
+    }
+    match cf.parallel {
+        None => {}
+        Some(Parallel::Unsafe) => options.push_str("\nPARALLEL UNSAFE"),
+        Some(Parallel::Restricted) => options.push_str("\nPARALLEL RESTRICTED"),
+        Some(Parallel::Safe) => options.push_str("\nPARALLEL SAFE"),
+    }
+    if let Some(cost) = cf.cost {
+        options.push_str(&format!("\nCOST {cost}"));
+    }
+    if let Some(rows) = cf.rows {
+        options.push_str(&format!("\nROWS {rows}"));
+    }
+    options.push_str(&emit_settings(&cf.settings));
     format!(
-        "CREATE {}FUNCTION {}({})\nRETURNS {}\nLANGUAGE {}{}{}\nAS {};",
+        "CREATE {}FUNCTION {}({})\nRETURNS {}\nLANGUAGE {}{}\nAS {};",
         or_replace,
         emit_object_name(&cf.name),
         params.join(", "),
         returns,
         lang,
-        security,
-        volatility,
+        options,
         body
     )
 }
@@ -563,14 +580,38 @@ pub fn emit_create_procedure(cp: &CreateProcedure) -> String {
     let params: Vec<String> = cp.params.iter().map(emit_function_param).collect();
     let lang = emit_function_language(&cp.language);
     let body = emit_function_body(&cp.body);
+    let mut options = String::new();
+    if cp.security_definer {
+        options.push_str("\nSECURITY DEFINER");
+    }
+    options.push_str(&emit_settings(&cp.settings));
     format!(
-        "CREATE {}PROCEDURE {}({})\nLANGUAGE {}\nAS {};",
+        "CREATE {}PROCEDURE {}({})\nLANGUAGE {}{}\nAS {};",
         or_replace,
         emit_object_name(&cp.name),
         params.join(", "),
         lang,
+        options,
         body
     )
+}
+
+fn emit_settings(settings: &[FunctionSetting]) -> String {
+    settings
+        .iter()
+        .map(|s| match &s.value {
+            SettingValue::FromCurrent => format!("\nSET {} FROM CURRENT", s.name),
+            SettingValue::Values(v) if v.is_empty() => format!("\nSET {} TO DEFAULT", s.name),
+            SettingValue::Values(v) => format!(
+                "\nSET {} TO {}",
+                s.name,
+                v.iter()
+                    .map(|x| format!("'{}'", x.replace('\'', "''")))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        })
+        .collect()
 }
 
 fn emit_function_param(param: &FunctionParam) -> String {
@@ -629,6 +670,15 @@ fn emit_function_body(body: &FunctionBody) -> String {
     match body {
         FunctionBody::Raw(s) => format!("$${}$$", s),
         FunctionBody::SqlQuery(sel) => format!("$${}\n$$", emit_select(sel)),
+        FunctionBody::Sql(stmts) => format!(
+            "$$\n{}\n$$",
+            stmts
+                .iter()
+                .map(emit_statement)
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+        FunctionBody::SqlReturn(e) => format!("$$SELECT {}$$", emit_expr(e)),
         FunctionBody::Parsed(_) => "$$/* plpgsql body */$$".to_string(),
     }
 }
