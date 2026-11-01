@@ -532,14 +532,17 @@ migration), import brownfield `pgweave schema import`, base salsa
 identique au réel, 0 diagnostic de `check`, import vérifié (schéma exporté →
 base vierge → catalogue identique).
 
+siren (`cargo xtask corpus siren --path ~/dev/creat/siren/migrations
+--layout diesel --pg-url postgres://postgres:pgweave@localhost:54319/postgres
+--details`, conteneur `pgweave-postgis`, image `postgis/postgis:18-3.6` en
+amd64) : catalogue et import identiques au réel, sauf les 2 triggers posés
+par `diesel_manage_updated_at` (SQL dynamique : `ddl-not-replayed`).
+Exécuter ce helper Diesel, très courant, demanderait d'évaluer `EXECUTE
+format(…)` : à reprendre avec l'interprétation des corps (P3+).
+
 Reste, dans l'ordre :
-1. siren : 2 défauts manquants sur `unite_legale(_staging).societe_mission`
-   (`cargo xtask corpus siren --path ~/dev/creat/siren/migrations --layout
-   diesel --pg-url postgres://postgres:pgweave@localhost:54319/postgres
-   --details`, serveur PostGIS : conteneur `pgweave-postgis`, image
-   `postgis/postgis:18-3.6` en amd64) ; puis l'import siren refusé
-   (« text has no default operator class » : opclass d'index, probablement
-   `gin_trgm_ops` perdue à l'émission d'un `CREATE INDEX`).
+1. ✅ siren (défauts `DEFAULT NULL` stockés selon la coercion, pack
+   `btree_gin` enregistré : l'import passe).
 2. Brancher le LSP sur `pgweave-project` (passer les macros du projet en
    entrée salsa, diagnostics de rejeu par fichier).
 3. Portées routine/bloc dans le catalogue : reportées en P3 avec le HIR

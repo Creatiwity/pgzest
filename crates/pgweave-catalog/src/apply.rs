@@ -898,7 +898,7 @@ impl Applier<'_> {
             name: col.name.value.clone(),
             ty: TypeRef::Unknown,
             not_null: !col.nullable,
-            default: col.default.as_ref().and_then(stored_default),
+            default: None,
             identity: col.identity.map(|i| match i {
                 pgweave_ast::ddl::Identity::Always => IdentityKind::Always,
                 pgweave_ast::ddl::Identity::ByDefault => IdentityKind::ByDefault,
@@ -927,6 +927,9 @@ impl Applier<'_> {
             ));
         } else {
             column.ty = self.type_ref(&col.data_type);
+            if let Some(e) = &col.default {
+                column.default = self.stored_default(e, &column.ty);
+            }
         }
         if column.identity.is_some() {
             column.not_null = true;
@@ -940,7 +943,7 @@ impl Applier<'_> {
                     continue;
                 }
                 ColumnConstraint::Default(e) => {
-                    column.default = stored_default(e);
+                    column.default = self.stored_default(e, &column.ty);
                     continue;
                 }
                 ColumnConstraint::PrimaryKey => {
@@ -1231,6 +1234,18 @@ impl Applier<'_> {
                     }
                     _ => None,
                 };
+                let default = match action {
+                    AlterColumnAction::SetDefault(e) => {
+                        let current = self
+                            .cat
+                            .relations
+                            .get(table)
+                            .and_then(|r| r.columns.iter().find(|c| c.name == col))
+                            .map(|c| c.ty.clone());
+                        current.and_then(|t| self.stored_default(e, &t))
+                    }
+                    _ => None,
+                };
                 let Some(rel) = self.cat.relations.get_mut(table) else {
                     return;
                 };
@@ -1242,7 +1257,7 @@ impl Applier<'_> {
                     return;
                 };
                 match action {
-                    AlterColumnAction::SetDefault(e) => c.default = stored_default(e),
+                    AlterColumnAction::SetDefault(_) => c.default = default,
                     AlterColumnAction::DropDefault => c.default = None,
                     AlterColumnAction::SetNotNull => c.not_null = true,
                     AlterColumnAction::DropNotNull => c.not_null = false,
@@ -2333,15 +2348,73 @@ fn unnamed(tc: &TableConstraint) -> TableConstraint {
 
 /// Défaut tel que PostgreSQL le conserve : `DEFAULT NULL` (éventuellement
 /// converti, `NULL::text`) n'est pas enregistré.
-fn stored_default(e: &pgweave_ast::Expr) -> Option<String> {
-    let mut x = e;
-    while let ExprKind::Cast { expr, .. } = &x.kind {
-        x = expr;
+impl Applier<'_> {
+    /// Défaut stocké dans `pg_attrdef` pour une colonne de type `ty`.
+    ///
+    /// PostgreSQL (`AddRelationNewConstraints`) n'écrit pas un défaut dont
+    /// l'expression, une fois convertie vers le type de la colonne, est une
+    /// constante NULL nue. Il l'écrit dès que la conversion laisse un nœud :
+    /// coercion vers un domaine, coercion de longueur (`varchar(1)`,
+    /// `numeric(5,2)`), ou cast explicite vers un autre type.
+    fn stored_default(&mut self, e: &pgweave_ast::Expr, ty: &TypeRef) -> Option<String> {
+        let mut x = e;
+        let mut outer_cast = None;
+        while let ExprKind::Cast { expr, data_type } = &x.kind {
+            outer_cast.get_or_insert(data_type);
+            x = expr;
+        }
+        if !matches!(x.kind, ExprKind::Literal(pgweave_ast::expr::Literal::Null)) {
+            return Some(emit_expr(e));
+        }
+        let kept = match outer_cast {
+            // `NULL` littéral : converti directement vers le type de la
+            // colonne, modificateur compris.
+            None => self.coercion_leaves_node(ty),
+            // Cast explicite : il laisse son propre nœud s'il applique un
+            // modificateur (`NULL::varchar(1)` est stocké), et la conversion
+            // vers la colonne en laisse un si les types diffèrent.
+            Some(dt) => {
+                let written = self.type_ref(dt);
+                strip_modifiers(&written) != strip_modifiers(ty)
+                    || self.coercion_leaves_node(&written)
+                    || self.coercion_leaves_node(ty)
+            }
+        };
+        kept.then(|| emit_expr(e))
     }
-    if matches!(x.kind, ExprKind::Literal(pgweave_ast::expr::Literal::Null)) {
-        None
-    } else {
-        Some(emit_expr(e))
+
+    /// La conversion d'une constante vers `ty` laisse-t-elle un nœud
+    /// d'expression (domaine, ou fonction de longueur appliquée au
+    /// modificateur) ?
+    fn coercion_leaves_node(&self, ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Array(inner) => self.coercion_leaves_node(inner),
+            TypeRef::Named { name, modifiers } => {
+                if self
+                    .cat
+                    .types
+                    .get(name)
+                    .is_some_and(|t| matches!(t.kind, TypeKind::Domain { .. }))
+                {
+                    return true;
+                }
+                !modifiers.is_empty()
+                    && self.cat.casts.iter().any(|c| {
+                        c.source == c.target
+                            && matches!(&c.source, TypeRef::Named { name: n, .. } if *n == *name)
+                    })
+            }
+            TypeRef::Unresolved(_) | TypeRef::Unknown => false,
+        }
+    }
+}
+
+/// Type sans ses modificateurs (`varchar(1)` → `varchar`).
+fn strip_modifiers(ty: &TypeRef) -> TypeRef {
+    match ty {
+        TypeRef::Named { name, .. } => TypeRef::named(name.clone()),
+        TypeRef::Array(inner) => TypeRef::Array(Box::new(strip_modifiers(inner))),
+        other => other.clone(),
     }
 }
 

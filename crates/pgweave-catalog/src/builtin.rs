@@ -9,6 +9,11 @@ use crate::pack::{EXTSCHEMA, Pack, PackError};
 const PACKS: &[(&str, &str, &str)] = &[
     ("postgres", "18", include_str!("../packs/postgres-18.json")),
     (
+        "btree_gin",
+        "1.3",
+        include_str!("../packs/btree_gin-1.3.json"),
+    ),
+    (
         "btree_gist",
         "1.8",
         include_str!("../packs/btree_gist-1.8.json"),

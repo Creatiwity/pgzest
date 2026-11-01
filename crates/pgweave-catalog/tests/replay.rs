@@ -67,6 +67,29 @@ fn serial_cree_sa_sequence() {
 }
 
 #[test]
+fn default_null_stocke_seulement_si_la_coercion_laisse_un_noeud() {
+    // Mesuré sur PostgreSQL 18 (`pg_attrdef`).
+    let (r, d) = replay(
+        "CREATE DOMAIN dd AS int;\n\
+         CREATE TABLE t (a int DEFAULT NULL, b varchar(1) DEFAULT NULL, c text DEFAULT NULL,\n\
+           d varchar DEFAULT NULL, e numeric(5,2) DEFAULT NULL, f varchar(2)[] DEFAULT NULL,\n\
+           g dd DEFAULT NULL, h int[] DEFAULT NULL, i varchar(1) DEFAULT NULL::text,\n\
+           j int DEFAULT NULL::int, k bigint DEFAULT NULL::int,\n\
+           m varchar(1) DEFAULT NULL::varchar(1));\n\
+         ALTER TABLE t ADD COLUMN l varchar(1) DEFAULT NULL;\n\
+         ALTER TABLE t ALTER COLUMN a SET DEFAULT NULL::bigint;",
+    );
+    assert!(d.is_empty(), "{d:?}");
+    let stored: Vec<&str> = r.catalog.relations[&q("t")]
+        .columns
+        .iter()
+        .filter(|c| c.default.is_some())
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(stored, ["a", "b", "e", "f", "g", "i", "k", "m", "l"]);
+}
+
+#[test]
 fn alter_table_suit_postgres() {
     let (r, d) = replay(
         "CREATE TABLE t (a INT, b TEXT);\n\
