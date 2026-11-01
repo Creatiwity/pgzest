@@ -85,14 +85,14 @@
     {"name":"\"@extschema@\".\"~~*\"","left":"\"@extschema@\".citext","right":"pg_catalog.text","result":"pg_catalog.bool"}
   ],
   "casts": [
-    {"source":"\"@extschema@\".citext","target":"pg_catalog.bpchar","context":"Assignment"},
-    {"source":"\"@extschema@\".citext","target":"pg_catalog.text","context":"Implicit"},
-    {"source":"\"@extschema@\".citext","target":"pg_catalog.varchar","context":"Implicit"},
-    {"source":"pg_catalog.bool","target":"\"@extschema@\".citext","context":"Assignment"},
-    {"source":"pg_catalog.bpchar","target":"\"@extschema@\".citext","context":"Assignment"},
-    {"source":"pg_catalog.inet","target":"\"@extschema@\".citext","context":"Assignment"},
-    {"source":"pg_catalog.text","target":"\"@extschema@\".citext","context":"Assignment"},
-    {"source":"pg_catalog.varchar","target":"\"@extschema@\".citext","context":"Assignment"}
+    {"source":"\"@extschema@\".citext","target":"pg_catalog.bpchar","context":"Assignment","method":"Binary"},
+    {"source":"\"@extschema@\".citext","target":"pg_catalog.text","context":"Implicit","method":"Binary"},
+    {"source":"\"@extschema@\".citext","target":"pg_catalog.varchar","context":"Implicit","method":"Binary"},
+    {"source":"pg_catalog.bool","target":"\"@extschema@\".citext","context":"Assignment","method":"Function"},
+    {"source":"pg_catalog.bpchar","target":"\"@extschema@\".citext","context":"Assignment","method":"Function"},
+    {"source":"pg_catalog.inet","target":"\"@extschema@\".citext","context":"Assignment","method":"Function"},
+    {"source":"pg_catalog.text","target":"\"@extschema@\".citext","context":"Assignment","method":"Binary"},
+    {"source":"pg_catalog.varchar","target":"\"@extschema@\".citext","context":"Assignment","method":"Binary"}
   ],
   "opclasses": [
     {"name":"\"@extschema@\".citext_ops","access_method":"btree","input":"\"@extschema@\".citext","default":true},

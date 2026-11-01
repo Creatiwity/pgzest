@@ -376,11 +376,23 @@ pub enum CastContext {
     Explicit,
 }
 
+/// Mise en œuvre d'une conversion (`castmethod`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CastMethod {
+    /// Par une fonction.
+    Function,
+    /// Même représentation binaire : simple ré-étiquetage.
+    Binary,
+    /// Par les fonctions d'entrée-sortie (texte).
+    InOut,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cast {
     pub source: TypeRef,
     pub target: TypeRef,
     pub context: CastContext,
+    pub method: CastMethod,
 }
 
 /// Classe d'opérateurs d'une méthode d'index (`gist`, `btree`…) : ce qui

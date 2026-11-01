@@ -1316,6 +1316,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pgweave-sema"
+version = "0.1.0"
+dependencies = [
+ "pgweave-catalog",
+]
+
+[[package]]
 name = "pgweave-semantic"
 version = "0.1.0"
 dependencies = [

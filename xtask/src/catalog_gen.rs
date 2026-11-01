@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use pgweave_catalog::model::{
-    Arg, ArgMode, Attribute, Cast, CastContext, CheckConstraint, Column, OpClass, Operator,
-    Persistence, Relation, RelationKind, Routine, RoutineKind, Schema, TypeDef, TypeKind,
+    Arg, ArgMode, Attribute, Cast, CastContext, CastMethod, CheckConstraint, Column, OpClass,
+    Operator, Persistence, Relation, RelationKind, Routine, RoutineKind, Schema, TypeDef, TypeKind,
     Volatility,
 };
 use pgweave_catalog::pack::{EXTSCHEMA, PACK_FORMAT};
@@ -214,7 +214,8 @@ pub(crate) struct Snapshot {
     attributes: BTreeMap<i64, Vec<AttrRow>>,
     routines: Vec<tokio_postgres::Row>,
     operators: Vec<tokio_postgres::Row>,
-    casts: Vec<(CastKey, String)>,
+    /// (source, cible) → (`castcontext`, `castmethod`).
+    casts: Vec<(CastKey, (String, String))>,
     opclasses: Vec<tokio_postgres::Row>,
     relations: Vec<tokio_postgres::Row>,
 }
@@ -389,13 +390,14 @@ impl Snapshot {
             .map_err(err)?;
         let casts = client
             .query(
-                "SELECT castsource::int8, casttarget::int8, castcontext::text FROM pg_cast",
+                "SELECT castsource::int8, casttarget::int8, castcontext::text, castmethod::text
+                   FROM pg_cast",
                 &[],
             )
             .await
             .map_err(err)?
             .iter()
-            .map(|r| ((r.get(0), r.get(1)), r.get(2)))
+            .map(|r| ((r.get(0), r.get(1)), (r.get(2), r.get(3))))
             .collect();
         let opclasses = client
             .query(
@@ -584,7 +586,7 @@ impl Snapshot {
             });
         }
 
-        for ((source, target), context) in &self.casts {
+        for ((source, target), (context, method)) in &self.casts {
             if skip_casts.contains(&(*source, *target)) {
                 continue;
             }
@@ -595,6 +597,11 @@ impl Snapshot {
                     "i" => CastContext::Implicit,
                     "a" => CastContext::Assignment,
                     _ => CastContext::Explicit,
+                },
+                method: match method.as_str() {
+                    "f" => CastMethod::Function,
+                    "b" => CastMethod::Binary,
+                    _ => CastMethod::InOut,
                 },
             });
         }

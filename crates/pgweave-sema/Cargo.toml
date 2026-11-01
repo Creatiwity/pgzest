@@ -1,0 +1,8 @@
+[package]
+name = "pgweave-sema"
+version = "0.1.0"
+edition = "2024"
+description = "Analyse sémantique de pgweave : système de types fidèle à PostgreSQL, HIR typé (PLAN.md D4, P3)"
+
+[dependencies]
+pgweave-catalog = { path = "../pgweave-catalog" }
