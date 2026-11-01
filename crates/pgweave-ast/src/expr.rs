@@ -40,6 +40,14 @@ pub enum Literal {
     Null,
 }
 
+/// Quantificateur d'une comparaison à un ensemble.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Quantifier {
+    /// `ANY` (synonyme : `SOME`).
+    Any,
+    All,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BinaryOp {
     Eq,
@@ -74,6 +82,10 @@ pub enum BinaryOp {
     /// C'est le point d'extensibilité de cet enum : un opérateur inconnu se
     /// range ici plutôt que de faire échouer la conversion.
     Custom(String),
+    /// `IS DISTINCT FROM` : différence où NULL est une valeur comparable.
+    IsDistinctFrom,
+    /// `IS NOT DISTINCT FROM`.
+    IsNotDistinctFrom,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -160,6 +172,15 @@ pub enum ExprKind {
     FieldAccess {
         root: Box<Expr>,
         path: Vec<String>,
+    },
+    /// `expr op ANY (tableau | sous-requête)` / `ALL (…)` : comparaison de
+    /// `left` à chaque élément de `right`. Le résultat est booléen ; `right`
+    /// est un tableau (ou une sous-requête), pas une valeur du type de `left`.
+    Quantified {
+        left: Box<Expr>,
+        op: BinaryOp,
+        quantifier: Quantifier,
+        right: Box<Expr>,
     },
     /// Paramètre lié : `$1`, `:nom`.
     ///

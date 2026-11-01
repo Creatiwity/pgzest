@@ -1136,6 +1136,7 @@ dependencies = [
  "pgweave-schema",
  "pgweave-semantic",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

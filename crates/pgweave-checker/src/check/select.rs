@@ -341,7 +341,7 @@ fn check_expr_inner(
             }
         }
 
-        ExprKind::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
             check_expr(left, ctx, schema, plvars, phantom_qualifiers, diags);
             check_expr(right, ctx, schema, plvars, phantom_qualifiers, diags);
         }

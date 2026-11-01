@@ -5,9 +5,12 @@
 use pgweave_ast::{
     Statement,
     ddl::{
-        AlterColumnAction, AlterTable, AlterTableOp, ColumnConstraint, ColumnDef, CreateIndex,
-        CreatePolicy, CreateTable, CreateTrigger, DdlStatement, PolicyCommand, ReferentialAction,
-        ReturnType, TableConstraint, TriggerEvent, TriggerForEach, TriggerTiming,
+        AlterColumnAction, AlterTable, AlterTableOp, AlterType, AlterTypeOp, ColumnConstraint,
+        ColumnDef, CreateIndex, CreatePolicy, CreateSchema, CreateTable, CreateTrigger, CreateType,
+        CreateView, DdlStatement, DropObject, EnumValuePosition, GeneratedColumn, Identity,
+        IndexElement, ObjectKind, OnCommit, PolicyCommand, ReferentialAction, ReturnType,
+        TableConstraint, TransitionTable, TriggerEvent, TriggerForEach, TriggerTiming,
+        TypeDefinition,
     },
     expr::{BinaryOp, ColumnRef, Expr, Ident, Literal, ObjectName, UnaryOp},
     node::Span,
@@ -99,9 +102,106 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             let ddl = convert_alter_table(at.name, at.operations)?;
             Ok(Statement::Ddl(DdlStatement::AlterTable(ddl)))
         }
-        // CREATE EXTENSION — silently skip (no pgweave_ast equivalent yet)
-        sp::Statement::CreateExtension { .. } => Err(ParseError::Unsupported(
-            "CREATE EXTENSION is not yet supported".to_string(),
+        sp::Statement::CreateType {
+            name,
+            representation,
+        } => Ok(Statement::Ddl(DdlStatement::CreateType(
+            convert_create_type(name, representation)?,
+        ))),
+        sp::Statement::AlterType(at) => Ok(Statement::Ddl(DdlStatement::AlterType(
+            convert_alter_type(at),
+        ))),
+        sp::Statement::CreateView(cv) => Ok(Statement::Ddl(DdlStatement::CreateView(
+            convert_create_view(cv)?,
+        ))),
+        sp::Statement::CreateSchema {
+            schema_name,
+            if_not_exists,
+            ..
+        } => {
+            let name = match schema_name {
+                sp::SchemaName::Simple(n) | sp::SchemaName::NamedAuthorization(n, _) => {
+                    last_ident(n)?
+                }
+                sp::SchemaName::UnnamedAuthorization(owner) => convert_ident(owner),
+            };
+            Ok(Statement::Ddl(DdlStatement::CreateSchema(CreateSchema {
+                name,
+                if_not_exists,
+            })))
+        }
+        sp::Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            cascade,
+            table,
+            ..
+        } => {
+            let kind = match object_type {
+                sp::ObjectType::Table => ObjectKind::Table,
+                sp::ObjectType::View => ObjectKind::View,
+                sp::ObjectType::MaterializedView => ObjectKind::MaterializedView,
+                sp::ObjectType::Index => ObjectKind::Index,
+                sp::ObjectType::Schema => ObjectKind::Schema,
+                sp::ObjectType::Sequence => ObjectKind::Sequence,
+                sp::ObjectType::Type => ObjectKind::Type,
+                other => {
+                    return Err(ParseError::Unsupported(format!("DROP {other}")));
+                }
+            };
+            Ok(drop(kind, names, if_exists, cascade, table))
+        }
+        sp::Statement::DropFunction(df) => Ok(drop(
+            ObjectKind::Function,
+            df.func_desc.into_iter().map(|d| d.name).collect(),
+            df.if_exists,
+            matches!(df.drop_behavior, Some(sp::DropBehavior::Cascade)),
+            None,
+        )),
+        sp::Statement::DropProcedure {
+            if_exists,
+            proc_desc,
+            drop_behavior,
+        } => Ok(drop(
+            ObjectKind::Procedure,
+            proc_desc.into_iter().map(|d| d.name).collect(),
+            if_exists,
+            matches!(drop_behavior, Some(sp::DropBehavior::Cascade)),
+            None,
+        )),
+        sp::Statement::DropTrigger(dt) => Ok(drop(
+            ObjectKind::Trigger,
+            vec![dt.trigger_name],
+            dt.if_exists,
+            matches!(dt.option, Some(sp::ReferentialAction::Cascade)),
+            dt.table_name,
+        )),
+        sp::Statement::DropDomain(dd) => Ok(drop(
+            ObjectKind::Domain,
+            vec![dd.name],
+            dd.if_exists,
+            matches!(dd.drop_behavior, Some(sp::DropBehavior::Cascade)),
+            None,
+        )),
+        sp::Statement::DropPolicy(dp) => Ok(drop(
+            ObjectKind::Policy,
+            vec![sp::ObjectName(vec![sp::ObjectNamePart::Identifier(
+                dp.name,
+            )])],
+            dp.if_exists,
+            matches!(dp.drop_behavior, Some(sp::DropBehavior::Cascade)),
+            Some(dp.table_name),
+        )),
+        sp::Statement::DropExtension(de) => Ok(drop(
+            ObjectKind::Extension,
+            de.names
+                .into_iter()
+                .map(|n| sp::ObjectName(vec![sp::ObjectNamePart::Identifier(n)]))
+                .collect(),
+            de.if_exists,
+            matches!(de.cascade_or_restrict, Some(sp::ReferentialAction::Cascade)),
+            None,
         )),
         other => Err(ParseError::Unsupported(format!(
             "unsupported statement: {}",
@@ -585,56 +685,41 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
         }),
         sp::Expr::IsDistinctFrom(l, r) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*l)?),
-            op: BinaryOp::IsNot,
+            op: BinaryOp::IsDistinctFrom,
             right: Box::new(convert_expr(*r)?),
         }),
         sp::Expr::IsNotDistinctFrom(l, r) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*l)?),
-            op: BinaryOp::Is,
+            op: BinaryOp::IsNotDistinctFrom,
             right: Box::new(convert_expr(*r)?),
         }),
         // `(expr)` : on garde l'expression interne, dont le span est déjà juste.
         sp::Expr::Nested(e) => Ok(convert_expr(*e)?.kind),
 
-        // `expr = ANY (array_expr)` — common in pg_dump CHECK constraints.
-        // Map to a boolean literal so the containing statement doesn't fail.
+        // `expr op ANY (tableau)` / `ALL (…)` : comparaison à chaque élément,
+        // modélisée comme telle — la réduire à `expr op tableau` mentirait sur
+        // le sens et sur les types.
         sp::Expr::AnyOp {
             left,
             compare_op,
             right,
             ..
-        } => {
-            // Best effort: convert operands, return BinaryOp if possible.
-            match (convert_expr(*left), convert_expr(*right)) {
-                (Ok(l), Ok(r)) => {
-                    let op = convert_binary_op(compare_op).unwrap_or(BinaryOp::Eq);
-                    Ok(ExprKind::BinaryOp {
-                        left: Box::new(l),
-                        op,
-                        right: Box::new(r),
-                    })
-                }
-                _ => Ok(ExprKind::Literal(Literal::Boolean(true))),
-            }
-        }
-
-        // `ALL` operation — same treatment as AnyOp.
+        } => Ok(ExprKind::Quantified {
+            left: Box::new(convert_expr(*left)?),
+            op: convert_binary_op(compare_op)?,
+            quantifier: pgweave_ast::expr::Quantifier::Any,
+            right: Box::new(convert_expr(*right)?),
+        }),
         sp::Expr::AllOp {
             left,
             compare_op,
             right,
-        } => match (convert_expr(*left), convert_expr(*right)) {
-            (Ok(l), Ok(r)) => {
-                let op = convert_binary_op(compare_op).unwrap_or(BinaryOp::Eq);
-                Ok(ExprKind::BinaryOp {
-                    left: Box::new(l),
-                    op,
-                    right: Box::new(r),
-                })
-            }
-            _ => Ok(ExprKind::Literal(Literal::Boolean(true))),
-        },
-
+        } => Ok(ExprKind::Quantified {
+            left: Box::new(convert_expr(*left)?),
+            op: convert_binary_op(compare_op)?,
+            quantifier: pgweave_ast::expr::Quantifier::All,
+            right: Box::new(convert_expr(*right)?),
+        }),
         // `ARRAY[e1, e2, ...]` — array constructor, common in pg_dump.
         // Convert elements individually; treat failures as a null literal.
         sp::Expr::Array(arr) => {
@@ -1098,6 +1183,103 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
     })
 }
 
+// ── Types, vues, DROP ─────────────────────────────────────────────────────────
+
+fn last_ident(name: sp::ObjectName) -> Result<Ident, ParseError> {
+    name.0
+        .into_iter()
+        .filter_map(part_to_ident)
+        .next_back()
+        .map(convert_ident)
+        .ok_or_else(|| ParseError::Unsupported("nom vide".to_string()))
+}
+
+fn drop(
+    kind: ObjectKind,
+    names: Vec<sp::ObjectName>,
+    if_exists: bool,
+    cascade: bool,
+    on_table: Option<sp::ObjectName>,
+) -> Statement {
+    Statement::Ddl(DdlStatement::Drop(DropObject {
+        kind,
+        names: names.into_iter().map(convert_object_name).collect(),
+        if_exists,
+        cascade,
+        on_table: on_table.map(convert_object_name),
+    }))
+}
+
+fn convert_create_type(
+    name: sp::ObjectName,
+    representation: Option<sp::UserDefinedTypeRepresentation>,
+) -> Result<CreateType, ParseError> {
+    let kind = match representation {
+        Some(sp::UserDefinedTypeRepresentation::Enum { labels }) => {
+            TypeDefinition::Enum(labels.into_iter().map(|l| l.value).collect())
+        }
+        Some(sp::UserDefinedTypeRepresentation::Composite { attributes }) => {
+            TypeDefinition::Composite(
+                attributes
+                    .into_iter()
+                    .map(|a| Ok((convert_ident(a.name), convert_data_type(a.data_type)?)))
+                    .collect::<Result<_, ParseError>>()?,
+            )
+        }
+        Some(other) => {
+            return Err(ParseError::Unsupported(format!(
+                "CREATE TYPE {other} non modélisé"
+            )));
+        }
+        None => {
+            return Err(ParseError::Unsupported(
+                "CREATE TYPE sans définition (type shell)".to_string(),
+            ));
+        }
+    };
+    Ok(CreateType {
+        name: convert_object_name(name),
+        kind,
+    })
+}
+
+fn convert_alter_type(at: sp::AlterType) -> AlterType {
+    let operation = match at.operation {
+        sp::AlterTypeOperation::Rename(r) => AlterTypeOp::RenameTo(convert_ident(r.new_name)),
+        sp::AlterTypeOperation::AddValue(a) => AlterTypeOp::AddValue {
+            value: a.value.value,
+            if_not_exists: a.if_not_exists,
+            position: a.position.map(|p| match p {
+                sp::AlterTypeAddValuePosition::Before(v) => EnumValuePosition::Before(v.value),
+                sp::AlterTypeAddValuePosition::After(v) => EnumValuePosition::After(v.value),
+            }),
+        },
+        sp::AlterTypeOperation::RenameValue(r) => AlterTypeOp::RenameValue {
+            from: r.from.value,
+            to: r.to.value,
+        },
+    };
+    AlterType {
+        name: convert_object_name(at.name),
+        operation,
+    }
+}
+
+fn convert_create_view(cv: sp::CreateView) -> Result<CreateView, ParseError> {
+    Ok(CreateView {
+        name: convert_object_name(cv.name),
+        or_replace: cv.or_replace,
+        materialized: cv.materialized,
+        temporary: cv.temporary,
+        columns: cv
+            .columns
+            .into_iter()
+            .map(|c| convert_ident(c.name))
+            .collect(),
+        query: convert_query(*cv.query)?,
+    })
+}
+
 // ── CREATE TABLE ──────────────────────────────────────────────────────────────
 
 fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> {
@@ -1120,17 +1302,25 @@ fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> 
         name,
         if_not_exists,
         temporary: ct.temporary,
+        unlogged: false,
+        on_commit: ct.on_commit.map(|c| match c {
+            sp::OnCommit::DeleteRows => OnCommit::DeleteRows,
+            sp::OnCommit::PreserveRows => OnCommit::PreserveRows,
+            sp::OnCommit::Drop => OnCommit::Drop,
+        }),
         columns,
         constraints,
     })
 }
 
-fn convert_column_def(col: sp::ColumnDef) -> Result<ColumnDef, ParseError> {
+pub(crate) fn convert_column_def(col: sp::ColumnDef) -> Result<ColumnDef, ParseError> {
     let name = convert_ident(col.name);
     let data_type = convert_data_type(col.data_type)?;
 
     let mut nullable = true;
     let mut default: Option<Expr> = None;
+    let mut generated = None;
+    let mut identity = None;
     let mut constraints = Vec::new();
 
     for opt_def in col.options {
@@ -1167,8 +1357,36 @@ fn convert_column_def(col: sp::ColumnDef) -> Result<ColumnDef, ParseError> {
             sp::ColumnOption::Check(cc) => {
                 constraints.push(ColumnConstraint::Check(convert_expr(*cc.expr)?));
             }
-            // Ignore other options (charset, comments, dialect-specific)
-            _ => {}
+            sp::ColumnOption::Generated {
+                generated_as,
+                generation_expr,
+                generation_expr_mode,
+                ..
+            } => match generation_expr {
+                Some(e) => {
+                    generated = Some(GeneratedColumn {
+                        expr: convert_expr(e)?,
+                        stored: !matches!(
+                            generation_expr_mode,
+                            Some(sp::GeneratedExpressionMode::Virtual)
+                        ),
+                    });
+                }
+                None => {
+                    identity = Some(match generated_as {
+                        sp::GeneratedAs::ByDefault => Identity::ByDefault,
+                        _ => Identity::Always,
+                    });
+                    // Une colonne identité est implicitement NOT NULL.
+                    nullable = false;
+                }
+            },
+            sp::ColumnOption::Collation(_) | sp::ColumnOption::Comment(_) => {}
+            other => {
+                return Err(ParseError::Unsupported(format!(
+                    "option de colonne non modélisée : {other}"
+                )));
+            }
         }
     }
 
@@ -1177,14 +1395,18 @@ fn convert_column_def(col: sp::ColumnDef) -> Result<ColumnDef, ParseError> {
         data_type,
         nullable,
         default,
+        generated,
+        identity,
         constraints,
     })
 }
 
-fn convert_table_constraint(tc: sp::TableConstraint) -> Result<TableConstraint, ParseError> {
+pub(crate) fn convert_table_constraint(
+    tc: sp::TableConstraint,
+) -> Result<TableConstraint, ParseError> {
     match tc {
-        // In 0.62, PrimaryKey/Unique/ForeignKey/Check are tuple variants
         sp::TableConstraint::PrimaryKey(pk) => Ok(TableConstraint::PrimaryKey {
+            name: pk.name.map(convert_ident),
             columns: pk
                 .columns
                 .into_iter()
@@ -1192,6 +1414,7 @@ fn convert_table_constraint(tc: sp::TableConstraint) -> Result<TableConstraint, 
                 .collect::<Result<Vec<_>, _>>()?,
         }),
         sp::TableConstraint::Unique(uc) => Ok(TableConstraint::Unique {
+            name: uc.name.map(convert_ident),
             columns: uc
                 .columns
                 .into_iter()
@@ -1199,13 +1422,17 @@ fn convert_table_constraint(tc: sp::TableConstraint) -> Result<TableConstraint, 
                 .collect::<Result<Vec<_>, _>>()?,
         }),
         sp::TableConstraint::ForeignKey(fk) => Ok(TableConstraint::ForeignKey {
+            name: fk.name.map(convert_ident),
             columns: fk.columns.into_iter().map(convert_ident).collect(),
             ref_table: convert_object_name(fk.foreign_table),
             ref_columns: fk.referred_columns.into_iter().map(convert_ident).collect(),
             on_delete: fk.on_delete.map(convert_referential_action),
             on_update: fk.on_update.map(convert_referential_action),
         }),
-        sp::TableConstraint::Check(cc) => Ok(TableConstraint::Check(convert_expr(*cc.expr)?)),
+        sp::TableConstraint::Check(cc) => Ok(TableConstraint::Check {
+            name: cc.name.map(convert_ident),
+            expr: convert_expr(*cc.expr)?,
+        }),
         other => Err(ParseError::Unsupported(format!(
             "unsupported table constraint: {}",
             other
@@ -1226,26 +1453,29 @@ fn convert_referential_action(action: sp::ReferentialAction) -> ReferentialActio
 // ── CREATE INDEX ──────────────────────────────────────────────────────────────
 
 fn convert_create_index(ci: sp::CreateIndex) -> Result<CreateIndex, ParseError> {
-    let name = ci.name.map(|n| {
-        n.0.into_iter()
-            .filter_map(part_to_ident)
-            .next_back()
-            .map(convert_ident)
-            .unwrap_or_else(|| Ident::new(""))
-    });
+    let name = ci.name.map(last_ident).transpose()?;
     let table = convert_object_name(ci.table_name);
-    let columns = ci
+    let elements = ci
         .columns
         .into_iter()
-        .map(|ob| convert_ident_from_expr(ob.column.expr))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|ic| {
+            let expr = convert_expr(ic.column.expr)?;
+            Ok(match expr.kind {
+                ExprKind::Column(c) if c.table.is_none() => IndexElement::Column(c.column),
+                _ => IndexElement::Expr(expr),
+            })
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
 
     Ok(CreateIndex {
         name,
         table,
-        columns,
+        elements,
         unique: ci.unique,
         if_not_exists: ci.if_not_exists,
+        concurrently: ci.concurrently,
+        using: ci.using.map(|u| u.to_string().to_lowercase()),
+        where_clause: ci.predicate.map(convert_expr).transpose()?,
     })
 }
 
@@ -1337,12 +1567,25 @@ fn convert_create_trigger(ct: sp::CreateTrigger) -> Result<CreateTrigger, ParseE
         .map(|eb| convert_object_name(eb.func_desc.name))
         .unwrap_or_else(|| ObjectName(vec![]));
 
+    let referencing = ct
+        .referencing
+        .into_iter()
+        .map(|r| {
+            Ok(TransitionTable {
+                new: matches!(r.refer_type, sp::TriggerReferencingType::NewTable),
+                name: last_ident(r.transition_relation_name)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
+
     Ok(CreateTrigger {
         name: tname,
+        or_replace: ct.or_replace,
         table,
         timing,
         events: evts,
         for_each,
+        referencing,
         when,
         function,
     })
@@ -1409,11 +1652,14 @@ fn convert_alter_table(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(AlterTable {
         name: tname,
+        if_exists: false,
         operations: ops,
     })
 }
 
-fn convert_alter_table_op(op: sp::AlterTableOperation) -> Result<AlterTableOp, ParseError> {
+pub(crate) fn convert_alter_table_op(
+    op: sp::AlterTableOperation,
+) -> Result<AlterTableOp, ParseError> {
     match op {
         sp::AlterTableOperation::EnableRowLevelSecurity => Ok(AlterTableOp::EnableRowLevelSecurity),
         sp::AlterTableOperation::DisableRowLevelSecurity => {
@@ -1451,6 +1697,20 @@ fn convert_alter_table_op(op: sp::AlterTableOperation) -> Result<AlterTableOp, P
             name: convert_ident(name),
             if_exists,
         }),
+        sp::AlterTableOperation::RenameColumn {
+            old_column_name,
+            new_column_name,
+        } => Ok(AlterTableOp::RenameColumn {
+            from: convert_ident(old_column_name),
+            to: convert_ident(new_column_name),
+        }),
+        sp::AlterTableOperation::RenameTable { table_name } => {
+            let (sp::RenameTableNameKind::To(n) | sp::RenameTableNameKind::As(n)) = table_name;
+            Ok(AlterTableOp::RenameTo(last_ident(n)?))
+        }
+        sp::AlterTableOperation::ValidateConstraint { name } => {
+            Ok(AlterTableOp::ValidateConstraint(convert_ident(name)))
+        }
         other => Err(ParseError::Unsupported(format!(
             "unsupported ALTER TABLE operation: {}",
             other

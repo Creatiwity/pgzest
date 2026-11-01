@@ -169,9 +169,10 @@ fn une_directive_peut_taire_le_signalement() {
 
 #[test]
 fn un_statement_non_modelise_est_visible_par_defaut() {
-    // Le défaut est passé de `ignore` à `warn` : un CREATE VIEW jeté signifie
-    // que la vue n'existe pour aucun autre fichier, autant le dire.
-    let d = diags("CREATE VIEW v AS SELECT 1 AS a;\n");
+    // Le défaut est passé de `ignore` à `warn` : un statement jeté n'existe
+    // pour aucun autre fichier, autant le dire. Les rôles sont hors du
+    // périmètre modélisé (PLAN.md, §6).
+    let d = diags("CREATE ROLE app_reader;\n");
     assert!(has(&d, codes::UNSUPPORTED_STATEMENT), "obtenu : {d:?}");
     assert_eq!(
         of(&d, codes::UNSUPPORTED_STATEMENT).severity,
@@ -188,7 +189,7 @@ fn le_silence_reste_possible_pour_migrer() {
             unsupported: SkipLevel::Ignore,
         },
     };
-    let d = analyze_source_self_contained("CREATE VIEW v AS SELECT 1 AS a;\n", &opts).diagnostics;
+    let d = analyze_source_self_contained("CREATE ROLE app_reader;\n", &opts).diagnostics;
     assert!(
         !has(&d, codes::UNSUPPORTED_STATEMENT),
         "l'opt-out doit rester disponible : {d:?}"

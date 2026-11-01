@@ -99,7 +99,7 @@ pub fn walk_select<V: Visit + ?Sized>(visitor: &mut V, node: &SelectStmt) {
 
 pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
     match &expr.kind {
-        ExprKind::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
         }

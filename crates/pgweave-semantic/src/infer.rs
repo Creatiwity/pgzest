@@ -89,6 +89,8 @@ pub fn infer_expr_type(
                 | BinaryOp::ILike
                 | BinaryOp::Is
                 | BinaryOp::IsNot
+                | BinaryOp::IsDistinctFrom
+                | BinaryOp::IsNotDistinctFrom
                 | BinaryOp::In
                 | BinaryOp::NotIn => Some(DataType::Boolean),
                 // Arithmetic — use left operand type as proxy
@@ -178,6 +180,9 @@ pub fn infer_expr_type(
         // L'accès à un élément de tableau ou à un champ composite demanderait de
         // résoudre le type de la base puis de le décomposer — pas encore fait.
         ExprKind::FieldAccess { .. } => None,
+
+        // Comparaison à chaque élément d'un ensemble : toujours booléenne.
+        ExprKind::Quantified { .. } => Some(DataType::Boolean),
 
         // Le type d'un paramètre lié vient du site d'appel, pas de la requête.
         ExprKind::Parameter(_) => None,

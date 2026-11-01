@@ -150,7 +150,7 @@ fn check_policy_expr(
             }
         }
 
-        ExprKind::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
             check_policy_expr(left, clause, policy_name, table_schema, schema, diags);
             check_policy_expr(right, clause, policy_name, table_schema, schema, diags);
         }

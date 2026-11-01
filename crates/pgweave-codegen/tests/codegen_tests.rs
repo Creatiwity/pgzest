@@ -45,6 +45,8 @@ fn simple_col_def(name: &str, dt: DataType) -> ColumnDef {
         data_type: dt,
         nullable: true,
         default: None,
+        generated: None,
+        identity: None,
         constraints: vec![],
     }
 }
@@ -56,6 +58,8 @@ fn make_create_table(table_name: &str, cols: Vec<ColumnDef>) -> Statement {
         name: ObjectName::unquoted(&[table_name]),
         if_not_exists: false,
         temporary: false,
+        unlogged: false,
+        on_commit: None,
         columns: cols,
         constraints: vec![],
     }))

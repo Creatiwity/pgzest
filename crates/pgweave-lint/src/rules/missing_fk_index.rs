@@ -60,8 +60,10 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                     .last()
                     .map(|i| i.value.to_lowercase())
                     .unwrap_or_default();
-                // An index covers the FK column if it's the first (or only) index column
-                if let Some(first_col) = ci.columns.first() {
+                // Un index couvre la colonne de FK si elle en est le premier
+                // élément — une expression en tête ne la couvre pas.
+                if let Some(pgweave_ast::ddl::IndexElement::Column(first_col)) = ci.elements.first()
+                {
                     indexed.insert((table, first_col.value.to_lowercase()));
                 }
             }
@@ -90,7 +92,8 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
         }
         for tc in &ct.constraints {
             match tc {
-                TableConstraint::PrimaryKey { columns } | TableConstraint::Unique { columns } => {
+                TableConstraint::PrimaryKey { columns, .. }
+                | TableConstraint::Unique { columns, .. } => {
                     if let Some(first) = columns.first() {
                         pk_cols.insert((table.clone(), first.value.to_lowercase()));
                     }

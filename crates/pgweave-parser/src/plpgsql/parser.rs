@@ -205,6 +205,7 @@ impl Parser {
                 statements: stmts,
                 exception,
             },
+            source: self.source.clone(),
         })
     }
 

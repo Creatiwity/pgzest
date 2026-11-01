@@ -87,7 +87,7 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             }
             visit_expr(right, config, out);
         }
-        ExprKind::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
             visit_expr(left, config, out);
             visit_expr(right, config, out);
         }

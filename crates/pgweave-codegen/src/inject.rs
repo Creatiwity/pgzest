@@ -69,8 +69,10 @@ pub fn generate_updated_at_trigger(table_name: &str) -> Vec<Statement> {
     let trigger = Statement::Ddl(DdlStatement::CreateTrigger(CreateTrigger {
         name: Ident::new(trigger_name),
         table: ObjectName::unquoted(&[table_name]),
+        or_replace: false,
         timing: TriggerTiming::Before,
         events: vec![TriggerEvent::Update(vec![])],
+        referencing: Vec::new(),
         for_each: TriggerForEach::Row,
         when: None,
         function: ObjectName::unquoted(&[&fn_name]),
@@ -105,6 +107,8 @@ fn make_timestamptz_col(name: &str, default_expr: Option<&str>) -> ColumnDef {
         data_type: DataType::TimestampTz,
         nullable: false,
         default,
+        generated: None,
+        identity: None,
         constraints,
     }
 }
@@ -115,6 +119,8 @@ fn make_nullable_timestamptz_col(name: &str) -> ColumnDef {
         data_type: DataType::TimestampTz,
         nullable: true,
         default: None,
+        generated: None,
+        identity: None,
         constraints: vec![],
     }
 }

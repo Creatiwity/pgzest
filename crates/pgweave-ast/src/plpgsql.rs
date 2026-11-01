@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 pub struct PlpgsqlBody {
     pub declare: Vec<VarDecl>,
     pub block: Block,
+    /// Texte du corps tel qu'écrit, entre ses délimiteurs. C'est lui que
+    /// restitue l'émission SQL : régénérer le PL/pgSQL depuis l'AST perdrait
+    /// la mise en forme et les commentaires, et une migration doit déployer
+    /// le corps que le développeur a écrit.
+    pub source: String,
 }
 
 // ── DECLARE ──────────────────────────────────────────────────────────────────

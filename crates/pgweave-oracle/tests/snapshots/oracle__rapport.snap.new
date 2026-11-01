@@ -346,12 +346,6 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | 6 | `total_stored numeric` | `total_stored numeric` | ✓ |
 | 7 | `price_with_tax numeric` | `price_with_tax numeric` | ✓ |
 
-> pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
-
-> pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
-
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
-
 ### `by_sku`
 
 Paramètres — PostgreSQL : `citext` · pgweave : non inféré · 0/1
@@ -361,12 +355,6 @@ Paramètres — PostgreSQL : `citext` · pgweave : non inféré · 0/1
 | 1 | `id int8` | `id int8` | ✓ |
 | 2 | `status page_status` | `status page_status` | ✓ |
 
-> pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
-
-> pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
-
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
-
 ### `by_status`
 
 Paramètres — PostgreSQL : `page_status` · pgweave : non inféré · 0/1
@@ -374,12 +362,6 @@ Paramètres — PostgreSQL : `page_status` · pgweave : non inféré · 0/1
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `id int8` | `id int8` | ✓ |
-
-> pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
-
-> pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
-
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
 
 ### `insert_product`
 
@@ -391,12 +373,6 @@ Paramètres — PostgreSQL : `citext`, `positive_int`, `numeric` · pgweave : no
 | 2 | `total_stored numeric` | non inféré | ✗ |
 | 3 | `price_with_tax numeric` | non inféré | ✗ |
 
-> pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
-
-> pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
-
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
-
 ### `enum_cast`
 
 Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
@@ -405,12 +381,6 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 |--:|---|---|:-:|
 | 1 | `status_text text` | `status_text text` | ✓ |
 | 2 | `fixed page_status` | `fixed page_status` | ✓ |
-
-> pgweave — schéma : `CREATE EXTENSION citext …` non modélisé (CREATE EXTENSION is not yet supported)
-
-> pgweave — schéma : `CREATE TYPE page_status AS …` non modélisé (unsupported statement: CREATE TYPE page_status AS ENUM ('draft', 'review', 'published'))
-
-> pgweave — schéma : `CREATE DOMAIN positive_int AS …` non modélisé (unsupported statement: CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0))
 
 
 ## 05-functions

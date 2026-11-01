@@ -34,6 +34,10 @@ pub struct TriggerCtx {
     pub has_delete: bool,
     /// Whether any trigger fires on UPDATE (both NEW and OLD defined).
     pub has_update: bool,
+    /// Tables de transition déclarées par `REFERENCING { NEW | OLD } TABLE AS
+    /// nom` (noms en minuscules) : dans le corps, ce sont des tables ayant les
+    /// colonnes de la table du trigger.
+    pub transition_tables: Vec<String>,
 }
 
 // ── Type context ──────────────────────────────────────────────────────────────
@@ -140,6 +144,11 @@ pub fn check_plpgsql_ast(
     if let Some(ts) = trigger_table_schema {
         temp_tables.insert("new".into(), ts.clone());
         temp_tables.insert("old".into(), ts.clone());
+        if let Some(tc) = &trigger_ctx {
+            for name in &tc.transition_tables {
+                temp_tables.insert(name.clone(), ts.clone());
+            }
+        }
     }
 
     let ctx = TypeContext {
@@ -628,7 +637,7 @@ fn check_sql_expr_idents(
             );
         }
 
-        ExprKind::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
             check_sql_expr_idents(left, ctx, diags);
             check_sql_expr_idents(right, ctx, diags);
         }

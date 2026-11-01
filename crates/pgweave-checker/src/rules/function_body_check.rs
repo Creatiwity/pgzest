@@ -166,6 +166,7 @@ fn resolve_trigger_ctxs(func_name: &str, ctx: &RuleCtx) -> Vec<TriggerCtx> {
                     has_insert: false,
                     has_delete: false,
                     has_update: false,
+                    transition_tables: Vec::new(),
                 });
                 ctxs.len() - 1
             }
@@ -173,6 +174,12 @@ fn resolve_trigger_ctxs(func_name: &str, ctx: &RuleCtx) -> Vec<TriggerCtx> {
         let tc = &mut ctxs[idx];
         if trig.for_each == TriggerForEach::Statement {
             tc.has_statement_level = true;
+        }
+        for t in &trig.referencing {
+            let name = t.name.value.to_lowercase();
+            if !tc.transition_tables.contains(&name) {
+                tc.transition_tables.push(name);
+            }
         }
         for ev in &trig.events {
             match ev {

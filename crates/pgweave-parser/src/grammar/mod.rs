@@ -5,7 +5,47 @@
 //! publiques pour ce qui est commun (noms, types, expressions, requêtes). Le
 //! reste des statements passe par `Parser::parse_statement`.
 
+pub(crate) mod ddl;
 pub(crate) mod routine;
+
+use pgweave_ast::Statement;
+
+use crate::error::ParseError;
+use routine::RoutineBody;
+
+/// Statement lu par la grammaire de pgweave, avec le corps à analyser s'il
+/// s'agit d'une routine. `None` : le statement relève de sqlparser.
+pub(crate) fn parse(
+    p: &mut Parser,
+    ctx: &Ctx,
+) -> Option<Result<(Statement, Option<RoutineBody>), ParseError>> {
+    let plain = |r: Result<Statement, ParseError>| Some(r.map(|s| (s, None)));
+    if routine::is_routine(p) {
+        return Some(routine::parse_routine(p, ctx).map(|r| (r.statement, r.body)));
+    }
+    if ddl::is_create_table(p) {
+        return plain(ddl::parse_create_table(p));
+    }
+    if ddl::is_alter_table(p) {
+        return plain(ddl::parse_alter_table(p));
+    }
+    if ddl::is_create_domain(p) {
+        return plain(ddl::parse_create_domain(p));
+    }
+    if ddl::is_create_extension(p) {
+        return plain(ddl::parse_create_extension(p));
+    }
+    if ddl::is_alter_extension(p) {
+        return plain(ddl::parse_alter_extension(p));
+    }
+    if ddl::is_create_sequence(p) {
+        return plain(ddl::parse_create_sequence(p));
+    }
+    if ddl::is_alter_type_set_schema(p) {
+        return plain(ddl::parse_alter_type_set_schema(p));
+    }
+    None
+}
 
 use sqlparser::keywords::Keyword;
 use sqlparser::parser::Parser;

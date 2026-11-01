@@ -38,6 +38,8 @@ fn create_table(
         name: ObjectName::unquoted(&[name]),
         if_not_exists: false,
         temporary: false,
+        unlogged: false,
+        on_commit: None,
         columns,
         constraints,
     }))
@@ -53,8 +55,13 @@ fn quoted_table(name: &str) -> Statement {
         }]),
         if_not_exists: false,
         temporary: false,
+        unlogged: false,
+        on_commit: None,
         columns: vec![],
-        constraints: vec![TableConstraint::PrimaryKey { columns: vec![] }],
+        constraints: vec![TableConstraint::PrimaryKey {
+            name: None,
+            columns: vec![],
+        }],
     }))
 }
 
@@ -64,6 +71,8 @@ fn simple_col(name: &str) -> ColumnDef {
         data_type: DataType::Text,
         nullable: true,
         default: None,
+        generated: None,
+        identity: None,
         constraints: vec![],
     }
 }
@@ -140,6 +149,7 @@ fn table_without_pk_triggers_warning() {
 #[test]
 fn table_with_table_pk_no_warning() {
     let pk = TableConstraint::PrimaryKey {
+        name: None,
         columns: vec![Ident::new("id")],
     };
     let stmt = create_table("with_pk", vec![simple_col("id")], vec![pk]);
@@ -187,6 +197,7 @@ fn non_snake_case_triggers_warning() {
 #[test]
 fn snake_case_table_no_warning() {
     let pk = TableConstraint::PrimaryKey {
+        name: None,
         columns: vec![Ident::new("id")],
     };
     let stmt = create_table("my_table", vec![], vec![pk]);
@@ -206,6 +217,7 @@ fn snake_case_table_no_warning() {
 #[test]
 fn non_snake_case_column_triggers_warning() {
     let pk = TableConstraint::PrimaryKey {
+        name: None,
         columns: vec![Ident::new("id")],
     };
     let bad_col = ColumnDef {
@@ -216,6 +228,8 @@ fn non_snake_case_column_triggers_warning() {
         data_type: DataType::Text,
         nullable: true,
         default: None,
+        generated: None,
+        identity: None,
         constraints: vec![],
     };
     let stmt = create_table("users", vec![bad_col], vec![pk]);

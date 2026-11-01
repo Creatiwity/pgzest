@@ -155,6 +155,19 @@ fn collect_ddl(stmts: &[Statement]) -> SchemaSnapshot {
                     // ALTER TABLE statements are not diffed — they are
                     // the output of the diff, not an input schema element.
                 }
+                // Types, domaines, extensions, schémas, vues et séquences ne
+                // sont pas encore comparés : le diff sur le modèle complet du
+                // catalogue arrive en P7 (PLAN.md). Les DROP, comme les ALTER,
+                // sont des sorties de diff, pas des éléments de schéma.
+                DdlStatement::CreateType(_)
+                | DdlStatement::AlterType(_)
+                | DdlStatement::CreateDomain(_)
+                | DdlStatement::CreateExtension(_)
+                | DdlStatement::AlterExtension(_)
+                | DdlStatement::CreateSchema(_)
+                | DdlStatement::CreateView(_)
+                | DdlStatement::CreateSequence(_)
+                | DdlStatement::Drop(_) => {}
             }
         }
     }

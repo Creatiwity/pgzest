@@ -11,3 +11,6 @@ pgweave-parser = { path = "../pgweave-parser" }
 pgweave-semantic = { path = "../pgweave-semantic" }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

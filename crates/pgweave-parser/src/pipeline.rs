@@ -14,7 +14,7 @@ use crate::convert;
 use crate::dialect::PgweaveDialect;
 use crate::error::ParseError;
 use crate::grammar::Ctx;
-use crate::grammar::routine::{self, RoutineBody};
+use crate::grammar::routine::RoutineBody;
 use crate::split::{LineIndex, StatementTokens, Unit};
 use crate::{Offsets, ParseOutcome, SkipReason, SkippedStatement};
 
@@ -67,10 +67,11 @@ fn parse_statement(
     let (start, end) = (st.start, st.end);
     let mut p = Parser::new(&DIALECT).with_tokens_with_locations(st.tokens);
 
-    let parsed = if routine::is_routine(&p) {
-        routine::parse_routine(&mut p, ctx).map(|r| (r.statement, r.body))
-    } else {
-        sqlparser_statement(&mut p).and_then(|s| Ok((convert::convert_statement(s)?, None)))
+    let parsed = match crate::grammar::parse(&mut p, ctx) {
+        Some(ours) => ours,
+        None => {
+            sqlparser_statement(&mut p).and_then(|s| Ok((convert::convert_statement(s)?, None)))
+        }
     };
 
     let (mut stmt, body) = match parsed {
