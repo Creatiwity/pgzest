@@ -84,7 +84,11 @@ pub fn run(
         });
     }
 
-    let project = pgweave_catalog::ProjectCatalog::from_chunks(&chunks);
+    let project = pgweave_catalog::ProjectCatalog::from_chunks_typed(
+        &chunks,
+        &pgweave_macro::MacroSet::builtin(),
+        Some(pgweave_sema::ViewTyper::shared()),
+    );
     let mut errors = 0;
     for (path, sk) in &project.skipped {
         eprintln!(

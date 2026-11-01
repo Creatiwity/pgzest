@@ -21,6 +21,8 @@ use crate::types::{Ty, pg};
 pub struct OutputColumn {
     pub name: String,
     pub ty: Ty,
+    /// Modificateurs du type (`exprTypmod`), vides s'il n'en a pas.
+    pub modifiers: Vec<String>,
     pub nullable: Nullability,
 }
 
@@ -29,6 +31,7 @@ impl From<&OutputColumn> for Column {
         Column {
             name: c.name.clone(),
             ty: Some(c.ty.clone()),
+            modifiers: c.modifiers.clone(),
             nullable: c.nullable,
         }
     }
@@ -243,6 +246,10 @@ impl<'c> Analyzer<'c> {
                         )
                     })?;
                 c.nullable = Nullability::strict([c.nullable, o.nullable]);
+                // Le modificateur ne survit que s'il est le même partout.
+                if c.modifiers != o.modifiers || c.ty != o.ty {
+                    c.modifiers.clear();
+                }
             }
         }
         if resolve_unknowns {
@@ -321,6 +328,7 @@ impl<'c> Analyzer<'c> {
             out.push(OutputColumn {
                 name: format!("column{}", i + 1),
                 ty: common,
+                modifiers: Vec::new(),
                 nullable: Nullability::strict(typed.iter().map(|r| r[i].nullable)),
             });
         }
@@ -397,6 +405,7 @@ impl<'c> Analyzer<'c> {
                             .as_ref()
                             .map_or_else(|| figure_colname(expr), |a| a.value.clone()),
                         ty,
+                        modifiers: expr_modifiers(expr, scope),
                         nullable: t.nullable,
                     });
                 }
@@ -436,6 +445,7 @@ impl<'c> Analyzer<'c> {
                             .map(|c| Column {
                                 name: c.name.clone(),
                                 ty: self.ts.of_ref(&c.ty),
+                                modifiers: ref_modifiers(&c.ty),
                                 nullable: if c.not_null {
                                     Nullability::NonNull
                                 } else {
@@ -474,6 +484,7 @@ impl<'c> Analyzer<'c> {
                     cols.push(Column {
                         name: "ordinality".into(),
                         ty: Some(pg("int8")),
+                        modifiers: Vec::new(),
                         nullable: Nullability::NonNull,
                     });
                 }
@@ -533,6 +544,7 @@ impl<'c> Analyzer<'c> {
                     .map(|a| Column {
                         name: a.name.clone().unwrap_or_default(),
                         ty: self.ts.of_ref(&a.ty),
+                        modifiers: ref_modifiers(&a.ty),
                         nullable: Nullability::Unknown,
                     })
                     .collect();
@@ -545,6 +557,7 @@ impl<'c> Analyzer<'c> {
                 .map(|a| Column {
                     name: a.name.clone(),
                     ty: self.ts.of_ref(&a.ty),
+                    modifiers: ref_modifiers(&a.ty),
                     nullable: Nullability::Unknown,
                 })
                 .collect();
@@ -557,6 +570,7 @@ impl<'c> Analyzer<'c> {
                 .map(|c| Column {
                     name: c.name.clone(),
                     ty: self.ts.of_ref(&c.ty),
+                    modifiers: ref_modifiers(&c.ty),
                     nullable: Nullability::Unknown,
                 })
                 .collect();
@@ -566,6 +580,7 @@ impl<'c> Analyzer<'c> {
             vec![Column {
                 name: fname.to_string(),
                 ty: Some(t.ty),
+                modifiers: Vec::new(),
                 nullable: t.nullable,
             }],
             true,
@@ -673,6 +688,7 @@ impl<'c> Analyzer<'c> {
             .map(|c| Column {
                 name: c.name.clone(),
                 ty: self.ts.of_ref(&c.ty),
+                modifiers: ref_modifiers(&c.ty),
                 nullable: if c.not_null {
                     Nullability::NonNull
                 } else {
@@ -950,6 +966,7 @@ impl Analyzer<'_> {
             .map(|(a, t)| OutputColumn {
                 name: a.name.clone().unwrap_or_default(),
                 ty: t.clone(),
+                modifiers: Vec::new(),
                 nullable: Nullability::Unknown,
             })
             .collect())
@@ -962,8 +979,57 @@ fn star_column(c: &Column) -> Result<OutputColumn, SemaError> {
         ty: c.ty.clone().ok_or_else(|| {
             SemaError::not_analyzed(format!("type de la colonne « {} »", c.name), Span::DUMMY)
         })?,
+        modifiers: c.modifiers.clone(),
         nullable: c.nullable,
     })
+}
+
+/// Modificateurs d'une référence de type du catalogue (ceux de l'élément
+/// pour un tableau, comme le `typmod` de PostgreSQL).
+pub(crate) fn ref_modifiers(r: &pgweave_catalog::TypeRef) -> Vec<String> {
+    match r {
+        pgweave_catalog::TypeRef::Named { modifiers, .. } => modifiers.clone(),
+        pgweave_catalog::TypeRef::Array(inner) => ref_modifiers(inner),
+        _ => Vec::new(),
+    }
+}
+
+/// Modificateurs d'un type écrit (`varchar(20)`, `numeric(12, 2)`).
+fn data_type_modifiers(dt: &pgweave_ast::types::DataType) -> Vec<String> {
+    use pgweave_ast::types::DataType::*;
+    match dt {
+        Varchar(Some(n)) | Char(Some(n)) => vec![n.to_string()],
+        Numeric {
+            precision: Some(p),
+            scale,
+        } => std::iter::once(p.to_string())
+            .chain(scale.map(|s| s.to_string()))
+            .collect(),
+        Time(Some(p)) | TimeTz(Some(p)) | Timestamp(Some(p)) | TimestampTz(Some(p)) => {
+            vec![p.to_string()]
+        }
+        Modified { modifiers, .. } => modifiers.clone(),
+        Array(inner) => data_type_modifiers(inner),
+        _ => Vec::new(),
+    }
+}
+
+/// `exprTypmod`, pour les formes qui conservent un modificateur : colonne,
+/// conversion, `COLLATE`. Toute autre expression n'en a pas (-1).
+fn expr_modifiers(e: &Expr, scope: &Scope) -> Vec<String> {
+    match &e.kind {
+        ExprKind::Column(c) => scope
+            .lookup(
+                c.table.as_ref().map(|t| t.value.as_str()),
+                &c.column.value,
+                e.span,
+            )
+            .map(|col| col.modifiers.clone())
+            .unwrap_or_default(),
+        ExprKind::Cast { data_type, .. } => data_type_modifiers(data_type),
+        ExprKind::Collate { expr, .. } => expr_modifiers(expr, scope),
+        _ => Vec::new(),
+    }
 }
 
 /// Colonnes renommées par `WITH nom (a, b)`.
@@ -975,6 +1041,7 @@ fn rename(cols: &[OutputColumn], names: &[Ident]) -> Vec<Column> {
                 .get(i)
                 .map_or_else(|| c.name.clone(), |n| n.value.clone()),
             ty: Some(c.ty.clone()),
+            modifiers: c.modifiers.clone(),
             nullable: c.nullable,
         })
         .collect()

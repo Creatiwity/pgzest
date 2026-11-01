@@ -1,6 +1,6 @@
-use pgweave_catalog::ProjectCatalog;
+use pgweave_catalog::project::ProjectBuilder;
 use pgweave_parser::{SkipReason, SkippedStatement};
-use pgweave_sema::{Analyzer, Ty, TypeSystem};
+use pgweave_sema::{Analyzer, Ty, TypeSystem, ViewTyper};
 
 use crate::case::Case;
 
@@ -30,7 +30,18 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
             .collect(),
         Err(e) => vec![format!("schéma illisible : {e}")],
     };
-    let schema = ProjectCatalog::from_sql(&case.schema).unwrap_or_else(|_| ProjectCatalog::empty());
+    // Rejeu du schéma, vues typées par l'analyse sémantique.
+    let schema = {
+        let mut b = ProjectBuilder::new().with_typer(Some(ViewTyper::shared()));
+        let parsed = pgweave_parser::parse_with_outcome(&case.schema);
+        b.add_file(
+            std::path::Path::new("schema.sql"),
+            &case.schema,
+            &pgweave_schema::FileRole::Schema,
+            parsed.as_ref(),
+        );
+        b.finish()
+    };
 
     case.queries
         .iter()

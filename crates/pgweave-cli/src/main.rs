@@ -324,9 +324,10 @@ fn cmd_check(
     // fournies.
     let project_resolver = project.as_ref().map(|(root, cfg)| {
         let source = cfg.to_source(root);
-        pgweave_catalog::ProjectCatalog::from_chunks_with_macros(
+        pgweave_catalog::ProjectCatalog::from_chunks_typed(
             &pgweave_schema::SchemaSource::chunks(&source),
             &macros,
+            Some(pgweave_sema::ViewTyper::shared()),
         )
     });
 

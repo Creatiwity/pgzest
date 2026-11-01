@@ -584,7 +584,27 @@ compris extensions et schémas ; schéma déclaratif de Mesalia importé et
 relu ; modification d'un fichier → seules les requêtes dépendantes sont
 recalculées (test).
 
-### P3 — Analyse sémantique unifiée
+### P3 — Analyse sémantique unifiée — 🚧 en cours
+
+Fait (2026-11-01) :
+- `pgweave-sema`, système de types tiré du catalogue :
+  - coercions, type commun, polymorphisme ;
+  - résolution des surcharges de fonctions et d'opérateurs ;
+  - balayage différentiel : 19 032/19 032 résolutions identiques à PostgreSQL.
+- Typage des expressions et des requêtes sur l'AST normalisé :
+  - paramètres typés par leur premier usage ;
+  - nullabilité D5 ;
+  - noms de colonnes de `FigureColname`.
+- Oracle de requêtes : 90 requêtes, 283/283 colonnes, 57/57 paramètres.
+- Colonnes de vues typées pendant le rejeu (`QueryTyper`) : Mesalia identique au réel, 1 622/1 622 colonnes.
+
+Reste, dans l'ordre :
+1. Corpus de l'oracle porté à ≥ 300 requêtes, dont les corps de Mesalia.
+2. HIR explicite (références résolues vers le catalogue et la portée) plutôt que le seul couple (type, nullabilité).
+3. Arguments nommés.
+4. Portées routine/bloc (PL/pgSQL) dans sema.
+5. Checker et lint portés sur `pgweave-sema` ; diagnostic de compatibilité (`WHERE text_col = 42`) ; suppression de `pgweave-semantic` et du `TypeContext`.
+6. Exécution du SQL dynamique des corps : reportée de P2.
 
 - Crate `pgweave-sema` : normalisation → résolution → HIR typé.
 - Système de types fidèle : catégories, casts implicites/assignation,

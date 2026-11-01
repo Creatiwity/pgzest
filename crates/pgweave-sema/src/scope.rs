@@ -40,6 +40,8 @@ pub struct Column {
     pub name: String,
     /// `None` : type non établi (colonne de vue avant P3, par exemple).
     pub ty: Option<Ty>,
+    /// Modificateurs du type (`varchar(20)` : `["20"]`), vides si aucun.
+    pub modifiers: Vec<String>,
     pub nullable: Nullability,
 }
 
@@ -78,6 +80,7 @@ impl Source {
             .map(|(n, t)| Column {
                 name: (*n).to_string(),
                 ty: Some(crate::types::pg(t)),
+                modifiers: Vec::new(),
                 nullable: Nullability::NonNull,
             })
             .collect();

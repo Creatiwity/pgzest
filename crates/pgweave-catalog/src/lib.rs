@@ -18,7 +18,7 @@ pub mod pack;
 pub mod project;
 pub mod query;
 
-pub use apply::Replay;
+pub use apply::{QueryTyper, Replay};
 pub use catalog::{Catalog, SearchPath};
 pub use model::{QName, TypeRef};
 pub use pack::{Contributor, Pack, PackError};

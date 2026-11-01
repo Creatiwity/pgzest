@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 pgweave-ast = { path = "../crates/pgweave-ast" }
 pgweave-catalog = { path = "../crates/pgweave-catalog" }
+pgweave-sema = { path = "../crates/pgweave-sema" }
 pgweave-checker = { path = "../crates/pgweave-checker" }
 pgweave-diagnostics = { workspace = true }
 pgweave-parser = { path = "../crates/pgweave-parser" }

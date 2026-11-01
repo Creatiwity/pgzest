@@ -7,6 +7,7 @@ description = "Base de projet incrémentale de pgweave (salsa) : fichiers, parse
 [dependencies]
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-catalog = { path = "../pgweave-catalog" }
+pgweave-sema = { path = "../pgweave-sema" }
 pgweave-checker = { path = "../pgweave-checker" }
 pgweave-diagnostics = { workspace = true }
 pgweave-macro = { path = "../pgweave-macro" }

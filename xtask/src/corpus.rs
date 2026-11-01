@@ -116,6 +116,7 @@ pub fn run(
     let mut replay = pgweave_catalog::Replay::new(
         pgweave_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
     );
+    replay.typer = Some(pgweave_sema::ViewTyper::shared());
     let check_start = Instant::now();
     for (path, _, stmts) in &parsed_files {
         let replay_start = Instant::now();

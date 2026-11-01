@@ -21,7 +21,7 @@ use pgweave_schema::provider::{
 };
 use pgweave_schema::source::SqlChunk;
 
-use crate::apply::Replay;
+use crate::apply::{QueryTyper, Replay};
 use crate::catalog::{Catalog, SearchPath};
 use crate::compat::CatalogSchema;
 
@@ -87,6 +87,12 @@ impl ProjectBuilder {
             diagnostics: Vec::new(),
             without_header: None,
         }
+    }
+
+    /// Les colonnes des vues sont typées par `typer` (voir [`QueryTyper`]).
+    pub fn with_typer(mut self, typer: Option<std::sync::Arc<dyn QueryTyper>>) -> Self {
+        self.replay.typer = typer;
+        self
     }
 
     /// Applique un fichier : `sql` est son texte (en-tête de migration),
@@ -178,7 +184,17 @@ impl ProjectCatalog {
     /// (fichiers de schéma, puis migrations par séquence). Les macros sont
     /// désucrées d'abord : une table déclarée par une macro existe.
     pub fn from_chunks_with_macros(chunks: &[SqlChunk], macros: &pgweave_macro::MacroSet) -> Self {
-        let mut b = ProjectBuilder::new();
+        Self::from_chunks_typed(chunks, macros, None)
+    }
+
+    /// Comme [`Self::from_chunks_with_macros`], les colonnes des vues typées
+    /// par `typer`.
+    pub fn from_chunks_typed(
+        chunks: &[SqlChunk],
+        macros: &pgweave_macro::MacroSet,
+        typer: Option<std::sync::Arc<dyn QueryTyper>>,
+    ) -> Self {
+        let mut b = ProjectBuilder::new().with_typer(typer);
         for chunk in chunks {
             let parsed = parse_source(&chunk.sql, chunk.origin.byte_range.start, macros);
             b.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());

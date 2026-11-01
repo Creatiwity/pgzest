@@ -12,3 +12,5 @@ pgweave-catalog = { path = "../pgweave-catalog" }
 [dev-dependencies]
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
+pgweave-schema = { path = "../pgweave-schema" }
+pgweave-diagnostics = { workspace = true }

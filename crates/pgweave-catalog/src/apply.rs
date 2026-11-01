@@ -35,9 +35,27 @@ use crate::model::{
 use crate::names::{array_type_name, choose_name, columns_addition};
 
 /// État du rejeu : le catalogue et le `search_path` courant.
+/// Typage de la requête d'une vue.
+///
+/// Fourni par l'analyse sémantique (`pgweave-sema`), qui dépend du
+/// catalogue et ne peut donc pas être appelée d'ici. Sans typeur, les
+/// colonnes d'une vue restent de type inconnu — jamais supposé.
+pub trait QueryTyper: Send + Sync {
+    /// Colonnes produites par `query` : nom et type, modificateurs compris.
+    /// `Err` dit pourquoi elles ne sont pas établies.
+    fn output_columns(
+        &self,
+        catalog: &Catalog,
+        path: &SearchPath,
+        query: &SelectStmt,
+    ) -> Result<Vec<(String, TypeRef)>, String>;
+}
+
 pub struct Replay {
     pub catalog: Catalog,
     pub search_path: SearchPath,
+    /// Typeur des requêtes de vues, s'il y en a un.
+    pub typer: Option<std::sync::Arc<dyn QueryTyper>>,
 }
 
 impl Replay {
@@ -45,6 +63,7 @@ impl Replay {
         Self {
             catalog,
             search_path: SearchPath::default(),
+            typer: None,
         }
     }
 
@@ -55,6 +74,7 @@ impl Replay {
             path: &mut self.search_path,
             out,
             pending_indexes: Vec::new(),
+            typer: self.typer.as_deref(),
         };
         a.statement(stmt);
     }
@@ -67,6 +87,7 @@ struct Applier<'a> {
     /// Index copiés par `LIKE … INCLUDING INDEXES`, créés une fois la table
     /// enregistrée.
     pending_indexes: Vec<pgweave_ast::ddl::CreateIndex>,
+    typer: Option<&'a dyn QueryTyper>,
 }
 
 /// Nom écrit, découpé : `(schéma explicite, nom)`.
@@ -1934,6 +1955,34 @@ impl Applier<'_> {
         for (n, alias) in names.iter_mut().zip(&cv.columns) {
             *n = alias.value.clone();
         }
+        // Types des colonnes : ceux de l'analyse de la requête, si un typeur
+        // est fourni et qu'il les établit.
+        let types: Vec<TypeRef> = match self.typer {
+            Some(t) => match t.output_columns(self.cat, self.path, &cv.query) {
+                Ok(cols) if cols.len() == names.len() => {
+                    cols.into_iter().map(|(_, ty)| ty).collect()
+                }
+                Ok(cols) => {
+                    self.out.push(Diagnostic::info(
+                        codes::VIEW_NOT_TYPED,
+                        format!(
+                            "vue « {name} » : {} colonnes analysées pour {} nommées ; types non établis",
+                            cols.len(),
+                            names.len()
+                        ),
+                    ));
+                    Vec::new()
+                }
+                Err(why) => {
+                    self.out.push(Diagnostic::info(
+                        codes::VIEW_NOT_TYPED,
+                        format!("vue « {name} » : types des colonnes non établis ({why})"),
+                    ));
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
+        };
         let existed = self.cat.relations.contains_key(&name);
         if !existed {
             self.add_rowtype_array(&name);
@@ -1953,13 +2002,13 @@ impl Applier<'_> {
                 } else {
                     Persistence::Permanent
                 },
-                // Les types des colonnes d'une vue viennent de l'analyse de sa
-                // requête (P3) : inconnus d'ici là, jamais supposés.
+                // Sans typage de la requête, types inconnus, jamais supposés.
                 columns: names
                     .into_iter()
-                    .map(|n| Column {
+                    .enumerate()
+                    .map(|(i, n)| Column {
                         name: n,
-                        ty: TypeRef::Unknown,
+                        ty: types.get(i).cloned().unwrap_or(TypeRef::Unknown),
                         not_null: false,
                         default: None,
                         identity: None,

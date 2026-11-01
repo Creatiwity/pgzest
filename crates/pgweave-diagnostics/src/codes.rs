@@ -79,3 +79,6 @@ pub const MIGRATION_HEADER_MISMATCH: &str = "migration-header-mismatch";
 /// Migrations sans en-tête `-- pgweave:` : analysées avec la version de la
 /// configuration (signalé une fois).
 pub const MIGRATION_WITHOUT_HEADER: &str = "migration-without-header";
+
+/// Colonnes d'une vue dont l'analyse de la requête n'a pas établi les types.
+pub const VIEW_NOT_TYPED: &str = "view-not-typed";

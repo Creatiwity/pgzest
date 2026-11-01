@@ -134,7 +134,7 @@ fn defines_schema(role: &FileRole) -> bool {
 #[salsa::tracked(returns(ref), no_eq)]
 pub fn project_replay(db: &dyn Db, project: Project) -> Arc<ProjectCatalog> {
     db.log_execution("project_replay".into());
-    let mut builder = ProjectBuilder::new();
+    let mut builder = ProjectBuilder::new().with_typer(Some(pgweave_sema::ViewTyper::shared()));
     for &file in project.files(db) {
         if !defines_schema(file.role(db)) {
             continue;

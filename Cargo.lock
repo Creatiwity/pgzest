@@ -1088,6 +1088,7 @@ dependencies = [
  "pgweave-plugin",
  "pgweave-plugin-wasm",
  "pgweave-schema",
+ "pgweave-sema",
  "pgweave-semantic",
  "serde",
 ]
@@ -1291,6 +1292,7 @@ dependencies = [
  "pgweave-macro",
  "pgweave-parser",
  "pgweave-schema",
+ "pgweave-sema",
  "salsa",
 ]
 
@@ -1321,7 +1323,9 @@ version = "0.1.0"
 dependencies = [
  "pgweave-ast",
  "pgweave-catalog",
+ "pgweave-diagnostics",
  "pgweave-parser",
+ "pgweave-schema",
  "tokio",
  "tokio-postgres",
 ]
@@ -2581,6 +2585,7 @@ dependencies = [
  "pgweave-diagnostics",
  "pgweave-parser",
  "pgweave-schema",
+ "pgweave-sema",
  "sqlparser",
  "tokio",
  "tokio-postgres",

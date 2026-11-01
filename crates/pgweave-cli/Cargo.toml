@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 pgweave-catalog = { path = "../pgweave-catalog" }
+pgweave-sema = { path = "../pgweave-sema" }
 pgweave-analysis = { path = "../pgweave-analysis" }
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-macro = { path = "../pgweave-macro" }

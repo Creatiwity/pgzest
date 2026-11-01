@@ -24,6 +24,7 @@ pub mod query;
 pub mod resolve;
 pub mod scope;
 mod types;
+pub mod view;
 
 pub use coerce::{CoercionContext, Pathway};
 pub use expr::{Analyzer, Param, Typed};
@@ -31,3 +32,4 @@ pub use query::{Description, OutputColumn, figure_colname};
 pub use resolve::{Resolution, ResolveError, ResolvedCall};
 pub use scope::{Nullability, SemaError};
 pub use types::{Ty, TypeSystem, pg};
+pub use view::ViewTyper;
