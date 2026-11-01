@@ -122,21 +122,34 @@ pub fn run(
     stats.index_time = index_start.elapsed();
     stats.index_skipped = resolver.skipped.len();
 
-    // Diagnostics de `check` sur chaque migration, contre l'index complet —
-    // c'est ce que voit aujourd'hui un utilisateur qui lance `check` sur ce
-    // répertoire. Les migrations ayant été appliquées en production, une
-    // erreur est a priori un faux positif (ou un effet du schéma final,
-    // l'analyse n'étant pas encore rejouée migration par migration : P2).
+    // Rejeu par pgweave et diagnostics de `check` : chaque migration est
+    // vérifiée contre le catalogue tel qu'il est après elle — l'état réel de
+    // la base au moment où elle s'applique (P2), pas l'état final.
     let all_stmts: Vec<Statement> = parsed_files
         .iter()
         .flat_map(|(_, _, s)| s.iter().cloned())
         .collect();
     let checker = pgweave_checker::Checker::with_builtin_rules();
+    let mut replay = pgweave_catalog::Replay::new(
+        pgweave_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
+    );
     let check_start = Instant::now();
     for (path, _, stmts) in &parsed_files {
-        // L'index contient déjà le DDL de ce fichier : pas de fournisseur
-        // supplémentaire, contrairement au mode fichier isolé de la CLI.
-        let diags = checker.run_with_context(stmts, &all_stmts, &resolver);
+        let replay_start = Instant::now();
+        let mut replay_diags = Vec::new();
+        for st in stmts {
+            replay.apply(st, &mut replay_diags);
+        }
+        stats.replay_time += replay_start.elapsed();
+        for d in &replay_diags {
+            *stats.replay_diagnostics.entry(d.code).or_default() += 1;
+            if details {
+                eprintln!("{}: rejeu : [{}] {}", path.display(), d.code, d.message);
+            }
+        }
+        let schema =
+            pgweave_catalog::compat::CatalogSchema::new(&replay.catalog, &replay.search_path);
+        let diags = checker.run_with_context(stmts, &all_stmts, &schema);
         let mut file_has_error = false;
         for d in &diags {
             let sev = match d.severity {
@@ -163,25 +176,6 @@ pub fn run(
         None => None,
     };
 
-    // Rejeu par pgweave : le catalogue reconstruit migration par migration,
-    // confronté au catalogue réel quand il est disponible.
-    let mut replay = pgweave_catalog::Replay::new(
-        pgweave_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
-    );
-    let replay_start = Instant::now();
-    for (path, _, stmts) in &parsed_files {
-        let mut diags = Vec::new();
-        for st in stmts {
-            replay.apply(st, &mut diags);
-        }
-        for d in &diags {
-            *stats.replay_diagnostics.entry(d.code).or_default() += 1;
-            if details {
-                eprintln!("{}: rejeu : [{}] {}", path.display(), d.code, d.message);
-            }
-        }
-    }
-    stats.replay_time = replay_start.elapsed();
     let comparison = pg
         .as_ref()
         .and_then(|p| p.catalog.as_ref())
@@ -503,9 +497,9 @@ fn render(
     let _ = writeln!(o, "\n## Diagnostics de `check`\n");
     let _ = writeln!(
         o,
-        "Chaque migration est vérifiée contre l'index de **tout** le corpus (état \
-         final), comme le fait `pgweave check` aujourd'hui. Les migrations ayant été \
-         appliquées en production, une erreur est a priori un faux positif.\n"
+        "Chaque migration est vérifiée contre le catalogue rejoué jusqu'à elle \
+         (incluse), catalogue `postgres@18` et extensions compris. Les migrations ayant \
+         été appliquées en production, une erreur est a priori un faux positif.\n"
     );
     let _ = writeln!(
         o,

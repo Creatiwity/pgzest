@@ -7,8 +7,10 @@ description = "Catalogue PostgreSQL de pgweave : modèle, packs générés, appl
 [dependencies]
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-diagnostics = { workspace = true }
+# Pont transitoire vers `SchemaProvider` (module `compat`), retiré en fin de P2.
+pgweave-schema = { path = "../pgweave-schema" }
+pgweave-macro = { path = "../pgweave-macro" }
+pgweave-parser = { path = "../pgweave-parser" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-[dev-dependencies]
-pgweave-parser = { path = "../pgweave-parser" }

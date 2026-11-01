@@ -2,11 +2,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use pgweave_catalog::ProjectCatalog;
 use pgweave_diagnostics::{Diagnostic, Severity};
 use pgweave_lint::config::LintConfig;
 use pgweave_plugin_wasm::{WasmCheckRule, WasmPlugin};
 use pgweave_schema::provider::SchemaProvider;
-use pgweave_schema::{FileRole, ProjectConfig, SchemaResolver, check_ddl_role};
+use pgweave_schema::{FileRole, ProjectConfig, check_ddl_role};
 use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result};
@@ -48,7 +49,7 @@ pub struct PgsqlBackend {
     client: Client,
     documents: Mutex<HashMap<String, String>>,
     /// Shared schema resolver — rebuilt when schema/migration files change.
-    resolver: Mutex<Arc<SchemaResolver>>,
+    resolver: Mutex<Arc<ProjectCatalog>>,
     /// Project root and config (from pgweave.toml).
     project_root: Mutex<Option<PathBuf>>,
     config: Mutex<Option<ProjectConfig>>,
@@ -68,7 +69,7 @@ impl PgsqlBackend {
         Self {
             client,
             documents: Mutex::new(HashMap::new()),
-            resolver: Mutex::new(Arc::new(SchemaResolver::empty())),
+            resolver: Mutex::new(Arc::new(ProjectCatalog::empty())),
             project_root: Mutex::new(None),
             config: Mutex::new(None),
             legacy_schema_path: Mutex::new(None),
@@ -160,7 +161,7 @@ impl PgsqlBackend {
     }
 
     /// Clone the current resolver out of the lock (cheap — Arc clone).
-    async fn resolver(&self) -> Arc<SchemaResolver> {
+    async fn resolver(&self) -> Arc<ProjectCatalog> {
         self.resolver.lock().await.clone()
     }
 
@@ -203,7 +204,7 @@ impl PgsqlBackend {
                     self.rebuild_macros().await;
                     let macros = self.macros().await;
                     let source = config.to_source(root);
-                    let resolver = SchemaResolver::from_chunks_with_macros(
+                    let resolver = ProjectCatalog::from_chunks_with_macros(
                         &pgweave_schema::SchemaSource::chunks(&source),
                         &macros,
                     );
@@ -223,7 +224,7 @@ impl PgsqlBackend {
         } else if let Some(ref path) = *self.legacy_schema_path.lock().await {
             match load_schema_sql(path) {
                 Ok(sql) => {
-                    SchemaResolver::from_sql(&sql).unwrap_or_else(|_| SchemaResolver::empty())
+                    ProjectCatalog::from_sql(&sql).unwrap_or_else(|_| ProjectCatalog::empty())
                 }
                 Err(_) => return,
             }
@@ -322,7 +323,7 @@ impl PgsqlBackend {
             FileRole::Schema => {
                 // Schema file: 2-pass — check against self-schema merged with global.
                 let mut composite = pgweave_schema::provider::CompositeSchemaProvider::new();
-                if let Ok(self_schema) = SchemaResolver::from_sql(&prepared.sql) {
+                if let Ok(self_schema) = ProjectCatalog::from_sql(&prepared.sql) {
                     composite.add(Box::new(self_schema));
                 }
                 composite.add(Box::new(GlobalResolver(resolver.clone())));
@@ -443,7 +444,7 @@ impl LanguageServer for PgsqlBackend {
             self.rebuild_macros().await;
             let macros = self.macros().await;
             let source = config.to_source(&project_root);
-            let resolver = SchemaResolver::from_chunks_with_macros(
+            let resolver = ProjectCatalog::from_chunks_with_macros(
                 &pgweave_schema::SchemaSource::chunks(&source),
                 &macros,
             );
@@ -503,7 +504,7 @@ impl LanguageServer for PgsqlBackend {
             *self.legacy_schema_path.lock().await = Some(path.to_string());
             match load_schema_sql(path) {
                 Ok(sql) => {
-                    if let Ok(r) = SchemaResolver::from_sql(&sql) {
+                    if let Ok(r) = ProjectCatalog::from_sql(&sql) {
                         *self.resolver.lock().await = Arc::new(r);
                     }
                 }
@@ -696,7 +697,7 @@ fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
 
 fn hover_schema_file(text: &str, word: &str, global: &dyn SchemaProvider) -> Option<String> {
     // Build self-schema first; fall back to global for cross-file references.
-    let self_schema = SchemaResolver::from_sql(text).ok()?;
+    let self_schema = ProjectCatalog::from_sql(text).ok()?;
     let provider: &dyn SchemaProvider = &self_schema;
 
     lookup_hover(word, provider).or_else(|| lookup_hover(word, global))
@@ -937,11 +938,11 @@ fn tbl_local(qualified: &str) -> &str {
         .unwrap_or(qualified)
 }
 
-// ── Newtype: let Arc<SchemaResolver> work as a SchemaProvider ─────────────────
+// ── Newtype: let Arc<ProjectCatalog> work as a SchemaProvider ─────────────────
 
-/// Thin wrapper so we can pass Arc<SchemaResolver> where &dyn SchemaProvider is needed
+/// Thin wrapper so we can pass Arc<ProjectCatalog> where &dyn SchemaProvider is needed
 /// without cloning the entire map.
-struct GlobalResolver(Arc<SchemaResolver>);
+struct GlobalResolver(Arc<ProjectCatalog>);
 
 impl SchemaProvider for GlobalResolver {
     fn get_table(&self, name: &str) -> Option<&pgweave_schema::provider::TableSchema> {

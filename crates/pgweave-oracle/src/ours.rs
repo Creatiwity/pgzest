@@ -1,8 +1,8 @@
 use pgweave_ast::Statement;
 use pgweave_ast::types::DataType;
+use pgweave_catalog::ProjectCatalog;
 use pgweave_parser::{SkipReason, SkippedStatement};
 use pgweave_query::Params;
-use pgweave_schema::SchemaResolver;
 
 use crate::case::Case;
 
@@ -32,7 +32,7 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
             .collect(),
         Err(e) => vec![format!("schéma illisible : {e}")],
     };
-    let schema = SchemaResolver::from_sql(&case.schema).unwrap_or_else(|_| SchemaResolver::empty());
+    let schema = ProjectCatalog::from_sql(&case.schema).unwrap_or_else(|_| ProjectCatalog::empty());
 
     case.queries
         .iter()

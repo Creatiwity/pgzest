@@ -74,7 +74,7 @@ struct BodySchemaProvider<'a> {
 
 impl<'a> SchemaProvider for BodySchemaProvider<'a> {
     fn get_table(&self, name: &str) -> Option<&TableSchema> {
-        let lower = name.to_lowercase();
+        let lower = name.to_string();
         self.temp_tables
             .get(&lower)
             .or_else(|| self.global.get_table(name))
@@ -132,7 +132,7 @@ pub fn check_plpgsql_ast(
     let mut params: HashMap<String, DataType> = HashMap::new();
     for p in fn_params {
         if let Some(name) = &p.name {
-            params.insert(name.value.to_lowercase(), p.data_type.clone());
+            params.insert(name.value.to_string(), p.data_type.clone());
         }
     }
 
@@ -180,7 +180,7 @@ pub fn check_sql_function_body(
 ) {
     let params: HashMap<String, DataType> = fn_params
         .iter()
-        .filter_map(|p| Some((p.name.as_ref()?.value.to_lowercase(), p.data_type.clone())))
+        .filter_map(|p| Some((p.name.as_ref()?.value.to_string(), p.data_type.clone())))
         .collect();
     let temp_tables: HashMap<String, TableSchema> = stmts
         .iter()
@@ -452,7 +452,7 @@ fn check_into(into: &IntoTarget, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnost
 }
 
 fn check_declared(var: &Ident, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
-    let lower = var.value.to_lowercase();
+    let lower = var.value.to_string();
     let upper = var.value.to_uppercase();
     if ctx.vars.contains_key(&lower)
         || ctx.params.contains_key(&lower)
@@ -507,7 +507,7 @@ fn collect_declared(block: &Block, out: &mut HashMap<String, DataType>) {
             Declaration::Alias { name, .. } => (name, DataType::Custom("alias".into())),
             Declaration::Cursor { name, .. } => (name, DataType::Custom("refcursor".into())),
         };
-        out.insert(name.value.to_lowercase(), ty);
+        out.insert(name.value.to_string(), ty);
     }
     for_each_statement(&block.statements, &mut |s| {
         let loop_vars: Vec<&Ident> = match &s.kind {
@@ -524,7 +524,7 @@ fn collect_declared(block: &Block, out: &mut HashMap<String, DataType>) {
             _ => vec![],
         };
         for v in loop_vars {
-            out.entry(v.value.to_lowercase())
+            out.entry(v.value.to_string())
                 .or_insert_with(|| DataType::Custom("loop variable".into()));
         }
     });
@@ -635,7 +635,7 @@ fn check_sql_expr_idents(
     match &expr.kind {
         ExprKind::Column(col) => {
             if let Some(qualifier) = &col.table {
-                let q = qualifier.value.to_lowercase();
+                let q = qualifier.value.to_string();
 
                 // `NEW.col` / `OLD.col` au sein d'une expression SQL. Ce chemin
                 // n'existait pas : le parser tronquait toute expression
@@ -673,7 +673,7 @@ fn check_sql_expr_idents(
                 return;
             }
             let name = &col.column.value;
-            let lower = name.to_lowercase();
+            let lower = name.to_string();
             let upper = name.to_uppercase();
 
             if ctx.vars.contains_key(&lower)
@@ -813,7 +813,7 @@ fn temp_table_schema(ct: &pgweave_ast::ddl::CreateTable) -> (String, TableSchema
             nullable: col.nullable,
         })
         .collect();
-    (name.to_lowercase(), TableSchema { name, columns })
+    (name.to_string(), TableSchema { name, columns })
 }
 
 fn collect_temp_tables(block: &Block) -> HashMap<String, TableSchema> {

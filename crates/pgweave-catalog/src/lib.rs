@@ -10,12 +10,15 @@
 pub mod apply;
 pub mod builtin;
 pub mod catalog;
+pub mod compat;
 pub mod model;
 pub mod names;
 pub mod pack;
+pub mod project;
 pub mod query;
 
 pub use apply::Replay;
 pub use catalog::{Catalog, SearchPath};
 pub use model::{QName, TypeRef};
 pub use pack::{Contributor, Pack, PackError};
+pub use project::ProjectCatalog;

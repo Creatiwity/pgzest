@@ -8,6 +8,7 @@ name = "pgweave-lsp"
 path = "src/main.rs"
 
 [dependencies]
+pgweave-catalog = { path = "../pgweave-catalog" }
 pgweave-analysis = { path = "../pgweave-analysis" }
 pgweave-macro = { path = "../pgweave-macro" }
 pgweave-ast = { path = "../pgweave-ast" }

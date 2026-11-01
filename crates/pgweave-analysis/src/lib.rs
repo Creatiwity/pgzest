@@ -10,9 +10,10 @@
 //! couche haute, alors que la conception veut l'inverse (le checker consomme
 //! le résultat sémantique).
 
+use pgweave_catalog::ProjectCatalog;
 use pgweave_diagnostics::{Diagnostic, Severity, Span, Suppressions, codes};
 use pgweave_parser::{SkipReason, SkippedStatement};
-use pgweave_schema::provider::{DdlSchemaProvider, SchemaProvider};
+use pgweave_schema::provider::SchemaProvider;
 use pgweave_schema::{ParseConfig, SkipLevel};
 use pgweave_semantic::{SemanticResult, analyze};
 
@@ -187,7 +188,7 @@ pub fn analyze_source(
                 format!("parse error: {e}"),
             )];
             suppressions.apply(&mut diagnostics);
-            let empty = DdlSchemaProvider::from_statements(&[]);
+            let empty = ProjectCatalog::empty();
             return AnalysisResult {
                 diagnostics,
                 semantic: analyze(&[], &empty),
@@ -234,11 +235,11 @@ fn header_diagnostic(text: &str) -> Option<Diagnostic> {
 pub fn analyze_source_self_contained(sql: &str, opts: &AnalysisOptions) -> AnalysisResult {
     match pgweave_parser::parse(sql) {
         Ok(stmts) => {
-            let schema = DdlSchemaProvider::from_statements(&stmts);
+            let schema = ProjectCatalog::from_statements(&stmts);
             analyze_source(sql, &schema, opts)
         }
         Err(_) => {
-            let empty = DdlSchemaProvider::from_statements(&[]);
+            let empty = ProjectCatalog::empty();
             analyze_source(sql, &empty, opts)
         }
     }
@@ -256,7 +257,7 @@ pub fn analyze_sql(sql: &str, schema: &dyn SchemaProvider) -> (Vec<Diagnostic>, 
             (diags, semantic)
         }
         Err(e) => {
-            let empty = DdlSchemaProvider::from_statements(&[]);
+            let empty = ProjectCatalog::empty();
             (
                 vec![Diagnostic::error(
                     codes::PARSE_ERROR,
@@ -274,13 +275,13 @@ pub fn analyze_sql(sql: &str, schema: &dyn SchemaProvider) -> (Vec<Diagnostic>, 
 pub fn analyze_sql_self_contained(sql: &str) -> (Vec<Diagnostic>, SemanticResult) {
     match pgweave_parser::parse(sql) {
         Ok(stmts) => {
-            let schema = DdlSchemaProvider::from_statements(&stmts);
+            let schema = ProjectCatalog::from_statements(&stmts);
             let semantic = analyze(&stmts, &schema);
             let diags = pgweave_checker::check_statements(&stmts, &schema);
             (diags, semantic)
         }
         Err(e) => {
-            let empty = DdlSchemaProvider::from_statements(&[]);
+            let empty = ProjectCatalog::empty();
             (
                 vec![Diagnostic::error(
                     codes::PARSE_ERROR,
@@ -587,7 +588,7 @@ pub fn analyze_source_with_macros(
             )];
             diagnostics.extend(prepared.diagnostics);
             suppressions.apply(&mut diagnostics);
-            let empty = DdlSchemaProvider::from_statements(&[]);
+            let empty = ProjectCatalog::empty();
             return AnalysisResult {
                 diagnostics,
                 semantic: analyze(&[], &empty),

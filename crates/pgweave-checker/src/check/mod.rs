@@ -35,7 +35,7 @@ pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
     };
 
     // Première passe : construire le schéma depuis le DDL du fichier lui-même
-    let schema = pgweave_schema::provider::DdlSchemaProvider::from_statements(&stmts);
+    let schema = pgweave_catalog::ProjectCatalog::from_statements(&stmts);
 
     // Deuxième passe : checker tous les statements contre ce schéma
     check_statements(&stmts, &schema)

@@ -89,7 +89,7 @@ pub fn generate_ts_types_from_sql(sql: &str) -> String {
         Ok(s) => s,
         Err(e) => return format!("// parse error: {}\n", e),
     };
-    let schema = pgweave_schema::provider::DdlSchemaProvider::from_statements(&stmts);
+    let schema = pgweave_catalog::ProjectCatalog::from_statements(&stmts);
     let semantic = pgweave_semantic::analyze(&stmts, &schema);
     generate_ts_types(sql, &stmts, &semantic)
 }

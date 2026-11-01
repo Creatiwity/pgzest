@@ -196,7 +196,7 @@ fn resolve_trigger_ctxs(func_name: &str, ctx: &RuleCtx) -> Vec<TriggerCtx> {
             tc.has_statement_level = true;
         }
         for t in &trig.referencing {
-            let name = t.name.value.to_lowercase();
+            let name = t.name.value.to_string();
             if !tc.transition_tables.contains(&name) {
                 tc.transition_tables.push(name);
             }

@@ -294,7 +294,7 @@ fn cmd_check(
     // fournies.
     let project_resolver = project.as_ref().map(|(root, cfg)| {
         let source = cfg.to_source(root);
-        pgweave_schema::SchemaResolver::from_chunks_with_macros(
+        pgweave_catalog::ProjectCatalog::from_chunks_with_macros(
             &pgweave_schema::SchemaSource::chunks(&source),
             &macros,
         )
@@ -306,26 +306,19 @@ fn cmd_check(
 
     if has_external_schema {
         // Explicit --schema files are added first (highest priority).
-        for (sql, stmts) in &context_files {
-            let sp = pgweave_schema::provider::detect_search_path(sql);
-            let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
-            composite.add(Box::new(
-                pgweave_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
-                    stmts, &sp_refs,
-                ),
-            ));
+        // `SET search_path` d'un fichier est appliqué par le rejeu.
+        for (_, stmts) in &context_files {
+            composite.add(Box::new(pgweave_catalog::ProjectCatalog::from_statements(
+                stmts,
+            )));
         }
     }
     // Always include target files' own definitions so intra-file references
     // (e.g. a function defined later in the same file) resolve correctly.
-    for (_, sql, stmts, _, _) in &parsed_targets {
-        let sp = pgweave_schema::provider::detect_search_path(sql);
-        let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
-        composite.add(Box::new(
-            pgweave_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
-                stmts, &sp_refs,
-            ),
-        ));
+    for (_, _, stmts, _, _) in &parsed_targets {
+        composite.add(Box::new(pgweave_catalog::ProjectCatalog::from_statements(
+            stmts,
+        )));
     }
 
     // Index du projet, après les sources explicites (CompositeSchemaProvider est
@@ -404,14 +397,10 @@ fn cmd_check(
                     .collect();
                 checker.run_with_context(stmts, &all_other_stmts, &composite)
             } else {
-                // Single file, no schema → self-contained mode with per-file schema detection.
-                let sp = pgweave_schema::provider::detect_search_path(sql);
-                let sp_refs: Vec<&str> = sp.iter().map(String::as_str).collect();
+                // Fichier seul, sans schéma : catalogue rejoué depuis le fichier.
                 pgweave_checker::check_statements(
                     stmts,
-                    &pgweave_schema::provider::DdlSchemaProvider::from_statements_with_search_path(
-                        stmts, &sp_refs,
-                    ),
+                    &pgweave_catalog::ProjectCatalog::from_statements(stmts),
                 )
             };
 

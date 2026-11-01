@@ -7,6 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+pgweave-catalog = { path = "../../crates/pgweave-catalog" }
 pgweave-parser = { path = "../../crates/pgweave-parser" }
 pgweave-checker = { path = "../../crates/pgweave-checker" }
 pgweave-diagnostics = { workspace = true }

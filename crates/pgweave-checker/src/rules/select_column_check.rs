@@ -20,7 +20,7 @@ impl CheckRule for SelectColumnCheck {
                 .params
                 .iter()
                 .filter_map(|p| p.name.as_ref())
-                .map(|n| n.value.to_lowercase())
+                .map(|n| n.value.to_string())
                 .collect();
             let diags = crate::check::select::check_select_with_plvars(sel, ctx.schema, &plvars);
             ctx.diags.extend(diags);

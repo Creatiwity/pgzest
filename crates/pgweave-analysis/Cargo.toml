@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+pgweave-catalog = { path = "../pgweave-catalog" }
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-diagnostics = { workspace = true }
 pgweave-macro = { path = "../pgweave-macro" }

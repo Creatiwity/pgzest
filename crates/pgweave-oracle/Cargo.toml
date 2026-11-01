@@ -6,6 +6,7 @@ description = "Oracle différentiel : confronte l'analyse de pgweave à un vrai 
 publish = false
 
 [dependencies]
+pgweave-catalog = { path = "../pgweave-catalog" }
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-parser = { path = "../pgweave-parser" }
 pgweave-query = { path = "../pgweave-query" }

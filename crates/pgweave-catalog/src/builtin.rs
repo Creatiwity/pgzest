@@ -81,10 +81,22 @@ fn relocate(v: &mut serde_json::Value, from: &str, to: &str) {
 
 impl Catalog {
     /// Catalogue de base d'une version majeure de PostgreSQL.
+    ///
+    /// Le pack n'est lu qu'une fois par processus ; chaque appel en rend une
+    /// copie.
     pub fn for_postgres(major: u32) -> Result<Catalog, PackError> {
-        let mut c = Catalog::new();
-        c.load_pack(&pack("postgres", &major.to_string())?);
-        Ok(c)
+        static PG18: std::sync::OnceLock<Result<Catalog, String>> = std::sync::OnceLock::new();
+        if major != 18 {
+            // Lève l'erreur explicite de version indisponible.
+            pack("postgres", &major.to_string())?;
+        }
+        PG18.get_or_init(|| {
+            let mut c = Catalog::new();
+            c.load_pack(&pack("postgres", "18").map_err(|e| e.0)?);
+            Ok(c)
+        })
+        .clone()
+        .map_err(PackError)
     }
 }
 

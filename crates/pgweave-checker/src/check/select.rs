@@ -106,7 +106,7 @@ fn check_select_scoped<'s>(
                     cte.columns.iter().map(|c| c.value.clone()).collect(),
                 )
             });
-            ctes.insert(cte.name.value.to_lowercase(), declared);
+            ctes.insert(cte.name.value.to_string(), declared);
         }
         diags.extend(check_select_scoped(
             &cte.query,
@@ -122,7 +122,7 @@ fn check_select_scoped<'s>(
             Some(cte.columns.iter().map(|c| c.value.clone()).collect())
         };
         ctes.insert(
-            cte.name.value.to_lowercase(),
+            cte.name.value.to_string(),
             columns.map(|c| synthetic_schema(&cte.name.value, c)),
         );
     }
@@ -157,7 +157,7 @@ fn check_select_scoped<'s>(
             SelectItem::QualifiedWildcard(ident) => {
                 // table.* — only fire E002 if the alias is genuinely absent from
                 // the FROM clause; if it's present but None (E003 already fired), skip.
-                let key = ident.value.to_lowercase();
+                let key = ident.value.to_string();
                 if ctx.get(&key).is_none() && !phantom_qualifiers.contains(&key) {
                     diags.push(Diagnostic::error(
                         codes::TABLE_NOT_IN_SCOPE,
@@ -211,7 +211,7 @@ fn check_select_scoped<'s>(
     // sont des variables de plus, pour ce seul contrôle.
     let mut order_vars = plvars.clone();
     order_vars.extend(stmt.columns.iter().filter_map(|i| match i {
-        SelectItem::Expr { alias: Some(a), .. } => Some(a.value.to_lowercase()),
+        SelectItem::Expr { alias: Some(a), .. } => Some(a.value.to_string()),
         _ => None,
     }));
     for order in &stmt.order_by {
@@ -268,7 +268,7 @@ fn output_names(
 ) -> Option<Vec<String>> {
     let source_columns = |t: &TableRef| -> Option<Vec<String>> {
         let name = t.table_name()?;
-        let key = pgweave_schema::provider::object_name_to_string(name).to_lowercase();
+        let key = pgweave_schema::provider::object_name_to_string(name).to_string();
         if name.0.len() == 1
             && let Some(cte) = ctes.get(&key)
         {
@@ -329,7 +329,7 @@ fn resolve_table_ref<'s>(
     scope: &mut Scope<'s>,
     diags: &mut Vec<Diagnostic>,
 ) {
-    let alias = table_ref.alias.as_ref().map(|a| a.value.to_lowercase());
+    let alias = table_ref.alias.as_ref().map(|a| a.value.to_string());
     let renamed = |base: Option<Vec<String>>| -> Option<Vec<String>> {
         if table_ref.column_aliases.is_empty() {
             return base;
@@ -347,7 +347,7 @@ fn resolve_table_ref<'s>(
     match &table_ref.source {
         TableSource::Table(name) => {
             let table_name = pgweave_schema::provider::object_name_to_string(name);
-            let key = table_name.to_lowercase();
+            let key = table_name.to_string();
             let visible = alias.clone().unwrap_or_else(|| key.clone());
 
             // Une CTE masque une table du même nom.
@@ -426,7 +426,7 @@ fn resolve_table_ref<'s>(
             for arg in args {
                 check_expr(arg, scope, schema, plvars, phantom_qualifiers, diags);
             }
-            if let Some(visible) = table_ref.visible_name().map(str::to_lowercase) {
+            if let Some(visible) = table_ref.visible_name().map(str::to_string) {
                 // Les colonnes d'une fonction ne sont connues que par ses
                 // alias de colonnes ; sinon la source reste opaque.
                 let cols = renamed(None);
@@ -485,7 +485,7 @@ fn check_expr_inner(
             match &col_ref.table {
                 Some(tbl_ident) => {
                     // Qualified reference: table.column
-                    let tbl_key = tbl_ident.value.to_lowercase();
+                    let tbl_key = tbl_ident.value.to_string();
                     match ctx.get(&tbl_key) {
                         Some(Some(table_schema)) => {
                             if table_schema.get_column(col_name).is_none() {
@@ -560,7 +560,7 @@ fn check_expr_inner(
                 }
                 None => {
                     // Unqualified reference — skip if it's a known PL/pgSQL variable/param.
-                    let col_lower = col_name.to_lowercase();
+                    let col_lower = col_name.to_string();
                     if plvars.contains(&col_lower) {
                         return;
                     }

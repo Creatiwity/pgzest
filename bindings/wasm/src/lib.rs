@@ -1,4 +1,4 @@
-use pgweave_schema::provider::DdlSchemaProvider;
+use pgweave_catalog::ProjectCatalog;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -35,8 +35,7 @@ impl CheckResult {
 
 #[wasm_bindgen]
 pub fn check(sql: &str, schema_sql: &str) -> CheckResult {
-    let schema = DdlSchemaProvider::from_sql(schema_sql)
-        .unwrap_or_else(|_| DdlSchemaProvider::from_statements(&[]));
+    let schema = ProjectCatalog::from_sql(schema_sql).unwrap_or_else(|_| ProjectCatalog::empty());
     let diags = pgweave_checker::check_sql(sql, &schema);
     CheckResult { inner: diags }
 }

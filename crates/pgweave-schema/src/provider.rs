@@ -19,10 +19,10 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
-    /// Look up a column by name (case-insensitive).
+    /// Colonne de ce nom, casse exacte (principe 8 : la casse est fixée au
+    /// parse).
     pub fn get_column(&self, name: &str) -> Option<&ColumnInfo> {
-        let lower = name.to_lowercase();
-        self.columns.iter().find(|c| c.name.to_lowercase() == lower)
+        self.columns.iter().find(|c| c.name == name)
     }
 }
 
@@ -109,15 +109,13 @@ pub fn qualify_object_name(name: &pgweave_ast::ObjectName, default_schema: &str)
     }
 }
 
-/// Qualify a dotted name string with the given default schema.
-/// If `name` already contains a dot, return it lowercased unchanged.
-/// Otherwise, prepend `default_schema`.
+/// Qualifie un nom pointé avec `default_schema` s'il ne l'est pas. Casse
+/// conservée : elle a été fixée au parse (principe 8).
 pub fn qualify_str(name: &str, default_schema: &str) -> String {
-    let lower = name.to_lowercase();
-    if lower.contains('.') {
-        lower
+    if name.contains('.') {
+        name.to_string()
     } else {
-        format!("{}.{}", default_schema.to_lowercase(), lower)
+        format!("{default_schema}.{name}")
     }
 }
 
