@@ -169,6 +169,55 @@ pub fn emit_utility(u: &UtilityKind) -> String {
             },
             if *cascade { " CASCADE" } else { "" }
         ),
+        UtilityKind::Maintenance {
+            command,
+            options,
+            tables,
+        } => {
+            let mut out = match command {
+                pgweave_ast::utility::MaintenanceCommand::Analyze => "ANALYZE".to_string(),
+                pgweave_ast::utility::MaintenanceCommand::Vacuum => "VACUUM".to_string(),
+            };
+            let (legacy, modern): (Vec<_>, Vec<_>) = options.iter().partition(|o| o.legacy);
+            for o in legacy {
+                out.push(' ');
+                out.push_str(&o.name);
+            }
+            if !modern.is_empty() {
+                let opts: Vec<String> = modern
+                    .iter()
+                    .map(|o| match &o.value {
+                        Some(v) => format!("{} {}", o.name, v),
+                        None => o.name.clone(),
+                    })
+                    .collect();
+                out.push_str(&format!(" ({})", opts.join(", ")));
+            }
+            let targets: Vec<String> = tables
+                .iter()
+                .map(|t| {
+                    if t.columns.is_empty() {
+                        emit_object_name(&t.table)
+                    } else {
+                        format!(
+                            "{} ({})",
+                            emit_object_name(&t.table),
+                            t.columns
+                                .iter()
+                                .map(emit_ident)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    }
+                })
+                .collect();
+            if !targets.is_empty() {
+                out.push(' ');
+                out.push_str(&targets.join(", "));
+            }
+            out.push(';');
+            out
+        }
     }
 }
 
@@ -692,7 +741,18 @@ pub fn emit_create_table(ct: &CreateTable) -> String {
     } else {
         ""
     };
-    let mut parts: Vec<String> = ct.columns.iter().map(emit_column_def).collect();
+    // Colonnes et `LIKE` entrelacés : la position d'un `LIKE` fixe l'ordre
+    // des colonnes de la table.
+    let mut parts: Vec<String> = Vec::new();
+    for (i, col) in ct.columns.iter().enumerate() {
+        for like in ct.likes.iter().filter(|l| l.position == i) {
+            parts.push(emit_table_like(like));
+        }
+        parts.push(emit_column_def(col));
+    }
+    for like in ct.likes.iter().filter(|l| l.position >= ct.columns.len()) {
+        parts.push(emit_table_like(like));
+    }
     for constraint in &ct.constraints {
         parts.push(emit_table_constraint(constraint));
     }
@@ -710,6 +770,19 @@ pub fn emit_create_table(ct: &CreateTable) -> String {
         parts.join(",\n  "),
         on_commit
     )
+}
+
+fn emit_table_like(like: &TableLike) -> String {
+    let mut out = format!("LIKE {}", emit_object_name(&like.source));
+    for o in &like.options {
+        out.push_str(if o.including {
+            " INCLUDING "
+        } else {
+            " EXCLUDING "
+        });
+        out.push_str(o.feature.keyword());
+    }
+    out
 }
 
 pub fn emit_column_def(col: &ColumnDef) -> String {
@@ -1489,10 +1562,7 @@ fn emit_on_conflict(oc: &OnConflict) -> String {
             assignments,
             where_clause,
         } => {
-            let assigns: Vec<String> = assignments
-                .iter()
-                .map(emit_assignment)
-                .collect();
+            let assigns: Vec<String> = assignments.iter().map(emit_assignment).collect();
             let where_str = where_clause
                 .as_ref()
                 .map(|w| format!(" WHERE {}", emit_expr(w)))
@@ -1504,11 +1574,7 @@ fn emit_on_conflict(oc: &OnConflict) -> String {
 }
 
 fn emit_update(upd: &UpdateStmt) -> String {
-    let assigns: Vec<String> = upd
-        .assignments
-        .iter()
-        .map(emit_assignment)
-        .collect();
+    let assigns: Vec<String> = upd.assignments.iter().map(emit_assignment).collect();
     let from = if upd.from.is_empty() {
         String::new()
     } else {
@@ -1610,6 +1676,7 @@ pub fn emit_data_type(dt: &DataType) -> String {
         },
         DataType::Date => "DATE".to_string(),
         DataType::Time => "TIME".to_string(),
+        DataType::TimeTz => "TIME WITH TIME ZONE".to_string(),
         DataType::Timestamp => "TIMESTAMP".to_string(),
         DataType::TimestampTz => "TIMESTAMPTZ".to_string(),
         DataType::Interval => "INTERVAL".to_string(),

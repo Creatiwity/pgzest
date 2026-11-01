@@ -172,15 +172,13 @@ fn apply_statements(
         match ddl {
             DdlStatement::CreateTable(ct) => {
                 let key = qualify(object_name_to_string(&ct.name));
-                let columns = ct
-                    .columns
-                    .iter()
-                    .map(|col| ColumnInfo {
-                        name: col.name.value.clone(),
-                        data_type: col.data_type.clone(),
-                        nullable: col.nullable,
-                    })
-                    .collect();
+                // Source d'un `LIKE` inconnue : la table n'est pas inventée
+                // à moitié, ses références seront signalées.
+                let Some(columns) = crate::provider::create_table_columns(ct, |n| {
+                    resolve_name(&object_name_to_string(n), tables)
+                }) else {
+                    continue;
+                };
                 tables.insert(
                     key,
                     TableSchema {

@@ -30,6 +30,9 @@ pub enum Layout {
     /// Prisma : `<horodatage>_<nom>/migration.sql`, seul fichier appliqué
     /// (les autres, comme un `down.sql`, sont ignorés).
     Prisma,
+    /// Diesel : `<horodatage>_<nom>/up.sql`, seul fichier appliqué (le
+    /// `down.sql` est ignoré).
+    Diesel,
 }
 
 impl Layout {
@@ -37,6 +40,7 @@ impl Layout {
         match self {
             Layout::Flat => "tous les `.sql`, triés par chemin",
             Layout::Prisma => "Prisma : `*/migration.sql`, triés par répertoire horodaté",
+            Layout::Diesel => "Diesel : `*/up.sql`, triés par répertoire horodaté",
         }
     }
 
@@ -44,6 +48,7 @@ impl Layout {
         match self {
             Layout::Flat => path.extension().is_some_and(|e| e == "sql"),
             Layout::Prisma => path.file_name().is_some_and(|n| n == "migration.sql"),
+            Layout::Diesel => path.file_name().is_some_and(|n| n == "up.sql"),
         }
     }
 }

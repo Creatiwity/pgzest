@@ -207,7 +207,7 @@ pub fn data_type_to_ts(dt: &DataType) -> &'static str {
         Text => "string",
         Varchar(_) | Char(_) => "string",
         Uuid => "string",
-        Date | Time | Timestamp | TimestampTz => "string", // ISO 8601
+        Date | Time | TimeTz | Timestamp | TimestampTz => "string", // ISO 8601
         Json | Jsonb => "unknown",
         Bytea => "Uint8Array",
         Array(inner) => match inner.as_ref() {
@@ -246,6 +246,7 @@ pub fn data_type_to_sql(dt: &DataType) -> String {
         Boolean => "boolean".into(),
         Date => "date".into(),
         Time => "time".into(),
+        TimeTz => "timetz".into(),
         Timestamp => "timestamp".into(),
         TimestampTz => "timestamptz".into(),
         Interval => "interval".into(),

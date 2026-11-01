@@ -60,6 +60,33 @@ pub trait RlsAwareSchemaProvider: SchemaProvider {
     fn table_has_rls(&self, table_name: &str) -> bool;
 }
 
+// ── Colonnes d'un CREATE TABLE ────────────────────────────────────────────────
+
+/// Colonnes d'un `CREATE TABLE` dans l'ordre de PostgreSQL, celles de ses
+/// `LIKE` comprises (noms, types et `NOT NULL` sont toujours copiés). `None`
+/// si la source d'un `LIKE` est inconnue de `source`.
+pub fn create_table_columns<'a>(
+    ct: &pgweave_ast::ddl::CreateTable,
+    source: impl Fn(&pgweave_ast::ObjectName) -> Option<&'a TableSchema>,
+) -> Option<Vec<ColumnInfo>> {
+    let own = |col: &pgweave_ast::ddl::ColumnDef| ColumnInfo {
+        name: col.name.value.clone(),
+        data_type: col.data_type.clone(),
+        nullable: col.nullable,
+    };
+    let mut out = Vec::new();
+    for (i, col) in ct.columns.iter().enumerate() {
+        for like in ct.likes.iter().filter(|l| l.position == i) {
+            out.extend(source(&like.source)?.columns.iter().cloned());
+        }
+        out.push(own(col));
+    }
+    for like in ct.likes.iter().filter(|l| l.position >= ct.columns.len()) {
+        out.extend(source(&like.source)?.columns.iter().cloned());
+    }
+    Some(out)
+}
+
 // ── Schema qualification helpers ──────────────────────────────────────────────
 
 /// Qualify an `ObjectName` with the given default schema.
@@ -194,15 +221,20 @@ impl DdlSchemaProvider {
                     pgweave_ast::DdlStatement::CreateTable(ct) => {
                         let key = qualify_object_name(&ct.name, creation_schema);
                         let table_name = object_name_to_string(&ct.name);
-                        let columns = ct
-                            .columns
-                            .iter()
-                            .map(|col| ColumnInfo {
-                                name: col.name.value.clone(),
-                                data_type: col.data_type.clone(),
-                                nullable: col.nullable,
-                            })
-                            .collect();
+                        let lookup = |n: &pgweave_ast::ObjectName| {
+                            if n.0.len() >= 2 {
+                                tables.get(&qualify_object_name(n, ""))
+                            } else {
+                                search_path
+                                    .iter()
+                                    .find_map(|sch| tables.get(&qualify_object_name(n, sch)))
+                            }
+                        };
+                        // Source d'un `LIKE` inconnue : la table n'est pas
+                        // inventée à moitié, ses références seront signalées.
+                        let Some(columns) = create_table_columns(ct, lookup) else {
+                            continue;
+                        };
                         tables.insert(
                             key,
                             TableSchema {
@@ -375,7 +407,8 @@ fn parse_data_type(s: &str) -> DataType {
         "char" | "character" => DataType::Char(None),
         "boolean" | "bool" => DataType::Boolean,
         "date" => DataType::Date,
-        "time" => DataType::Time,
+        "time" | "time without time zone" => DataType::Time,
+        "timetz" | "time with time zone" => DataType::TimeTz,
         "timestamp" => DataType::Timestamp,
         "timestamptz" | "timestamp with time zone" => DataType::TimestampTz,
         "interval" => DataType::Interval,

@@ -66,6 +66,7 @@ fn make_create_table(table_name: &str, cols: Vec<ColumnDef>) -> Statement {
         on_commit: None,
         columns: cols,
         constraints: vec![],
+        likes: vec![],
     }))
 }
 

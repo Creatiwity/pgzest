@@ -122,6 +122,7 @@ fn pg_name(dt: &DataType) -> String {
         Char(_) => "bpchar".into(),
         Date => "date".into(),
         Time => "time".into(),
+        TimeTz => "timetz".into(),
         Timestamp => "timestamp".into(),
         TimestampTz => "timestamptz".into(),
         Interval => "interval".into(),

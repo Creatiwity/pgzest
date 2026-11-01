@@ -64,6 +64,8 @@ fn tables() {
         "CREATE TABLE t (a int REFERENCES u (id) ON DELETE CASCADE, b int, CONSTRAINT fk FOREIGN KEY (b) REFERENCES u (id))",
         "CREATE UNLOGGED TABLE IF NOT EXISTS cache (k text PRIMARY KEY, v jsonb)",
         "CREATE TEMPORARY TABLE staging (a int) ON COMMIT DROP",
+        "CREATE TABLE copie (LIKE t INCLUDING DEFAULTS EXCLUDING INDEXES, extra INT)",
+        "CREATE TABLE copie (id INT, LIKE t INCLUDING ALL)",
     ] {
         roundtrip(sql);
     }
@@ -168,6 +170,11 @@ fn utilitaires() {
         "COMMENT ON TABLE pages IS 'Les pages'",
         "COMMENT ON COLUMN pages.title IS NULL",
         "TRUNCATE TABLE a, b RESTART IDENTITY CASCADE",
+        "ANALYZE",
+        "ANALYZE VERBOSE t, u (a, b)",
+        "ANALYZE (VERBOSE, SKIP_LOCKED false) t",
+        "VACUUM FULL ANALYZE t",
+        "VACUUM (PARALLEL 4, INDEX_CLEANUP AUTO) t (a)",
     ] {
         roundtrip(sql);
     }

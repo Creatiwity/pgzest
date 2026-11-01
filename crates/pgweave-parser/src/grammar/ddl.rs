@@ -10,7 +10,7 @@ use pgweave_ast::Statement;
 use pgweave_ast::ddl::{
     AlterExtension, AlterExtensionOp, AlterTable, AlterTableOp, AlterType, AlterTypeOp,
     CreateDomain, CreateExtension, CreateSequence, CreateTable, DdlStatement, DomainCheck,
-    ExclusionElement, IndexElement, OnCommit, TableConstraint,
+    ExclusionElement, IndexElement, LikeFeature, LikeOption, OnCommit, TableConstraint, TableLike,
 };
 use pgweave_ast::expr::ExprKind;
 use pgweave_ast::node::Span;
@@ -89,16 +89,15 @@ pub(crate) fn parse_create_table(p: &mut Parser) -> Result<Statement> {
     p.expect_token(&Token::LParen).map_err(pe)?;
     let mut columns = Vec::new();
     let mut constraints = Vec::new();
+    let mut likes = Vec::new();
     if !p.consume_token(&Token::RParen) {
         loop {
             if is_exclude(p) {
                 constraints.push(parse_exclude(p)?);
             } else if let Some(c) = p.parse_optional_table_constraint().map_err(pe)? {
                 constraints.push(convert_table_constraint(c)?);
-            } else if keyword_at(p, 0) == Some(Keyword::LIKE) {
-                return Err(ParseError::Unsupported(
-                    "CREATE TABLE … (LIKE …)".to_string(),
-                ));
+            } else if p.parse_keyword(Keyword::LIKE) {
+                likes.push(parse_like(p, columns.len())?);
             } else {
                 columns.push(convert_column_def(p.parse_column_def().map_err(pe)?)?);
             }
@@ -142,7 +141,41 @@ pub(crate) fn parse_create_table(p: &mut Parser) -> Result<Statement> {
         on_commit,
         columns,
         constraints,
+        likes,
     })))
+}
+
+/// `LIKE source [{INCLUDING | EXCLUDING} option …]`, `LIKE` déjà lu.
+fn parse_like(p: &mut Parser, position: usize) -> Result<TableLike> {
+    let source = convert_object_name(p.parse_object_name(false).map_err(pe)?);
+    let mut options = Vec::new();
+    while let Some(k) = p.parse_one_of_keywords(&[Keyword::INCLUDING, Keyword::EXCLUDING]) {
+        let feature = match &p.next_token().token {
+            Token::Word(w) => match w.value.to_ascii_uppercase().as_str() {
+                "COMMENTS" => LikeFeature::Comments,
+                "COMPRESSION" => LikeFeature::Compression,
+                "CONSTRAINTS" => LikeFeature::Constraints,
+                "DEFAULTS" => LikeFeature::Defaults,
+                "GENERATED" => LikeFeature::Generated,
+                "IDENTITY" => LikeFeature::Identity,
+                "INDEXES" => LikeFeature::Indexes,
+                "STATISTICS" => LikeFeature::Statistics,
+                "STORAGE" => LikeFeature::Storage,
+                "ALL" => LikeFeature::All,
+                _ => return Err(expected(p, "une option de LIKE")),
+            },
+            _ => return Err(expected(p, "une option de LIKE")),
+        };
+        options.push(LikeOption {
+            including: k == Keyword::INCLUDING,
+            feature,
+        });
+    }
+    Ok(TableLike {
+        source,
+        position,
+        options,
+    })
 }
 
 /// `[CONSTRAINT nom] EXCLUDE` en tête ?

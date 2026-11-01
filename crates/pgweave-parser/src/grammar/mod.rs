@@ -7,6 +7,7 @@
 
 pub(crate) mod ddl;
 pub(crate) mod routine;
+pub(crate) mod utility;
 
 use pgweave_ast::Statement;
 
@@ -46,6 +47,9 @@ pub(crate) fn parse(
     }
     if ddl::is_alter_type_set_schema(p) {
         return plain(ddl::parse_alter_type_set_schema(p));
+    }
+    if utility::is_maintenance(p) {
+        return plain(utility::parse_maintenance(p));
     }
     None
 }

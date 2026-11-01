@@ -1,6 +1,7 @@
 //! Statements utilitaires : ni requêtes ni définitions d'objets, mais
 //! présents dans les migrations et les scripts — `DO`, `CALL`, `COPY`, `SET`,
-//! transactions, `COMMENT ON`, `GRANT`/`REVOKE`, `TRUNCATE`.
+//! transactions, `COMMENT ON`, `GRANT`/`REVOKE`, `TRUNCATE`, `ANALYZE`,
+//! `VACUUM`.
 
 use crate::ddl::{FunctionBody, FunctionLanguage, SettingValue};
 use crate::expr::{Expr, Ident, ObjectName};
@@ -57,6 +58,36 @@ pub enum UtilityKind {
         restart_identity: bool,
         cascade: bool,
     },
+    /// `ANALYZE` / `VACUUM [(options)] [table [(colonnes)], …]`.
+    Maintenance {
+        command: MaintenanceCommand,
+        /// Options entre parenthèses, ou mots-clés de l'ancienne syntaxe
+        /// (`VACUUM FULL VERBOSE`), en majuscules, dans l'ordre d'écriture.
+        options: Vec<MaintenanceOption>,
+        /// Vide : toutes les tables de la base.
+        tables: Vec<MaintenanceTarget>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MaintenanceCommand {
+    Analyze,
+    Vacuum,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MaintenanceOption {
+    pub name: String,
+    /// Valeur écrite (`ON`, `false`, `4`…), absente pour un drapeau nu.
+    pub value: Option<String>,
+    /// Ancienne syntaxe, sans parenthèses.
+    pub legacy: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MaintenanceTarget {
+    pub table: ObjectName,
+    pub columns: Vec<Ident>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

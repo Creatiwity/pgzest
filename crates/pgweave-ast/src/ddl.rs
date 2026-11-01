@@ -43,6 +43,58 @@ pub struct CreateTable {
     pub on_commit: Option<OnCommit>,
     pub columns: Vec<ColumnDef>,
     pub constraints: Vec<TableConstraint>,
+    /// Éléments `LIKE` : colonnes copiées d'une autre table.
+    pub likes: Vec<TableLike>,
+}
+
+/// `LIKE source [{INCLUDING | EXCLUDING} option …]` parmi les éléments d'un
+/// `CREATE TABLE`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableLike {
+    pub source: ObjectName,
+    /// Nombre de colonnes déclarées avant cet élément : les colonnes copiées
+    /// s'insèrent à cette position, comme dans PostgreSQL.
+    pub position: usize,
+    /// Options dans l'ordre d'écriture (la dernière l'emporte).
+    pub options: Vec<LikeOption>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LikeOption {
+    pub including: bool,
+    pub feature: LikeFeature,
+}
+
+/// Ce que copie `LIKE` en plus des noms, types et `NOT NULL`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LikeFeature {
+    Comments,
+    Compression,
+    Constraints,
+    Defaults,
+    Generated,
+    Identity,
+    Indexes,
+    Statistics,
+    Storage,
+    All,
+}
+
+impl LikeFeature {
+    pub fn keyword(self) -> &'static str {
+        match self {
+            LikeFeature::Comments => "COMMENTS",
+            LikeFeature::Compression => "COMPRESSION",
+            LikeFeature::Constraints => "CONSTRAINTS",
+            LikeFeature::Defaults => "DEFAULTS",
+            LikeFeature::Generated => "GENERATED",
+            LikeFeature::Identity => "IDENTITY",
+            LikeFeature::Indexes => "INDEXES",
+            LikeFeature::Statistics => "STATISTICS",
+            LikeFeature::Storage => "STORAGE",
+            LikeFeature::All => "ALL",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

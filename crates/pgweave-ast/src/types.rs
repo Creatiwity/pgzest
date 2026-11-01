@@ -19,6 +19,7 @@ pub enum DataType {
     // Temporal
     Date,
     Time,
+    TimeTz,
     Timestamp,
     TimestampTz,
     Interval,

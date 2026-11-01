@@ -1784,6 +1784,7 @@ fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> 
         }),
         columns,
         constraints,
+        likes: vec![],
     })
 }
 
@@ -2263,7 +2264,7 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
         // Temporal
         sp::DataType::Date | sp::DataType::Date32 => Ok(DataType::Date),
         sp::DataType::Time(_, tz) => match tz {
-            sp::TimezoneInfo::None | sp::TimezoneInfo::WithoutTimeZone => Ok(DataType::Time),
+            sp::TimezoneInfo::WithTimeZone | sp::TimezoneInfo::Tz => Ok(DataType::TimeTz),
             _ => Ok(DataType::Time),
         },
         sp::DataType::Timestamp(_, tz) => match tz {
@@ -2308,6 +2309,12 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
         }
         // Trigger return type
         sp::DataType::Trigger => Ok(DataType::Custom("trigger".to_string())),
+        // Types intégrés sans variante dédiée : nommés comme dans pg_catalog,
+        // résolus par le catalogue.
+        sp::DataType::Regclass => Ok(DataType::Custom("regclass".to_string())),
+        sp::DataType::TsVector => Ok(DataType::Custom("tsvector".to_string())),
+        sp::DataType::TsQuery => Ok(DataType::Custom("tsquery".to_string())),
+        sp::DataType::GeometricType(kind) => Ok(DataType::Custom(kind.to_string().to_lowercase())),
         other => Err(ParseError::Unsupported(format!(
             "unsupported data type: {}",
             other

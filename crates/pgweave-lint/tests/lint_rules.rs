@@ -45,6 +45,7 @@ fn create_table(
         on_commit: None,
         columns,
         constraints,
+        likes: vec![],
     }))
 }
 
@@ -65,6 +66,7 @@ fn quoted_table(name: &str) -> Statement {
             name: None,
             columns: vec![],
         }],
+        likes: vec![],
     }))
 }
 

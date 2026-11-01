@@ -38,6 +38,7 @@ fn canonical_type(dt: &DataType) -> String {
         DataType::Boolean => "boolean".into(),
         DataType::Date => "date".into(),
         DataType::Time => "time".into(),
+        DataType::TimeTz => "timetz".into(),
         DataType::Timestamp => "timestamp".into(),
         DataType::TimestampTz => "timestamptz".into(),
         DataType::Interval => "interval".into(),
