@@ -1,7 +1,7 @@
 use pgweave_ast::{
-    Statement,
+    ExprKind, Statement,
     ddl::{DdlStatement, FunctionBody},
-    plpgsql::PlExpr,
+    plpgsql::PlStatementKind,
 };
 use pgweave_parser::parse;
 
@@ -69,7 +69,7 @@ fn parse_full_schema_plpgsql_functions() {
 
 #[test]
 fn parse_if_not_exists_subquery() {
-    // The expression NOT EXISTS (...) must NOT produce a PlExpr::Var
+    // `NOT EXISTS (...)` reste une expression SQL, pas un nom de variable.
     let sql = r#"
         CREATE OR REPLACE PROCEDURE test_proc(p_id UUID)
         LANGUAGE plpgsql AS $$
@@ -83,14 +83,13 @@ fn parse_if_not_exists_subquery() {
     match &stmts[0] {
         Statement::Ddl(DdlStatement::CreateProcedure(p)) => {
             if let FunctionBody::Parsed(body) = &p.body {
-                use pgweave_ast::plpgsql::PlStatement;
-                if let Some(PlStatement::If { condition, .. }) = body.block.statements.first() {
-                    assert!(
-                        !matches!(condition, PlExpr::Var(v) if v.value.contains("EXISTS")),
-                        "NOT EXISTS incorrectly parsed as variable: {:?}",
-                        condition
-                    );
-                }
+                let PlStatementKind::If { condition, .. } = &body.block.statements[0].kind else {
+                    panic!("IF attendu");
+                };
+                assert!(
+                    matches!(condition.kind, ExprKind::Exists { negated: true, .. }),
+                    "NOT EXISTS mal lu : {condition:?}"
+                );
             }
         }
         _ => panic!("expected procedure"),
@@ -122,7 +121,7 @@ fn parse_set_updated_at() {
         body
     );
     if let FunctionBody::Parsed(b) = body {
-        assert_eq!(b.declare.len(), 0);
+        assert_eq!(b.block.declarations.len(), 0);
         assert_eq!(b.block.statements.len(), 2);
     }
 }

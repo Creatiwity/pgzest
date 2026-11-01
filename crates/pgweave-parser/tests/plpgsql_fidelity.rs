@@ -12,7 +12,7 @@
 //! Le lexer était la cause commune de (2) : `||`, `::`, `->>` n'avaient aucun
 //! token et étaient recollés en `"| |"`, `": :"` — du SQL invalide.
 
-use pgweave_ast::{DdlStatement, ExprKind, Statement, ddl::FunctionBody, plpgsql::PlStatement};
+use pgweave_ast::{DdlStatement, ExprKind, Statement, ddl::FunctionBody, plpgsql::PlStatementKind};
 
 /// Corps PL/pgSQL parsé, ou panique en disant pourquoi.
 fn body_of(sql: &str) -> pgweave_ast::plpgsql::PlpgsqlBody {
@@ -68,14 +68,14 @@ fn une_condition_composite_sur_old_et_new_est_conservee() {
          \x20       RETURN NULL;\n\
          \x20   END IF;",
     ));
-    let PlStatement::If { condition, .. } = &body.block.statements[0] else {
+    let PlStatementKind::If {
+        condition: expr, ..
+    } = &body.block.statements[0].kind
+    else {
         panic!("IF attendu, obtenu {:?}", body.block.statements[0])
     };
 
     // Auparavant : `OldField("status")`, tout le reste jeté.
-    let pgweave_ast::plpgsql::PlExpr::Sql(expr) = condition else {
-        panic!("expression SQL complète attendue, obtenu {condition:?}")
-    };
     assert!(
         matches!(&expr.kind, ExprKind::BinaryOp { .. }),
         "la condition doit rester une comparaison composite, obtenu {:?}",
@@ -85,10 +85,10 @@ fn une_condition_composite_sur_old_et_new_est_conservee() {
 
 #[test]
 fn new_point_colonne_seul_reste_reconnu_comme_variable_ligne() {
-    // Le raccourci garde sa raison d'être sur le cas exact : le checker s'appuie
-    // sur `NewField` pour vérifier la colonne contre la table du trigger.
+    // La cible `NEW.col` reste un chemin : le checker vérifie la colonne
+    // contre la table du trigger.
     let body = body_of(&trigger_fn("    NEW.updated_at = now();"));
-    let PlStatement::Assign { target, .. } = &body.block.statements[0] else {
+    let PlStatementKind::Assign { target, .. } = &body.block.statements[0].kind else {
         panic!("Assign attendu, obtenu {:?}", body.block.statements[0])
     };
     // La cible d'une assignation `NEW.col` doit rester un champ, pas une colonne.
@@ -120,11 +120,8 @@ fn une_colonne_inexistante_dans_une_condition_composite_est_detectee() {
 #[test]
 fn une_valeur_assignee_nest_jamais_remplacee_par_true() {
     let body = body_of(&plain_fn("    v := 'a' || 'b';"));
-    let PlStatement::Assign { value, .. } = &body.block.statements[0] else {
+    let PlStatementKind::Assign { value: expr, .. } = &body.block.statements[0].kind else {
         panic!("Assign attendu")
-    };
-    let pgweave_ast::plpgsql::PlExpr::Sql(expr) = value else {
-        panic!("expression SQL attendue, obtenu {value:?}")
     };
     assert!(
         !matches!(
@@ -191,7 +188,7 @@ fn la_notation_exponentielle_conserve_sa_valeur() {
     // `1e3` se lexait `Number("1")` + `Ident("e3")`, recollé `1 e3`, que
     // sqlparser lit comme un ALIAS : la valeur devenait silencieusement `1`.
     let body = body_of(&plain_fn("    n := 1e3;"));
-    let PlStatement::Assign { value, .. } = &body.block.statements[0] else {
+    let PlStatementKind::Assign { value, .. } = &body.block.statements[0].kind else {
         panic!("Assign attendu")
     };
     let rendered = format!("{value:?}");
@@ -222,15 +219,11 @@ fn le_schema_dexemple_na_plus_de_condition_tronquee() {
             continue;
         };
         for s in &b.block.statements {
-            if let PlStatement::If { condition, .. } = s {
+            if let PlStatementKind::If { condition, .. } = &s.kind {
                 total += 1;
-                // Une condition réduite à un champ de ligne alors que la source
-                // porte une comparaison : c'est la troncature.
-                if matches!(
-                    condition,
-                    pgweave_ast::plpgsql::PlExpr::NewField(_)
-                        | pgweave_ast::plpgsql::PlExpr::OldField(_)
-                ) {
+                // Une condition réduite à une simple référence de champ alors
+                // que la source porte une comparaison : c'est la troncature.
+                if matches!(condition.kind, ExprKind::Column(_)) {
                     truncated += 1;
                 }
             }

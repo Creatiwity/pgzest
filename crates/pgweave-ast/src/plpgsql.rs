@@ -1,13 +1,21 @@
+//! AST du PL/pgSQL.
+//!
+//! Les expressions sont des [`Expr`] SQL ordinaires : en PL/pgSQL, un
+//! identifiant d'expression peut désigner une variable, un paramètre, une
+//! colonne ou une variable spéciale, et seule l'analyse sémantique — qui
+//! connaît la portée — peut trancher. Le parser ne devine pas.
+
 use crate::expr::{Expr, Ident, ObjectName};
-use crate::stmt::SelectStmt;
+use crate::node::Span;
+use crate::stmt::{SelectStmt, Statement};
 use crate::types::DataType;
 use serde::{Deserialize, Serialize};
 
-// ── Corps complet d'une fonction/procédure PL/pgSQL ──────────────────────────
+// ── Corps ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlpgsqlBody {
-    pub declare: Vec<VarDecl>,
+    /// Bloc principal, avec ses déclarations.
     pub block: Block,
     /// Texte du corps tel qu'écrit, entre ses délimiteurs. C'est lui que
     /// restitue l'émission SQL : régénérer le PL/pgSQL depuis l'AST perdrait
@@ -16,25 +24,57 @@ pub struct PlpgsqlBody {
     pub source: String,
 }
 
-// ── DECLARE ──────────────────────────────────────────────────────────────────
+/// `[<<label>>] [DECLARE …] BEGIN … [EXCEPTION …] END [label]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Block {
+    pub label: Option<String>,
+    /// Déclarations de ce bloc, visibles dans ce bloc et ses blocs imbriqués.
+    pub declarations: Vec<Declaration>,
+    pub statements: Vec<PlStatement>,
+    pub exception: Option<ExceptionBlock>,
+}
+
+// ── Déclarations ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Declaration {
+    Variable(VarDecl),
+    /// `nom ALIAS FOR $1` / `ALIAS FOR autre`.
+    Alias {
+        name: Ident,
+        target: String,
+    },
+    /// `nom CURSOR [(paramètres)] FOR requête`.
+    Cursor {
+        name: Ident,
+        params: Vec<(Ident, DataType)>,
+        query: Box<SelectStmt>,
+    },
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VarDecl {
     pub name: Ident,
-    pub data_type: DataType,
-    pub not_null: bool,
+    pub var_type: VarType,
     pub constant: bool,
-    pub default: Option<PlExpr>,
+    pub not_null: bool,
+    pub default: Option<Expr>,
+    pub span: Span,
 }
 
-// ── Bloc BEGIN … END ─────────────────────────────────────────────────────────
-
+/// Type d'une variable PL/pgSQL.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Block {
-    pub label: Option<String>,
-    pub statements: Vec<PlStatement>,
-    pub exception: Option<ExceptionBlock>,
+pub enum VarType {
+    Data(DataType),
+    /// `table%ROWTYPE` : une ligne de la table.
+    RowTypeOf(ObjectName),
+    /// `table.colonne%TYPE` ou `variable%TYPE`.
+    TypeOf(ObjectName),
+    /// `RECORD` : structure fixée par la première affectation.
+    Record,
 }
+
+// ── Exceptions ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExceptionBlock {
@@ -44,7 +84,7 @@ pub struct ExceptionBlock {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExceptionHandler {
     pub conditions: Vec<ExceptionCondition>,
-    pub block: Block,
+    pub statements: Vec<PlStatement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,117 +94,151 @@ pub enum ExceptionCondition {
     Others,           // WHEN OTHERS
 }
 
-// ── Statements PL/pgSQL ───────────────────────────────────────────────────────
+// ── Statements ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum PlStatement {
-    /// var := expr  ou  var = expr (dans les triggers)
-    Assign { target: AssignTarget, value: PlExpr },
-    /// SELECT … INTO [STRICT] var1, var2 FROM …
-    SelectInto {
-        strict: bool,
-        targets: Vec<Ident>,
-        query: SelectStmt,
+pub struct PlStatement {
+    pub span: Span,
+    pub kind: PlStatementKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PlStatementKind {
+    /// `cible := expr` (ou `=`). La cible est un chemin : `v`, `rec.champ`,
+    /// `NEW.colonne`.
+    Assign {
+        target: Vec<Ident>,
+        value: Expr,
     },
-    /// PERFORM expression (exécute et jette le résultat)
-    Perform(PlExpr),
-    /// EXECUTE sql [INTO var] [USING expr, …]
+    /// Statement SQL, avec ses cibles `INTO` éventuelles (`SELECT … INTO`,
+    /// `INSERT … RETURNING … INTO`).
+    Sql {
+        statement: Statement,
+        into: Option<IntoTarget>,
+    },
+    /// `PERFORM requête` : exécute et ignore le résultat.
+    Perform(SelectStmt),
+    /// `EXECUTE chaîne [INTO …] [USING …]` : SQL dynamique, non analysable.
     Execute {
-        sql: PlExpr,
-        into: Vec<Ident>,
-        using: Vec<PlExpr>,
+        sql: Expr,
+        into: Option<IntoTarget>,
+        using: Vec<Expr>,
     },
-    /// RETURN [expr]
-    Return(Option<PlExpr>),
-    /// RETURN NEXT expr
-    ReturnNext(PlExpr),
-    /// RETURN QUERY query
+    Return(Option<Expr>),
+    ReturnNext(Option<Expr>),
     ReturnQuery(SelectStmt),
-    /// RAISE [level] [format | USING …]
+    ReturnQueryExecute {
+        sql: Expr,
+        using: Vec<Expr>,
+    },
     Raise {
         level: RaiseLevel,
+        /// Chaîne de format (`'… % …'`), ou nom de condition / SQLSTATE.
         message: Option<String>,
-        args: Vec<PlExpr>,
+        args: Vec<Expr>,
         options: Vec<RaiseOption>,
     },
-    /// IF condition THEN … [ELSIF … THEN …] [ELSE …] END IF
-    If {
-        condition: PlExpr,
-        then_block: Block,
-        elsif_clauses: Vec<ElsIf>,
-        else_block: Option<Block>,
+    Assert {
+        condition: Expr,
+        message: Option<Expr>,
     },
-    /// LOOP … END LOOP
-    Loop(Block),
-    /// WHILE condition LOOP … END LOOP
-    While { condition: PlExpr, body: Block },
-    /// FOR var IN [REVERSE] from .. to [BY step] LOOP … END LOOP
+    If {
+        condition: Expr,
+        then_branch: Vec<PlStatement>,
+        elsif_branches: Vec<(Expr, Vec<PlStatement>)>,
+        else_branch: Option<Vec<PlStatement>>,
+    },
+    /// `CASE [opérande] WHEN valeurs THEN … [ELSE …] END CASE`.
+    Case {
+        operand: Option<Expr>,
+        whens: Vec<(Vec<Expr>, Vec<PlStatement>)>,
+        else_branch: Option<Vec<PlStatement>>,
+    },
+    Loop {
+        label: Option<String>,
+        body: Vec<PlStatement>,
+    },
+    While {
+        label: Option<String>,
+        condition: Expr,
+        body: Vec<PlStatement>,
+    },
+    /// `FOR i IN [REVERSE] a .. b [BY pas] LOOP`.
     ForRange {
+        label: Option<String>,
         var: Ident,
         reverse: bool,
-        from: PlExpr,
-        to: PlExpr,
-        by: Option<PlExpr>,
-        body: Block,
+        from: Expr,
+        to: Expr,
+        by: Option<Expr>,
+        body: Vec<PlStatement>,
     },
-    /// FOR var IN query LOOP … END LOOP
-    ForSelect {
-        var: Ident,
+    /// `FOR cibles IN requête LOOP`.
+    ForQuery {
+        label: Option<String>,
+        targets: Vec<Ident>,
         query: SelectStmt,
-        body: Block,
+        body: Vec<PlStatement>,
     },
-    /// FOR var IN EXECUTE sql [USING …] LOOP … END LOOP
+    /// `FOR cibles IN EXECUTE chaîne [USING …] LOOP`.
     ForExecute {
-        var: Ident,
-        sql: PlExpr,
-        using: Vec<PlExpr>,
-        body: Block,
+        label: Option<String>,
+        targets: Vec<Ident>,
+        sql: Expr,
+        using: Vec<Expr>,
+        body: Vec<PlStatement>,
     },
-    /// EXIT [label] [WHEN condition]
+    /// `FOR rec IN curseur [(arguments)] LOOP`.
+    ForCursor {
+        label: Option<String>,
+        var: Ident,
+        cursor: Ident,
+        args: Vec<Expr>,
+        body: Vec<PlStatement>,
+    },
+    /// `FOREACH cibles [SLICE n] IN ARRAY tableau LOOP`.
+    Foreach {
+        label: Option<String>,
+        targets: Vec<Ident>,
+        slice: Option<u32>,
+        array: Expr,
+        body: Vec<PlStatement>,
+    },
     Exit {
         label: Option<String>,
-        when: Option<PlExpr>,
+        when: Option<Expr>,
     },
-    /// CONTINUE [label] [WHEN condition]
     Continue {
         label: Option<String>,
-        when: Option<PlExpr>,
+        when: Option<Expr>,
     },
-    /// Instruction SQL directe (INSERT, UPDATE, DELETE)
-    Sql(crate::stmt::Statement),
-    /// CALL procedure(args)
-    Call { name: ObjectName, args: Vec<PlExpr> },
-    /// GET DIAGNOSTICS var = item
-    GetDiagnostics(Vec<DiagnosticsAssignment>),
-    /// Bloc imbriqué (BEGIN … END à l'intérieur d'un bloc)
-    SubBlock(Block),
-    /// NULL (no-op)
+    GetDiagnostics {
+        stacked: bool,
+        items: Vec<DiagnosticsAssignment>,
+    },
+    /// `OPEN curseur [(arguments)]` ou `OPEN curseur FOR requête`.
+    Open {
+        cursor: Ident,
+        args: Vec<Expr>,
+        query: Option<SelectStmt>,
+    },
+    /// `FETCH [direction FROM] curseur INTO cibles`.
+    Fetch {
+        cursor: Ident,
+        into: IntoTarget,
+    },
+    Close(Ident),
+    /// Bloc imbriqué, avec ses propres déclarations.
+    Block(Block),
     Null,
 }
 
+/// Cibles d'un `INTO` : chacune est un chemin (`v`, `rec.champ`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ElsIf {
-    pub condition: PlExpr,
-    pub block: Block,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DiagnosticsAssignment {
-    pub var: Ident,
-    pub item: DiagnosticsItem,
-}
-
-// ── Cible d'assignation ───────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum AssignTarget {
-    /// Variable simple : `v_count`
-    Simple(Ident),
-    /// Champ de record : `rec.field`
-    Field(Ident, Ident),
-    /// NEW.col dans un trigger
-    NewField(Ident),
-    OldField(Ident),
+pub struct IntoTarget {
+    /// `INTO STRICT` : exactement une ligne attendue.
+    pub strict: bool,
+    pub targets: Vec<Vec<Ident>>,
 }
 
 // ── RAISE ─────────────────────────────────────────────────────────────────────
@@ -182,7 +256,7 @@ pub enum RaiseLevel {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RaiseOption {
     pub key: RaiseOptionKey,
-    pub value: PlExpr,
+    pub value: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -201,46 +275,24 @@ pub enum RaiseOptionKey {
 // ── GET DIAGNOSTICS ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiagnosticsAssignment {
+    pub var: Ident,
+    pub item: DiagnosticsItem,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DiagnosticsItem {
     RowCount,
     PgContext,
+    PgRoutineOid,
     PgExceptionContext,
     PgExceptionDetail,
     PgExceptionHint,
     ReturnedSqlstate,
     ColumnName,
     ConstraintName,
-    PgDatatype,
+    PgDatatypeName,
     MessageText,
     TableName,
     SchemaName,
-}
-
-// ── Expression PL/pgSQL ───────────────────────────────────────────────────────
-
-/// Superset d'Expr SQL : ajoute les variables locales et les spéciales PL/pgSQL.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum PlExpr {
-    /// Expression SQL standard (colonnes, littéraux, fonctions…)
-    Sql(Expr),
-    /// Variable locale déclarée dans DECLARE
-    Var(Ident),
-    /// Champ d'un record : rec.field
-    RecordField { record: Ident, field: Ident },
-    /// NEW.col dans un trigger
-    NewField(Ident),
-    /// OLD.col dans un trigger
-    OldField(Ident),
-    /// Variable spéciale FOUND (true si dernière requête a retourné des lignes)
-    Found,
-    /// SQLSTATE (dans EXCEPTION handlers)
-    Sqlstate,
-    /// NOT expr
-    Not(Box<PlExpr>),
-    /// expr AND expr
-    And(Box<PlExpr>, Box<PlExpr>),
-    /// expr OR expr
-    Or(Box<PlExpr>, Box<PlExpr>),
-    /// Comparaison binaire simple (wrapping un ExprKind::BinaryOp)
-    BinOp(Box<PlExpr>, String, Box<PlExpr>),
 }

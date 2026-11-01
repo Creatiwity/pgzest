@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use pgweave_ast::ddl::{DdlStatement, FunctionParam, ReturnType, TriggerEvent};
+use pgweave_ast::expr::Ident;
 use pgweave_ast::plpgsql::{
-    AssignTarget, Block, ElsIf, PlExpr, PlStatement, PlpgsqlBody, RaiseLevel,
+    Block, Declaration, IntoTarget, PlStatement, PlStatementKind, PlpgsqlBody, VarType,
 };
 use pgweave_ast::stmt::{InsertSource, Statement};
 use pgweave_ast::types::DataType;
@@ -119,11 +120,13 @@ pub fn check_plpgsql_ast(
         .as_ref()
         .and_then(|tc| schema.get_table(&tc.table));
 
-    // Build vars from DECLARE.
+    // Noms déclarés : variables, alias et curseurs de tous les blocs, et
+    // variables de boucle (déclarées implicitement par FOR / FOREACH). La
+    // visibilité par bloc n'est pas suivie ici — un nom déclaré dans un bloc
+    // imbriqué est accepté partout : cela ne peut produire de faux positif,
+    // seulement manquer une erreur de portée (analyse fine : P3).
     let mut vars: HashMap<String, DataType> = HashMap::new();
-    for decl in &body.declare {
-        vars.insert(decl.name.value.to_lowercase(), decl.data_type.clone());
-    }
+    collect_declared(&body.block, &mut vars);
 
     // Build params from function/procedure parameters.
     let mut params: HashMap<String, DataType> = HashMap::new();
@@ -212,302 +215,368 @@ fn plvars(ctx: &TypeContext<'_>) -> HashSet<String> {
 }
 
 fn check_block(block: &Block, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
-    for stmt in &block.statements {
-        check_statement(stmt, ctx, diags);
+    for decl in &block.declarations {
+        if let Declaration::Variable(v) = decl
+            && let Some(default) = &v.default
+        {
+            check_body_expr(default, ctx, diags);
+        }
     }
-
-    // Also check exception handlers.
+    check_statements(&block.statements, ctx, diags);
     if let Some(exc) = &block.exception {
         for handler in &exc.handlers {
-            check_block(&handler.block, ctx, diags);
+            check_statements(&handler.statements, ctx, diags);
+        }
+    }
+}
+
+fn check_statements(stmts: &[PlStatement], ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
+    for stmt in stmts {
+        let first_new = diags.len();
+        check_statement(stmt, ctx, diags);
+        // Un diagnostic sans position est rattaché à son statement plutôt
+        // qu'à la fonction entière.
+        if stmt.span != pgweave_ast::Span::DUMMY {
+            let span = pgweave_diagnostics::Span {
+                start: stmt.span.start as usize,
+                end: stmt.span.end as usize,
+            };
+            for d in &mut diags[first_new..] {
+                if d.span.is_none() {
+                    d.span = Some(span.clone());
+                }
+            }
         }
     }
 }
 
 fn check_statement(stmt: &PlStatement, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
-    match stmt {
-        // NEW.col as assignment target — verify the column exists on the trigger table.
-        PlStatement::Assign {
-            target: AssignTarget::NewField(col),
-            value,
-        } => {
-            if let Some(ts) = ctx.trigger_table
-                && ts.get_column(&col.value).is_none()
-            {
-                diags.push(
-                    Diagnostic::error(
-                        codes::COLUMN_NOT_FOUND,
-                        format!(
-                            "column '{}' does not exist on trigger table '{}'",
-                            col.value, ts.name
-                        ),
-                    )
-                    .with_hint(format!(
-                        "available columns: {}",
-                        ts.columns
-                            .iter()
-                            .map(|c| c.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )),
-                );
-            }
-            check_plexpr(value, ctx, diags);
+    match &stmt.kind {
+        PlStatementKind::Assign { target, value } => {
+            check_assign_target(target, ctx, diags);
+            check_body_expr(value, ctx, diags);
         }
 
-        // OLD.col as assignment target — always an error.
-        PlStatement::Assign {
-            target: AssignTarget::OldField(col),
-            value,
+        PlStatementKind::Sql { statement, into } => {
+            check_sql_in_body(statement, ctx, diags);
+            if let Some(into) = into {
+                check_into(into, ctx, diags);
+            }
+        }
+
+        PlStatementKind::Perform(sel) | PlStatementKind::ReturnQuery(sel) => {
+            diags.extend(check_select_in_ctx(sel, ctx));
+        }
+
+        PlStatementKind::Execute { sql, into, using } => {
+            check_body_expr(sql, ctx, diags);
+            for e in using {
+                check_body_expr(e, ctx, diags);
+            }
+            if let Some(into) = into {
+                check_into(into, ctx, diags);
+            }
+        }
+
+        PlStatementKind::Return(e) | PlStatementKind::ReturnNext(e) => {
+            if let Some(e) = e {
+                check_body_expr(e, ctx, diags);
+            }
+        }
+
+        PlStatementKind::ReturnQueryExecute { sql, using } => {
+            check_body_expr(sql, ctx, diags);
+            for e in using {
+                check_body_expr(e, ctx, diags);
+            }
+        }
+
+        PlStatementKind::Raise { args, options, .. } => {
+            for arg in args {
+                check_body_expr(arg, ctx, diags);
+            }
+            for opt in options {
+                check_body_expr(&opt.value, ctx, diags);
+            }
+        }
+
+        PlStatementKind::Assert { condition, message } => {
+            check_body_expr(condition, ctx, diags);
+            if let Some(m) = message {
+                check_body_expr(m, ctx, diags);
+            }
+        }
+
+        PlStatementKind::If {
+            condition,
+            then_branch,
+            elsif_branches,
+            else_branch,
         } => {
+            check_body_expr(condition, ctx, diags);
+            check_statements(then_branch, ctx, diags);
+            for (c, branch) in elsif_branches {
+                check_body_expr(c, ctx, diags);
+                check_statements(branch, ctx, diags);
+            }
+            if let Some(b) = else_branch {
+                check_statements(b, ctx, diags);
+            }
+        }
+
+        PlStatementKind::Case {
+            operand,
+            whens,
+            else_branch,
+        } => {
+            if let Some(o) = operand {
+                check_body_expr(o, ctx, diags);
+            }
+            for (values, branch) in whens {
+                for v in values {
+                    check_body_expr(v, ctx, diags);
+                }
+                check_statements(branch, ctx, diags);
+            }
+            if let Some(b) = else_branch {
+                check_statements(b, ctx, diags);
+            }
+        }
+
+        PlStatementKind::Loop { body, .. } => check_statements(body, ctx, diags),
+        PlStatementKind::While {
+            condition, body, ..
+        } => {
+            check_body_expr(condition, ctx, diags);
+            check_statements(body, ctx, diags);
+        }
+        PlStatementKind::ForRange {
+            from, to, by, body, ..
+        } => {
+            check_body_expr(from, ctx, diags);
+            check_body_expr(to, ctx, diags);
+            if let Some(step) = by {
+                check_body_expr(step, ctx, diags);
+            }
+            check_statements(body, ctx, diags);
+        }
+        PlStatementKind::ForQuery { query, body, .. } => {
+            diags.extend(check_select_in_ctx(query, ctx));
+            check_statements(body, ctx, diags);
+        }
+        PlStatementKind::ForExecute {
+            sql, using, body, ..
+        } => {
+            check_body_expr(sql, ctx, diags);
+            for e in using {
+                check_body_expr(e, ctx, diags);
+            }
+            check_statements(body, ctx, diags);
+        }
+        PlStatementKind::ForCursor { args, body, .. } => {
+            for a in args {
+                check_body_expr(a, ctx, diags);
+            }
+            check_statements(body, ctx, diags);
+        }
+        PlStatementKind::Foreach { array, body, .. } => {
+            check_body_expr(array, ctx, diags);
+            check_statements(body, ctx, diags);
+        }
+
+        PlStatementKind::Exit { when, .. } | PlStatementKind::Continue { when, .. } => {
+            if let Some(e) = when {
+                check_body_expr(e, ctx, diags);
+            }
+        }
+
+        PlStatementKind::Open { args, query, .. } => {
+            for a in args {
+                check_body_expr(a, ctx, diags);
+            }
+            if let Some(q) = query {
+                diags.extend(check_select_in_ctx(q, ctx));
+            }
+        }
+        PlStatementKind::Fetch { into, .. } => check_into(into, ctx, diags),
+
+        PlStatementKind::Block(b) => check_block(b, ctx, diags),
+
+        PlStatementKind::GetDiagnostics { .. }
+        | PlStatementKind::Close(_)
+        | PlStatementKind::Null => {}
+    }
+}
+
+/// Cible d'affectation : `NEW.col` doit exister sur la table du trigger,
+/// `OLD.col` n'est jamais affectable, une variable doit être déclarée.
+fn check_assign_target(target: &[Ident], ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
+    match target {
+        [record, col] if record.value.eq_ignore_ascii_case("old") && ctx.is_trigger => {
             diags.push(Diagnostic::error(
                 codes::ASSIGN_TO_OLD,
                 format!("cannot assign to OLD.{}", col.value),
             ));
-            check_plexpr(value, ctx, diags);
         }
-
-        // Simple variable or field assignment.
-        PlStatement::Assign { value, .. } => {
-            check_plexpr(value, ctx, diags);
-        }
-
-        // SELECT … INTO: check the query (passing PL/pgSQL vars so they aren't flagged as columns).
-        PlStatement::SelectInto { query, .. } => {
-            diags.extend(check_select_in_ctx(query, ctx));
-        }
-
-        // IF statement.
-        PlStatement::If {
-            condition,
-            then_block,
-            elsif_clauses,
-            else_block,
-        } => {
-            check_plexpr(condition, ctx, diags);
-            check_block(then_block, ctx, diags);
-            for ElsIf { condition, block } in elsif_clauses {
-                check_plexpr(condition, ctx, diags);
-                check_block(block, ctx, diags);
-            }
-            if let Some(eb) = else_block {
-                check_block(eb, ctx, diags);
+        [record, col] if record.value.eq_ignore_ascii_case("new") => {
+            if let Some(ts) = ctx.trigger_table
+                && ts.get_column(&col.value).is_none()
+            {
+                diags.push(
+                    Diagnostic::error(
+                        codes::COLUMN_NOT_FOUND,
+                        format!(
+                            "column '{}' does not exist on trigger table '{}'",
+                            col.value, ts.name
+                        ),
+                    )
+                    .with_hint(available_columns(ts)),
+                );
             }
         }
-
-        // RAISE EXCEPTION with no message — validate USING options.
-        PlStatement::Raise {
-            level: RaiseLevel::Exception,
-            message: None,
-            options,
-            args,
-        } => {
-            for opt in options {
-                check_plexpr(&opt.value, ctx, diags);
-            }
-            for arg in args {
-                check_plexpr(arg, ctx, diags);
-            }
-        }
-
-        // Any other RAISE level.
-        PlStatement::Raise { args, options, .. } => {
-            for arg in args {
-                check_plexpr(arg, ctx, diags);
-            }
-            for opt in options {
-                check_plexpr(&opt.value, ctx, diags);
-            }
-        }
-
-        // RETURN expr.
-        PlStatement::Return(Some(expr)) => {
-            check_plexpr(expr, ctx, diags);
-        }
-        PlStatement::Return(None) => {}
-
-        // RETURN NEXT expr.
-        PlStatement::ReturnNext(expr) => {
-            check_plexpr(expr, ctx, diags);
-        }
-
-        // RETURN QUERY select.
-        PlStatement::ReturnQuery(query) => {
-            diags.extend(check_select_in_ctx(query, ctx));
-        }
-
-        // Direct SQL statement (INSERT, UPDATE, DELETE, CREATE TEMP TABLE, etc.)
-        PlStatement::Sql(sql_stmt) => {
-            check_sql_in_body(sql_stmt, ctx, diags);
-        }
-
-        // Nested block.
-        PlStatement::SubBlock(block) => {
-            check_block(block, ctx, diags);
-        }
-
-        // WHILE loop.
-        PlStatement::While { condition, body } => {
-            check_plexpr(condition, ctx, diags);
-            check_block(body, ctx, diags);
-        }
-
-        // LOOP (unconditional).
-        PlStatement::Loop(body) => {
-            check_block(body, ctx, diags);
-        }
-
-        // FOR … IN range.
-        PlStatement::ForRange {
-            from, to, by, body, ..
-        } => {
-            check_plexpr(from, ctx, diags);
-            check_plexpr(to, ctx, diags);
-            if let Some(step) = by {
-                check_plexpr(step, ctx, diags);
-            }
-            check_block(body, ctx, diags);
-        }
-
-        // FOR … IN query.
-        PlStatement::ForSelect { query, body, .. } => {
-            diags.extend(check_select_in_ctx(query, ctx));
-            check_block(body, ctx, diags);
-        }
-
-        // FOR … IN EXECUTE.
-        PlStatement::ForExecute {
-            sql, using, body, ..
-        } => {
-            check_plexpr(sql, ctx, diags);
-            for expr in using {
-                check_plexpr(expr, ctx, diags);
-            }
-            check_block(body, ctx, diags);
-        }
-
-        // PERFORM.
-        PlStatement::Perform(expr) => {
-            check_plexpr(expr, ctx, diags);
-        }
-
-        // EXECUTE.
-        PlStatement::Execute { sql, using, .. } => {
-            check_plexpr(sql, ctx, diags);
-            for expr in using {
-                check_plexpr(expr, ctx, diags);
-            }
-        }
-
-        // EXIT / CONTINUE with optional WHEN.
-        PlStatement::Exit { when, .. } | PlStatement::Continue { when, .. } => {
-            if let Some(expr) = when {
-                check_plexpr(expr, ctx, diags);
-            }
-        }
-
-        // CALL.
-        PlStatement::Call { args, .. } => {
-            for arg in args {
-                check_plexpr(arg, ctx, diags);
-            }
-        }
-
-        // NULL no-op and GET DIAGNOSTICS — nothing to check.
-        PlStatement::Null | PlStatement::GetDiagnostics(_) => {}
+        [var, ..] => check_declared(var, ctx, diags),
+        [] => {}
     }
 }
 
-fn check_plexpr(expr: &PlExpr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
-    match expr {
-        PlExpr::NewField(col) => {
-            if let Some(ts) = ctx.trigger_table
-                && ts.get_column(&col.value).is_none()
-            {
-                diags.push(
-                    Diagnostic::error(
-                        codes::COLUMN_NOT_FOUND,
-                        format!(
-                            "column '{}' does not exist on trigger table '{}'",
-                            col.value, ts.name
-                        ),
-                    )
-                    .with_hint(format!(
-                        "available columns: {}",
-                        ts.columns
-                            .iter()
-                            .map(|c| c.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )),
-                );
-            }
+/// Cibles d'un `INTO` : leur racine doit être une variable déclarée.
+fn check_into(into: &IntoTarget, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
+    for target in &into.targets {
+        if let Some(var) = target.first()
+            && !(ctx.is_trigger
+                && (var.value.eq_ignore_ascii_case("new") || var.value.eq_ignore_ascii_case("old")))
+        {
+            check_declared(var, ctx, diags);
         }
+    }
+}
 
-        PlExpr::OldField(col) => {
-            if let Some(ts) = ctx.trigger_table
-                && ts.get_column(&col.value).is_none()
-            {
-                diags.push(
-                    Diagnostic::error(
-                        codes::COLUMN_NOT_FOUND,
-                        format!(
-                            "column '{}' does not exist on trigger table '{}'",
-                            col.value, ts.name
-                        ),
-                    )
-                    .with_hint(format!(
-                        "available columns: {}",
-                        ts.columns
-                            .iter()
-                            .map(|c| c.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )),
-                );
+fn check_declared(var: &Ident, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
+    let lower = var.value.to_lowercase();
+    let upper = var.value.to_uppercase();
+    if ctx.vars.contains_key(&lower)
+        || ctx.params.contains_key(&lower)
+        || SPECIAL_VARS.contains(&upper.as_str())
+    {
+        return;
+    }
+    diags.push(
+        Diagnostic::warning(
+            codes::UNDECLARED_VARIABLE,
+            format!("variable '{}' may not be declared", var.value),
+        )
+        .with_hint("declare it in the DECLARE section or verify it's a function parameter"),
+    );
+}
+
+fn available_columns(ts: &TableSchema) -> String {
+    format!(
+        "available columns: {}",
+        ts.columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Expression d'un statement PL/pgSQL (hors requête) : ses identifiants non
+/// qualifiés sont des variables ou des paramètres.
+fn check_body_expr(expr: &pgweave_ast::Expr, ctx: &TypeContext<'_>, diags: &mut Vec<Diagnostic>) {
+    check_sql_expr_idents(expr, ctx, diags);
+}
+
+/// Noms déclarés dans un bloc et ses blocs imbriqués, variables de boucle
+/// comprises.
+fn collect_declared(block: &Block, out: &mut HashMap<String, DataType>) {
+    for decl in &block.declarations {
+        let (name, ty) = match decl {
+            Declaration::Variable(v) => (
+                &v.name,
+                match &v.var_type {
+                    VarType::Data(dt) => dt.clone(),
+                    VarType::RowTypeOf(t) => {
+                        DataType::Custom(format!("{}%ROWTYPE", object_name_to_string(t)))
+                    }
+                    VarType::TypeOf(t) => {
+                        DataType::Custom(format!("{}%TYPE", object_name_to_string(t)))
+                    }
+                    VarType::Record => DataType::Custom("record".into()),
+                },
+            ),
+            Declaration::Alias { name, .. } => (name, DataType::Custom("alias".into())),
+            Declaration::Cursor { name, .. } => (name, DataType::Custom("refcursor".into())),
+        };
+        out.insert(name.value.to_lowercase(), ty);
+    }
+    for_each_statement(&block.statements, &mut |s| {
+        let loop_vars: Vec<&Ident> = match &s.kind {
+            PlStatementKind::ForRange { var, .. } | PlStatementKind::ForCursor { var, .. } => {
+                vec![var]
             }
-        }
-
-        PlExpr::Var(ident) => {
-            let name = &ident.value;
-            let lower = name.to_lowercase();
-            let upper = name.to_uppercase();
-            if !ctx.vars.contains_key(&lower)
-                && !ctx.params.contains_key(&lower)
-                && upper != "FOUND"
-            {
-                // undeclared-variable: variable may not be declared (warning, not error —
-                // could be an untracked parameter).
-                diags.push(
-                    Diagnostic::warning(
-                        codes::UNDECLARED_VARIABLE,
-                        format!("variable '{}' may not be declared", name),
-                    )
-                    .with_hint(
-                        "declare it in the DECLARE section or verify it's a function parameter",
-                    ),
-                );
+            PlStatementKind::ForQuery { targets, .. }
+            | PlStatementKind::ForExecute { targets, .. }
+            | PlStatementKind::Foreach { targets, .. } => targets.iter().collect(),
+            PlStatementKind::Block(b) => {
+                collect_declared(b, out);
+                vec![]
             }
+            _ => vec![],
+        };
+        for v in loop_vars {
+            out.entry(v.value.to_lowercase())
+                .or_insert_with(|| DataType::Custom("loop variable".into()));
         }
+    });
+    if let Some(exc) = &block.exception {
+        for h in &exc.handlers {
+            for_each_statement(&h.statements, &mut |s| {
+                if let PlStatementKind::Block(b) = &s.kind {
+                    collect_declared(b, out);
+                }
+            });
+        }
+    }
+}
 
-        PlExpr::Found | PlExpr::Sqlstate => {}
-
-        // Expression SQL d'un RETURN, d'un IF, d'un PERFORM… Les identifiants
-        // non qualifiés y désignent des variables ou des paramètres : en
-        // PL/pgSQL, hors requête, aucune colonne de table n'est en portée.
-        // PostgreSQL lui-même répond `column "x" does not exist` sur un
-        // identifiant inconnu.
-        PlExpr::Sql(expr) => check_sql_expr_idents(expr, ctx, diags),
-
-        // `rec.field` : le type du record n'est pas suivi, donc rien à vérifier
-        // sans produire de faux positifs.
-        PlExpr::RecordField { .. } => {}
-
-        PlExpr::Not(inner) => check_plexpr(inner, ctx, diags),
-
-        PlExpr::And(l, r) | PlExpr::Or(l, r) | PlExpr::BinOp(l, _, r) => {
-            check_plexpr(l, ctx, diags);
-            check_plexpr(r, ctx, diags);
+/// Parcourt les statements et ceux de leurs branches et boucles (pas ceux des
+/// blocs imbriqués, que l'appelant traite comme il l'entend).
+fn for_each_statement(stmts: &[PlStatement], f: &mut dyn FnMut(&PlStatement)) {
+    for s in stmts {
+        f(s);
+        match &s.kind {
+            PlStatementKind::If {
+                then_branch,
+                elsif_branches,
+                else_branch,
+                ..
+            } => {
+                for_each_statement(then_branch, f);
+                for (_, b) in elsif_branches {
+                    for_each_statement(b, f);
+                }
+                if let Some(b) = else_branch {
+                    for_each_statement(b, f);
+                }
+            }
+            PlStatementKind::Case {
+                whens, else_branch, ..
+            } => {
+                for (_, b) in whens {
+                    for_each_statement(b, f);
+                }
+                if let Some(b) = else_branch {
+                    for_each_statement(b, f);
+                }
+            }
+            PlStatementKind::Loop { body, .. }
+            | PlStatementKind::While { body, .. }
+            | PlStatementKind::ForRange { body, .. }
+            | PlStatementKind::ForQuery { body, .. }
+            | PlStatementKind::ForExecute { body, .. }
+            | PlStatementKind::ForCursor { body, .. }
+            | PlStatementKind::Foreach { body, .. } => for_each_statement(body, f),
+            _ => {}
         }
     }
 }
@@ -532,6 +601,18 @@ const SPECIAL_VARS: &[&str] = &[
     "TG_NARGS",
     "TG_ARGV",
 ];
+
+/// Rattache un diagnostic à la position de l'expression qui le cause, quand
+/// elle est connue.
+fn at_expr(d: Diagnostic, expr: &pgweave_ast::Expr) -> Diagnostic {
+    if expr.span == pgweave_ast::Span::DUMMY {
+        return d;
+    }
+    d.with_span(pgweave_diagnostics::Span {
+        start: expr.span.start as usize,
+        end: expr.span.end as usize,
+    })
+}
 
 /// Vérifie les identifiants non qualifiés d'une expression SQL de corps.
 ///
@@ -566,7 +647,7 @@ fn check_sql_expr_idents(
                     && let Some(ts) = ctx.trigger_table
                     && ts.get_column(&col.column.value).is_none()
                 {
-                    diags.push(
+                    diags.push(at_expr(
                         Diagnostic::error(
                             codes::COLUMN_NOT_FOUND,
                             format!(
@@ -582,7 +663,8 @@ fn check_sql_expr_idents(
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         )),
-                    );
+                        expr,
+                    ));
                 }
 
                 // Tout autre qualificateur (`rec.champ`, alias de requête
@@ -628,13 +710,14 @@ fn check_sql_expr_idents(
                 format!("declared variables and parameters: {}", known.join(", "))
             };
 
-            diags.push(
+            diags.push(at_expr(
                 Diagnostic::warning(
                     codes::UNDECLARED_VARIABLE,
                     format!("variable '{}' may not be declared", name),
                 )
                 .with_hint(hint),
-            );
+                expr,
+            ));
         }
 
         ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
@@ -742,46 +825,21 @@ fn collect_temp_tables(block: &Block) -> HashMap<String, TableSchema> {
 }
 
 fn collect_temp_tables_in_block(block: &Block, out: &mut HashMap<String, TableSchema>) {
-    for stmt in &block.statements {
-        if let PlStatement::Sql(Statement::Ddl(DdlStatement::CreateTable(ct))) = stmt
-            && ct.temporary
-        {
+    let mut visit = |s: &PlStatement| match &s.kind {
+        PlStatementKind::Sql {
+            statement: Statement::Ddl(DdlStatement::CreateTable(ct)),
+            ..
+        } if ct.temporary => {
             let (key, table) = temp_table_schema(ct);
             out.insert(key, table);
         }
-        // Recurse into nested blocks.
-        match stmt {
-            PlStatement::If {
-                then_block,
-                elsif_clauses,
-                else_block,
-                ..
-            } => {
-                collect_temp_tables_in_block(then_block, out);
-                for e in elsif_clauses {
-                    collect_temp_tables_in_block(&e.block, out);
-                }
-                if let Some(b) = else_block {
-                    collect_temp_tables_in_block(b, out);
-                }
-            }
-            PlStatement::While { body, .. }
-            | PlStatement::Loop(body)
-            | PlStatement::SubBlock(body) => {
-                collect_temp_tables_in_block(body, out);
-            }
-            PlStatement::ForSelect { body, .. }
-            | PlStatement::ForRange { body, .. }
-            | PlStatement::ForExecute { body, .. } => {
-                collect_temp_tables_in_block(body, out);
-            }
-            _ => {}
-        }
-    }
-    // Also recurse into exception handlers.
+        PlStatementKind::Block(b) => collect_temp_tables_in_block(b, out),
+        _ => {}
+    };
+    for_each_statement(&block.statements, &mut visit);
     if let Some(exc) = &block.exception {
         for handler in &exc.handlers {
-            collect_temp_tables_in_block(&handler.block, out);
+            for_each_statement(&handler.statements, &mut visit);
         }
     }
 }
@@ -804,6 +862,22 @@ fn check_select_in_ctx(
     } else {
         check_select_with_plvars(sel, &body, &pv)
     }
+}
+
+/// La requête source d'un `WITH … INSERT … SELECT`, avec les CTE du
+/// statement : elles y sont visibles comme dans un `WITH … SELECT`.
+fn with_statement_ctes<'a>(
+    sel: &'a pgweave_ast::stmt::SelectStmt,
+    with: &[pgweave_ast::stmt::Cte],
+    recursive: bool,
+) -> std::borrow::Cow<'a, pgweave_ast::stmt::SelectStmt> {
+    if with.is_empty() {
+        return std::borrow::Cow::Borrowed(sel);
+    }
+    let mut owned = sel.clone();
+    owned.with = with.iter().cloned().chain(owned.with).collect();
+    owned.with_recursive |= recursive;
+    std::borrow::Cow::Owned(owned)
 }
 
 /// Check a SQL statement embedded in a PL/pgSQL body.
@@ -855,7 +929,15 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
                 );
             }
             if let InsertSource::Select(sel) = &ins.source {
-                check_sel(sel, &body, diags);
+                check_sel(
+                    &with_statement_ctes(sel, &ins.with, ins.with_recursive),
+                    &body,
+                    diags,
+                );
+            } else {
+                for cte in &ins.with {
+                    check_sel(&cte.query, &body, diags);
+                }
             }
         }
 

@@ -174,43 +174,49 @@ pub fn emit_utility(u: &UtilityKind) -> String {
 
 // ── SELECT ────────────────────────────────────────────────────────────────────
 
-pub fn emit_select(sel: &SelectStmt) -> String {
-    let mut out = String::new();
-
-    // WITH (CTEs)
-    if !sel.with.is_empty() {
-        out.push_str(if sel.with_recursive {
+/// Clause `WITH` suivie d'une espace, ou rien.
+fn emit_with(with: &[Cte], recursive: bool) -> String {
+    if with.is_empty() {
+        return String::new();
+    }
+    let ctes: Vec<String> = with
+        .iter()
+        .map(|cte| {
+            let cols = if cte.columns.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " ({})",
+                    cte.columns
+                        .iter()
+                        .map(emit_ident)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            format!(
+                "{}{} AS ({})",
+                emit_ident(&cte.name),
+                cols,
+                emit_select(&cte.query)
+            )
+        })
+        .collect();
+    format!(
+        "{}{} ",
+        if recursive {
             "WITH RECURSIVE "
         } else {
             "WITH "
-        });
-        let ctes: Vec<String> = sel
-            .with
-            .iter()
-            .map(|cte| {
-                let cols = if cte.columns.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        " ({})",
-                        cte.columns
-                            .iter()
-                            .map(emit_ident)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                };
-                format!(
-                    "{}{} AS ({})",
-                    emit_ident(&cte.name),
-                    cols,
-                    emit_select(&cte.query)
-                )
-            })
-            .collect();
-        out.push_str(&ctes.join(", "));
-        out.push(' ');
-    }
+        },
+        ctes.join(", ")
+    )
+}
+
+pub fn emit_select(sel: &SelectStmt) -> String {
+    let mut out = String::new();
+
+    out.push_str(&emit_with(&sel.with, sel.with_recursive));
 
     // Corps : SELECT, puis opérations ensemblistes. Elles sont appliquées de
     // gauche à droite (voir `SelectStmt::set_ops`) ; INTERSECT liant plus fort
@@ -1447,13 +1453,25 @@ fn emit_insert(ins: &InsertStmt) -> String {
         .unwrap_or_default();
     let returning = emit_returning(&ins.returning);
     format!(
-        "INSERT INTO {}{} {}{}{}",
+        "{}INSERT INTO {}{} {}{}{}",
+        emit_with(&ins.with, ins.with_recursive),
         emit_object_name(&ins.table),
         cols,
         source,
         on_conflict,
         returning
     )
+}
+
+fn emit_assignment(a: &Assignment) -> String {
+    let target = match a.columns.as_slice() {
+        [one] => emit_ident(one),
+        many => format!(
+            "({})",
+            many.iter().map(emit_ident).collect::<Vec<_>>().join(", ")
+        ),
+    };
+    format!("{} = {}", target, emit_expr(&a.value))
 }
 
 fn emit_on_conflict(oc: &OnConflict) -> String {
@@ -1473,7 +1491,7 @@ fn emit_on_conflict(oc: &OnConflict) -> String {
         } => {
             let assigns: Vec<String> = assignments
                 .iter()
-                .map(|a| format!("{} = {}", emit_ident(&a.column), emit_expr(&a.value)))
+                .map(emit_assignment)
                 .collect();
             let where_str = where_clause
                 .as_ref()
@@ -1489,7 +1507,7 @@ fn emit_update(upd: &UpdateStmt) -> String {
     let assigns: Vec<String> = upd
         .assignments
         .iter()
-        .map(|a| format!("{} = {}", emit_ident(&a.column), emit_expr(&a.value)))
+        .map(emit_assignment)
         .collect();
     let from = if upd.from.is_empty() {
         String::new()
@@ -1509,7 +1527,8 @@ fn emit_update(upd: &UpdateStmt) -> String {
         .unwrap_or_default();
     let returning = emit_returning(&upd.returning);
     format!(
-        "UPDATE {} SET {}{}{}{}",
+        "{}UPDATE {} SET {}{}{}{}",
+        emit_with(&upd.with, upd.with_recursive),
         emit_target(&upd.table),
         assigns.join(", "),
         from,
@@ -1537,7 +1556,8 @@ fn emit_delete(del: &DeleteStmt) -> String {
         .unwrap_or_default();
     let returning = emit_returning(&del.returning);
     format!(
-        "DELETE FROM {}{}{}{}",
+        "{}DELETE FROM {}{}{}{}",
+        emit_with(&del.with, del.with_recursive),
         emit_target(&del.table),
         using,
         where_str,

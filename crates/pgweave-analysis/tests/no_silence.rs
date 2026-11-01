@@ -3,9 +3,8 @@
 //! Trois défaillances étaient muettes, chacune vérifiée ici.
 //!
 //! 1. Un corps PL/pgSQL non parsé retombait sur un repli textuel presque
-//!    aveugle. `lib.rs` faisait `if let Ok(parsed) = …` et jetait l'erreur : une
-//!    seule construction non gérée (`FOR i IN 1..3`, `ASSERT`, deux handlers
-//!    `EXCEPTION`) désactivait l'analyse de toute la fonction, sans un mot.
+//!    aveugle, sans un mot. Il est désormais signalé — et le parser couvre
+//!    la grammaire de PL/pgSQL, donc seul un corps invalide l'est.
 //! 2. Un statement non modélisé était retiré de l'AST avec `unsupported`
 //!    à `ignore` par défaut — donc invisible.
 //! 3. Une expression non modélisée devenait `Literal(Null)`, ce qui affirmait
@@ -47,10 +46,13 @@ fn func(body: &str) -> String {
 
 // ── 1. Corps non parsé : signalé ──────────────────────────────────────────────
 
-/// Chaque construction ci-dessous fait retomber le corps entier en `Raw`.
-/// L'important n'est pas qu'elles soient supportées, mais qu'on le DISE.
+/// Corps dont le PL/pgSQL est invalide : il ne peut être analysé.
+const UNPARSABLE: &str = "    IF n THEN n := 1;";
+
+/// Les constructions qui faisaient retomber le corps entier en `Raw` avec
+/// l'ancien parser sont désormais analysées : aucun signalement.
 #[test]
-fn un_corps_non_parse_est_signale() {
+fn les_constructions_autrefois_perdues_sont_analysees() {
     let cases = [
         ("FOR IN entier", "    FOR i IN 1..3 LOOP n := i; END LOOP;"),
         ("ASSERT", "    ASSERT n IS NOT NULL;"),
@@ -75,15 +77,21 @@ fn un_corps_non_parse_est_signale() {
     for (label, body) in cases {
         let d = diags(&func(body));
         assert!(
-            has(&d, codes::UNPARSED_FUNCTION_BODY),
-            "{label} : le corps retombe en Raw sans être signalé — {d:?}"
+            !has(&d, codes::UNPARSED_FUNCTION_BODY),
+            "{label} : le corps doit être analysé — {d:?}"
         );
     }
 }
 
 #[test]
+fn un_corps_non_parse_est_signale() {
+    let d = diags(&func(UNPARSABLE));
+    assert!(has(&d, codes::UNPARSED_FUNCTION_BODY), "{d:?}");
+}
+
+#[test]
 fn le_diagnostic_nomme_la_fonction_et_la_cause() {
-    let d = diags(&func("    ASSERT n IS NOT NULL;"));
+    let d = diags(&func(UNPARSABLE));
     let msg = &of(&d, codes::UNPARSED_FUNCTION_BODY).message;
     assert!(msg.contains("'fn'"), "la fonction doit être nommée : {msg}");
     assert!(
@@ -95,7 +103,7 @@ fn le_diagnostic_nomme_la_fonction_et_la_cause() {
 #[test]
 fn un_corps_non_parse_est_un_warning_pas_une_erreur() {
     // Visible sans casser le build : c'est une lacune de l'outil, pas du SQL.
-    let d = diags(&func("    ASSERT n IS NOT NULL;"));
+    let d = diags(&func(UNPARSABLE));
     assert_eq!(
         of(&d, codes::UNPARSED_FUNCTION_BODY).severity,
         Severity::Warning
@@ -112,8 +120,8 @@ fn un_corps_qui_parse_ne_produit_rien() {
 }
 
 #[test]
-fn deux_handlers_exception_font_retomber_le_corps_et_sont_signales() {
-    // Cas très courant, et jusqu'ici totalement muet.
+fn plusieurs_handlers_exception_sont_analyses() {
+    // Cas très courant, longtemps perdu en silence puis signalé.
     let sql = "CREATE OR REPLACE FUNCTION fn() RETURNS INTEGER LANGUAGE plpgsql AS $$\n\
                BEGIN\n\
                \x20   RETURN 1;\n\
@@ -122,15 +130,13 @@ fn deux_handlers_exception_font_retomber_le_corps_et_sont_signales() {
                \x20   WHEN others THEN RETURN 3;\n\
                END;\n\
                $$;\n";
-    assert!(
-        has(&diags(sql), codes::UNPARSED_FUNCTION_BODY),
-        "deux handlers EXCEPTION : le corps est perdu, il faut le dire"
-    );
+    let d = diags(sql);
+    assert!(!has(&d, codes::UNPARSED_FUNCTION_BODY), "{d:?}");
 }
 
 #[test]
 fn le_niveau_est_configurable_comme_les_autres() {
-    let sql = func("    ASSERT n IS NOT NULL;");
+    let sql = func(UNPARSABLE);
     for (level, expected) in [
         (SkipLevel::Ignore, None),
         (SkipLevel::Warn, Some(Severity::Warning)),
@@ -157,7 +163,7 @@ fn une_directive_peut_taire_le_signalement() {
     // assume de ne pas analyser ce corps.
     let sql = format!(
         "-- pgweave-disable-file unparsed-function-body\n{}",
-        func("    ASSERT n IS NOT NULL;")
+        func(UNPARSABLE)
     );
     assert!(
         !has(&diags(&sql), codes::UNPARSED_FUNCTION_BODY),

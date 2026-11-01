@@ -200,6 +200,11 @@ fn requetes() {
         "UPDATE pages AS p SET title = s.title FROM staging AS s JOIN authors AS a ON a.id = s.author_id WHERE p.id = s.id",
         "DELETE FROM pages AS p USING staging AS s LEFT JOIN authors AS a ON a.id = s.author_id WHERE p.id = s.id",
         "WITH RECURSIVE r (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
+        "WITH x AS (SELECT 1 AS a) INSERT INTO t (a) SELECT a FROM x",
+        "UPDATE t SET (a, b) = (1, 2) WHERE id = 1",
+        "UPDATE t SET (a, b) = (SELECT x, y FROM s WHERE s.id = t.id), c = 3",
+        "WITH x AS (SELECT id FROM s) UPDATE t SET a = 1 WHERE id IN (SELECT id FROM x)",
+        "WITH x AS (SELECT id FROM s) DELETE FROM t WHERE id IN (SELECT id FROM x) RETURNING id",
     ] {
         roundtrip(sql);
     }
@@ -211,4 +216,14 @@ fn with_recursive_est_restitue() {
         "WITH RECURSIVE r (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
     );
     assert!(emit_statement(&stmts[0]).starts_with("WITH RECURSIVE "));
+}
+
+#[test]
+fn with_devant_une_modification_est_restitue() {
+    let stmts = parse_clean("WITH x AS (SELECT 1 AS a) INSERT INTO t (a) SELECT a FROM x");
+    let Statement::Insert(ins) = &stmts[0] else {
+        panic!("INSERT attendu : {:?}", stmts[0])
+    };
+    assert_eq!(ins.with.len(), 1);
+    assert!(emit_statement(&stmts[0]).starts_with("WITH x AS ("));
 }

@@ -836,6 +836,22 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
     None
 }
 
+fn var_type_to_sql(t: &pgweave_ast::plpgsql::VarType) -> String {
+    use pgweave_ast::plpgsql::VarType;
+    let path = |n: &pgweave_ast::ObjectName| {
+        n.0.iter()
+            .map(|i| i.value.as_str())
+            .collect::<Vec<_>>()
+            .join(".")
+    };
+    match t {
+        VarType::Data(dt) => data_type_to_sql(dt),
+        VarType::RowTypeOf(n) => format!("{}%ROWTYPE", path(n)),
+        VarType::TypeOf(n) => format!("{}%TYPE", path(n)),
+        VarType::Record => "record".into(),
+    }
+}
+
 /// Check if `word` (lowercased) is a declared variable or parameter in any
 /// function/procedure whose span contains `cursor_offset`.
 fn hover_plpgsql_var(
@@ -851,14 +867,14 @@ fn hover_plpgsql_var(
         let (span, params, declare) = match stmt {
             Statement::Ddl(pgweave_ast::DdlStatement::CreateFunction(cf)) => {
                 let decls = match &cf.body {
-                    FunctionBody::Parsed(b) => Some(b.declare.as_slice()),
+                    FunctionBody::Parsed(b) => Some(b.block.declarations.as_slice()),
                     _ => None,
                 };
                 (cf.span, cf.params.as_slice(), decls)
             }
             Statement::Ddl(pgweave_ast::DdlStatement::CreateProcedure(cp)) => {
                 let decls = match &cp.body {
-                    FunctionBody::Parsed(b) => Some(b.declare.as_slice()),
+                    FunctionBody::Parsed(b) => Some(b.block.declarations.as_slice()),
                     _ => None,
                 };
                 (cp.span, cp.params.as_slice(), decls)
@@ -877,11 +893,14 @@ fn hover_plpgsql_var(
         // DECLARE variables
         if let Some(decls) = declare {
             for decl in decls {
-                if decl.name.value.to_lowercase() == lower {
+                let pgweave_ast::plpgsql::Declaration::Variable(v) = decl else {
+                    continue;
+                };
+                if v.name.value.to_lowercase() == lower {
                     return Some(format!(
                         "(variable) **{}**: `{}`",
-                        decl.name.value,
-                        data_type_to_sql(&decl.data_type)
+                        v.name.value,
+                        var_type_to_sql(&v.var_type)
                     ));
                 }
             }

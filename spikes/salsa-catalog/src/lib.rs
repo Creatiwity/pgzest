@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 
 use pgweave_ast::Statement;
 use pgweave_ast::ddl::{AlterColumnAction, AlterTableOp, DdlStatement, FunctionBody};
-use pgweave_ast::plpgsql::{Block, PlStatement};
+use pgweave_ast::plpgsql::{Block, Declaration, PlStatement, PlStatementKind};
 use pgweave_schema::provider::object_name_to_string;
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::keywords::Keyword;
@@ -425,9 +425,15 @@ pub fn routine_scope<'db>(
     };
     if let FunctionBody::Parsed(body) = body {
         scope.variables = body
-            .declare
+            .block
+            .declarations
             .iter()
-            .map(|v| (v.name.value.to_lowercase(), format!("{:?}", v.data_type)))
+            .filter_map(|d| match d {
+                Declaration::Variable(v) => {
+                    Some((v.name.value.to_lowercase(), format!("{:?}", v.var_type)))
+                }
+                _ => None,
+            })
             .collect();
         collect_temp_tables(&body.block, &mut scope.temp_tables);
     }
@@ -435,9 +441,16 @@ pub fn routine_scope<'db>(
 }
 
 fn collect_temp_tables(block: &Block, out: &mut BTreeMap<String, TableDef>) {
-    for stmt in &block.statements {
-        match stmt {
-            PlStatement::Sql(s @ Statement::Ddl(DdlStatement::CreateTable(ct))) if ct.temporary => {
+    collect_in_statements(&block.statements, out);
+}
+
+fn collect_in_statements(stmts: &[PlStatement], out: &mut BTreeMap<String, TableDef>) {
+    for stmt in stmts {
+        match &stmt.kind {
+            PlStatementKind::Sql {
+                statement: s @ Statement::Ddl(DdlStatement::CreateTable(ct)),
+                ..
+            } if ct.temporary => {
                 let key = object_name_to_string(&ct.name).to_lowercase();
                 let mut def = None;
                 apply_to_table(s, &qualify(&key), &mut def);
@@ -445,25 +458,26 @@ fn collect_temp_tables(block: &Block, out: &mut BTreeMap<String, TableDef>) {
                     out.insert(key, def);
                 }
             }
-            PlStatement::If {
-                then_block,
-                elsif_clauses,
-                else_block,
+            PlStatementKind::If {
+                then_branch,
+                elsif_branches,
+                else_branch,
                 ..
             } => {
-                collect_temp_tables(then_block, out);
-                for e in elsif_clauses {
-                    collect_temp_tables(&e.block, out);
+                collect_in_statements(then_branch, out);
+                for (_, b) in elsif_branches {
+                    collect_in_statements(b, out);
                 }
-                if let Some(b) = else_block {
-                    collect_temp_tables(b, out);
+                if let Some(b) = else_branch {
+                    collect_in_statements(b, out);
                 }
             }
-            PlStatement::Loop(b) | PlStatement::SubBlock(b) => collect_temp_tables(b, out),
-            PlStatement::While { body, .. }
-            | PlStatement::ForRange { body, .. }
-            | PlStatement::ForSelect { body, .. }
-            | PlStatement::ForExecute { body, .. } => collect_temp_tables(body, out),
+            PlStatementKind::Block(b) => collect_temp_tables(b, out),
+            PlStatementKind::Loop { body, .. }
+            | PlStatementKind::While { body, .. }
+            | PlStatementKind::ForRange { body, .. }
+            | PlStatementKind::ForQuery { body, .. }
+            | PlStatementKind::ForExecute { body, .. } => collect_in_statements(body, out),
             _ => {}
         }
     }

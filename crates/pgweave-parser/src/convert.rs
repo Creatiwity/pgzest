@@ -52,10 +52,7 @@ fn convert_index_column(ic: sp::IndexColumn) -> Result<Ident, ParseError> {
 pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
     let _ids = crate::ids::session();
     match stmt {
-        sp::Statement::Query(q) => {
-            let sel = convert_query(*q)?;
-            Ok(Statement::Select(sel))
-        }
+        sp::Statement::Query(q) => convert_query_statement(*q),
         sp::Statement::Insert(ins) => {
             let s = convert_insert(ins)?;
             Ok(Statement::Insert(s))
@@ -444,6 +441,58 @@ fn convert_set(set: sp::Set) -> Result<UtilityKind, ParseError> {
 }
 
 // ── Query / SELECT ────────────────────────────────────────────────────────────
+
+/// Statement de premier niveau issu d'une requête : un `SELECT`, ou un
+/// `INSERT`/`UPDATE`/`DELETE` précédé d'un `WITH` (sqlparser les range sous
+/// `Query`).
+fn convert_query_statement(query: sp::Query) -> Result<Statement, ParseError> {
+    let dml = matches!(
+        &*query.body,
+        sp::SetExpr::Insert(_) | sp::SetExpr::Update(_) | sp::SetExpr::Delete(_)
+    );
+    if !dml {
+        return Ok(Statement::Select(convert_query(query)?));
+    }
+    if query.order_by.is_some() || query.limit_clause.is_some() {
+        return Err(ParseError::Unsupported(
+            "ORDER BY / LIMIT après un statement de modification".into(),
+        ));
+    }
+    let (with, with_recursive) = match query.with {
+        Some(w) => (
+            w.cte_tables
+                .into_iter()
+                .map(convert_cte)
+                .collect::<Result<Vec<_>, _>>()?,
+            w.recursive,
+        ),
+        None => (vec![], false),
+    };
+    let inner = match *query.body {
+        sp::SetExpr::Insert(s) | sp::SetExpr::Update(s) | sp::SetExpr::Delete(s) => {
+            convert_statement(s)?
+        }
+        _ => unreachable!("vérifié plus haut"),
+    };
+    Ok(match inner {
+        Statement::Insert(mut s) => {
+            s.with = with;
+            s.with_recursive = with_recursive;
+            Statement::Insert(s)
+        }
+        Statement::Update(mut s) => {
+            s.with = with;
+            s.with_recursive = with_recursive;
+            Statement::Update(s)
+        }
+        Statement::Delete(mut s) => {
+            s.with = with;
+            s.with_recursive = with_recursive;
+            Statement::Delete(s)
+        }
+        _ => unreachable!("un corps INSERT/UPDATE/DELETE donne un statement de modification"),
+    })
+}
 
 pub(crate) fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> {
     // WITH clause
@@ -1420,6 +1469,8 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
     Ok(InsertStmt {
         id: crate::next_node_id(),
         span: Span::DUMMY,
+        with: vec![],
+        with_recursive: false,
         table,
         columns,
         source,
@@ -1466,22 +1517,23 @@ fn convert_on_conflict(oc: sp::OnConflict) -> Result<OnConflict, ParseError> {
 }
 
 fn convert_assignment(a: sp::Assignment) -> Result<Assignment, ParseError> {
-    let column = match a.target {
-        sp::AssignmentTarget::ColumnName(name) => name
-            .0
+    let column = |name: sp::ObjectName| {
+        name.0
             .into_iter()
             .filter_map(part_to_ident)
             .next_back()
             .map(convert_ident)
-            .ok_or_else(|| ParseError::Unsupported("empty assignment target".to_string()))?,
-        sp::AssignmentTarget::Tuple(_) => {
-            return Err(ParseError::Unsupported(
-                "tuple assignment not supported".to_string(),
-            ));
-        }
+            .ok_or_else(|| ParseError::Unsupported("empty assignment target".to_string()))
+    };
+    let columns = match a.target {
+        sp::AssignmentTarget::ColumnName(name) => vec![column(name)?],
+        sp::AssignmentTarget::Tuple(names) => names
+            .into_iter()
+            .map(column)
+            .collect::<Result<Vec<_>, _>>()?,
     };
     Ok(Assignment {
-        column,
+        columns,
         value: convert_expr(a.value)?,
     })
 }
@@ -1524,6 +1576,8 @@ fn convert_update(
     Ok(UpdateStmt {
         id: crate::next_node_id(),
         span: Span::DUMMY,
+        with: vec![],
+        with_recursive: false,
         table: tref,
         assignments: assigns,
         from: from_tables,
@@ -1560,6 +1614,8 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
     Ok(DeleteStmt {
         id: crate::next_node_id(),
         span: Span::DUMMY,
+        with: vec![],
+        with_recursive: false,
         table,
         using,
         joins,

@@ -18,7 +18,7 @@ use crate::grammar::routine::RoutineBody;
 use crate::split::{LineIndex, StatementTokens, Unit};
 use crate::{Offsets, ParseOutcome, SkipReason, SkippedStatement};
 
-static DIALECT: PgweaveDialect = PgweaveDialect;
+pub(crate) static DIALECT: PgweaveDialect = PgweaveDialect;
 
 /// Parse `text`, situé à la position `base` du texte soumis au parse
 /// englobant (0 pour un fichier ; le début du corps pour un corps de
@@ -118,6 +118,21 @@ fn parse_statement(
     }
     out.statements.push(stmt);
     Ok(())
+}
+
+/// Un statement SQL à partir de ses tokens (sans le `;`), dans le contexte de
+/// position déjà ouvert pour `ctx.text`. Sert aux statements SQL d'un corps
+/// PL/pgSQL : ils sont lus exactement comme ceux d'un fichier. Le corps d'une
+/// routine qui serait définie là n'est pas analysé.
+pub(crate) fn statement_from_tokens(
+    tokens: Vec<sqlparser::tokenizer::TokenWithSpan>,
+    ctx: &Ctx,
+) -> Result<Statement, ParseError> {
+    let mut p = Parser::new(&DIALECT).with_tokens_with_locations(tokens);
+    match crate::grammar::parse(&mut p, ctx) {
+        Some(r) => r.map(|(s, _)| s),
+        None => sqlparser_statement(&mut p).and_then(convert::convert_statement),
+    }
 }
 
 /// Un statement par sqlparser, qui doit consommer tous les tokens.

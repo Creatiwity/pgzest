@@ -71,29 +71,23 @@ fn une_erreur_dans_un_corps_de_macro_pointe_le_fichier_source() {
     );
 }
 
-/// `RETURN <expr>` est désormais confronté aux variables déclarées.
+/// `RETURN <expr>` est confronté aux variables déclarées.
 ///
 /// Le diagnostic est `undeclared-variable` et non `column-not-found` : un
 /// identifiant nu dans une expression PL/pgSQL désigne une variable, pas une
-/// colonne. Il est rapporté à la **ligne de la macro**, pas à la colonne exacte
-/// de l'identifiant : les fragments PL/pgSQL sont reconstruits par jonction de
-/// tokens, ce qui détruit la correspondance octet à octet.
+/// colonne. Les tokens du corps gardent leurs positions : il désigne
+/// l'identifiant exact dans le `.pgsql`.
 #[test]
 fn un_return_dune_variable_inconnue_est_signale_dans_un_pgsql() {
     let src = format!("{SCHEMA}\n@function f(): INTEGER {{\n    RETURN nope;\n}}\n");
     let diags = analyze(&src);
     let d = find(&diags, codes::UNDECLARED_VARIABLE);
     assert!(d.message.contains("nope"), "obtenu : {}", d.message);
-    assert_eq!(
-        line_of(&src, d),
-        Some(2),
-        "rapporté sur la ligne de la macro, span {:?}",
-        d.span
-    );
+    assert_eq!(slice(&src, d), Some("nope"), "span {:?}", d.span);
 }
 
-/// La précision à la colonne survit au désucrage — vérifiée sur du SQL hors
-/// macro, seul endroit où les spans d'expression sont fiables aujourd'hui.
+/// La précision à la colonne survit au désucrage, pour le SQL qui suit une
+/// macro.
 #[test]
 fn la_precision_colonne_survit_au_desucrage() {
     let src =

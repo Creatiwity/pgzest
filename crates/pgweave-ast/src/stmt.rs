@@ -176,6 +176,9 @@ pub struct OrderByExpr {
 pub struct InsertStmt {
     pub id: NodeId,
     pub span: Span,
+    /// `WITH` en tête du statement : CTE visibles de tout le statement.
+    pub with: Vec<Cte>,
+    pub with_recursive: bool,
     pub table: ObjectName,
     pub columns: Vec<Ident>,
     pub source: InsertSource,
@@ -213,7 +216,9 @@ pub enum OnConflictAction {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Assignment {
-    pub column: Ident,
+    /// Colonnes affectées : une seule (`a = v`), ou plusieurs pour la forme
+    /// multi-colonnes `(a, b) = (v1, v2)` / `(a, b) = (SELECT …)`.
+    pub columns: Vec<Ident>,
     pub value: Expr,
 }
 
@@ -223,6 +228,9 @@ pub struct Assignment {
 pub struct UpdateStmt {
     pub id: NodeId,
     pub span: Span,
+    /// `WITH` en tête du statement : CTE visibles de tout le statement.
+    pub with: Vec<Cte>,
+    pub with_recursive: bool,
     pub table: TargetTable,
     pub assignments: Vec<Assignment>,
     pub from: Vec<TableRef>,
@@ -238,6 +246,9 @@ pub struct UpdateStmt {
 pub struct DeleteStmt {
     pub id: NodeId,
     pub span: Span,
+    /// `WITH` en tête du statement : CTE visibles de tout le statement.
+    pub with: Vec<Cte>,
+    pub with_recursive: bool,
     pub table: TargetTable,
     pub using: Vec<TableRef>,
     /// Jointures écrites dans `USING`.
