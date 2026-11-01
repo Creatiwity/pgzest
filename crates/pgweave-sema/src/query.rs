@@ -8,6 +8,7 @@ use pgweave_ast::stmt::{
     TableSource,
 };
 use pgweave_ast::utility::UtilityKind;
+use pgweave_catalog::QName;
 use pgweave_catalog::model::{ArgMode, RelationKind, TypeKind};
 use pgweave_parser::normalize_select;
 
@@ -850,7 +851,7 @@ impl<'c> Analyzer<'c> {
         s: &pgweave_ast::stmt::InsertStmt,
     ) -> Result<Vec<OutputColumn>, SemaError> {
         self.with(&s.with, s.with_recursive, None)?;
-        let (src, _) = self.target(&s.table, s.alias.as_ref())?;
+        let (src, rel) = self.target(&s.table, s.alias.as_ref())?;
         let targets: Vec<Column> = if s.columns.is_empty() {
             src.columns.clone()
         } else {
@@ -880,6 +881,9 @@ impl<'c> Analyzer<'c> {
             InsertSource::Values(rows) => {
                 for row in rows {
                     for (v, c) in row.iter().zip(&targets) {
+                        if !is_default_keyword(v) {
+                            self.check_writable(&rel, &c.name, "insert", v.span)?;
+                        }
                         self.assign(v, c, &empty)?;
                     }
                 }
@@ -888,6 +892,9 @@ impl<'c> Analyzer<'c> {
                 // Les littéraux et paramètres sans type de la liste sont
                 // convertis vers les colonnes cibles, pas figés en `text`.
                 let mut cols = self.select(q, None, false)?;
+                for c in targets.iter().take(cols.len()) {
+                    self.check_writable(&rel, &c.name, "insert", q.span)?;
+                }
                 if q.set_ops.is_empty() && q.values.is_empty() {
                     for ((o, item), c) in cols.iter_mut().zip(&q.columns).zip(&targets) {
                         if let (SelectItem::Expr { expr, .. }, Some(t)) = (item, &c.ty)
@@ -933,7 +940,7 @@ impl<'c> Analyzer<'c> {
             uscope.push(src.clone());
             uscope.push(excluded);
             for a in assignments {
-                self.assignment(a, &src, &uscope)?;
+                self.assignment(a, &src, &rel, &uscope)?;
             }
             if let Some(w) = where_clause {
                 self.boolean(w, &uscope)?;
@@ -953,8 +960,20 @@ impl<'c> Analyzer<'c> {
         &mut self,
         a: &pgweave_ast::stmt::Assignment,
         target: &Source,
+        rel: &QName,
         scope: &Scope,
     ) -> Result<(), SemaError> {
+        // Colonne générée ou identity `ALWAYS` : seulement `DEFAULT`.
+        for (i, c) in a.columns.iter().enumerate() {
+            let value = match (&a.value.kind, a.columns.len()) {
+                (_, 1) => Some(&a.value),
+                (ExprKind::Tuple(values), _) => values.get(i),
+                _ => None,
+            };
+            if value.is_none_or(|v| !is_default_keyword(v)) {
+                self.check_writable(rel, &c.value, "update", a.value.span)?;
+            }
+        }
         let cols: Vec<Column> = a
             .columns
             .iter()
@@ -1013,7 +1032,7 @@ impl<'c> Analyzer<'c> {
         s: &pgweave_ast::stmt::UpdateStmt,
     ) -> Result<Vec<OutputColumn>, SemaError> {
         self.with(&s.with, s.with_recursive, None)?;
-        let (src, _) = self.target(&s.table.name, s.table.alias.as_ref())?;
+        let (src, rel) = self.target(&s.table.name, s.table.alias.as_ref())?;
         let mut scope = Scope::default();
         scope.push(src.clone());
         for t in &s.from {
@@ -1024,7 +1043,7 @@ impl<'c> Analyzer<'c> {
             self.join(j, &mut scope)?;
         }
         for a in &s.assignments {
-            self.assignment(a, &src, &scope)?;
+            self.assignment(a, &src, &rel, &scope)?;
         }
         if let Some(w) = &s.where_clause {
             self.boolean(w, &scope)?;
@@ -1120,6 +1139,43 @@ impl Analyzer<'_> {
                 nullable: Nullability::Unknown,
             })
             .collect())
+    }
+}
+
+/// Mot-clé `DEFAULT` à la place d'une valeur.
+fn is_default_keyword(e: &Expr) -> bool {
+    matches!(&e.kind, ExprKind::Column(c) if c.table.is_none() && c.column.value == "default" && !c.column.quoted)
+}
+
+impl Analyzer<'_> {
+    /// Une valeur explicite peut-elle être écrite dans `rel.column` ? Non
+    /// pour une colonne générée ou identity `GENERATED ALWAYS`.
+    fn check_writable(
+        &self,
+        rel: &QName,
+        column: &str,
+        verb: &str,
+        span: Span,
+    ) -> Result<(), SemaError> {
+        let Some(col) = self
+            .ts
+            .catalog
+            .relations
+            .get(rel)
+            .and_then(|r| r.columns.iter().find(|c| c.name == column))
+        else {
+            return Ok(());
+        };
+        let always = col.identity == Some(pgweave_catalog::model::IdentityKind::Always);
+        if col.generated.is_none() && !always {
+            return Ok(());
+        }
+        let message = if verb == "insert" {
+            format!("cannot insert a non-DEFAULT value into column \"{column}\"")
+        } else {
+            format!("column \"{column}\" can only be updated to DEFAULT")
+        };
+        Err(SemaError::new("generated-column", message, span))
     }
 }
 

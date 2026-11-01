@@ -3,6 +3,7 @@
 mod catalog_compare;
 mod catalog_gen;
 mod corpus;
+mod probes;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

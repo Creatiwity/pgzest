@@ -156,10 +156,20 @@ pub fn run(
     stats.check_time = check_start.elapsed();
 
     let pg_url_for_import = pg_url.or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok());
+    let probes = crate::probes::generate(&replay.catalog);
     let pg = match &pg_url_for_import {
-        Some(url) => Some(replay_on_postgres(url, &sources, details)?),
+        Some(url) => Some(replay_on_postgres(url, &sources, &probes, details)?),
         None => None,
     };
+    let probe_stats = pg.as_ref().filter(|p| p.catalog.is_some()).map(|p| {
+        crate::probes::compare(
+            &probes,
+            &p.probes,
+            &replay.catalog,
+            &replay.search_path,
+            details,
+        )
+    });
 
     // Import : le catalogue reconstruit, exporté en SQL et appliqué à une base
     // vierge, doit redonner le catalogue réel.
@@ -205,9 +215,12 @@ pub fn run(
         layout,
         sources.len(),
         &stats,
-        pg.as_ref(),
-        comparison.as_ref(),
-        import_comparison.as_ref(),
+        Oracle {
+            pg: pg.as_ref(),
+            comparison: comparison.as_ref(),
+            import: import_comparison.as_ref(),
+            probes: probe_stats.as_ref(),
+        },
     );
     match out {
         Some(path) => std::fs::write(&path, report).map_err(|e| format!("{}: {e}", path.display())),
@@ -340,11 +353,14 @@ struct PgReplay {
     catalog: Option<pgweave_catalog::Catalog>,
     /// Rang (1-basé) de la première migration refusée et message masqué.
     first_failure: Option<(usize, String)>,
+    /// Description par PostgreSQL de chaque sonde, dans l'ordre.
+    probes: Vec<Result<crate::probes::Described, String>>,
 }
 
 fn replay_on_postgres(
     url: &str,
     sources: &[(PathBuf, String)],
+    probes: &[crate::probes::Probe],
     details: bool,
 ) -> Result<PgReplay, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -382,12 +398,21 @@ fn replay_on_postgres(
                     if details {
                         eprintln!("{}: refusée par PostgreSQL : {msg}", path.display());
                     }
-                    return Ok::<_, String>((applied, Some((i + 1, redact(&msg))), None));
+                    return Ok::<_, String>((
+                        applied,
+                        Some((i + 1, redact(&msg))),
+                        None,
+                        Vec::new(),
+                    ));
                 }
                 applied += 1;
             }
             let catalog = crate::catalog_compare::real_catalog(&client).await?;
-            Ok((applied, None, Some(catalog)))
+            let mut described = Vec::with_capacity(probes.len());
+            for p in probes {
+                described.push(crate::probes::theirs(&client, &p.sql).await);
+            }
+            Ok((applied, None, Some(catalog), described))
         }
         .await;
 
@@ -395,12 +420,13 @@ fn replay_on_postgres(
             .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
             .await
             .map_err(|e| db_message(&e))?;
-        let (applied, first_failure, catalog) = result?;
+        let (applied, first_failure, catalog, probes) = result?;
         Ok(PgReplay {
             major: major as u32,
             applied,
             catalog,
             first_failure,
+            probes,
         })
     })
 }
@@ -484,15 +510,23 @@ fn db_message(e: &tokio_postgres::Error) -> String {
 
 // ── Rendu ─────────────────────────────────────────────────────────────────────
 
-fn render(
-    name: &str,
-    layout: Layout,
-    files: usize,
-    s: &Stats,
-    pg: Option<&PgReplay>,
-    comparison: Option<&crate::catalog_compare::Comparison>,
-    import: Option<&Result<crate::catalog_compare::Comparison, String>>,
-) -> String {
+/// Ce que le rejeu sur PostgreSQL a permis d'établir.
+struct Oracle<'a> {
+    pg: Option<&'a PgReplay>,
+    /// Catalogue reconstruit comparé au réel.
+    comparison: Option<&'a crate::catalog_compare::Comparison>,
+    /// Import : schéma exporté puis appliqué, comparé au réel.
+    import: Option<&'a Result<crate::catalog_compare::Comparison, String>>,
+    probes: Option<&'a crate::probes::ProbeStats>,
+}
+
+fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_>) -> String {
+    let Oracle {
+        pg,
+        comparison,
+        import,
+        probes,
+    } = oracle;
     let mut o = String::new();
     let skipped_unparsable: usize = s.unparsable.values().sum();
     let skipped_unsupported: usize = s.unsupported.values().sum();
@@ -661,6 +695,8 @@ fn render(
             }
         }
     }
+
+    crate::probes::render(&mut o, probes);
 
     let _ = writeln!(o, "\n## Temps (indicatif, dépend de la machine)\n");
     let _ = writeln!(o, "| Étape | Durée |\n|---|--:|");

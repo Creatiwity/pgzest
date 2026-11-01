@@ -599,7 +599,12 @@ Fait (2026-11-01) :
 - Colonnes de vues typées pendant le rejeu (`QueryTyper`) : Mesalia identique au réel, 1 622/1 622 colonnes.
 
 Reste, dans l'ordre :
-1. Corpus de l'oracle porté à ≥ 300 requêtes, dont les corps de Mesalia.
+1. Corpus : ✅ 178 requêtes écrites à la main (`make oracle`), plus les
+   sondes générées depuis les catalogues réels de `cargo xtask corpus`
+   (`SELECT *`, `= $1`, `INSERT … VALUES ($1)`) : Mesalia 3 342/3 342,
+   siren 476/476. Reste : les requêtes des corps de routines de Mesalia
+   (variables PL/pgSQL en paramètres) ; le parser accepte `default` non
+   quoté comme nom de colonne, ce que PostgreSQL refuse.
 2. HIR explicite (références résolues vers le catalogue et la portée) plutôt que le seul couple (type, nullabilité).
 3. ✅ Arguments nommés (`MatchNamedCall`), CTE modifiantes, `GROUPING SETS`,
    listes de définition de colonnes, `RETURNING old/new`. Les lints de
