@@ -185,6 +185,62 @@ pub(crate) fn parse_routine(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, 
     })
 }
 
+// ── DO ────────────────────────────────────────────────────────────────────────
+
+pub(crate) fn is_do(p: &Parser) -> bool {
+    keyword_at(p, 0) == Some(Keyword::DO)
+}
+
+/// `DO [LANGUAGE l] code` (la clause LANGUAGE peut aussi suivre le code) :
+/// bloc anonyme, PL/pgSQL par défaut.
+pub(crate) fn parse_do(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, ParseError> {
+    p.expect_keyword_is(Keyword::DO).map_err(pe)?;
+    let mut language = None;
+    let mut body = None;
+    while p.peek_token_ref().token != Token::EOF {
+        if p.parse_keyword(Keyword::LANGUAGE) {
+            language = Some(match p.next_token().token {
+                Token::Word(w) => w.value,
+                Token::SingleQuotedString(s) => s,
+                _ => return Err(expected(p, "nom de langage")),
+            });
+            continue;
+        }
+        let tok = p.next_token();
+        let start = ctx.offset(tok.span.start);
+        body = Some(match tok.token {
+            Token::DollarQuotedString(d) => RoutineBody::Text {
+                start: start + d.tag.as_deref().map_or(2, |t| t.len() + 2),
+                content: d.value,
+            },
+            Token::SingleQuotedString(s) => RoutineBody::Text {
+                content: s,
+                start: start + 1,
+            },
+            _ => return Err(expected_at(p, "corps du bloc DO", &tok)),
+        });
+    }
+    let Some(body) = body else {
+        return Err(expected(p, "corps du bloc DO"));
+    };
+    let language = match language.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        None | Some("plpgsql") => FunctionLanguage::PlPgSql,
+        Some("sql") => FunctionLanguage::Sql,
+        Some(other) => FunctionLanguage::Other(other.to_string()),
+    };
+    Ok(ParsedRoutine {
+        statement: Statement::Utility(pgweave_ast::Utility {
+            span: Span::DUMMY,
+            kind: pgweave_ast::UtilityKind::Do {
+                language,
+                body: FunctionBody::Raw(String::new()),
+                body_start: 0,
+            },
+        }),
+        body: Some(body),
+    })
+}
+
 // ── Paramètres ────────────────────────────────────────────────────────────────
 
 struct RawParam {

@@ -416,5 +416,3 @@ Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
 Paramètres — PostgreSQL : `int8` · pgweave : non inféré · 0/1
 
 Aucune colonne de sortie ✗ (pgweave : non inféré)
-
-> pgweave — requête : `CALL reset_views($id) …` non modélisé (unsupported statement: CALL reset_views($id))

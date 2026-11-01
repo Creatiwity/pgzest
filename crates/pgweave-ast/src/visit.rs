@@ -72,6 +72,20 @@ pub fn walk_statement<V: Visit + ?Sized>(visitor: &mut V, stmt: &Statement) {
             DdlStatement::CreatePolicy(n) => visitor.visit_create_policy(n),
             DdlStatement::CreateIndex(n) => visitor.visit_create_index(n),
             DdlStatement::CreateTrigger(n) => visitor.visit_create_trigger(n),
+            DdlStatement::CreateView(v) => visitor.visit_select(&v.query),
+            _ => {}
+        },
+        Statement::Utility(u) => match &u.kind {
+            crate::utility::UtilityKind::Call { args, .. } => {
+                for a in args {
+                    visitor.visit_expr(a);
+                }
+            }
+            crate::utility::UtilityKind::Copy(c) => {
+                if let crate::utility::CopySource::Query(q) = &c.source {
+                    visitor.visit_select(q);
+                }
+            }
             _ => {}
         },
     }

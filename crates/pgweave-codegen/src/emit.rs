@@ -10,6 +10,165 @@ pub fn emit_statement(stmt: &Statement) -> String {
         Statement::Update(upd) => emit_update(upd),
         Statement::Delete(del) => emit_delete(del),
         Statement::Ddl(ddl) => emit_ddl(ddl),
+        Statement::Utility(u) => emit_utility(&u.kind),
+    }
+}
+
+// ── Utilitaires ───────────────────────────────────────────────────────────────
+
+pub fn emit_utility(u: &UtilityKind) -> String {
+    use pgweave_ast::utility::{
+        CommentTarget, CopyOption, CopySource, CopyTarget, TransactionCommand,
+    };
+    match u {
+        UtilityKind::Do { language, body, .. } => format!(
+            "DO LANGUAGE {} {};",
+            emit_function_language(language),
+            emit_function_body(body)
+        ),
+        UtilityKind::Call { name, args } => format!(
+            "CALL {}({});",
+            emit_object_name(name),
+            args.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+        ),
+        UtilityKind::Copy(c) => {
+            let source = match &c.source {
+                CopySource::Table { name, columns } if columns.is_empty() => emit_object_name(name),
+                CopySource::Table { name, columns } => format!(
+                    "{} ({})",
+                    emit_object_name(name),
+                    columns
+                        .iter()
+                        .map(emit_ident)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                CopySource::Query(q) => format!("({})", emit_select(q)),
+            };
+            let target = match &c.target {
+                CopyTarget::Stdin => "STDIN".to_string(),
+                CopyTarget::Stdout => "STDOUT".to_string(),
+                CopyTarget::File(f) => emit_string_literal(f),
+                CopyTarget::Program(p) => format!("PROGRAM {}", emit_string_literal(p)),
+            };
+            let char_lit = |ch: &char| emit_string_literal(&ch.to_string());
+            let idents = |v: &Vec<Ident>| v.iter().map(emit_ident).collect::<Vec<_>>().join(", ");
+            let options: Vec<String> = c
+                .options
+                .iter()
+                .map(|o| match o {
+                    CopyOption::Format(f) => format!("FORMAT {f}"),
+                    CopyOption::Header(b) => format!("HEADER {b}"),
+                    CopyOption::Delimiter(ch) => format!("DELIMITER {}", char_lit(ch)),
+                    CopyOption::Null(n) => format!("NULL {}", emit_string_literal(n)),
+                    CopyOption::Quote(ch) => format!("QUOTE {}", char_lit(ch)),
+                    CopyOption::Escape(ch) => format!("ESCAPE {}", char_lit(ch)),
+                    CopyOption::Encoding(e) => format!("ENCODING {}", emit_string_literal(e)),
+                    CopyOption::Freeze(b) => format!("FREEZE {b}"),
+                    CopyOption::ForceQuote(v) => format!("FORCE_QUOTE ({})", idents(v)),
+                    CopyOption::ForceNotNull(v) => format!("FORCE_NOT_NULL ({})", idents(v)),
+                    CopyOption::ForceNull(v) => format!("FORCE_NULL ({})", idents(v)),
+                })
+                .collect();
+            let options = if options.is_empty() {
+                String::new()
+            } else {
+                format!(" WITH ({})", options.join(", "))
+            };
+            format!(
+                "COPY {} {} {}{};",
+                source,
+                if c.to { "TO" } else { "FROM" },
+                target,
+                options
+            )
+        }
+        UtilityKind::Set { local, name, value } => match value {
+            SettingValue::FromCurrent => format!("SET {name} FROM CURRENT;"),
+            SettingValue::Values(v) if v.is_empty() => {
+                format!(
+                    "SET {}{} TO DEFAULT;",
+                    if *local { "LOCAL " } else { "" },
+                    name
+                )
+            }
+            SettingValue::Values(v) => format!(
+                "SET {}{} TO {};",
+                if *local { "LOCAL " } else { "" },
+                name,
+                v.iter()
+                    .map(|x| emit_string_literal(x))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        },
+        UtilityKind::Transaction(t) => match t {
+            TransactionCommand::Begin => "BEGIN;".to_string(),
+            TransactionCommand::Commit => "COMMIT;".to_string(),
+            TransactionCommand::Rollback => "ROLLBACK;".to_string(),
+            TransactionCommand::Savepoint(n) => format!("SAVEPOINT {};", emit_ident(n)),
+            TransactionCommand::ReleaseSavepoint(n) => {
+                format!("RELEASE SAVEPOINT {};", emit_ident(n))
+            }
+            TransactionCommand::RollbackToSavepoint(n) => {
+                format!("ROLLBACK TO SAVEPOINT {};", emit_ident(n))
+            }
+        },
+        UtilityKind::Comment { target, name, text } => {
+            let kind = match target {
+                CommentTarget::Table => "TABLE",
+                CommentTarget::Column => "COLUMN",
+                CommentTarget::View => "VIEW",
+                CommentTarget::MaterializedView => "MATERIALIZED VIEW",
+                CommentTarget::Index => "INDEX",
+                CommentTarget::Sequence => "SEQUENCE",
+                CommentTarget::Type => "TYPE",
+                CommentTarget::Domain => "DOMAIN",
+                CommentTarget::Function => "FUNCTION",
+                CommentTarget::Procedure => "PROCEDURE",
+                CommentTarget::Schema => "SCHEMA",
+                CommentTarget::Extension => "EXTENSION",
+            };
+            format!(
+                "COMMENT ON {} {} IS {};",
+                kind,
+                emit_object_name(name),
+                text.as_deref()
+                    .map(emit_string_literal)
+                    .unwrap_or_else(|| "NULL".to_string())
+            )
+        }
+        UtilityKind::Privilege {
+            grant,
+            privileges,
+            objects,
+            grantees,
+        } => format!(
+            "{} {} ON {} {} {};",
+            if *grant { "GRANT" } else { "REVOKE" },
+            privileges,
+            objects,
+            if *grant { "TO" } else { "FROM" },
+            grantees.join(", ")
+        ),
+        UtilityKind::Truncate {
+            tables,
+            restart_identity,
+            cascade,
+        } => format!(
+            "TRUNCATE TABLE {}{}{};",
+            tables
+                .iter()
+                .map(emit_object_name)
+                .collect::<Vec<_>>()
+                .join(", "),
+            if *restart_identity {
+                " RESTART IDENTITY"
+            } else {
+                ""
+            },
+            if *cascade { " CASCADE" } else { "" }
+        ),
     }
 }
 

@@ -41,7 +41,7 @@ fn visit_stmt(stmt: &Statement, config: &LintConfig, out: &mut Vec<Diagnostic>) 
                 visit_expr(w, config, out);
             }
         }
-        Statement::Ddl(_) => {}
+        Statement::Ddl(_) | Statement::Utility(_) => {}
     }
 }
 

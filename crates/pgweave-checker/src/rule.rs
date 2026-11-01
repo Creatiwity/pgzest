@@ -32,4 +32,5 @@ pub trait CheckRule: Send + Sync {
     fn check_procedure(&self, _cp: &CreateProcedure, _ctx: &mut RuleCtx) {}
     fn check_policy(&self, _policy: &CreatePolicy, _ctx: &mut RuleCtx) {}
     fn check_table(&self, _ct: &CreateTable, _ctx: &mut RuleCtx) {}
+    fn check_utility(&self, _u: &pgweave_ast::Utility, _ctx: &mut RuleCtx) {}
 }

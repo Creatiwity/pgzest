@@ -17,6 +17,7 @@ pub enum Statement {
     Update(UpdateStmt),
     Delete(DeleteStmt),
     Ddl(crate::ddl::DdlStatement),
+    Utility(crate::utility::Utility),
 }
 
 // ── SELECT ───────────────────────────────────────────────────────────────────
@@ -181,6 +182,7 @@ pub fn stmt_span(stmt: &Statement) -> Option<Span> {
         Statement::Insert(s) => s.span,
         Statement::Update(s) => s.span,
         Statement::Delete(s) => s.span,
+        Statement::Utility(u) => u.span,
         Statement::Ddl(ddl) => match ddl {
             DdlStatement::CreateTable(c) => c.span,
             DdlStatement::CreateFunction(c) => c.span,

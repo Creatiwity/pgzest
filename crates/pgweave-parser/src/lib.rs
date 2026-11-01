@@ -162,6 +162,7 @@ pub(crate) fn set_stmt_span(stmt: &mut Statement, start: usize, end: usize) {
         Insert(s) => s.span = span,
         Update(s) => s.span = span,
         Delete(s) => s.span = span,
+        Utility(u) => u.span = span,
         Ddl(ddl) => match ddl {
             DdlStatement::CreateFunction(cf) => cf.span = span,
             DdlStatement::CreateProcedure(cp) => cp.span = span,
@@ -239,6 +240,7 @@ mod parse_at_tests {
             Insert(s) => &s.span,
             Update(s) => &s.span,
             Delete(s) => &s.span,
+            Utility(u) => &u.span,
             Ddl(d) => match d {
                 DdlStatement::CreateFunction(c) => &c.span,
                 DdlStatement::CreateProcedure(c) => &c.span,
@@ -327,6 +329,7 @@ mod utf8_span_tests {
             Insert(s) => &s.span,
             Update(s) => &s.span,
             Delete(s) => &s.span,
+            Utility(u) => &u.span,
             Ddl(d) => match d {
                 DdlStatement::CreateTable(c) => &c.span,
                 DdlStatement::CreateFunction(c) => &c.span,

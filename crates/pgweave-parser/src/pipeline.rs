@@ -152,6 +152,15 @@ fn analyze_body(
         Statement::Ddl(DdlStatement::CreateProcedure(p)) => {
             (&p.language, &mut p.body, &mut p.body_start)
         }
+        Statement::Utility(pgweave_ast::Utility {
+            kind:
+                pgweave_ast::UtilityKind::Do {
+                    language,
+                    body,
+                    body_start,
+                },
+            ..
+        }) => (&*language, body, body_start),
         _ => return Ok(None),
     };
 
@@ -218,6 +227,7 @@ fn routine_name(stmt: &Statement) -> String {
     match stmt {
         Statement::Ddl(DdlStatement::CreateFunction(f)) => crate::object_name_last(&f.name),
         Statement::Ddl(DdlStatement::CreateProcedure(p)) => crate::object_name_last(&p.name),
+        Statement::Utility(_) => "DO".into(),
         _ => "?".into(),
     }
 }

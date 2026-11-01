@@ -79,8 +79,10 @@ impl Checker {
                     DdlStatement::CreateProcedure(cp) => rule.check_procedure(cp, &mut ctx),
                     DdlStatement::CreatePolicy(policy) => rule.check_policy(policy, &mut ctx),
                     DdlStatement::CreateTable(ct) => rule.check_table(ct, &mut ctx),
+                    DdlStatement::CreateView(v) => rule.check_select(&v.query, &mut ctx),
                     _ => {}
                 },
+                Utility(u) => rule.check_utility(u, &mut ctx),
             }
         }
 

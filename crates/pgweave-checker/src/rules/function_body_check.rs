@@ -62,6 +62,26 @@ impl CheckRule for FunctionBodyCheck {
         }
     }
 
+    /// Un bloc `DO` est une procédure anonyme, sans paramètre.
+    fn check_utility(&self, u: &pgweave_ast::Utility, ctx: &mut RuleCtx) {
+        let pgweave_ast::UtilityKind::Do { body, .. } = &u.kind else {
+            return;
+        };
+        match body {
+            FunctionBody::Parsed(b) => crate::check::plpgsql::check_plpgsql_ast(
+                b,
+                "DO",
+                &ReturnType::Void,
+                None,
+                &[],
+                ctx.schema,
+                ctx.diags,
+            ),
+            FunctionBody::Raw(raw) => check_empty_raw_body(raw, "DO", ctx.diags),
+            _ => {}
+        }
+    }
+
     fn check_procedure(&self, cp: &CreateProcedure, ctx: &mut RuleCtx) {
         let proc_name = object_name_to_string(&cp.name);
         let return_type = ReturnType::Void;

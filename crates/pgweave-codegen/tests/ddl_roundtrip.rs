@@ -149,3 +149,37 @@ fn routines() {
         roundtrip(sql);
     }
 }
+
+#[test]
+fn utilitaires() {
+    for sql in [
+        "DO $$ BEGIN RAISE NOTICE 'x'; END $$",
+        "DO LANGUAGE plpgsql $body$ BEGIN PERFORM 1; END $body$",
+        "CALL reset_views(42, 'x')",
+        "COPY pages (id, title) FROM STDIN WITH (FORMAT csv, HEADER true, DELIMITER ';')",
+        "COPY (SELECT id FROM pages) TO STDOUT WITH (FORMAT binary)",
+        "SET search_path TO app, public",
+        "SET LOCAL statement_timeout = '5s'",
+        "BEGIN",
+        "COMMIT",
+        "ROLLBACK",
+        "SAVEPOINT s1",
+        "ROLLBACK TO SAVEPOINT s1",
+        "COMMENT ON TABLE pages IS 'Les pages'",
+        "COMMENT ON COLUMN pages.title IS NULL",
+        "TRUNCATE TABLE a, b RESTART IDENTITY CASCADE",
+    ] {
+        roundtrip(sql);
+    }
+}
+
+#[test]
+fn copy_ancienne_syntaxe() {
+    let new = parse_clean("COPY t (a) FROM STDIN WITH (FORMAT csv, HEADER true)");
+    let old = parse_clean("COPY t (a) FROM STDIN WITH CSV HEADER");
+    assert_eq!(
+        shape(&new),
+        shape(&old),
+        "les deux syntaxes donnent le même AST"
+    );
+}

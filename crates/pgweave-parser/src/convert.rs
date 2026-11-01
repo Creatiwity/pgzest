@@ -4,6 +4,7 @@
 
 use pgweave_ast::{
     Statement,
+    ddl::SettingValue,
     ddl::{
         AlterColumnAction, AlterTable, AlterTableOp, AlterType, AlterTypeOp, ColumnConstraint,
         ColumnDef, CreateIndex, CreatePolicy, CreateSchema, CreateTable, CreateTrigger, CreateType,
@@ -20,6 +21,10 @@ use pgweave_ast::{
         TableRef, UpdateStmt,
     },
     types::DataType,
+    utility::{
+        CommentTarget, CopyOption, CopySource, CopyStatement, CopyTarget, TransactionCommand,
+        Utility, UtilityKind,
+    },
 };
 
 use crate::error::ParseError;
@@ -203,10 +208,238 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             matches!(de.cascade_or_restrict, Some(sp::ReferentialAction::Cascade)),
             None,
         )),
+        sp::Statement::Call(f) => utility(UtilityKind::Call {
+            name: convert_object_name(f.name),
+            args: convert_function_args(f.args)?,
+        }),
+        sp::Statement::Copy {
+            source,
+            to,
+            target,
+            options,
+            legacy_options,
+            values,
+        } => {
+            if !values.is_empty() {
+                return Err(ParseError::Unsupported(
+                    "COPY suivi de données en ligne".to_string(),
+                ));
+            }
+            utility(UtilityKind::Copy(convert_copy(
+                source,
+                to,
+                target,
+                options,
+                legacy_options,
+            )?))
+        }
+        sp::Statement::Set(set) => utility(convert_set(set)?),
+        sp::Statement::StartTransaction { .. } => {
+            utility(UtilityKind::Transaction(TransactionCommand::Begin))
+        }
+        sp::Statement::Commit { .. } => {
+            utility(UtilityKind::Transaction(TransactionCommand::Commit))
+        }
+        sp::Statement::Rollback { savepoint, .. } => {
+            utility(UtilityKind::Transaction(match savepoint {
+                Some(n) => TransactionCommand::RollbackToSavepoint(convert_ident(n)),
+                None => TransactionCommand::Rollback,
+            }))
+        }
+        sp::Statement::Savepoint { name } => utility(UtilityKind::Transaction(
+            TransactionCommand::Savepoint(convert_ident(name)),
+        )),
+        sp::Statement::ReleaseSavepoint { name } => utility(UtilityKind::Transaction(
+            TransactionCommand::ReleaseSavepoint(convert_ident(name)),
+        )),
+        sp::Statement::Comment {
+            object_type,
+            object_name,
+            comment,
+            ..
+        } => {
+            let target = match object_type {
+                sp::CommentObject::Table => CommentTarget::Table,
+                sp::CommentObject::Column => CommentTarget::Column,
+                sp::CommentObject::View => CommentTarget::View,
+                sp::CommentObject::MaterializedView => CommentTarget::MaterializedView,
+                sp::CommentObject::Index => CommentTarget::Index,
+                sp::CommentObject::Sequence => CommentTarget::Sequence,
+                sp::CommentObject::Type => CommentTarget::Type,
+                sp::CommentObject::Domain => CommentTarget::Domain,
+                sp::CommentObject::Function => CommentTarget::Function,
+                sp::CommentObject::Procedure => CommentTarget::Procedure,
+                sp::CommentObject::Schema => CommentTarget::Schema,
+                sp::CommentObject::Extension => CommentTarget::Extension,
+                other => {
+                    return Err(ParseError::Unsupported(format!("COMMENT ON {other}")));
+                }
+            };
+            utility(UtilityKind::Comment {
+                target,
+                name: convert_object_name(object_name),
+                text: comment,
+            })
+        }
+        sp::Statement::Grant(g) => utility(UtilityKind::Privilege {
+            grant: true,
+            privileges: g.privileges.to_string(),
+            objects: g
+                .objects
+                .map(|o| o.to_string())
+                .ok_or_else(|| ParseError::Unsupported("GRANT de rôle".to_string()))?,
+            grantees: g.grantees.iter().map(|x| x.to_string()).collect(),
+        }),
+        sp::Statement::Revoke(r) => utility(UtilityKind::Privilege {
+            grant: false,
+            privileges: r.privileges.to_string(),
+            objects: r
+                .objects
+                .map(|o| o.to_string())
+                .ok_or_else(|| ParseError::Unsupported("REVOKE de rôle".to_string()))?,
+            grantees: r.grantees.iter().map(|x| x.to_string()).collect(),
+        }),
+        sp::Statement::Truncate(t) => utility(UtilityKind::Truncate {
+            tables: t
+                .table_names
+                .into_iter()
+                .map(|t| convert_object_name(t.name))
+                .collect(),
+            restart_identity: matches!(t.identity, Some(sp::TruncateIdentityOption::Restart)),
+            cascade: matches!(t.cascade, Some(sp::CascadeOption::Cascade)),
+        }),
         other => Err(ParseError::Unsupported(format!(
             "unsupported statement: {}",
             other
         ))),
+    }
+}
+
+// ── Statements utilitaires ────────────────────────────────────────────────────
+
+fn utility(kind: UtilityKind) -> Result<Statement, ParseError> {
+    Ok(Statement::Utility(Utility {
+        span: Span::DUMMY,
+        kind,
+    }))
+}
+
+fn convert_copy(
+    source: sp::CopySource,
+    to: bool,
+    target: sp::CopyTarget,
+    options: Vec<sp::CopyOption>,
+    legacy: Vec<sp::CopyLegacyOption>,
+) -> Result<CopyStatement, ParseError> {
+    let source = match source {
+        sp::CopySource::Table {
+            table_name,
+            columns,
+        } => CopySource::Table {
+            name: convert_object_name(table_name),
+            columns: columns.into_iter().map(convert_ident).collect(),
+        },
+        sp::CopySource::Query(q) => CopySource::Query(Box::new(convert_query(*q)?)),
+    };
+    let target = match target {
+        sp::CopyTarget::Stdin => CopyTarget::Stdin,
+        sp::CopyTarget::Stdout => CopyTarget::Stdout,
+        sp::CopyTarget::File { filename } => CopyTarget::File(filename),
+        sp::CopyTarget::Program { command } => CopyTarget::Program(command),
+    };
+    let ids = |v: Vec<sp::Ident>| v.into_iter().map(convert_ident).collect::<Vec<_>>();
+    let mut out: Vec<CopyOption> = options
+        .into_iter()
+        .map(|o| match o {
+            sp::CopyOption::Format(f) => CopyOption::Format(f.value.to_lowercase()),
+            sp::CopyOption::Freeze(b) => CopyOption::Freeze(b),
+            sp::CopyOption::Delimiter(c) => CopyOption::Delimiter(c),
+            sp::CopyOption::Null(n) => CopyOption::Null(n),
+            sp::CopyOption::Header(b) => CopyOption::Header(b),
+            sp::CopyOption::Quote(c) => CopyOption::Quote(c),
+            sp::CopyOption::Escape(c) => CopyOption::Escape(c),
+            sp::CopyOption::ForceQuote(v) => CopyOption::ForceQuote(ids(v)),
+            sp::CopyOption::ForceNotNull(v) => CopyOption::ForceNotNull(ids(v)),
+            sp::CopyOption::ForceNull(v) => CopyOption::ForceNull(ids(v)),
+            sp::CopyOption::Encoding(e) => CopyOption::Encoding(e),
+        })
+        .collect();
+    // Ancienne syntaxe `WITH CSV HEADER`, encore très répandue.
+    for o in legacy {
+        match o {
+            sp::CopyLegacyOption::Binary => out.push(CopyOption::Format("binary".into())),
+            sp::CopyLegacyOption::Delimiter(c) => out.push(CopyOption::Delimiter(c)),
+            sp::CopyLegacyOption::Null(n) => out.push(CopyOption::Null(n)),
+            sp::CopyLegacyOption::Header => out.push(CopyOption::Header(true)),
+            sp::CopyLegacyOption::Csv(csv) => {
+                out.push(CopyOption::Format("csv".into()));
+                for c in csv {
+                    out.push(match c {
+                        sp::CopyLegacyCsvOption::Header => CopyOption::Header(true),
+                        sp::CopyLegacyCsvOption::Quote(q) => CopyOption::Quote(q),
+                        sp::CopyLegacyCsvOption::Escape(e) => CopyOption::Escape(e),
+                        sp::CopyLegacyCsvOption::ForceQuote(v) => CopyOption::ForceQuote(ids(v)),
+                        sp::CopyLegacyCsvOption::ForceNotNull(v) => {
+                            CopyOption::ForceNotNull(ids(v))
+                        }
+                    });
+                }
+            }
+            other => {
+                return Err(ParseError::Unsupported(format!(
+                    "option COPY non PostgreSQL : {other}"
+                )));
+            }
+        }
+    }
+    Ok(CopyStatement {
+        source,
+        to,
+        target,
+        options: out,
+    })
+}
+
+/// Valeur d'un paramètre telle qu'écrite : chaînes sans délimiteurs,
+/// identifiants et nombres tels quels.
+fn setting_value(e: &sp::Expr) -> String {
+    match e {
+        sp::Expr::Value(v) => match &v.value {
+            sp::Value::SingleQuotedString(s)
+            | sp::Value::DollarQuotedString(sp::DollarQuotedString { value: s, .. }) => s.clone(),
+            other => other.to_string(),
+        },
+        sp::Expr::Identifier(id) => id.value.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn convert_set(set: sp::Set) -> Result<UtilityKind, ParseError> {
+    match set {
+        sp::Set::SingleAssignment {
+            scope,
+            variable,
+            values,
+            ..
+        } => {
+            let name = variable.to_string();
+            let is_default = matches!(values.as_slice(), [sp::Expr::Identifier(id)] if id.value.eq_ignore_ascii_case("default"));
+            Ok(UtilityKind::Set {
+                local: matches!(scope, Some(sp::ContextModifier::Local)),
+                name,
+                value: SettingValue::Values(if is_default {
+                    Vec::new()
+                } else {
+                    values.iter().map(setting_value).collect()
+                }),
+            })
+        }
+        sp::Set::SetTimeZone { local, value } => Ok(UtilityKind::Set {
+            local,
+            name: "timezone".into(),
+            value: SettingValue::Values(vec![setting_value(&value)]),
+        }),
+        other => Err(ParseError::Unsupported(format!("{other}"))),
     }
 }
 

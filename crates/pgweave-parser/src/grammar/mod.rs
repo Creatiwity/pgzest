@@ -23,6 +23,9 @@ pub(crate) fn parse(
     if routine::is_routine(p) {
         return Some(routine::parse_routine(p, ctx).map(|r| (r.statement, r.body)));
     }
+    if routine::is_do(p) {
+        return Some(routine::parse_do(p, ctx).map(|r| (r.statement, r.body)));
+    }
     if ddl::is_create_table(p) {
         return plain(ddl::parse_create_table(p));
     }
