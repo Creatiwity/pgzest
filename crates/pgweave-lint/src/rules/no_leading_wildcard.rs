@@ -93,9 +93,9 @@ fn visit_expr_children(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnosti
         }
         ExprKind::UnaryOp { expr, .. } => visit_expr(expr, config, out),
         ExprKind::Cast { expr, .. } => visit_expr(expr, config, out),
-        ExprKind::FunctionCall { args, .. } => {
-            for a in args {
-                visit_expr(a, config, out);
+        ExprKind::FunctionCall { .. } => {
+            for child in expr.children() {
+                visit_expr(child, config, out);
             }
         }
         ExprKind::Case {

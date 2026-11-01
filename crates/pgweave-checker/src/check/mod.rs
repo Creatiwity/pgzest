@@ -131,7 +131,7 @@ fn check_policy_expr(
             }
         }
 
-        ExprKind::FunctionCall { name, args, .. } => {
+        ExprKind::FunctionCall { name, .. } => {
             let func_name = object_name_to_string(name);
             // Schema-qualified calls (e.g. auth.uid()) are trusted silently.
             if name.0.len() == 1 && schema.get_function(&func_name).is_none() {
@@ -144,9 +144,8 @@ fn check_policy_expr(
                     ),
                 ));
             }
-            // Recurse into arguments.
-            for arg in args {
-                check_policy_expr(arg, clause, policy_name, table_schema, schema, diags);
+            for child in expr.children() {
+                check_policy_expr(child, clause, policy_name, table_schema, schema, diags);
             }
         }
 

@@ -112,8 +112,16 @@ pub enum ExprKind {
     FunctionCall {
         name: ObjectName,
         args: Vec<Expr>,
+        /// `ORDER BY` entre les parenthèses d'un agrégat :
+        /// `string_agg(x, ',' ORDER BY y)`.
+        order_by: Vec<crate::stmt::OrderByExpr>,
         filter: Option<Box<Expr>>,
         distinct: bool,
+        /// `WITHIN GROUP (ORDER BY …)` : agrégat d'ensemble ordonné
+        /// (`percentile_cont(0.5) WITHIN GROUP (ORDER BY x)`).
+        within_group: Vec<crate::stmt::OrderByExpr>,
+        /// `OVER …` : appel de fonction de fenêtre.
+        over: Option<Box<Window>>,
     },
     Cast {
         expr: Box<Expr>,
@@ -233,6 +241,97 @@ impl Expr {
         }
     }
 
+    /// Sous-expressions directes, dans l'ordre d'écriture, sous-requêtes
+    /// exclues (voir [`Self::subqueries`]). Point de vérité unique pour les
+    /// parcours : une variante ajoutée ici est vue de tous.
+    pub fn children(&self) -> Vec<&Expr> {
+        let mut out: Vec<&Expr> = Vec::new();
+        match &self.kind {
+            ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
+                out.push(left);
+                out.push(right);
+            }
+            ExprKind::UnaryOp { expr, .. }
+            | ExprKind::Cast { expr, .. }
+            | ExprKind::Collate { expr, .. } => out.push(expr),
+            ExprKind::FunctionCall {
+                args,
+                order_by,
+                filter,
+                within_group,
+                over,
+                ..
+            } => {
+                out.extend(args);
+                out.extend(order_by.iter().map(|o| &o.expr));
+                out.extend(within_group.iter().map(|o| &o.expr));
+                if let Some(f) = filter {
+                    out.push(f);
+                }
+                if let Some(Window::Spec(spec)) = over.as_deref() {
+                    out.extend(spec.exprs());
+                }
+            }
+            ExprKind::Case {
+                operand,
+                when_clauses,
+                else_clause,
+            } => {
+                if let Some(op) = operand {
+                    out.push(op);
+                }
+                for (w, t) in when_clauses {
+                    out.push(w);
+                    out.push(t);
+                }
+                if let Some(el) = else_clause {
+                    out.push(el);
+                }
+            }
+            ExprKind::InSubquery { expr, .. } => out.push(expr),
+            ExprKind::InList { expr, list, .. } => {
+                out.push(expr);
+                out.extend(list);
+            }
+            ExprKind::Between {
+                expr, low, high, ..
+            } => {
+                out.push(expr);
+                out.push(low);
+                out.push(high);
+            }
+            ExprKind::AtTimeZone {
+                timestamp,
+                time_zone,
+            } => {
+                out.push(timestamp);
+                out.push(time_zone);
+            }
+            ExprKind::Tuple(items) => out.extend(items),
+            ExprKind::FieldAccess { root, .. } => out.push(root),
+            ExprKind::Subquery(_)
+            | ExprKind::Exists { .. }
+            | ExprKind::Column(_)
+            | ExprKind::Literal(_)
+            | ExprKind::Wildcard
+            | ExprKind::QualifiedWildcard(_)
+            | ExprKind::Interval(_)
+            | ExprKind::Parameter(_)
+            | ExprKind::Unsupported(_) => {}
+        }
+        out
+    }
+
+    /// Sous-requêtes directes (`(SELECT …)`, `IN (SELECT …)`, `EXISTS`).
+    pub fn subqueries(&self) -> Vec<&SelectStmt> {
+        match &self.kind {
+            ExprKind::Subquery(q)
+            | ExprKind::InSubquery { subquery: q, .. }
+            | ExprKind::Exists { subquery: q, .. } => vec![q],
+            _ => vec![],
+        }
+    }
+
     /// Le span, ou `None` s'il est resté à [`Span::DUMMY`].
     ///
     /// À préférer à la lecture directe de `span` pour émettre un diagnostic :
@@ -257,4 +356,64 @@ impl From<ExprKind> for Expr {
     fn from(kind: ExprKind) -> Self {
         Self::bare(kind)
     }
+}
+
+// ── Fenêtres ──────────────────────────────────────────────────────────────────
+
+/// Fenêtre d'un appel `OVER` : nommée (`OVER w`) ou décrite sur place.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Window {
+    Named(Ident),
+    Spec(WindowSpec),
+}
+
+/// `([fenêtre_de_base] [PARTITION BY …] [ORDER BY …] [cadre])`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowSpec {
+    /// Fenêtre nommée dont celle-ci hérite.
+    pub base: Option<Ident>,
+    pub partition_by: Vec<Expr>,
+    pub order_by: Vec<crate::stmt::OrderByExpr>,
+    pub frame: Option<WindowFrame>,
+}
+
+impl WindowSpec {
+    /// Expressions de la fenêtre : partition, tri, bornes du cadre.
+    pub fn exprs(&self) -> Vec<&Expr> {
+        let mut out: Vec<&Expr> = self.partition_by.iter().collect();
+        out.extend(self.order_by.iter().map(|o| &o.expr));
+        if let Some(f) = &self.frame {
+            for b in std::iter::once(&f.start).chain(&f.end) {
+                if let FrameBound::Preceding(e) | FrameBound::Following(e) = b {
+                    out.push(e);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// `{ROWS | RANGE | GROUPS} début` ou `… BETWEEN début AND fin`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowFrame {
+    pub units: FrameUnits,
+    pub start: FrameBound,
+    /// `None` : forme sans `BETWEEN` (la fin est `CURRENT ROW`).
+    pub end: Option<FrameBound>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FrameUnits {
+    Rows,
+    Range,
+    Groups,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FrameBound {
+    UnboundedPreceding,
+    Preceding(Box<Expr>),
+    CurrentRow,
+    Following(Box<Expr>),
+    UnboundedFollowing,
 }

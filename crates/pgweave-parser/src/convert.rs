@@ -28,7 +28,8 @@ use pgweave_ast::{
 };
 
 use crate::error::ParseError;
-use pgweave_ast::expr::ExprKind;
+use pgweave_ast::expr::{ExprKind, FrameBound, FrameUnits, Window, WindowFrame, WindowSpec};
+use pgweave_ast::stmt::NamedWindow;
 use sqlparser::ast as sp;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -653,6 +654,31 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
 
     let having = select.having.map(convert_expr).transpose()?;
 
+    if select.into.is_some() {
+        return Err(ParseError::Unsupported(
+            "SELECT … INTO table (créer une table : CREATE TABLE … AS)".to_string(),
+        ));
+    }
+    let windows = select
+        .named_window
+        .into_iter()
+        .map(|sp::NamedWindowDefinition(name, def)| {
+            let spec = match def {
+                sp::NamedWindowExpr::WindowSpec(spec) => convert_window_spec(spec)?,
+                sp::NamedWindowExpr::NamedWindow(base) => WindowSpec {
+                    base: Some(convert_ident(base)),
+                    partition_by: vec![],
+                    order_by: vec![],
+                    frame: None,
+                },
+            };
+            Ok(NamedWindow {
+                name: convert_ident(name),
+                spec,
+            })
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
+
     Ok(SelectStmt {
         id: crate::next_node_id(),
         span: Span::DUMMY,
@@ -666,6 +692,7 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
         where_clause,
         group_by,
         having,
+        windows,
         order_by: vec![],
         limit: None,
         offset: None,
@@ -1038,16 +1065,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             let sub = convert_query(*q)?;
             Ok(ExprKind::Subquery(Box::new(sub)))
         }
-        sp::Expr::Function(f) => {
-            let name = convert_object_name(f.name);
-            let args = convert_function_args(f.args)?;
-            Ok(ExprKind::FunctionCall {
-                name,
-                args,
-                filter: None,
-                distinct: false,
-            })
-        }
+        sp::Expr::Function(f) => convert_function_call(f),
         sp::Expr::Wildcard(_) => Ok(ExprKind::Wildcard),
         // In 0.62, ObjectName.0 is Vec<ObjectNamePart>
         sp::Expr::QualifiedWildcard(parts, _) => {
@@ -1158,28 +1176,25 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             quantifier: pgweave_ast::expr::Quantifier::All,
             right: Box::new(convert_expr(*right)?),
         }),
-        // `ARRAY[e1, e2, ...]` — array constructor, common in pg_dump.
-        // Convert elements individually; treat failures as a null literal.
-        sp::Expr::Array(arr) => {
-            let args: Vec<Expr> = arr
+        // `ARRAY[e1, e2, …]` : constructeur de tableau, représenté comme un
+        // appel à `array` (vide pour `ARRAY[]`). Un élément illisible fait
+        // échouer l'expression entière plutôt que de disparaître.
+        sp::Expr::Array(arr) => Ok(ExprKind::FunctionCall {
+            name: pgweave_ast::ObjectName(vec![pgweave_ast::Ident {
+                value: "array".into(),
+                quoted: false,
+            }]),
+            args: arr
                 .elem
                 .into_iter()
-                .filter_map(|e| convert_expr(e).ok())
-                .collect();
-            if args.is_empty() {
-                Ok(ExprKind::Literal(Literal::Null))
-            } else {
-                Ok(ExprKind::FunctionCall {
-                    name: pgweave_ast::ObjectName(vec![pgweave_ast::Ident {
-                        value: "array".into(),
-                        quoted: false,
-                    }]),
-                    args,
-                    filter: None,
-                    distinct: false,
-                })
-            }
-        }
+                .map(convert_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+            order_by: vec![],
+            filter: None,
+            distinct: false,
+            within_group: vec![],
+            over: None,
+        }),
 
         // `DATE '2025-01-01'` / `'value'::type` typed string literals.
         sp::Expr::TypedString(ts) => match ts.value.into_string() {
@@ -1231,6 +1246,9 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             ],
             filter: None,
             distinct: false,
+            order_by: vec![],
+            within_group: vec![],
+            over: None,
         }),
 
         _other => Ok(ExprKind::Unsupported(describe_sp_expr(&_other))),
@@ -1352,6 +1370,125 @@ fn convert_binary_op(op: sp::BinaryOperator) -> Result<BinaryOp, ParseError> {
         // et JSONB ; il suffisait de s'en servir jusqu'au bout.
         other => Ok(BinaryOp::Custom(other.to_string())),
     }
+}
+
+/// Appel de fonction, avec tout ce qui l'accompagne : `DISTINCT`, `ORDER BY`
+/// d'agrégat, `FILTER`, `WITHIN GROUP`, `OVER`. Ce que PostgreSQL ne connaît
+/// pas (syntaxes d'autres dialectes) est refusé, jamais ignoré.
+fn convert_function_call(f: sp::Function) -> Result<ExprKind, ParseError> {
+    if !matches!(f.parameters, sp::FunctionArguments::None) || f.null_treatment.is_some() {
+        return Err(ParseError::Unsupported(format!(
+            "appel de fonction hors PostgreSQL : {f}"
+        )));
+    }
+    let call_span = sqlparser::ast::Spanned::span(&f);
+    let name = convert_object_name(f.name);
+    let (distinct, order_by) = match &f.args {
+        sp::FunctionArguments::List(list) => {
+            let distinct = matches!(
+                list.duplicate_treatment,
+                Some(sp::DuplicateTreatment::Distinct)
+            );
+            let mut order_by = Vec::new();
+            for clause in &list.clauses {
+                match clause {
+                    sp::FunctionArgumentClause::OrderBy(items) => {
+                        for o in items {
+                            order_by.push(convert_order_by_expr(o.clone())?);
+                        }
+                    }
+                    other => {
+                        return Err(ParseError::Unsupported(format!(
+                            "clause d'appel de fonction hors PostgreSQL : {other}"
+                        )));
+                    }
+                }
+            }
+            (distinct, order_by)
+        }
+        _ => (false, Vec::new()),
+    };
+    let mut args = convert_function_args(f.args)?;
+    for a in &mut args {
+        if matches!(a.kind, ExprKind::Wildcard) && a.span == Span::DUMMY {
+            a.span = SPAN_CTX.with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .map(|ctx| ctx.star_in_call(call_span))
+                    .unwrap_or(Span::DUMMY)
+            });
+        }
+    }
+    let filter = f
+        .filter
+        .map(|e| convert_expr(*e).map(Box::new))
+        .transpose()?;
+    let within_group = f
+        .within_group
+        .into_iter()
+        .map(convert_order_by_expr)
+        .collect::<Result<Vec<_>, _>>()?;
+    let over = f
+        .over
+        .map(|w| match w {
+            sp::WindowType::NamedWindow(n) => Ok(Window::Named(convert_ident(n))),
+            sp::WindowType::WindowSpec(spec) => convert_window_spec(spec).map(Window::Spec),
+        })
+        .transpose()?
+        .map(Box::new);
+    Ok(ExprKind::FunctionCall {
+        name,
+        args,
+        order_by,
+        filter,
+        distinct,
+        within_group,
+        over,
+    })
+}
+
+pub(crate) fn convert_window_spec(spec: sp::WindowSpec) -> Result<WindowSpec, ParseError> {
+    let bound = |b: sp::WindowFrameBound| -> Result<FrameBound, ParseError> {
+        Ok(match b {
+            sp::WindowFrameBound::CurrentRow => FrameBound::CurrentRow,
+            sp::WindowFrameBound::Preceding(None) => FrameBound::UnboundedPreceding,
+            sp::WindowFrameBound::Preceding(Some(e)) => {
+                FrameBound::Preceding(Box::new(convert_expr(*e)?))
+            }
+            sp::WindowFrameBound::Following(None) => FrameBound::UnboundedFollowing,
+            sp::WindowFrameBound::Following(Some(e)) => {
+                FrameBound::Following(Box::new(convert_expr(*e)?))
+            }
+        })
+    };
+    let frame = spec
+        .window_frame
+        .map(|f| -> Result<WindowFrame, ParseError> {
+            Ok(WindowFrame {
+                units: match f.units {
+                    sp::WindowFrameUnits::Rows => FrameUnits::Rows,
+                    sp::WindowFrameUnits::Range => FrameUnits::Range,
+                    sp::WindowFrameUnits::Groups => FrameUnits::Groups,
+                },
+                start: bound(f.start_bound)?,
+                end: f.end_bound.map(bound).transpose()?,
+            })
+        })
+        .transpose()?;
+    Ok(WindowSpec {
+        base: spec.window_name.map(convert_ident),
+        partition_by: spec
+            .partition_by
+            .into_iter()
+            .map(convert_expr)
+            .collect::<Result<Vec<_>, _>>()?,
+        order_by: spec
+            .order_by
+            .into_iter()
+            .map(convert_order_by_expr)
+            .collect::<Result<Vec<_>, _>>()?,
+        frame,
+    })
 }
 
 fn convert_function_args(args: sp::FunctionArguments) -> Result<Vec<Expr>, ParseError> {
@@ -2415,6 +2552,32 @@ impl SpanCtx {
             .unwrap_or_else(|| line_text.len());
 
         Some(self.stmt_offset + line_start + byte_in_line)
+    }
+
+    /// Position du `*` de `f(*)` : premier caractère significatif après la
+    /// première parenthèse qui suit le début de l'appel. sqlparser ne la
+    /// conserve pas, et le span qu'il donne à l'appel s'arrête alors au nom.
+    fn star_in_call(&self, call: sqlparser::tokenizer::Span) -> Span {
+        let Some(start) = self.local_offset_of(call.start.line, call.start.column) else {
+            return Span::DUMMY;
+        };
+        let Some(text) = self.source.get(start - self.stmt_offset..) else {
+            return Span::DUMMY;
+        };
+        let Some(paren) = text.find('(') else {
+            return Span::DUMMY;
+        };
+        let after = &text[paren + 1..];
+        let skipped = after.len() - after.trim_start().len();
+        if !after[skipped..].starts_with('*') {
+            return Span::DUMMY;
+        }
+        let at = start + paren + 1 + skipped;
+        let (s, e) = self.offsets.span(at, at + 1);
+        Span {
+            start: s as u32,
+            end: e as u32,
+        }
     }
 
     /// Plage sqlparser → span dans le repère du document.

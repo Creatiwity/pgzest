@@ -212,6 +212,14 @@ fn requetes() {
         "UPDATE t SET (a, b) = (SELECT x, y FROM s WHERE s.id = t.id), c = 3",
         "WITH x AS (SELECT id FROM s) UPDATE t SET a = 1 WHERE id IN (SELECT id FROM x)",
         "WITH x AS (SELECT id FROM s) DELETE FROM t WHERE id IN (SELECT id FROM x) RETURNING id",
+        "SELECT count(DISTINCT a) FILTER (WHERE b > 0) FROM t",
+        "SELECT string_agg(a, ',' ORDER BY b DESC NULLS LAST) FROM t",
+        "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY a) FROM t",
+        "SELECT row_number() OVER (PARTITION BY a ORDER BY b) FROM t",
+        "SELECT sum(a) OVER (ORDER BY b ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM t",
+        "SELECT sum(a) OVER (RANGE UNBOUNDED PRECEDING) FROM t",
+        "SELECT sum(a) OVER w, avg(a) OVER (w ORDER BY b) FROM t WINDOW w AS (PARTITION BY c)",
+        "SELECT ARRAY[1, 2, 3], ARRAY[]::int[]",
     ] {
         roundtrip(sql);
     }

@@ -18,6 +18,7 @@ fn make_select(columns: Vec<SelectItem>, from: Vec<TableRef>) -> SelectStmt {
         where_clause: None,
         group_by: vec![],
         having: None,
+        windows: vec![],
         order_by: vec![],
         limit: None,
         offset: None,
@@ -124,6 +125,7 @@ fn emit_select_with_where_and_limit() {
         })),
         group_by: vec![],
         having: None,
+        windows: vec![],
         order_by: vec![],
         limit: Some(Expr::bare(ExprKind::Literal(Literal::Number(
             "10".to_string(),

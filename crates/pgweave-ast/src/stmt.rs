@@ -39,6 +39,8 @@ pub struct SelectStmt {
     pub where_clause: Option<Expr>,
     pub group_by: Vec<Expr>,
     pub having: Option<Expr>,
+    /// Clause `WINDOW nom AS (…)`, dans l'ordre d'écriture.
+    pub windows: Vec<NamedWindow>,
     pub order_by: Vec<OrderByExpr>,
     pub limit: Option<Expr>,
     pub offset: Option<Expr>,
@@ -161,6 +163,13 @@ pub enum JoinConstraint {
     Natural,
     /// `CROSS JOIN` (ou virgule) : produit cartésien, sans condition.
     None,
+}
+
+/// `WINDOW nom AS (spécification)`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NamedWindow {
+    pub name: Ident,
+    pub spec: crate::expr::WindowSpec,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -8,6 +8,7 @@
 //!   → WHERE
 //!   → GROUP BY
 //!   → HAVING
+//!   → WINDOW
 //!   → SELECT columns   (projection)
 //!   → DISTINCT
 //!   → ORDER BY         (may reference SELECT aliases, resolved here)
@@ -24,7 +25,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use pgweave_ast::expr::{Expr, Ident};
-use pgweave_ast::stmt::{Cte, Join, OrderByExpr, SelectItem, SelectStmt, SetOperation, TableRef};
+use pgweave_ast::stmt::{
+    Cte, Join, NamedWindow, OrderByExpr, SelectItem, SelectStmt, SetOperation, TableRef,
+};
 
 /// A `SelectStmt` re-expressed in logical evaluation order.
 ///
@@ -42,6 +45,9 @@ pub struct NormalizedSelect {
     /// Common Table Expressions (WITH clause), evaluated first.
     pub with: Vec<Cte>,
 
+    /// `WITH RECURSIVE` : les CTE peuvent se référencer elles-mêmes.
+    pub with_recursive: bool,
+
     /// Primary table references in the FROM clause.
     pub from: Vec<TableRef>,
 
@@ -58,6 +64,9 @@ pub struct NormalizedSelect {
 
     /// Group-level filter evaluated after grouping (HAVING).
     pub having: Option<Expr>,
+
+    /// Fenêtres nommées (`WINDOW`), évaluées après le regroupement.
+    pub windows: Vec<NamedWindow>,
 
     // ── Phase 4: projection ──────────────────────────────────────────────────
     /// SELECT column list (projection), evaluated after grouping.
@@ -108,6 +117,7 @@ pub fn normalize_select(stmt: SelectStmt) -> NormalizedSelect {
     NormalizedSelect {
         // Phase 1 – source
         with: stmt.with,
+        with_recursive: stmt.with_recursive,
         from: stmt.from,
         joins: stmt.joins,
 
@@ -117,6 +127,7 @@ pub fn normalize_select(stmt: SelectStmt) -> NormalizedSelect {
         // Phase 3 – grouping
         group_by: stmt.group_by,
         having: stmt.having,
+        windows: stmt.windows,
 
         // Phase 4 – projection
         columns: stmt.columns,
@@ -211,6 +222,7 @@ mod tests {
             })),
             group_by: vec![],
             having: None,
+            windows: vec![],
             order_by: vec![OrderByExpr {
                 expr: col("total"),
                 asc: Some(false),
@@ -266,6 +278,7 @@ mod tests {
             where_clause: None,
             group_by: vec![],
             having: None,
+            windows: vec![],
             order_by: vec![],
             limit: None,
             offset: None,

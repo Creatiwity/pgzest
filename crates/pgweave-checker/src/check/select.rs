@@ -200,6 +200,13 @@ fn check_select_scoped<'s>(
         check_expr(having, ctx, schema, plvars, phantom_qualifiers, &mut diags);
     }
 
+    // Fenêtres nommées (`WINDOW w AS (…)`).
+    for w in &stmt.windows {
+        for e in w.spec.exprs() {
+            check_expr(e, ctx, schema, plvars, phantom_qualifiers, &mut diags);
+        }
+    }
+
     // ORDER BY peut citer un alias de sortie (`ORDER BY total`) : ces noms
     // sont des variables de plus, pour ce seul contrôle.
     let mut order_vars = plvars.clone();
@@ -598,7 +605,7 @@ fn check_expr_inner(
             }
         }
 
-        ExprKind::FunctionCall { name, args, .. } => {
+        ExprKind::FunctionCall { name, .. } => {
             let func_name = pgweave_schema::provider::object_name_to_string(name);
             // Emit a warning for unknown functions (but only for single-part names;
             // schema-qualified calls like pg_catalog.now() are trusted).
@@ -615,8 +622,10 @@ fn check_expr_inner(
                     ),
                 ));
             }
-            for arg in args {
-                check_expr(arg, ctx, schema, plvars, phantom_qualifiers, diags);
+            // Arguments, ORDER BY d'agrégat, FILTER, WITHIN GROUP, fenêtre :
+            // tous évalués dans la portée de la requête.
+            for child in expr.children() {
+                check_expr(child, ctx, schema, plvars, phantom_qualifiers, diags);
             }
         }
 

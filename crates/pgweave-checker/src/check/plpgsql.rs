@@ -727,12 +727,9 @@ fn check_sql_expr_idents(
         ExprKind::UnaryOp { expr, .. } | ExprKind::Cast { expr, .. } => {
             check_sql_expr_idents(expr, ctx, diags);
         }
-        ExprKind::FunctionCall { args, filter, .. } => {
-            for a in args {
-                check_sql_expr_idents(a, ctx, diags);
-            }
-            if let Some(f) = filter {
-                check_sql_expr_idents(f, ctx, diags);
+        ExprKind::FunctionCall { .. } => {
+            for child in expr.children() {
+                check_sql_expr_idents(child, ctx, diags);
             }
         }
         ExprKind::Case {

@@ -92,12 +92,9 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             visit_expr(right, config, out);
         }
         ExprKind::UnaryOp { expr, .. } => visit_expr(expr, config, out),
-        ExprKind::FunctionCall { args, filter, .. } => {
-            for a in args {
-                visit_expr(a, config, out);
-            }
-            if let Some(f) = filter {
-                visit_expr(f, config, out);
+        ExprKind::FunctionCall { .. } => {
+            for child in expr.children() {
+                visit_expr(child, config, out);
             }
         }
         ExprKind::Cast { expr, .. } => visit_expr(expr, config, out),

@@ -1,7 +1,7 @@
 use crate::{
     DdlStatement, Statement,
     ddl::{CreateFunction, CreateIndex, CreatePolicy, CreateProcedure, CreateTable, CreateTrigger},
-    expr::{Expr, ExprKind},
+    expr::Expr,
     stmt::{DeleteStmt, InsertStmt, SelectItem, SelectStmt, UpdateStmt},
 };
 
@@ -106,84 +106,21 @@ pub fn walk_select<V: Visit + ?Sized>(visitor: &mut V, node: &SelectStmt) {
     if let Some(h) = &node.having {
         visitor.visit_expr(h);
     }
+    for w in &node.windows {
+        for e in w.spec.exprs() {
+            visitor.visit_expr(e);
+        }
+    }
     for o in &node.order_by {
         visitor.visit_expr(&o.expr);
     }
 }
 
 pub fn walk_expr<V: Visit + ?Sized>(visitor: &mut V, expr: &Expr) {
-    match &expr.kind {
-        ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
-            visitor.visit_expr(left);
-            visitor.visit_expr(right);
-        }
-        ExprKind::UnaryOp { expr, .. } => visitor.visit_expr(expr),
-        ExprKind::Cast { expr, .. } => visitor.visit_expr(expr),
-        ExprKind::FunctionCall { args, .. } => {
-            for arg in args {
-                visitor.visit_expr(arg);
-            }
-        }
-        ExprKind::Case {
-            operand,
-            when_clauses,
-            else_clause,
-        } => {
-            if let Some(op) = operand {
-                visitor.visit_expr(op);
-            }
-            for (w, t) in when_clauses {
-                visitor.visit_expr(w);
-                visitor.visit_expr(t);
-            }
-            if let Some(el) = else_clause {
-                visitor.visit_expr(el);
-            }
-        }
-        ExprKind::Subquery(sub) => visitor.visit_select(sub),
-        ExprKind::InSubquery { expr, subquery, .. } => {
-            visitor.visit_expr(expr);
-            visitor.visit_select(subquery);
-        }
-        ExprKind::InList { expr, list, .. } => {
-            visitor.visit_expr(expr);
-            for e in list {
-                visitor.visit_expr(e);
-            }
-        }
-        ExprKind::Between {
-            expr, low, high, ..
-        } => {
-            visitor.visit_expr(expr);
-            visitor.visit_expr(low);
-            visitor.visit_expr(high);
-        }
-        // Le parcours doit descendre dans les nouvelles variantes, sinon un
-        // visiteur (checker, linter) raterait les sous-expressions qu'elles
-        // contiennent — une colonne inexistante dans un `EXISTS`, par exemple.
-        ExprKind::Exists { subquery, .. } => visitor.visit_select(subquery),
-        ExprKind::AtTimeZone {
-            timestamp,
-            time_zone,
-        } => {
-            visitor.visit_expr(timestamp);
-            visitor.visit_expr(time_zone);
-        }
-        ExprKind::Collate { expr, .. } => visitor.visit_expr(expr),
-        ExprKind::Tuple(items) => {
-            for e in items {
-                visitor.visit_expr(e);
-            }
-        }
-        ExprKind::FieldAccess { root, .. } => visitor.visit_expr(root),
-
-        // Feuilles : rien à parcourir.
-        ExprKind::Column(_)
-        | ExprKind::Literal(_)
-        | ExprKind::Wildcard
-        | ExprKind::QualifiedWildcard(_)
-        | ExprKind::Interval(_)
-        | ExprKind::Parameter(_)
-        | ExprKind::Unsupported(_) => {}
+    for child in expr.children() {
+        visitor.visit_expr(child);
+    }
+    for sub in expr.subqueries() {
+        visitor.visit_select(sub);
     }
 }

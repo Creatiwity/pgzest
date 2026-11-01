@@ -104,9 +104,9 @@ fn collect_table_refs(expr: &Expr, out: &mut HashSet<String>) {
         }
         ExprKind::UnaryOp { expr, .. } => collect_table_refs(expr, out),
         ExprKind::Cast { expr, .. } => collect_table_refs(expr, out),
-        ExprKind::FunctionCall { args, .. } => {
-            for a in args {
-                collect_table_refs(a, out);
+        ExprKind::FunctionCall { .. } => {
+            for child in expr.children() {
+                collect_table_refs(child, out);
             }
         }
         ExprKind::Case {

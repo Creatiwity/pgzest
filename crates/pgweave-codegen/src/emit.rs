@@ -375,7 +375,53 @@ fn emit_select_core(sel: &SelectStmt) -> String {
         out.push_str(&emit_expr(h));
     }
 
+    // WINDOW
+    if !sel.windows.is_empty() {
+        let defs: Vec<String> = sel
+            .windows
+            .iter()
+            .map(|w| format!("{} AS ({})", emit_ident(&w.name), emit_window_spec(&w.spec)))
+            .collect();
+        out.push_str(" WINDOW ");
+        out.push_str(&defs.join(", "));
+    }
+
     out
+}
+
+/// Contenu des parenthèses d'une fenêtre.
+fn emit_window_spec(spec: &WindowSpec) -> String {
+    let mut parts = Vec::new();
+    if let Some(base) = &spec.base {
+        parts.push(emit_ident(base));
+    }
+    if !spec.partition_by.is_empty() {
+        let p: Vec<String> = spec.partition_by.iter().map(emit_expr).collect();
+        parts.push(format!("PARTITION BY {}", p.join(", ")));
+    }
+    if !spec.order_by.is_empty() {
+        let o: Vec<String> = spec.order_by.iter().map(emit_order_by).collect();
+        parts.push(format!("ORDER BY {}", o.join(", ")));
+    }
+    if let Some(frame) = &spec.frame {
+        let units = match frame.units {
+            FrameUnits::Rows => "ROWS",
+            FrameUnits::Range => "RANGE",
+            FrameUnits::Groups => "GROUPS",
+        };
+        let bound = |b: &FrameBound| match b {
+            FrameBound::UnboundedPreceding => "UNBOUNDED PRECEDING".to_string(),
+            FrameBound::Preceding(e) => format!("{} PRECEDING", emit_expr(e)),
+            FrameBound::CurrentRow => "CURRENT ROW".to_string(),
+            FrameBound::Following(e) => format!("{} FOLLOWING", emit_expr(e)),
+            FrameBound::UnboundedFollowing => "UNBOUNDED FOLLOWING".to_string(),
+        };
+        parts.push(match &frame.end {
+            Some(end) => format!("{units} BETWEEN {} AND {}", bound(&frame.start), bound(end)),
+            None => format!("{units} {}", bound(&frame.start)),
+        });
+    }
+    parts.join(" ")
 }
 
 fn emit_select_item(item: &SelectItem) -> String {
@@ -520,22 +566,50 @@ pub fn emit_expr(expr: &Expr) -> String {
         ExprKind::FunctionCall {
             name,
             args,
+            order_by,
             filter,
             distinct,
+            within_group,
+            over,
         } => {
             let fn_name = emit_object_name(name);
+            // `ARRAY[…]` est représenté comme un appel à `array`.
+            if name.0.len() == 1 && !name.0[0].quoted && name.0[0].value == "array" {
+                let items: Vec<String> = args.iter().map(emit_expr).collect();
+                return format!("ARRAY[{}]", items.join(", "));
+            }
             let distinct_kw = if *distinct { "DISTINCT " } else { "" };
             let args_str: Vec<String> = args.iter().map(emit_expr).collect();
+            let order_str = if order_by.is_empty() {
+                String::new()
+            } else {
+                let o: Vec<String> = order_by.iter().map(emit_order_by).collect();
+                format!(" ORDER BY {}", o.join(", "))
+            };
+            let within_str = if within_group.is_empty() {
+                String::new()
+            } else {
+                let o: Vec<String> = within_group.iter().map(emit_order_by).collect();
+                format!(" WITHIN GROUP (ORDER BY {})", o.join(", "))
+            };
             let filter_str = match filter {
                 Some(f) => format!(" FILTER (WHERE {})", emit_expr(f)),
                 None => String::new(),
             };
+            let over_str = match over.as_deref() {
+                None => String::new(),
+                Some(Window::Named(n)) => format!(" OVER {}", emit_ident(n)),
+                Some(Window::Spec(spec)) => format!(" OVER ({})", emit_window_spec(spec)),
+            };
             format!(
-                "{}({}{}){}",
+                "{}({}{}{}){}{}{}",
                 fn_name,
                 distinct_kw,
                 args_str.join(", "),
-                filter_str
+                order_str,
+                within_str,
+                filter_str,
+                over_str
             )
         }
         ExprKind::Cast { expr, data_type } => {

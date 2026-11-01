@@ -96,6 +96,9 @@ fn make_timestamptz_col(name: &str, default_expr: Option<&str>) -> ColumnDef {
             args: vec![],
             filter: None,
             distinct: false,
+            order_by: vec![],
+            within_group: vec![],
+            over: None,
         })
     });
     let constraints = match &default {
