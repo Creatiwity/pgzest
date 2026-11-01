@@ -52,7 +52,9 @@ fn canonical_type(dt: &DataType) -> String {
             _ => "numeric".into(),
         },
         DataType::Array(inner) => format!("{}[]", canonical_type(inner)),
-        DataType::Custom(s) => s.to_lowercase(),
+        // Casse déjà fixée au parse (principe 8) : `"MyType"` ≠ `mytype`.
+        DataType::Custom(s) => s.clone(),
+        DataType::Modified { name, modifiers } => format!("{name}({})", modifiers.join(",")),
     }
 }
 

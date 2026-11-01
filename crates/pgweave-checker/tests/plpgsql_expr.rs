@@ -108,9 +108,10 @@ fn une_variable_inconnue_dans_un_case_est_signalee() {
 #[test]
 fn new_dans_une_fonction_ordinaire_est_signale() {
     // `RETURN NEW` hors trigger est une vraie erreur : NEW n'existe pas.
+    // L'identifiant est nommé comme PostgreSQL le lit : replié en minuscules.
     let d = diags("    RETURN NEW;");
     assert!(
-        undeclared(&d).iter().any(|m| m.contains("NEW")),
+        undeclared(&d).iter().any(|m| m.contains("'new'")),
         "obtenu : {:?}",
         undeclared(&d)
     );

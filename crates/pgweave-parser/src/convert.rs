@@ -1973,19 +1973,7 @@ fn convert_ident_from_expr(expr: sp::Expr) -> Result<Ident, ParseError> {
 pub(crate) fn convert_return_type_from_dt(dt: sp::DataType) -> Result<ReturnType, ParseError> {
     match &dt {
         sp::DataType::Trigger => Ok(ReturnType::Trigger),
-        sp::DataType::Custom(name, _) => {
-            let s = name
-                .0
-                .iter()
-                .filter_map(|p| match p {
-                    sp::ObjectNamePart::Identifier(id) => Some(id.value.as_str()),
-                    sp::ObjectNamePart::Function(_) => None,
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            Ok(ReturnType::Scalar(DataType::Custom(s)))
-        }
-        other => Ok(ReturnType::Scalar(convert_data_type(other.clone())?)),
+        _ => Ok(ReturnType::Scalar(convert_data_type(dt)?)),
     }
 }
 
@@ -2295,17 +2283,21 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
             Ok(DataType::Array(Box::new(convert_data_type(inner)?)))
         }
         // Custom / enum / user-defined — ObjectName.0 is now Vec<ObjectNamePart>
-        sp::DataType::Custom(name, _) => {
-            let s = name
+        sp::DataType::Custom(name, modifiers) => {
+            let name = name
                 .0
                 .into_iter()
                 .filter_map(|p| match p {
-                    sp::ObjectNamePart::Identifier(id) => Some(id.value),
+                    sp::ObjectNamePart::Identifier(id) => Some(convert_ident(id).value),
                     sp::ObjectNamePart::Function(_) => None,
                 })
                 .collect::<Vec<_>>()
                 .join(".");
-            Ok(DataType::Custom(s))
+            if modifiers.is_empty() {
+                Ok(DataType::Custom(name))
+            } else {
+                Ok(DataType::Modified { name, modifiers })
+            }
         }
         // Trigger return type
         sp::DataType::Trigger => Ok(DataType::Custom("trigger".to_string())),
@@ -2324,10 +2316,20 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
 
 // ── Identifier helpers ────────────────────────────────────────────────────────
 
+/// Identifiant tel que PostgreSQL le comprend : non quoté, il est replié en
+/// minuscules (ASCII seulement, comme `downcase_identifier` en UTF-8) ;
+/// quoté, il est conservé tel quel. `"MenuComponent"` et `MenuComponent`
+/// désignent deux objets distincts.
 pub(crate) fn convert_ident(id: sp::Ident) -> Ident {
-    Ident {
-        value: id.value,
-        quoted: id.quote_style.is_some(),
+    match id.quote_style {
+        Some(_) => Ident {
+            value: id.value,
+            quoted: true,
+        },
+        None => Ident {
+            value: id.value.to_ascii_lowercase(),
+            quoted: false,
+        },
     }
 }
 

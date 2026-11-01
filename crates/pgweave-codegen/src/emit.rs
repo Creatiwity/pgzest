@@ -1641,12 +1641,28 @@ fn emit_returning(items: &[SelectItem]) -> String {
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
+/// Un identifiant quoté le reste ; un identifiant que PostgreSQL ne relirait
+/// pas à l'identique sans guillemets (majuscules, caractères spéciaux) est
+/// quoté, pour ne jamais désigner un autre objet.
 pub fn emit_ident(ident: &Ident) -> String {
-    if ident.quoted {
-        format!("\"{}\"", ident.value.replace('"', "\"\""))
+    if ident.quoted || !is_plain_identifier(&ident.value) {
+        quote_ident(&ident.value)
     } else {
         ident.value.clone()
     }
+}
+
+fn quote_ident(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+/// `[a-z_][a-z0-9_$]*` : relu tel quel sans guillemets.
+fn is_plain_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$')
 }
 
 pub fn emit_object_name(name: &ObjectName) -> String {
@@ -1686,6 +1702,24 @@ pub fn emit_data_type(dt: &DataType) -> String {
         DataType::Jsonb => "JSONB".to_string(),
         DataType::Uuid => "UUID".to_string(),
         DataType::Array(inner) => format!("{}[]", emit_data_type(inner)),
-        DataType::Custom(name) => name.clone(),
+        // Nom pointé dont chaque partie a déjà sa casse PostgreSQL : seules
+        // les parties qui ne se reliraient pas à l'identique sont quotées.
+        // (Un nom quoté contenant un point n'est pas représentable ici.)
+        DataType::Custom(name) => name
+            .split('.')
+            .map(|part| {
+                if is_plain_identifier(part) {
+                    part.to_string()
+                } else {
+                    quote_ident(part)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("."),
+        DataType::Modified { name, modifiers } => format!(
+            "{}({})",
+            emit_data_type(&DataType::Custom(name.clone())),
+            modifiers.join(", ")
+        ),
     }
 }

@@ -216,7 +216,7 @@ pub fn data_type_to_ts(dt: &DataType) -> &'static str {
             _ => "unknown[]",
         },
         Interval => "string",
-        Custom(_) => "unknown",
+        Custom(_) | Modified { .. } => "unknown",
     }
 }
 
@@ -256,5 +256,6 @@ pub fn data_type_to_sql(dt: &DataType) -> String {
         Uuid => "uuid".into(),
         Array(inner) => format!("{}[]", data_type_to_sql(inner)),
         Custom(s) => s.clone(),
+        Modified { name, modifiers } => format!("{name}({})", modifiers.join(",")),
     }
 }

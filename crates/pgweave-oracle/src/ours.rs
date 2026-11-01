@@ -133,5 +133,7 @@ fn pg_name(dt: &DataType) -> String {
         Uuid => "uuid".into(),
         Array(inner) => format!("{}[]", pg_name(inner)),
         Custom(name) => name.clone(),
+        // Le `Prepare` rapporte le type sans ses modificateurs.
+        Modified { name, .. } => name.clone(),
     }
 }

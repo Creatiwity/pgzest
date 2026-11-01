@@ -4,7 +4,7 @@ expression: report
 ---
 # Oracle différentiel — PostgreSQL 18
 
-Requêtes : 41 · Colonnes conformes : 83/112 (74 %) · Paramètres conformes : 0/29 (0 %)
+Requêtes : 41 · Colonnes conformes : 84/112 (75 %) · Paramètres conformes : 0/29 (0 %)
 
 ## 01-basics
 
@@ -336,7 +336,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `id int8` | `id int8` | ✓ |
-| 2 | `sku citext` | `sku CITEXT` | ✗ |
+| 2 | `sku citext` | `sku citext` | ✓ |
 | 3 | `status page_status` | `status page_status` | ✓ |
 | 4 | `quantity int4` | `quantity positive_int` | ✗ |
 | 5 | `unit_price numeric` | `unit_price numeric` | ✓ |

@@ -12,3 +12,4 @@ bindings/wasm/pkg/
 # Générés / locaux
 examples/schema/
 .schema-snapshots/
+*.snap.new

@@ -33,4 +33,10 @@ pub enum DataType {
     Array(Box<DataType>),
     // Custom type (e.g. enums, domains, extension types)
     Custom(String),
+    /// Type nommé avec modificateurs, tels qu'écrits : `geometry(Point,
+    /// 4326)`, `vector(1536)`. Sans modificateurs, c'est `Custom`.
+    Modified {
+        name: String,
+        modifiers: Vec<String>,
+    },
 }

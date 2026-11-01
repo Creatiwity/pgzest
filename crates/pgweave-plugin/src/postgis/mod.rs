@@ -10,7 +10,8 @@ use std::collections::HashMap;
 fn postgis_operator_return(op: &str, left: &DataType, right: &DataType) -> Option<DataType> {
     let is_spatial = |dt: &DataType| {
         matches!(dt,
-            DataType::Custom(s) if s == "geometry" || s == "geography"
+            DataType::Custom(s) | DataType::Modified { name: s, .. }
+                if s == "geometry" || s == "geography"
         )
     };
     if !is_spatial(left) && !is_spatial(right) {
