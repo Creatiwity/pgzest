@@ -179,7 +179,11 @@ pub fn emit_select(sel: &SelectStmt) -> String {
 
     // WITH (CTEs)
     if !sel.with.is_empty() {
-        out.push_str("WITH ");
+        out.push_str(if sel.with_recursive {
+            "WITH RECURSIVE "
+        } else {
+            "WITH "
+        });
         let ctes: Vec<String> = sel
             .with
             .iter()
@@ -208,8 +212,75 @@ pub fn emit_select(sel: &SelectStmt) -> String {
         out.push(' ');
     }
 
+    // Corps : SELECT, puis opérations ensemblistes. Elles sont appliquées de
+    // gauche à droite (voir `SelectStmt::set_ops`) ; INTERSECT liant plus fort
+    // que UNION/EXCEPT en SQL, le préfixe est parenthésé quand un INTERSECT
+    // suit un UNION ou un EXCEPT.
+    let mut body = emit_select_core(sel);
+    let mut loose_prefix = false;
+    for op in &sel.set_ops {
+        if op.op == SetOperator::Intersect && loose_prefix {
+            body = format!("({body})");
+            loose_prefix = false;
+        }
+        if op.op != SetOperator::Intersect {
+            loose_prefix = true;
+        }
+        let keyword = match op.op {
+            SetOperator::Union => "UNION",
+            SetOperator::Intersect => "INTERSECT",
+            SetOperator::Except => "EXCEPT",
+        };
+        let operand = emit_select(&op.select);
+        let o = &op.select;
+        let operand = if !o.set_ops.is_empty()
+            || !o.with.is_empty()
+            || !o.order_by.is_empty()
+            || o.limit.is_some()
+            || o.offset.is_some()
+        {
+            format!("({operand})")
+        } else {
+            operand
+        };
+        body = format!(
+            "{body} {keyword}{} {operand}",
+            if op.all { " ALL" } else { "" }
+        );
+    }
+    out.push_str(&body);
+
+    // ORDER BY
+    if !sel.order_by.is_empty() {
+        out.push_str(" ORDER BY ");
+        let items: Vec<String> = sel.order_by.iter().map(emit_order_by).collect();
+        out.push_str(&items.join(", "));
+    }
+
+    // LIMIT
+    if let Some(l) = &sel.limit {
+        out.push_str(" LIMIT ");
+        out.push_str(&emit_expr(l));
+    }
+
+    // OFFSET
+    if let Some(o) = &sel.offset {
+        out.push_str(" OFFSET ");
+        out.push_str(&emit_expr(o));
+    }
+
+    out
+}
+
+/// `SELECT … FROM … WHERE … GROUP BY … HAVING …`, sans opérations
+/// ensemblistes ni ORDER BY / LIMIT.
+fn emit_select_core(sel: &SelectStmt) -> String {
+    let mut out = String::new();
     out.push_str("SELECT ");
-    if sel.distinct {
+    if !sel.distinct_on.is_empty() {
+        let on: Vec<String> = sel.distinct_on.iter().map(emit_expr).collect();
+        out.push_str(&format!("DISTINCT ON ({}) ", on.join(", ")));
+    } else if sel.distinct {
         out.push_str("DISTINCT ");
     }
 
@@ -249,25 +320,6 @@ pub fn emit_select(sel: &SelectStmt) -> String {
         out.push_str(&emit_expr(h));
     }
 
-    // ORDER BY
-    if !sel.order_by.is_empty() {
-        out.push_str(" ORDER BY ");
-        let items: Vec<String> = sel.order_by.iter().map(emit_order_by).collect();
-        out.push_str(&items.join(", "));
-    }
-
-    // LIMIT
-    if let Some(l) = &sel.limit {
-        out.push_str(" LIMIT ");
-        out.push_str(&emit_expr(l));
-    }
-
-    // OFFSET
-    if let Some(o) = &sel.offset {
-        out.push_str(" OFFSET ");
-        out.push_str(&emit_expr(o));
-    }
-
     out
 }
 
@@ -286,10 +338,50 @@ fn emit_select_item(item: &SelectItem) -> String {
 }
 
 pub fn emit_table_ref(tr: &TableRef) -> String {
-    let name = emit_object_name(&tr.name);
-    match &tr.alias {
-        Some(a) => format!("{} AS {}", name, emit_ident(a)),
-        None => name,
+    let source = match &tr.source {
+        TableSource::Table(name) => emit_object_name(name),
+        TableSource::Subquery { lateral, query } => format!(
+            "{}({})",
+            if *lateral { "LATERAL " } else { "" },
+            emit_select(query)
+        ),
+        TableSource::Function {
+            lateral,
+            name,
+            args,
+            with_ordinality,
+        } => format!(
+            "{}{}({}){}",
+            if *lateral { "LATERAL " } else { "" },
+            emit_object_name(name),
+            args.iter().map(emit_expr).collect::<Vec<_>>().join(", "),
+            if *with_ordinality {
+                " WITH ORDINALITY"
+            } else {
+                ""
+            }
+        ),
+    };
+    let alias = match &tr.alias {
+        Some(a) if tr.column_aliases.is_empty() => format!(" AS {}", emit_ident(a)),
+        Some(a) => format!(
+            " AS {} ({})",
+            emit_ident(a),
+            tr.column_aliases
+                .iter()
+                .map(emit_ident)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        None => String::new(),
+    };
+    format!("{source}{alias}")
+}
+
+fn emit_target(t: &TargetTable) -> String {
+    match &t.alias {
+        Some(a) => format!("{} AS {}", emit_object_name(&t.name), emit_ident(a)),
+        None => emit_object_name(&t.name),
     }
 }
 
@@ -302,15 +394,16 @@ fn emit_join(join: &Join) -> String {
         JoinKind::Cross => "CROSS JOIN",
     };
     let table = emit_table_ref(&join.table);
-    let constraint = match &join.constraint {
-        JoinConstraint::On(expr) => format!(" ON {}", emit_expr(expr)),
+    let (natural, constraint) = match &join.constraint {
+        JoinConstraint::On(expr) => ("", format!(" ON {}", emit_expr(expr))),
         JoinConstraint::Using(cols) => {
             let cols: Vec<String> = cols.iter().map(emit_ident).collect();
-            format!(" USING ({})", cols.join(", "))
+            ("", format!(" USING ({})", cols.join(", ")))
         }
-        JoinConstraint::Natural => String::new(),
+        JoinConstraint::Natural => ("NATURAL ", String::new()),
+        JoinConstraint::None => ("", String::new()),
     };
-    format!("{} {}{}", kind, table, constraint)
+    format!("{}{} {}{}", natural, kind, table, constraint)
 }
 
 fn emit_order_by(ob: &OrderByExpr) -> String {
@@ -1402,7 +1495,12 @@ fn emit_update(upd: &UpdateStmt) -> String {
         String::new()
     } else {
         let tables: Vec<String> = upd.from.iter().map(emit_table_ref).collect();
-        format!(" FROM {}", tables.join(", "))
+        let joins: String = upd
+            .joins
+            .iter()
+            .map(|j| format!(" {}", emit_join(j)))
+            .collect();
+        format!(" FROM {}{}", tables.join(", "), joins)
     };
     let where_str = upd
         .where_clause
@@ -1412,7 +1510,7 @@ fn emit_update(upd: &UpdateStmt) -> String {
     let returning = emit_returning(&upd.returning);
     format!(
         "UPDATE {} SET {}{}{}{}",
-        emit_table_ref(&upd.table),
+        emit_target(&upd.table),
         assigns.join(", "),
         from,
         where_str,
@@ -1425,7 +1523,12 @@ fn emit_delete(del: &DeleteStmt) -> String {
         String::new()
     } else {
         let tables: Vec<String> = del.using.iter().map(emit_table_ref).collect();
-        format!(" USING {}", tables.join(", "))
+        let joins: String = del
+            .joins
+            .iter()
+            .map(|j| format!(" {}", emit_join(j)))
+            .collect();
+        format!(" USING {}{}", tables.join(", "), joins)
     };
     let where_str = del
         .where_clause
@@ -1435,7 +1538,7 @@ fn emit_delete(del: &DeleteStmt) -> String {
     let returning = emit_returning(&del.returning);
     format!(
         "DELETE FROM {}{}{}{}",
-        emit_table_ref(&del.table),
+        emit_target(&del.table),
         using,
         where_str,
         returning

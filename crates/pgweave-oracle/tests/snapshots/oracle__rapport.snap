@@ -4,7 +4,7 @@ expression: report
 ---
 # Oracle différentiel — PostgreSQL 18
 
-Requêtes : 41 · Colonnes conformes : 81/112 (72 %) · Paramètres conformes : 0/29 (0 %)
+Requêtes : 41 · Colonnes conformes : 83/112 (74 %) · Paramètres conformes : 0/29 (0 %)
 
 ## 01-basics
 
@@ -255,10 +255,8 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `key text` | non inféré | ✗ |
-| 2 | `label text` | non inféré | ✗ |
-
-> pgweave — requête : `SELECT id::text AS key, …` non modélisé (unsupported query body: SELECT id::TEXT AS key, title AS label FROM pages UNION ALL SELECT id::TEXT, name FROM authors)
+| 1 | `key text` | `key text` | ✓ |
+| 2 | `label text` | `label text` | ✓ |
 
 ### `aggregate_join`
 

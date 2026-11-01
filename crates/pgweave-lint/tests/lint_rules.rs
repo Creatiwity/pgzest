@@ -14,7 +14,9 @@ fn empty_select(columns: Vec<SelectItem>) -> Statement {
         id: NodeId::DUMMY,
         span: Span::DUMMY,
         with: vec![],
+        with_recursive: false,
         distinct: false,
+        distinct_on: vec![],
         columns,
         from: vec![],
         joins: vec![],
@@ -24,6 +26,7 @@ fn empty_select(columns: Vec<SelectItem>) -> Statement {
         order_by: vec![],
         limit: None,
         offset: None,
+        set_ops: vec![],
     })
 }
 
@@ -255,7 +258,9 @@ fn not_in_subquery_triggers_warning() {
         id: NodeId::DUMMY,
         span: Span::DUMMY,
         with: vec![],
+        with_recursive: false,
         distinct: false,
+        distinct_on: vec![],
         columns: vec![SelectItem::Expr {
             expr: Expr::bare(ExprKind::Column(ColumnRef {
                 table: None,
@@ -271,6 +276,7 @@ fn not_in_subquery_triggers_warning() {
         order_by: vec![],
         limit: None,
         offset: None,
+        set_ops: vec![],
     });
 
     let where_clause = Expr::bare(ExprKind::InSubquery {
@@ -286,7 +292,9 @@ fn not_in_subquery_triggers_warning() {
         id: NodeId::DUMMY,
         span: Span::DUMMY,
         with: vec![],
+        with_recursive: false,
         distinct: false,
+        distinct_on: vec![],
         columns: vec![SelectItem::Wildcard],
         from: vec![],
         joins: vec![],
@@ -296,6 +304,7 @@ fn not_in_subquery_triggers_warning() {
         order_by: vec![],
         limit: None,
         offset: None,
+        set_ops: vec![],
     });
 
     let config = LintConfig::default();

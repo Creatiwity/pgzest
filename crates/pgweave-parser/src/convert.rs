@@ -18,7 +18,7 @@ use pgweave_ast::{
     stmt::{
         Assignment, Cte, DeleteStmt, InsertSource, InsertStmt, Join, JoinConstraint, JoinKind,
         OnConflict, OnConflictAction, OnConflictTarget, OrderByExpr, SelectItem, SelectStmt,
-        TableRef, UpdateStmt,
+        SetOperation, SetOperator, TableRef, TableSource, TargetTable, UpdateStmt,
     },
     types::DataType,
     utility::{
@@ -447,13 +447,16 @@ fn convert_set(set: sp::Set) -> Result<UtilityKind, ParseError> {
 
 pub(crate) fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> {
     // WITH clause
-    let with_ctes = if let Some(with) = query.with {
-        with.cte_tables
-            .into_iter()
-            .map(convert_cte)
-            .collect::<Result<Vec<_>, _>>()?
+    let (with_ctes, with_recursive) = if let Some(with) = query.with {
+        (
+            with.cte_tables
+                .into_iter()
+                .map(convert_cte)
+                .collect::<Result<Vec<_>, _>>()?,
+            with.recursive,
+        )
     } else {
-        vec![]
+        (vec![], false)
     };
 
     // ORDER BY — in 0.62 the kind is OrderByKind::Expressions(Vec<OrderByExpr>) | All(...)
@@ -486,14 +489,52 @@ pub(crate) fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> 
         }
     };
 
-    // Unwrap the SetExpr into a plain SELECT
-    match *query.body {
-        sp::SetExpr::Select(select) => {
-            let mut stmt = convert_select(*select)?;
-            stmt.with = with_ctes;
-            stmt.order_by = order_by;
-            stmt.limit = limit;
-            stmt.offset = offset;
+    let mut stmt = convert_set_expr(*query.body)?;
+    stmt.with = with_ctes;
+    stmt.with_recursive = with_recursive;
+    stmt.order_by = order_by;
+    stmt.limit = limit;
+    stmt.offset = offset;
+    Ok(stmt)
+}
+
+/// Corps de requête : SELECT simple, ou opérations ensemblistes mises à plat
+/// de gauche à droite (voir `SelectStmt::set_ops`).
+fn convert_set_expr(body: sp::SetExpr) -> Result<SelectStmt, ParseError> {
+    match body {
+        sp::SetExpr::Select(select) => convert_select(*select),
+        sp::SetExpr::Query(q) => convert_query(*q),
+        sp::SetExpr::SetOperation {
+            op,
+            set_quantifier,
+            left,
+            right,
+        } => {
+            let mut stmt = convert_set_expr(*left)?;
+            let op = match op {
+                sp::SetOperator::Union => SetOperator::Union,
+                sp::SetOperator::Intersect => SetOperator::Intersect,
+                sp::SetOperator::Except => SetOperator::Except,
+                other => {
+                    return Err(ParseError::Unsupported(format!(
+                        "opérateur ensembliste {other}"
+                    )));
+                }
+            };
+            let all = match set_quantifier {
+                sp::SetQuantifier::All => true,
+                sp::SetQuantifier::None | sp::SetQuantifier::Distinct => false,
+                other => {
+                    return Err(ParseError::Unsupported(format!(
+                        "quantificateur ensembliste {other}"
+                    )));
+                }
+            };
+            stmt.set_ops.push(SetOperation {
+                op,
+                all,
+                select: convert_set_expr(*right)?,
+            });
             Ok(stmt)
         }
         other => Err(ParseError::Unsupported(format!(
@@ -521,6 +562,13 @@ fn convert_cte(cte: sp::Cte) -> Result<Cte, ParseError> {
 
 fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
     let distinct = select.distinct.is_some();
+    let distinct_on = match select.distinct {
+        Some(sp::Distinct::On(exprs)) => exprs
+            .into_iter()
+            .map(convert_expr)
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => Vec::new(),
+    };
 
     let columns = select
         .projection
@@ -560,7 +608,9 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
         id: crate::next_node_id(),
         span: Span::DUMMY,
         with: vec![],
+        with_recursive: false,
         distinct,
+        distinct_on,
         columns,
         from: from_tables,
         joins,
@@ -570,6 +620,7 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
         order_by: vec![],
         limit: None,
         offset: None,
+        set_ops: vec![],
     })
 }
 
@@ -608,14 +659,120 @@ fn convert_select_item(item: sp::SelectItem) -> Result<SelectItem, ParseError> {
 }
 
 fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError> {
-    match factor {
-        sp::TableFactor::Table { name, alias, .. } => Ok(TableRef {
-            name: convert_object_name(name),
-            alias: alias.map(|a| convert_ident(a.name)),
-        }),
+    let aliases = |alias: Option<sp::TableAlias>| -> (Option<Ident>, Vec<Ident>) {
+        match alias {
+            Some(a) => (
+                Some(convert_ident(a.name)),
+                a.columns
+                    .into_iter()
+                    .map(|c| convert_ident(c.name))
+                    .collect(),
+            ),
+            None => (None, Vec::new()),
+        }
+    };
+    let (source, alias) = match factor {
+        // `FROM f(…)` : sqlparser le range dans Table, avec des arguments.
+        sp::TableFactor::Table {
+            name,
+            alias,
+            args: Some(args),
+            with_ordinality,
+            ..
+        } => {
+            let args = args
+                .args
+                .into_iter()
+                .map(convert_function_arg_expr)
+                .collect::<Result<Vec<_>, _>>()?;
+            (
+                TableSource::Function {
+                    lateral: false,
+                    name: convert_object_name(name),
+                    args,
+                    with_ordinality,
+                },
+                alias,
+            )
+        }
+        sp::TableFactor::Table { name, alias, .. } => {
+            (TableSource::Table(convert_object_name(name)), alias)
+        }
+        sp::TableFactor::Derived {
+            lateral,
+            subquery,
+            alias,
+            ..
+        } => (
+            TableSource::Subquery {
+                lateral,
+                query: Box::new(convert_query(*subquery)?),
+            },
+            alias,
+        ),
+        sp::TableFactor::Function {
+            lateral,
+            name,
+            args,
+            alias,
+            with_ordinality,
+        } => (
+            TableSource::Function {
+                lateral,
+                name: convert_object_name(name),
+                args: args
+                    .into_iter()
+                    .map(convert_function_arg_expr)
+                    .collect::<Result<Vec<_>, _>>()?,
+                with_ordinality,
+            },
+            alias,
+        ),
+        sp::TableFactor::UNNEST {
+            alias,
+            array_exprs,
+            with_ordinality,
+            ..
+        } => (
+            TableSource::Function {
+                lateral: false,
+                name: ObjectName(vec![Ident::new("unnest")]),
+                args: array_exprs
+                    .into_iter()
+                    .map(convert_expr)
+                    .collect::<Result<Vec<_>, _>>()?,
+                with_ordinality,
+            },
+            alias,
+        ),
+        other => {
+            return Err(ParseError::Unsupported(format!(
+                "unsupported table factor: {}",
+                other
+            )));
+        }
+    };
+    let (alias, column_aliases) = aliases(alias);
+    Ok(TableRef {
+        source,
+        alias,
+        column_aliases,
+    })
+}
+
+fn convert_function_arg_expr(arg: sp::FunctionArg) -> Result<Expr, ParseError> {
+    match arg {
+        sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Expr(e))
+        | sp::FunctionArg::Named {
+            arg: sp::FunctionArgExpr::Expr(e),
+            ..
+        }
+        | sp::FunctionArg::ExprNamed {
+            arg: sp::FunctionArgExpr::Expr(e),
+            ..
+        } => convert_expr(e),
         other => Err(ParseError::Unsupported(format!(
-            "unsupported table factor: {}",
-            other
+            "argument de fonction en FROM : {other}"
         ))),
     }
 }
@@ -636,8 +793,7 @@ fn convert_join(join: sp::Join) -> Result<Join, ParseError> {
             (JoinKind::Right, convert_join_constraint(c)?)
         }
         sp::JoinOperator::FullOuter(c) => (JoinKind::Full, convert_join_constraint(c)?),
-        // CrossJoin is now a tuple variant in 0.62
-        sp::JoinOperator::CrossJoin(_) => (JoinKind::Cross, JoinConstraint::Natural),
+        sp::JoinOperator::CrossJoin(_) => (JoinKind::Cross, JoinConstraint::None),
         other => {
             return Err(ParseError::Unsupported(format!(
                 "unsupported join operator: {:?}",
@@ -1339,16 +1495,18 @@ fn convert_update(
     selection: Option<sp::Expr>,
     returning: Option<Vec<sp::SelectItem>>,
 ) -> Result<UpdateStmt, ParseError> {
-    let tref = convert_table_factor(table.relation)?;
+    if !table.joins.is_empty() {
+        return Err(ParseError::Unsupported(
+            "UPDATE sur une jointure".to_string(),
+        ));
+    }
+    let tref = convert_target(table.relation)?;
 
     // In 0.62, BeforeSet/AfterSet wrap Vec<TableWithJoins>, not a single one
-    let from_tables = match from {
-        None => vec![],
+    let (from_tables, joins) = match from {
+        None => (vec![], vec![]),
         Some(sp::UpdateTableFromKind::BeforeSet(tables))
-        | Some(sp::UpdateTableFromKind::AfterSet(tables)) => tables
-            .into_iter()
-            .map(|twj| convert_table_factor(twj.relation))
-            .collect::<Result<Vec<_>, _>>()?,
+        | Some(sp::UpdateTableFromKind::AfterSet(tables)) => convert_tables_with_joins(tables)?,
     };
 
     let assigns = assignments
@@ -1369,6 +1527,7 @@ fn convert_update(
         table: tref,
         assignments: assigns,
         from: from_tables,
+        joins,
         where_clause,
         returning: ret,
     })
@@ -1384,19 +1543,11 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
                     "DELETE with no FROM table".to_string(),
                 ));
             }
-            convert_table_factor(tables.remove(0).relation)?
+            convert_target(tables.remove(0).relation)?
         }
     };
 
-    let using = del
-        .using
-        .unwrap_or_default()
-        .into_iter()
-        .flat_map(|twj| {
-            std::iter::once(twj.relation).chain(twj.joins.into_iter().map(|j| j.relation))
-        })
-        .map(convert_table_factor)
-        .collect::<Result<Vec<_>, _>>()?;
+    let (using, joins) = convert_tables_with_joins(del.using.unwrap_or_default())?;
 
     let where_clause = del.selection.map(convert_expr).transpose()?;
     let returning = del
@@ -1411,9 +1562,43 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
         span: Span::DUMMY,
         table,
         using,
+        joins,
         where_clause,
         returning,
     })
+}
+
+/// Cible d'UPDATE / DELETE : une table nommée, éventuellement aliasée.
+fn convert_target(factor: sp::TableFactor) -> Result<TargetTable, ParseError> {
+    match factor {
+        sp::TableFactor::Table {
+            name,
+            alias,
+            args: None,
+            ..
+        } => Ok(TargetTable {
+            name: convert_object_name(name),
+            alias: alias.map(|a| convert_ident(a.name)),
+        }),
+        other => Err(ParseError::Unsupported(format!(
+            "cible d'UPDATE/DELETE : {other}"
+        ))),
+    }
+}
+
+/// Liste `FROM` / `USING` : sources et jointures, sans rien perdre.
+fn convert_tables_with_joins(
+    tables: Vec<sp::TableWithJoins>,
+) -> Result<(Vec<TableRef>, Vec<Join>), ParseError> {
+    let mut sources = Vec::new();
+    let mut joins = Vec::new();
+    for twj in tables {
+        sources.push(convert_table_factor(twj.relation)?);
+        for j in twj.joins {
+            joins.push(convert_join(j)?);
+        }
+    }
+    Ok((sources, joins))
 }
 
 // ── Types, vues, DROP ─────────────────────────────────────────────────────────

@@ -60,17 +60,9 @@ fn check_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
     for join in &sel.joins {
         let join_alias = join
             .table
-            .alias
-            .as_ref()
-            .map(|a| a.value.to_lowercase())
-            .unwrap_or_else(|| {
-                join.table
-                    .name
-                    .0
-                    .last()
-                    .map(|i| i.value.to_lowercase())
-                    .unwrap_or_default()
-            });
+            .visible_name()
+            .map(str::to_lowercase)
+            .unwrap_or_default();
 
         // Also collect refs from ON condition before evaluating
         match &join.constraint {
@@ -81,7 +73,7 @@ fn check_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>
                 // USING columns don't carry a table prefix, so nothing to collect here
                 let _ = cols;
             }
-            JoinConstraint::Natural => {}
+            JoinConstraint::Natural | JoinConstraint::None => {}
         }
 
         if !join_alias.is_empty() && !referenced.contains(&join_alias) {
@@ -106,7 +98,7 @@ fn collect_table_refs(expr: &Expr, out: &mut HashSet<String>) {
                 out.insert(tbl.value.to_lowercase());
             }
         }
-        ExprKind::BinaryOp { left, right, .. } => {
+        ExprKind::BinaryOp { left, right, .. } | ExprKind::Quantified { left, right, .. } => {
             collect_table_refs(left, out);
             collect_table_refs(right, out);
         }

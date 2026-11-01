@@ -183,3 +183,32 @@ fn copy_ancienne_syntaxe() {
         "les deux syntaxes donnent le même AST"
     );
 }
+
+#[test]
+fn requetes() {
+    for sql in [
+        "SELECT 1 UNION ALL SELECT 2",
+        "SELECT a FROM t UNION SELECT b FROM u INTERSECT SELECT c FROM v",
+        "(SELECT a FROM t UNION SELECT b FROM u) INTERSECT SELECT c FROM v",
+        "SELECT a FROM t EXCEPT SELECT b FROM u ORDER BY 1 LIMIT 5",
+        "SELECT DISTINCT ON (author_id) author_id, title FROM pages ORDER BY author_id, created_at DESC",
+        "SELECT s.n FROM (SELECT id AS n FROM pages) AS s",
+        "SELECT g.i FROM generate_series(1, 3) AS g (i)",
+        "SELECT x FROM unnest(ARRAY[1, 2]) WITH ORDINALITY AS u (x, ord)",
+        "SELECT p.id, l.n FROM pages AS p CROSS JOIN LATERAL (SELECT count(*) AS n FROM tags WHERE tags.page_id = p.id) AS l",
+        "SELECT * FROM a NATURAL JOIN b",
+        "UPDATE pages AS p SET title = s.title FROM staging AS s JOIN authors AS a ON a.id = s.author_id WHERE p.id = s.id",
+        "DELETE FROM pages AS p USING staging AS s LEFT JOIN authors AS a ON a.id = s.author_id WHERE p.id = s.id",
+        "WITH RECURSIVE r (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
+    ] {
+        roundtrip(sql);
+    }
+}
+
+#[test]
+fn with_recursive_est_restitue() {
+    let stmts = parse_clean(
+        "WITH RECURSIVE r (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
+    );
+    assert!(emit_statement(&stmts[0]).starts_with("WITH RECURSIVE "));
+}

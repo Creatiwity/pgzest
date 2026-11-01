@@ -9,7 +9,9 @@ fn make_select(columns: Vec<SelectItem>, from: Vec<TableRef>) -> SelectStmt {
         id: NodeId::DUMMY,
         span: Span::DUMMY,
         with: vec![],
+        with_recursive: false,
         distinct: false,
+        distinct_on: vec![],
         columns,
         from,
         joins: vec![],
@@ -19,6 +21,7 @@ fn make_select(columns: Vec<SelectItem>, from: Vec<TableRef>) -> SelectStmt {
         order_by: vec![],
         limit: None,
         offset: None,
+        set_ops: vec![],
     }
 }
 
@@ -34,8 +37,9 @@ fn col(name: &str) -> SelectItem {
 
 fn table_ref(name: &str) -> TableRef {
     TableRef {
-        name: ObjectName::unquoted(&[name]),
+        source: TableSource::Table(ObjectName::unquoted(&[name])),
         alias: None,
+        column_aliases: vec![],
     }
 }
 
@@ -101,7 +105,9 @@ fn emit_select_with_where_and_limit() {
         id: NodeId::DUMMY,
         span: Span::DUMMY,
         with: vec![],
+        with_recursive: false,
         distinct: false,
+        distinct_on: vec![],
         columns: vec![SelectItem::Wildcard],
         from: vec![table_ref("orders")],
         joins: vec![],
@@ -122,6 +128,7 @@ fn emit_select_with_where_and_limit() {
             "10".to_string(),
         )))),
         offset: None,
+        set_ops: vec![],
     });
 
     let sql = emit_statement(&stmt);

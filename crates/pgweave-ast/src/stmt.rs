@@ -27,7 +27,12 @@ pub struct SelectStmt {
     pub id: NodeId,
     pub span: Span,
     pub with: Vec<Cte>,
+    /// `WITH RECURSIVE` : les CTE peuvent se référencer elles-mêmes.
+    pub with_recursive: bool,
     pub distinct: bool,
+    /// `DISTINCT ON (expr, …)` : une ligne par valeur de ces expressions
+    /// (implique `distinct`).
+    pub distinct_on: Vec<Expr>,
     pub columns: Vec<SelectItem>,
     pub from: Vec<TableRef>,
     pub joins: Vec<Join>,
@@ -37,6 +42,27 @@ pub struct SelectStmt {
     pub order_by: Vec<OrderByExpr>,
     pub limit: Option<Expr>,
     pub offset: Option<Expr>,
+    /// `UNION` / `INTERSECT` / `EXCEPT` qui suivent ce SELECT, appliqués de
+    /// gauche à droite ; chaque opérande peut porter ses propres opérations
+    /// (`a UNION b INTERSECT c` = `a UNION (b INTERSECT c)`). Les colonnes
+    /// du résultat sont nommées par ce premier SELECT ; `order_by`, `limit` et
+    /// `offset` s'appliquent alors à l'ensemble.
+    pub set_ops: Vec<SetOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetOperation {
+    pub op: SetOperator,
+    /// `ALL` : garde les doublons.
+    pub all: bool,
+    pub select: SelectStmt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetOperator {
+    Union,
+    Intersect,
+    Except,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,10 +79,63 @@ pub enum SelectItem {
     Expr { expr: Expr, alias: Option<Ident> },
 }
 
+/// Table modifiée par `UPDATE` ou `DELETE` : toujours une table nommée.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TableRef {
+pub struct TargetTable {
     pub name: ObjectName,
     pub alias: Option<Ident>,
+}
+
+/// Élément de `FROM` ou de jointure.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableRef {
+    pub source: TableSource,
+    pub alias: Option<Ident>,
+    /// `AS alias (c1, c2)` : renomme les colonnes de la source, dans l'ordre.
+    pub column_aliases: Vec<Ident>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TableSource {
+    /// Table, vue ou CTE nommée.
+    Table(ObjectName),
+    /// `(SELECT …)`, éventuellement `LATERAL` (voit les sources précédentes).
+    Subquery {
+        lateral: bool,
+        query: Box<SelectStmt>,
+    },
+    /// Fonction renvoyant des lignes : `generate_series(1, 3)`,
+    /// `unnest(arr)`, fonction `RETURNS TABLE` du projet.
+    Function {
+        lateral: bool,
+        name: ObjectName,
+        args: Vec<Expr>,
+        with_ordinality: bool,
+    },
+}
+
+impl TableRef {
+    /// Table nommée, si la source en est une.
+    pub fn table_name(&self) -> Option<&ObjectName> {
+        match &self.source {
+            TableSource::Table(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// Nom sous lequel la source est visible dans la requête : son alias,
+    /// sinon le dernier segment de son nom (table ou fonction).
+    pub fn visible_name(&self) -> Option<&str> {
+        if let Some(a) = &self.alias {
+            return Some(&a.value);
+        }
+        match &self.source {
+            TableSource::Table(n) | TableSource::Function { name: n, .. } => {
+                n.0.last().map(|i| i.value.as_str())
+            }
+            TableSource::Subquery { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -80,6 +159,8 @@ pub enum JoinConstraint {
     On(Expr),
     Using(Vec<Ident>),
     Natural,
+    /// `CROSS JOIN` (ou virgule) : produit cartésien, sans condition.
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -142,9 +223,11 @@ pub struct Assignment {
 pub struct UpdateStmt {
     pub id: NodeId,
     pub span: Span,
-    pub table: TableRef,
+    pub table: TargetTable,
     pub assignments: Vec<Assignment>,
     pub from: Vec<TableRef>,
+    /// Jointures écrites dans `FROM`.
+    pub joins: Vec<Join>,
     pub where_clause: Option<Expr>,
     pub returning: Vec<SelectItem>,
 }
@@ -155,8 +238,10 @@ pub struct UpdateStmt {
 pub struct DeleteStmt {
     pub id: NodeId,
     pub span: Span,
-    pub table: TableRef,
+    pub table: TargetTable,
     pub using: Vec<TableRef>,
+    /// Jointures écrites dans `USING`.
+    pub joins: Vec<Join>,
     pub where_clause: Option<Expr>,
     pub returning: Vec<SelectItem>,
 }

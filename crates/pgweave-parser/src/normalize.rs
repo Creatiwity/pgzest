@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use pgweave_ast::expr::{Expr, Ident};
-use pgweave_ast::stmt::{Cte, Join, OrderByExpr, SelectItem, SelectStmt, TableRef};
+use pgweave_ast::stmt::{Cte, Join, OrderByExpr, SelectItem, SelectStmt, SetOperation, TableRef};
 
 /// A `SelectStmt` re-expressed in logical evaluation order.
 ///
@@ -66,6 +66,9 @@ pub struct NormalizedSelect {
     /// Whether DISTINCT de-duplication is applied after projection.
     pub distinct: bool,
 
+    /// `DISTINCT ON (…)` : une ligne par valeur de ces expressions.
+    pub distinct_on: Vec<Expr>,
+
     // ── Phase 5: ordering & pagination ───────────────────────────────────────
     /// ORDER BY expressions. Aliases defined in `columns` are resolved in
     /// `resolved_aliases`; the type-checker should consult that map first.
@@ -76,6 +79,11 @@ pub struct NormalizedSelect {
 
     /// OFFSET clause.
     pub offset: Option<Expr>,
+
+    // ── Phase 6: opérations ensemblistes ─────────────────────────────────────
+    /// UNION / INTERSECT / EXCEPT, appliqués après ce SELECT ; ORDER BY, LIMIT
+    /// et OFFSET portent alors sur leur résultat.
+    pub set_ops: Vec<SetOperation>,
 
     // ── Derived metadata ─────────────────────────────────────────────────────
     /// Alias → Expr map built from the SELECT list.
@@ -113,11 +121,14 @@ pub fn normalize_select(stmt: SelectStmt) -> NormalizedSelect {
         // Phase 4 – projection
         columns: stmt.columns,
         distinct: stmt.distinct,
+        distinct_on: stmt.distinct_on,
 
         // Phase 5 – ordering & pagination
         order_by: stmt.order_by,
         limit: stmt.limit,
         offset: stmt.offset,
+
+        set_ops: stmt.set_ops,
 
         // Derived
         resolved_aliases,
@@ -150,7 +161,7 @@ fn build_alias_map(columns: &[SelectItem]) -> HashMap<String, Expr> {
 mod tests {
     use super::*;
     use pgweave_ast::expr::{BinaryOp, ColumnRef, ExprKind, Literal};
-    use pgweave_ast::stmt::{JoinConstraint, JoinKind, OrderByExpr};
+    use pgweave_ast::stmt::{JoinConstraint, JoinKind, OrderByExpr, TableSource};
 
     fn col(name: &str) -> Expr {
         Expr::bare(ExprKind::Column(ColumnRef {
@@ -168,7 +179,9 @@ mod tests {
             id: pgweave_ast::NodeId::DUMMY,
             span: pgweave_ast::Span::DUMMY,
             with: vec![],
+            with_recursive: false,
             distinct: false,
+            distinct_on: vec![],
             columns: vec![
                 SelectItem::Expr {
                     expr: col("id"),
@@ -184,8 +197,9 @@ mod tests {
                 },
             ],
             from: vec![TableRef {
-                name: pgweave_ast::expr::ObjectName::unquoted(&["orders"]),
+                source: TableSource::Table(pgweave_ast::expr::ObjectName::unquoted(&["orders"])),
                 alias: None,
+                column_aliases: vec![],
             }],
             joins: vec![],
             where_clause: Some(Expr::bare(ExprKind::BinaryOp {
@@ -204,6 +218,7 @@ mod tests {
             }],
             limit: Some(Expr::bare(ExprKind::Literal(Literal::Number("10".into())))),
             offset: None,
+            set_ops: vec![],
         }
     }
 
@@ -242,7 +257,9 @@ mod tests {
             id: pgweave_ast::NodeId::DUMMY,
             span: pgweave_ast::Span::DUMMY,
             with: vec![],
+            with_recursive: false,
             distinct: false,
+            distinct_on: vec![],
             columns: vec![SelectItem::Wildcard],
             from: vec![],
             joins: vec![],
@@ -252,6 +269,7 @@ mod tests {
             order_by: vec![],
             limit: None,
             offset: None,
+            set_ops: vec![],
         };
         let norm = normalize_select(stmt);
         assert!(norm.resolved_aliases.is_empty());
@@ -264,8 +282,9 @@ mod tests {
         stmt.joins.push(Join {
             kind: JoinKind::Inner,
             table: TableRef {
-                name: ObjectName::unquoted(&["products"]),
+                source: TableSource::Table(ObjectName::unquoted(&["products"])),
                 alias: None,
+                column_aliases: vec![],
             },
             constraint: JoinConstraint::Using(vec![Ident::new("product_id")]),
         });

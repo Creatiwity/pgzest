@@ -182,6 +182,13 @@ impl<'a> Analyzer<'a> {
             }
         }
 
+        // Opérandes d'UNION/INTERSECT/EXCEPT : analysés au même niveau. Les
+        // colonnes du résultat sont nommées par le premier SELECT ; l'unification
+        // de leurs types relève de l'analyse sémantique complète (P3).
+        for op in &sel.set_ops {
+            self.analyze_select(&op.select, parent_scope);
+        }
+
         // Store output columns indexed by this SELECT's NodeId
         self.select_columns.insert(sel.id, output.clone());
         output
@@ -210,20 +217,42 @@ impl<'a> Analyzer<'a> {
 
     /// Bind a table reference into the current scope (adds its columns).
     fn bind_table_ref(&mut self, table_ref: &pgweave_ast::stmt::TableRef, scope_id: ScopeId) {
-        let table_name = object_name_to_string(&table_ref.name);
-        let alias = table_ref
-            .alias
-            .as_ref()
-            .map(|a| a.value.clone())
-            .unwrap_or_else(|| table_name.clone());
+        use pgweave_ast::stmt::TableSource;
+        let Some(visible) = table_ref.visible_name().map(str::to_string) else {
+            // Sous-requête sans alias : PostgreSQL l'interdit, rien à lier.
+            return;
+        };
+        let columns: Option<Vec<(String, DataType)>> = match &table_ref.source {
+            TableSource::Table(name) => {
+                self.schema
+                    .get_table(&object_name_to_string(name))
+                    .map(|ts| {
+                        ts.columns
+                            .iter()
+                            .map(|col| (col.name.clone(), col.data_type.clone()))
+                            .collect()
+                    })
+            }
+            // Colonnes de sortie de la sous-requête, analysée comme telle.
+            TableSource::Subquery { query, .. } => {
+                let out = self.analyze_select(query, scope_id);
+                Some(
+                    out.into_iter()
+                        .map(|c| (c.name.unwrap_or_else(|| "?column?".into()), c.data_type))
+                        .collect(),
+                )
+            }
+            // Le type des colonnes d'une fonction n'est pas encore connu du
+            // catalogue (P2) : la source reste sans colonnes plutôt que d'en
+            // inventer.
+            TableSource::Function { .. } => None,
+        };
+        let alias = visible;
 
-        if let Some(ts) = self.schema.get_table(&table_name) {
-            // Clone to avoid borrow conflict with scopes.get_mut
-            let col_data: Vec<(String, DataType)> = ts
-                .columns
-                .iter()
-                .map(|col| (col.name.clone(), col.data_type.clone()))
-                .collect();
+        if let Some(mut col_data) = columns {
+            for (col, renamed) in col_data.iter_mut().zip(&table_ref.column_aliases) {
+                col.0 = renamed.value.clone();
+            }
 
             let scope = self.scopes.get_mut(scope_id).unwrap();
             scope.relations.push(BoundRelation {
