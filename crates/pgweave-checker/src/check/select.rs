@@ -613,13 +613,25 @@ fn check_expr_inner(
                 && !crate::is_sql_special_form(&func_name)
                 && schema.get_function(&func_name).is_none()
             {
-                diags.push(Diagnostic::warning(
+                let mut d = Diagnostic::warning(
                     codes::FUNCTION_NOT_FOUND,
                     format!(
                         "function '{}' is not defined in the known schema",
                         func_name
                     ),
-                ));
+                );
+                // Fournie par une extension non activée ? (D9)
+                let from = pgweave_catalog::builtin::extensions_providing(
+                    pgweave_catalog::builtin::ObjectSort::Routine,
+                    &func_name,
+                );
+                if let Some(ext) = from.first() {
+                    let ext_name = ext.split('@').next().unwrap_or(ext);
+                    d = d.with_hint(format!(
+                        "'{func_name}' is provided by extension {ext}, which is not enabled: add `CREATE EXTENSION {ext_name}`"
+                    ));
+                }
+                diags.push(d);
             }
             // Arguments, ORDER BY d'agrégat, FILTER, WITHIN GROUP, fenêtre :
             // tous évalués dans la portée de la requête.

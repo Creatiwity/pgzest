@@ -323,6 +323,12 @@ fn cmd_check(
 
     // Index du projet, après les sources explicites (CompositeSchemaProvider est
     // « premier trouvé gagne » : un --schema ou le fichier courant l'emporte).
+    // Diagnostics du rejeu du projet (types introuvables, en-têtes de
+    // migration…), rattachés à leur fichier.
+    let replay_diags: Vec<(std::path::PathBuf, pgweave_diagnostics::Diagnostic)> = project_resolver
+        .as_ref()
+        .map(|r| r.diagnostics.clone())
+        .unwrap_or_default();
     if let Some(resolver) = project_resolver {
         // Un statement illisible dans un fichier du scope retire sa table de
         // l'index, ce qui produit ensuite des `does not exist` qui sont des
@@ -403,6 +409,15 @@ fn cmd_check(
                     &pgweave_catalog::ProjectCatalog::from_statements(stmts),
                 )
             };
+
+        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let this_file = canonical(Path::new(file));
+        diagnostics.extend(
+            replay_diags
+                .iter()
+                .filter(|(p, _)| canonical(p) == this_file)
+                .map(|(_, d)| d.clone()),
+        );
 
         // Statements écartés par le parser → diagnostics selon la config.
         let mut all = macro_diags.clone();

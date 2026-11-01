@@ -211,10 +211,18 @@ impl Applier<'_> {
         match self.type_name(schema, name) {
             Some(q) => TypeRef::Named { name: q, modifiers },
             None => {
-                self.error(
+                let mut d = Diagnostic::error(
                     codes::TYPE_NOT_FOUND,
                     format!("le type « {written} » n'existe pas"),
                 );
+                let from = builtin::extensions_providing(builtin::ObjectSort::Type, name);
+                if let Some(ext) = from.first() {
+                    let ext_name = ext.split('@').next().unwrap_or(ext);
+                    d = d.with_hint(format!(
+                        "« {name} » est fourni par l'extension {ext}, absente ici : ajouter `CREATE EXTENSION {ext_name}`"
+                    ));
+                }
+                self.out.push(d);
                 TypeRef::Unresolved(emit_data_type(dt))
             }
         }

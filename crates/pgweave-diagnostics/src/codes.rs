@@ -73,3 +73,9 @@ pub const DEPENDENT_OBJECTS: &str = "dependent-objects";
 /// évaluable sur le catalogue, SQL dynamique, boucle, corps non analysé. Le
 /// catalogue peut alors différer de celui de la base.
 pub const DDL_NOT_REPLAYED: &str = "ddl-not-replayed";
+/// En-tête de migration incohérent avec l'état rejoué (extension annoncée
+/// mais absente, ou active mais non annoncée) — PLAN.md, D9.
+pub const MIGRATION_HEADER_MISMATCH: &str = "migration-header-mismatch";
+/// Migrations sans en-tête `-- pgweave:` : analysées avec la version de la
+/// configuration (signalé une fois).
+pub const MIGRATION_WITHOUT_HEADER: &str = "migration-without-header";

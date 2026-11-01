@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use pgweave_ast::Statement;
-use pgweave_diagnostics::Diagnostic;
+use pgweave_diagnostics::{Diagnostic, codes};
 use pgweave_parser::SkippedStatement;
 use pgweave_schema::SchemaIndex;
 use pgweave_schema::provider::{
@@ -96,7 +96,14 @@ impl ProjectCatalog {
         let mut replay = base();
         let mut skipped = Vec::new();
         let mut diagnostics = Vec::new();
+        let mut without_header: Option<(PathBuf, usize)> = None;
         for chunk in chunks {
+            if matches!(chunk.role, pgweave_schema::FileRole::Migration { .. })
+                && pgweave_schema::MigrationHeader::find(&chunk.sql).is_none()
+            {
+                let e = without_header.get_or_insert((chunk.origin.path.clone(), 0));
+                e.1 += 1;
+            }
             let expansion = pgweave_macro::expand_source(&chunk.sql, macros);
             let parsed = if expansion.is_passthrough() {
                 pgweave_parser::parse_at_with_outcome(&chunk.sql, chunk.origin.byte_range.start)
@@ -113,7 +120,21 @@ impl ProjectCatalog {
             for s in &outcome.statements {
                 replay.apply(s, &mut diags);
             }
+            if matches!(chunk.role, pgweave_schema::FileRole::Migration { .. }) {
+                check_header(&chunk.sql, &replay.catalog, &mut diags);
+            }
             diagnostics.extend(diags.into_iter().map(|d| (chunk.origin.path.clone(), d)));
+        }
+        if let Some((first, n)) = without_header {
+            diagnostics.push((
+                first,
+                Diagnostic::info(
+                    codes::MIGRATION_WITHOUT_HEADER,
+                    format!(
+                        "{n} migration(s) sans en-tête `-- pgweave:` : analysées avec postgres@{DEFAULT_POSTGRES}"
+                    ),
+                ),
+            ));
         }
         Self::finish(
             replay,
@@ -121,6 +142,53 @@ impl ProjectCatalog {
             skipped,
             diagnostics,
         )
+    }
+}
+
+/// Confronte l'en-tête d'une migration à l'état rejoué après elle (D9).
+fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
+    let Some(Ok(h)) = pgweave_schema::MigrationHeader::find(sql) else {
+        return;
+    };
+    if h.postgres != DEFAULT_POSTGRES {
+        out.push(Diagnostic::info(
+            codes::MIGRATION_HEADER_MISMATCH,
+            format!(
+                "migration écrite pour postgres@{}, analysée avec postgres@{DEFAULT_POSTGRES} (seule version prise en charge)",
+                h.postgres
+            ),
+        ));
+    }
+    for e in &h.extensions {
+        match cat.extensions.get(&e.name) {
+            None => out.push(Diagnostic::error(
+                codes::MIGRATION_HEADER_MISMATCH,
+                format!(
+                    "l'en-tête annonce l'extension {}@{}, qui n'est pas créée à ce point des migrations",
+                    e.name, e.version
+                ),
+            )),
+            Some(active) if active.version.as_deref() != Some(e.version.as_str()) => {
+                out.push(Diagnostic::error(
+                    codes::MIGRATION_HEADER_MISMATCH,
+                    format!(
+                        "l'en-tête annonce {}@{}, l'extension active est en version {}",
+                        e.name,
+                        e.version,
+                        active.version.as_deref().unwrap_or("?")
+                    ),
+                ))
+            }
+            Some(_) => {}
+        }
+    }
+    for name in cat.extensions.keys() {
+        if !h.extensions.iter().any(|e| &e.name == name) {
+            out.push(Diagnostic::warning(
+                codes::MIGRATION_HEADER_MISMATCH,
+                format!("l'extension {name} est active mais absente de l'en-tête"),
+            ));
+        }
     }
 }
 

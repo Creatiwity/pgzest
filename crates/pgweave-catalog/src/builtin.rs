@@ -79,6 +79,34 @@ fn relocate(v: &mut serde_json::Value, from: &str, to: &str) {
     }
 }
 
+/// Sorte d'objet cherché dans les packs d'extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectSort {
+    Type,
+    Routine,
+}
+
+/// Extensions (`nom@version`) dont le pack fournit un objet de ce nom :
+/// la suggestion d'un `CREATE EXTENSION` manquant (D9).
+pub fn extensions_providing(sort: ObjectSort, name: &str) -> Vec<String> {
+    static PACKS_PARSED: std::sync::OnceLock<Vec<Pack>> = std::sync::OnceLock::new();
+    let packs = PACKS_PARSED.get_or_init(|| {
+        PACKS
+            .iter()
+            .filter(|(n, _, _)| *n != "postgres")
+            .filter_map(|(_, _, text)| Pack::from_json(text).ok())
+            .collect()
+    });
+    packs
+        .iter()
+        .filter(|p| match sort {
+            ObjectSort::Type => p.types.iter().any(|t| t.name.name == name),
+            ObjectSort::Routine => p.routines.iter().any(|r| r.name.name == name),
+        })
+        .map(|p| p.contributor.to_string())
+        .collect()
+}
+
 impl Catalog {
     /// Catalogue de base d'une version majeure de PostgreSQL.
     ///
@@ -121,6 +149,19 @@ mod tests {
                 .is_some()
         );
         assert!(c.schema_exists("public"));
+    }
+
+    #[test]
+    fn extension_qui_fournit() {
+        assert_eq!(
+            extensions_providing(ObjectSort::Type, "citext"),
+            ["citext@1.8"]
+        );
+        assert_eq!(
+            extensions_providing(ObjectSort::Routine, "levenshtein"),
+            ["fuzzystrmatch@1.2"]
+        );
+        assert!(extensions_providing(ObjectSort::Type, "int4").is_empty());
     }
 
     #[test]
