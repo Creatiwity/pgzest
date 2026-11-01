@@ -1,6 +1,6 @@
 # Corpus `siren` — taux d'analyse
 
-> Généré le 2026-11-01 par `cargo xtask corpus siren` (pgweave `ea3952e`).
+> Généré le 2026-11-01 par `cargo xtask corpus siren` (pgweave `641fda9`).
 > Fichiers retenus : Diesel : `*/up.sql`, triés par répertoire horodaté.
 > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
 
@@ -40,6 +40,6 @@ Première migration refusée : n° 15 — « extension "…" is not available »
 
 | Étape | Durée |
 |---|--:|
-| Parse de tous les fichiers | 28 ms |
-| Construction de l'index (`SchemaResolver`) | 37 ms |
+| Parse de tous les fichiers | 29 ms |
+| Construction de l'index (`SchemaResolver`) | 36 ms |
 | Vérification de tous les fichiers | 0 ms |

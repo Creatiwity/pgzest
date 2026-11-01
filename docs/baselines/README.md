@@ -37,6 +37,33 @@ progrès. Les chiffres ci-dessous datent du 2026-11-01 (commit `62f1e61`).
   `HashMap` (résultat différent à chaque exécution, colonnes en double) et
   `t.*` ne produisait rien.
 
+## État à la fin de P1 (`e1c6b1f`)
+
+| Mesure | P0 | P1 |
+|---|--:|--:|
+| Oracle : colonnes conformes | 73/112 | 84/112 |
+| Mesalia : statements analysés | 1519/1740 (87 %) | 1740/1740 (100 %) |
+| Mesalia : corps de routines non analysés | 17/28 | 0/28 |
+| Mesalia : erreurs (faux positifs) | 27 | 10 |
+| siren : statements analysés | — | 294/294 (100 %) |
+
+- Les **10 `column-not-found` Mesalia** viennent de la vérification de
+  chaque migration contre l'état **final** du schéma (colonnes renommées
+  ou supprimées plus tard) : le rejeu migration par migration (P2) les
+  supprime.
+- Les **`function-not-found`** (Mesalia 53, siren 7) portent toutes sur des
+  fonctions intégrées (`pg_trigger_depth`, `normalize`) ou d'extensions
+  (`unaccent`, `levenshtein_less_equal`) : catalogue généré et packs (D9,
+  P2). Leur hausse depuis P0 vient des corps désormais analysés.
+- Rejeu siren sur PG 18 : arrêté à la migration 15 (extension `postgis`
+  absente de l'image de l'oracle) — limite de l'environnement de test.
+
+[`siren.md`](siren.md) : corpus Diesel (`--layout diesel`, chemin local).
+
+---
+
+# Historique : mesures P0
+
 ## Mesalia : taux d'analyse et faux positifs
 
 - **Corpus valide** : les 220 migrations s'appliquent sur un PostgreSQL 18

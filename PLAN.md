@@ -480,7 +480,20 @@ suivante sur une phase non terminée, sauf parallélisation explicitement notée
 dans `docs/` ; décision salsa actée ; formats requêtes nommées et config
 publiés.
 
-### P1 — Parser fidèle
+### P1 — Parser fidèle — ✅ terminée (2026-11-01, `e1c6b1f`)
+
+Bilan : Mesalia 1740/1740 statements et 28/28 corps analysés, siren
+294/294 et 10/10 ; aucune réécriture textuelle (dialecte enveloppe +
+grammaire pgweave sur les tokens) ; parser PL/pgSQL réécrit sur les tokens
+du dialecte (expressions SQL ordinaires, spans) ; identifiants fidèles
+(principe 8) ; en-tête `-- pgweave:` lu ; fuzzing déterministe sans panique
+(`crates/pgweave-analysis/tests/no_panic.rs`). Un audit des champs
+sqlparser ignorés a supprimé une série de pertes silencieuses (fenêtres,
+`FILTER`, arguments nommés, `NOT VALID`, `USING`, `DEFAULT VALUES`…).
+Sherpa : pas de corpus de schéma exploitable (bac à sable), sans objet.
+Restent pour P2 : 10 faux positifs `column-not-found` Mesalia (vérification
+contre l'état final, résolus par le rejeu) et les `function-not-found` sur
+des fonctions intégrées ou d'extensions (catalogue généré, packs D9).
 
 - `PgsqlDialect` wrapper ; suppression de toutes les réécritures textuelles.
 - Couverture DDL du périmètre : `CREATE TYPE` (enum, composite), `CREATE
