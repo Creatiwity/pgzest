@@ -1270,11 +1270,22 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             over: None,
         }),
 
-        // `DATE '2025-01-01'` / `'value'::type` typed string literals.
-        sp::Expr::TypedString(ts) => match ts.value.into_string() {
-            Some(v) => Ok(ExprKind::Literal(Literal::String(v))),
-            None => Ok(ExprKind::Literal(Literal::Null)),
-        },
+        // `DATE '2025-01-01'` : littéral typé, équivalent PostgreSQL de
+        // `'2025-01-01'::date`. Le type est conservé — le réduire au littéral
+        // seul en ferait une chaîne de type inconnu.
+        sp::Expr::TypedString(ts) => {
+            let data_type = convert_data_type(ts.data_type)?;
+            let literal = match ts.value.into_string() {
+                Some(v) => Literal::String(v),
+                None => {
+                    return Ok(ExprKind::Unsupported("littéral typé non textuel".into()));
+                }
+            };
+            Ok(ExprKind::Cast {
+                expr: Box::new(Expr::bare(ExprKind::Literal(literal))),
+                data_type,
+            })
+        }
 
         // ── Constructions PostgreSQL courantes ────────────────────────────────
         sp::Expr::Exists { subquery, negated } => Ok(ExprKind::Exists {
