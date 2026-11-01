@@ -215,6 +215,7 @@ mod tests {
                 source: TableSource::Table(pgweave_ast::expr::ObjectName::unquoted(&["orders"])),
                 alias: None,
                 column_aliases: vec![],
+                column_types: vec![],
             }],
             joins: vec![],
             where_clause: Some(Expr::bare(ExprKind::BinaryOp {
@@ -304,6 +305,7 @@ mod tests {
                 source: TableSource::Table(ObjectName::unquoted(&["products"])),
                 alias: None,
                 column_aliases: vec![],
+                column_types: vec![],
             },
             constraint: JoinConstraint::Using(vec![Ident::new("product_id")]),
         });

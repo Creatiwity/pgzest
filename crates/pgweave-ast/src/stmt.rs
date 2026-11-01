@@ -75,7 +75,26 @@ pub enum SetOperator {
 pub struct Cte {
     pub name: Ident,
     pub columns: Vec<Ident>,
-    pub query: Box<SelectStmt>,
+    pub query: CteQuery,
+}
+
+/// Corps d'une CTE : une requête, ou un statement de modification dont le
+/// `RETURNING` forme les lignes (`WITH n AS (INSERT … RETURNING id)`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CteQuery {
+    Select(Box<SelectStmt>),
+    /// `INSERT`, `UPDATE` ou `DELETE`.
+    Modify(Box<Statement>),
+}
+
+impl Cte {
+    /// Requête du corps, si c'en est une.
+    pub fn select(&self) -> Option<&SelectStmt> {
+        match &self.query {
+            CteQuery::Select(q) => Some(q),
+            CteQuery::Modify(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,6 +118,9 @@ pub struct TableRef {
     pub alias: Option<Ident>,
     /// `AS alias (c1, c2)` : renomme les colonnes de la source, dans l'ordre.
     pub column_aliases: Vec<Ident>,
+    /// Liste de définition de colonnes d'une fonction renvoyant `record` :
+    /// `AS r(a int, b text)`. Un type par alias de colonne, ou vide.
+    pub column_types: Vec<DataType>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

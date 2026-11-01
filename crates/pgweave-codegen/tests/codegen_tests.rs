@@ -42,6 +42,7 @@ fn table_ref(name: &str) -> TableRef {
         source: TableSource::Table(ObjectName::unquoted(&[name])),
         alias: None,
         column_aliases: vec![],
+        column_types: vec![],
     }
 }
 

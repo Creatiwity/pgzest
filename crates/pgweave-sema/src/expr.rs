@@ -374,6 +374,11 @@ impl<'c> Analyzer<'c> {
             ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {
                 Err(SemaError::not_analyzed("`*` dans une expression", span))
             }
+            ExprKind::GroupingSets { .. } => Err(SemaError::new(
+                "type-mismatch",
+                "ROLLUP, CUBE et GROUPING SETS ne s'écrivent que dans GROUP BY",
+                span,
+            )),
             ExprKind::Unsupported(what) => Err(SemaError::not_analyzed(what, span)),
         }
     }
@@ -445,6 +450,25 @@ impl<'c> Analyzer<'c> {
         scope: &Scope,
         span: Span,
     ) -> Result<Typed, SemaError> {
+        // Comparaison de lignes : opérateur résolu paire par paire
+        // (`make_row_comparison_op`).
+        if let (ExprKind::Tuple(ls), ExprKind::Tuple(rs)) = (&left.kind, &right.kind)
+            && let Some(name) =
+                operator_name(op).filter(|n| matches!(*n, "=" | "<>" | "<" | "<=" | ">" | ">="))
+        {
+            if ls.len() != rs.len() {
+                return Err(SemaError::new(
+                    "type-mismatch",
+                    "unequal number of entries in row expressions",
+                    span,
+                ));
+            }
+            let mut nulls = Vec::new();
+            for (l, r) in ls.iter().zip(rs) {
+                nulls.push(self.operator(name, Some(l), r, scope, span)?.nullable);
+            }
+            return Ok(Typed::new(pg("bool"), Nullability::strict(nulls)));
+        }
         match op {
             BinaryOp::And | BinaryOp::Or => {
                 let a = self.boolean(left, scope)?;
@@ -749,6 +773,14 @@ impl<'c> Analyzer<'c> {
                 }
                 _ => {}
             }
+            // `grouping(a, b)` : construction de la grammaire (`GroupingFunc`),
+            // masque de bits `int4`.
+            if fname == "grouping" {
+                for a in args {
+                    self.expr(a, scope)?;
+                }
+                return Ok(Typed::new(pg("int4"), Nullability::NonNull));
+            }
             // Fonctions SQL sans parenthèses (`SQLValueFunction`), de type fixe.
             if args.is_empty()
                 && let Some((ty, nullable)) = sql_value_function(fname)
@@ -765,17 +797,29 @@ impl<'c> Analyzer<'c> {
                 .chain(within_group.iter().map(|o| &o.expr))
                 .collect(),
         };
+        // Arguments nommés (`nom => valeur`) : la valeur, et son nom.
+        let mut names: Vec<Option<String>> = Vec::with_capacity(args.len());
+        let args: Vec<&Expr> = args
+            .into_iter()
+            .map(|a| match &a.kind {
+                ExprKind::NamedArgument { name, value } => {
+                    names.push(Some(name.value.clone()));
+                    &**value
+                }
+                _ => {
+                    names.push(None);
+                    a
+                }
+            })
+            .collect();
         let mut typed = Vec::with_capacity(args.len());
         for a in &args {
-            if let ExprKind::NamedArgument { .. } = a.kind {
-                return Err(SemaError::not_analyzed("argument nommé", a.span));
-            }
             typed.push(self.expr(a, scope)?);
         }
         let inputs: Vec<Ty> = typed.iter().map(|t| t.ty.clone()).collect();
         let call: ResolvedCall = self
             .ts
-            .resolve_function(schema, fname, &inputs, &self.path)
+            .resolve_function_named(schema, fname, &inputs, &names, &self.path)
             .map_err(|err| {
                 resolve_error(
                     err,

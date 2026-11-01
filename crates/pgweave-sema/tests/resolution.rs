@@ -178,3 +178,29 @@ fn type_commun() {
         Err(CommonTypeError::CategoryMismatch(..))
     ));
 }
+
+#[test]
+fn arguments_nommes() {
+    let ts = ts();
+    let named = |args: &[(&str, Option<&str>)]| {
+        let tys: Vec<Ty> = args.iter().map(|(t_, _)| t(t_)).collect();
+        let names: Vec<Option<String>> = args.iter().map(|(_, n)| n.map(str::to_string)).collect();
+        ts.resolve_function_named(None, "make_interval", &tys, &names, &SearchPath::default())
+            .map(|r| r.returns.map(|q| q.name))
+    };
+    // Les autres paramètres ont une valeur par défaut.
+    assert_eq!(named(&[("int4", Some("days"))]), ok("interval"));
+    assert_eq!(
+        named(&[("int4", None), ("int4", Some("hours"))]),
+        ok("interval")
+    );
+    assert_eq!(
+        named(&[("int4", Some("nope"))]),
+        Err(ResolveError::NotFound)
+    );
+    // Un paramètre déjà fourni par position ne peut pas être renommé.
+    assert_eq!(
+        named(&[("int4", None), ("int4", Some("years"))]),
+        Err(ResolveError::NotFound)
+    );
+}

@@ -43,8 +43,9 @@ pub fn check(stmt: &Statement, config: &LintConfig) -> Vec<Diagnostic> {
 }
 
 fn check_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>) {
-    for cte in &sel.with {
-        check_select(&cte.query, config, out);
+    // Corps SELECT des CTE (un corps modifiant est un statement à part).
+    for cte_query in sel.with.iter().filter_map(|c| c.select()) {
+        check_select(cte_query, config, out);
     }
 
     // Only flag when GROUP BY is absent

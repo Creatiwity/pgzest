@@ -595,13 +595,15 @@ Fait (2026-11-01) :
   - paramètres typés par leur premier usage ;
   - nullabilité D5 ;
   - noms de colonnes de `FigureColname`.
-- Oracle de requêtes : 90 requêtes, 283/283 colonnes, 57/57 paramètres.
+- Oracle de requêtes : 178 requêtes, 550/550 colonnes, 114/114 paramètres.
 - Colonnes de vues typées pendant le rejeu (`QueryTyper`) : Mesalia identique au réel, 1 622/1 622 colonnes.
 
 Reste, dans l'ordre :
 1. Corpus de l'oracle porté à ≥ 300 requêtes, dont les corps de Mesalia.
 2. HIR explicite (références résolues vers le catalogue et la portée) plutôt que le seul couple (type, nullabilité).
-3. Arguments nommés.
+3. ✅ Arguments nommés (`MatchNamedCall`), CTE modifiantes, `GROUPING SETS`,
+   listes de définition de colonnes, `RETURNING old/new`. Les lints de
+   requête ne visitent que les corps `SELECT` des CTE.
 4. Portées routine/bloc (PL/pgSQL) dans sema.
 5. Checker et lint portés sur `pgweave-sema` ; diagnostic de compatibilité (`WHERE text_col = 42`) ; suppression de `pgweave-semantic` et du `TypeContext`.
 6. Exécution du SQL dynamique des corps : reportée de P2.

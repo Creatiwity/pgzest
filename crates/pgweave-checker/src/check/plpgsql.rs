@@ -5,7 +5,7 @@ use pgweave_ast::expr::Ident;
 use pgweave_ast::plpgsql::{
     Block, Declaration, IntoTarget, PlStatement, PlStatementKind, PlpgsqlBody, VarType,
 };
-use pgweave_ast::stmt::{InsertSource, Statement};
+use pgweave_ast::stmt::{CteQuery, InsertSource, Statement};
 use pgweave_ast::types::DataType;
 
 use pgweave_diagnostics::Diagnostic;
@@ -780,6 +780,11 @@ fn check_sql_expr_idents(
                 check_sql_expr_idents(e, ctx, diags);
             }
         }
+        ExprKind::GroupingSets { .. } => {
+            for e in expr.children() {
+                check_sql_expr_idents(e, ctx, diags);
+            }
+        }
         ExprKind::FieldAccess { root, .. } => check_sql_expr_idents(root, ctx, diags),
         ExprKind::NamedArgument { value, .. } => check_sql_expr_idents(value, ctx, diags),
 
@@ -934,7 +939,10 @@ fn check_sql_in_body(stmt: &Statement, ctx: &TypeContext<'_>, diags: &mut Vec<Di
                 );
             } else {
                 for cte in &ins.with {
-                    check_sel(&cte.query, &body, diags);
+                    match &cte.query {
+                        CteQuery::Select(q) => check_sel(q, &body, diags),
+                        CteQuery::Modify(s) => check_sql_in_body(s, ctx, diags),
+                    }
                 }
             }
         }

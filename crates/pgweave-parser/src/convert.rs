@@ -654,11 +654,21 @@ fn convert_cte(cte: sp::Cte) -> Result<Cte, ParseError> {
         .into_iter()
         .map(|c| convert_ident(c.name))
         .collect();
-    let query = convert_query(*cte.query)?;
+    // Corps modifiant (`INSERT … RETURNING`…) : un statement, pas une requête.
+    let q = *cte.query;
+    let query = match *q.body {
+        sp::SetExpr::Insert(s) | sp::SetExpr::Update(s) | sp::SetExpr::Delete(s) => {
+            pgweave_ast::stmt::CteQuery::Modify(Box::new(convert_statement(s)?))
+        }
+        body => pgweave_ast::stmt::CteQuery::Select(Box::new(convert_query(sp::Query {
+            body: Box::new(body),
+            ..q
+        })?)),
+    };
     Ok(Cte {
         name,
         columns,
-        query: Box::new(query),
+        query,
     })
 }
 
@@ -788,17 +798,28 @@ fn convert_select_item(item: sp::SelectItem) -> Result<SelectItem, ParseError> {
 }
 
 fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError> {
-    let aliases = |alias: Option<sp::TableAlias>| -> (Option<Ident>, Vec<Ident>) {
-        match alias {
-            Some(a) => (
-                Some(convert_ident(a.name)),
-                a.columns
-                    .into_iter()
-                    .map(|c| convert_ident(c.name))
-                    .collect(),
-            ),
-            None => (None, Vec::new()),
+    // Alias, noms de colonnes et, pour une liste de définition de colonnes
+    // (`AS r(a int, b text)`), leurs types.
+    type Aliases = (Option<Ident>, Vec<Ident>, Vec<DataType>);
+    let aliases = |alias: Option<sp::TableAlias>| -> Result<Aliases, ParseError> {
+        let Some(a) = alias else {
+            return Ok((None, Vec::new(), Vec::new()));
+        };
+        let typed = a.columns.iter().filter(|c| c.data_type.is_some()).count();
+        if typed != 0 && typed != a.columns.len() {
+            return Err(ParseError::Unsupported(
+                "liste de définition de colonnes partiellement typée".to_string(),
+            ));
         }
+        let mut names = Vec::new();
+        let mut types = Vec::new();
+        for c in a.columns {
+            names.push(convert_ident(c.name));
+            if let Some(t) = c.data_type {
+                types.push(convert_data_type(t)?);
+            }
+        }
+        Ok((Some(convert_ident(a.name)), names, types))
     };
     if let sp::TableFactor::Table {
         with_hints,
@@ -901,11 +922,12 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
             )));
         }
     };
-    let (alias, column_aliases) = aliases(alias);
+    let (alias, column_aliases, column_types) = aliases(alias)?;
     Ok(TableRef {
         source,
         alias,
         column_aliases,
+        column_types,
     })
 }
 
@@ -1374,6 +1396,10 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             over: None,
         }),
 
+        sp::Expr::Rollup(sets) => grouping_sets(pgweave_ast::expr::GroupingKind::Rollup, sets),
+        sp::Expr::Cube(sets) => grouping_sets(pgweave_ast::expr::GroupingKind::Cube, sets),
+        sp::Expr::GroupingSets(sets) => grouping_sets(pgweave_ast::expr::GroupingKind::Sets, sets),
+
         // Syntaxes SQL ramenées par la grammaire de PostgreSQL à des appels
         // de fonctions système (`gram.y`, `SystemFuncName`).
         sp::Expr::Position { expr, r#in } => {
@@ -1468,6 +1494,24 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
 
         _other => Ok(ExprKind::Unsupported(describe_sp_expr(&_other))),
     }
+}
+
+/// `ROLLUP`, `CUBE`, `GROUPING SETS` de `GROUP BY`.
+fn grouping_sets(
+    kind: pgweave_ast::expr::GroupingKind,
+    sets: Vec<Vec<sp::Expr>>,
+) -> Result<ExprKind, ParseError> {
+    Ok(ExprKind::GroupingSets {
+        kind,
+        sets: sets
+            .into_iter()
+            .map(|s| {
+                s.into_iter()
+                    .map(convert_expr)
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    })
 }
 
 /// Appel à `pg_catalog.name(args)`, forme que PostgreSQL donne aux syntaxes

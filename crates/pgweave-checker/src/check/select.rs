@@ -108,8 +108,26 @@ fn check_select_scoped<'s>(
             });
             ctes.insert(cte.name.value.to_string(), declared);
         }
+        let q = match &cte.query {
+            pgweave_ast::stmt::CteQuery::Select(q) => q,
+            // Corps modifiant : vérifié comme un statement ; ses colonnes
+            // (`RETURNING`) ne sont pas établies ici (voir `pgweave-sema`).
+            pgweave_ast::stmt::CteQuery::Modify(s) => {
+                diags.extend(crate::check::check_statements(
+                    std::slice::from_ref(&**s),
+                    schema,
+                ));
+                let columns = (!cte.columns.is_empty())
+                    .then(|| cte.columns.iter().map(|c| c.value.clone()).collect());
+                ctes.insert(
+                    cte.name.value.to_string(),
+                    columns.map(|c| synthetic_schema(&cte.name.value, c)),
+                );
+                continue;
+            }
+        };
         diags.extend(check_select_scoped(
-            &cte.query,
+            q,
             schema,
             plvars,
             phantom_qualifiers,
@@ -117,7 +135,7 @@ fn check_select_scoped<'s>(
             &ctes,
         ));
         let columns = if cte.columns.is_empty() {
-            output_names(&cte.query, schema, &ctes)
+            output_names(q, schema, &ctes)
         } else {
             Some(cte.columns.iter().map(|c| c.value.clone()).collect())
         };
@@ -733,6 +751,11 @@ fn check_expr_inner(
         }
         ExprKind::Tuple(items) => {
             for e in items {
+                check_expr(e, ctx, schema, plvars, phantom_qualifiers, diags);
+            }
+        }
+        ExprKind::GroupingSets { .. } => {
+            for e in expr.children() {
                 check_expr(e, ctx, schema, plvars, phantom_qualifiers, diags);
             }
         }

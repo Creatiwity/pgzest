@@ -44,8 +44,9 @@ fn visit_stmt(stmt: &Statement, config: &LintConfig, out: &mut Vec<Diagnostic>) 
 
 fn visit_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>) {
     // CTEs
-    for cte in &sel.with {
-        visit_select(&cte.query, config, out);
+    // Corps SELECT des CTE (un corps modifiant est un statement à part).
+    for cte_query in sel.with.iter().filter_map(|c| c.select()) {
+        visit_select(cte_query, config, out);
     }
     if let Some(ref w) = sel.where_clause {
         visit_expr(w, config, out);
@@ -92,7 +93,7 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             visit_expr(right, config, out);
         }
         ExprKind::UnaryOp { expr, .. } => visit_expr(expr, config, out),
-        ExprKind::FunctionCall { .. } => {
+        ExprKind::FunctionCall { .. } | ExprKind::GroupingSets { .. } => {
             for child in expr.children() {
                 visit_expr(child, config, out);
             }

@@ -247,7 +247,10 @@ fn emit_with(with: &[Cte], recursive: bool) -> String {
                 "{}{} AS ({})",
                 emit_ident(&cte.name),
                 cols,
-                emit_select(&cte.query)
+                match &cte.query {
+                    CteQuery::Select(q) => emit_select(q),
+                    CteQuery::Modify(s) => emit_statement(s),
+                }
             )
         })
         .collect();
@@ -483,7 +486,11 @@ pub fn emit_table_ref(tr: &TableRef) -> String {
             emit_ident(a),
             tr.column_aliases
                 .iter()
-                .map(emit_ident)
+                .enumerate()
+                .map(|(i, c)| match tr.column_types.get(i) {
+                    Some(t) => format!("{} {}", emit_ident(c), emit_data_type(t)),
+                    None => emit_ident(c),
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -744,6 +751,23 @@ pub fn emit_expr(expr: &Expr) -> String {
         ),
         ExprKind::FieldAccess { root, path } => {
             format!("{}{}", emit_expr(root), path.join(""))
+        }
+        ExprKind::GroupingSets { kind, sets } => {
+            let keyword = match kind {
+                crate::expr::GroupingKind::Rollup => "ROLLUP",
+                crate::expr::GroupingKind::Cube => "CUBE",
+                crate::expr::GroupingKind::Sets => "GROUPING SETS",
+            };
+            let sets: Vec<String> = sets
+                .iter()
+                .map(|s| {
+                    format!(
+                        "({})",
+                        s.iter().map(emit_expr).collect::<Vec<_>>().join(", ")
+                    )
+                })
+                .collect();
+            format!("{keyword} ({})", sets.join(", "))
         }
         ExprKind::Parameter(p) => p.clone(),
         ExprKind::NamedArgument { name, value } => {

@@ -176,6 +176,8 @@ pub fn infer_expr_type(
 
         // Un constructeur de ligne n'a pas de type scalaire.
         ExprKind::Tuple(_) => None,
+        // Élément de `GROUP BY`, pas une valeur.
+        ExprKind::GroupingSets { .. } => None,
 
         // L'accès à un élément de tableau ou à un champ composite demanderait de
         // résoudre le type de la base puis de le décomposer — pas encore fait.

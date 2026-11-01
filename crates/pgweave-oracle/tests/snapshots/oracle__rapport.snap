@@ -4,7 +4,7 @@ expression: report
 ---
 # Oracle différentiel — PostgreSQL 18
 
-Requêtes : 134 · Colonnes conformes : 413/413 (100 %) · Paramètres conformes : 80/80 (100 %)
+Requêtes : 178 · Colonnes conformes : 550/550 (100 %) · Paramètres conformes : 114/114 (100 %)
 
 ## 01-basics
 
@@ -1372,3 +1372,451 @@ Paramètres — PostgreSQL : `int4[]` · pgweave : `int4[]` · 1/1
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
 | 1 | `x int4` | `x int4` | ✓ |
+
+
+## 08-patterns
+
+### `cte_insert_returning`
+
+Paramètres — PostgreSQL : `varchar` · pgweave : `varchar` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id uuid` | `id uuid` | ✓ |
+| 2 | `handle varchar` | `handle varchar` | ✓ |
+| 3 | `length int4` | `length int4` | ✓ |
+
+### `cte_delete_then_count`
+
+Paramètres — PostgreSQL : `timestamp` · pgweave : `timestamp` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `user_id uuid` | `user_id uuid` | ✓ |
+| 2 | `count int8` | `count int8` | ✓ |
+
+### `cte_update_join`
+
+Paramètres — PostgreSQL : `uuid` · pgweave : `uuid` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `title text` | `title text` | ✓ |
+| 2 | `karma int4` | `karma int4` | ✓ |
+
+### `jsonb_each_from`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `handle varchar` | `handle varchar` | ✓ |
+| 2 | `key text` | `key text` | ✓ |
+| 3 | `value jsonb` | `value jsonb` | ✓ |
+
+### `jsonb_each_text_from`
+
+Paramètres — PostgreSQL : `jsonb` · pgweave : `jsonb` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `key text` | `key text` | ✓ |
+| 2 | `value text` | `value text` | ✓ |
+
+### `json_array_elements_from`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `?column? text` | `?column? text` | ✓ |
+| 2 | `jsonb_typeof text` | `jsonb_typeof text` | ✓ |
+
+### `json_to_recordset`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `a int4` | `a int4` | ✓ |
+| 2 | `b text` | `b text` | ✓ |
+
+### `jsonb_set_ops`
+
+Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `jsonb_set jsonb` | `jsonb_set jsonb` | ✓ |
+| 2 | `?column? jsonb` | `?column? jsonb` | ✓ |
+| 3 | `?column? jsonb` | `?column? jsonb` | ✓ |
+| 4 | `jsonb_strip_nulls jsonb` | `jsonb_strip_nulls jsonb` | ✓ |
+| 5 | `?column? jsonb` | `?column? jsonb` | ✓ |
+
+### `jsonb_path`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `jsonb_path_query_first jsonb` | `jsonb_path_query_first jsonb` | ✓ |
+| 2 | `jsonb_path_exists bool` | `jsonb_path_exists bool` | ✓ |
+| 3 | `?column? bool` | `?column? bool` | ✓ |
+
+### `rollup`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `kind text` | `kind text` | ✓ |
+| 2 | `day timestamp` | `day timestamp` | ✓ |
+| 3 | `count int8` | `count int8` | ✓ |
+
+### `grouping_sets`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `kind text` | `kind text` | ✓ |
+| 2 | `user_id uuid` | `user_id uuid` | ✓ |
+| 3 | `count int8` | `count int8` | ✓ |
+| 4 | `grouping int4` | `grouping int4` | ✓ |
+
+### `string_toolbox`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `left text` | `left text` | ✓ |
+| 2 | `right text` | `right text` | ✓ |
+| 3 | `lpad text` | `lpad text` | ✓ |
+| 4 | `rpad text` | `rpad text` | ✓ |
+| 5 | `initcap text` | `initcap text` | ✓ |
+| 6 | `reverse text` | `reverse text` | ✓ |
+| 7 | `repeat text` | `repeat text` | ✓ |
+| 8 | `split_part text` | `split_part text` | ✓ |
+| 9 | `replace text` | `replace text` | ✓ |
+| 10 | `translate text` | `translate text` | ✓ |
+
+### `string_format`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `format text` | `format text` | ✓ |
+| 2 | `concat_ws text` | `concat_ws text` | ✓ |
+| 3 | `quote_ident text` | `quote_ident text` | ✓ |
+| 4 | `quote_literal text` | `quote_literal text` | ✓ |
+| 5 | `to_hex text` | `to_hex text` | ✓ |
+| 6 | `encode text` | `encode text` | ✓ |
+| 7 | `md5 text` | `md5 text` | ✓ |
+
+### `numeric_toolbox`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `power float8` | `power float8` | ✓ |
+| 2 | `sqrt float8` | `sqrt float8` | ✓ |
+| 3 | `ln float8` | `ln float8` | ✓ |
+| 4 | `log numeric` | `log numeric` | ✓ |
+| 5 | `mod int4` | `mod int4` | ✓ |
+| 6 | `div numeric` | `div numeric` | ✓ |
+| 7 | `abs float8` | `abs float8` | ✓ |
+| 8 | `sign float8` | `sign float8` | ✓ |
+| 9 | `width_bucket int4` | `width_bucket int4` | ✓ |
+| 10 | `random float8` | `random float8` | ✓ |
+| 11 | `pi float8` | `pi float8` | ✓ |
+| 12 | `greatest int4` | `greatest int4` | ✓ |
+
+### `date_toolbox`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `make_date date` | `make_date date` | ✓ |
+| 2 | `make_interval interval` | `make_interval interval` | ✓ |
+| 3 | `justify_hours interval` | `justify_hours interval` | ✓ |
+| 4 | `date_bin timestamp` | `date_bin timestamp` | ✓ |
+| 5 | `to_timestamp timestamptz` | `to_timestamp timestamptz` | ✓ |
+| 6 | `to_date date` | `to_date date` | ✓ |
+| 7 | `age interval` | `age interval` | ✓ |
+| 8 | `extract numeric` | `extract numeric` | ✓ |
+
+### `interval_math`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `?column? timestamp` | `?column? timestamp` | ✓ |
+| 2 | `?column? interval` | `?column? interval` | ✓ |
+| 3 | `?column? interval` | `?column? interval` | ✓ |
+| 4 | `?column? interval` | `?column? interval` | ✓ |
+| 5 | `?column? bool` | `?column? bool` | ✓ |
+| 6 | `?column? int4` | `?column? int4` | ✓ |
+
+### `keyset_pagination`
+
+Paramètres — PostgreSQL : `date`, `int8`, `int8` · pgweave : `date`, `int8`, `int8` · 3/3
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `title text` | `title text` | ✓ |
+| 3 | `posted_on date` | `posted_on date` | ✓ |
+
+### `offset_pagination`
+
+Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `title text` | `title text` | ✓ |
+| 3 | `total int8` | `total int8` | ✓ |
+
+### `array_param_uuid`
+
+Paramètres — PostgreSQL : `uuid[]` · pgweave : `uuid[]` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `handle varchar` | `handle varchar` | ✓ |
+
+### `array_param_in_insert`
+
+Paramètres — PostgreSQL : `uuid`, `text`, `text`, `varchar[]` · pgweave : `uuid`, `text`, `text`, `varchar[]` · 4/4
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `tags varchar[]` | `tags varchar[]` | ✓ |
+
+### `array_contains_param`
+
+Paramètres — PostgreSQL : `varchar[]`, `varchar[]` · pgweave : `varchar[]`, `varchar[]` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+
+### `array_unnest_multi`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `a int4` | `a int4` | ✓ |
+| 2 | `b text` | `b text` | ✓ |
+
+### `array_agg_ordered`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `author uuid` | `author uuid` | ✓ |
+| 2 | `array_agg text[]` | `array_agg text[]` | ✓ |
+| 3 | `string_agg text` | `string_agg text` | ✓ |
+
+### `soft_delete_filter`
+
+Paramètres — PostgreSQL : `timestamptz` · pgweave : `timestamptz` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `handle varchar` | `handle varchar` | ✓ |
+| 2 | `deleted bool` | `deleted bool` | ✓ |
+| 3 | `coalesce timestamptz` | `coalesce timestamptz` | ✓ |
+
+### `returning_old_new`
+
+Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `before int4` | `before int4` | ✓ |
+| 2 | `after int4` | `after int4` | ✓ |
+
+### `upsert_do_nothing`
+
+Paramètres — PostgreSQL : `varchar`, `text` · pgweave : `varchar`, `text` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id uuid` | `id uuid` | ✓ |
+
+### `upsert_where`
+
+Paramètres — PostgreSQL : `varchar`, `int4` · pgweave : `varchar`, `int4` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `karma int4` | `karma int4` | ✓ |
+
+### `delete_in_subquery`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `title text` | `title text` | ✓ |
+
+### `update_case_param`
+
+Paramètres — PostgreSQL : `bool`, `int8` · pgweave : `bool`, `int8` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `score float8` | `score float8` | ✓ |
+
+### `insert_default_values`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id uuid` | `id uuid` | ✓ |
+| 2 | `handle varchar` | `handle varchar` | ✓ |
+| 3 | `joined timestamptz` | `joined timestamptz` | ✓ |
+
+### `correlated_max`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `author uuid` | `author uuid` | ✓ |
+| 3 | `title text` | `title text` | ✓ |
+| 4 | `body text` | `body text` | ✓ |
+| 5 | `score float8` | `score float8` | ✓ |
+| 6 | `tags varchar[]` | `tags varchar[]` | ✓ |
+| 7 | `posted_on date` | `posted_on date` | ✓ |
+| 8 | `meta json` | `meta json` | ✓ |
+
+### `any_subquery`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `handle varchar` | `handle varchar` | ✓ |
+
+### `lateral_function`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `handle varchar` | `handle varchar` | ✓ |
+| 2 | `n int4` | `n int4` | ✓ |
+
+### `window_named_frame`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `avg float8` | `avg float8` | ✓ |
+| 3 | `lead text` | `lead text` | ✓ |
+| 4 | `nth_value int8` | `nth_value int8` | ✓ |
+
+### `filter_and_case_agg`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `clicks int8` | `clicks int8` | ✓ |
+| 2 | `views int8` | `views int8` | ✓ |
+| 3 | `avg numeric` | `avg numeric` | ✓ |
+
+### `distinct_count_pairs`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `count int8` | `count int8` | ✓ |
+| 2 | `count int8` | `count int8` | ✓ |
+
+### `nullif_division`
+
+Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `?column? int4` | `?column? int4` | ✓ |
+| 2 | `?column? float8` | `?column? float8` | ✓ |
+
+### `boolean_params`
+
+Paramètres — PostgreSQL : `bool`, `int4` · pgweave : `bool`, `int4` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id uuid` | `id uuid` | ✓ |
+
+### `text_search`
+
+Paramètres — PostgreSQL : `text`, `text` · pgweave : `text`, `text` · 2/2
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int8` | `id int8` | ✓ |
+| 2 | `?column? bool` | `?column? bool` | ✓ |
+| 3 | `ts_rank float4` | `ts_rank float4` | ✓ |
+
+### `json_build_nested`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `json_build_object json` | `json_build_object json` | ✓ |
+
+### `values_join`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `handle varchar` | `handle varchar` | ✓ |
+| 2 | `label text` | `label text` | ✓ |
+
+### `union_order_limit`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `ref text` | `ref text` | ✓ |
+| 2 | `title text` | `title text` | ✓ |
+
+### `exists_param`
+
+Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `exists bool` | `exists bool` | ✓ |
+
+### `scalar_param_math`
+
+Paramètres — PostgreSQL : `numeric`, `int4`, `int4`, `text` · pgweave : `numeric`, `int4`, `int4`, `text` · 4/4
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `?column? numeric` | `?column? numeric` | ✓ |
+| 2 | `?column? int4` | `?column? int4` | ✓ |
+| 3 | `?column? text` | `?column? text` | ✓ |

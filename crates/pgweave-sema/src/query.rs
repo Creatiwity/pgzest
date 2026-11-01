@@ -4,7 +4,7 @@
 use pgweave_ast::Span;
 use pgweave_ast::expr::{Expr, ExprKind, Ident};
 use pgweave_ast::stmt::{
-    InsertSource, JoinConstraint, JoinKind, SelectItem, SelectStmt, Statement, TableRef,
+    CteQuery, InsertSource, JoinConstraint, JoinKind, SelectItem, SelectStmt, Statement, TableRef,
     TableSource,
 };
 use pgweave_ast::utility::UtilityKind;
@@ -148,9 +148,23 @@ impl<'c> Analyzer<'c> {
     ) -> Result<(), SemaError> {
         for cte in ctes {
             let name = cte.name.value.clone();
+            let query = match &cte.query {
+                CteQuery::Select(q) => q,
+                // Corps modifiant : ses lignes sont celles de son `RETURNING`.
+                CteQuery::Modify(stmt) => {
+                    let cols = match &**stmt {
+                        Statement::Insert(s) => self.insert(s)?,
+                        Statement::Update(s) => self.update(s)?,
+                        Statement::Delete(s) => self.delete(s)?,
+                        _ => return Err(SemaError::not_analyzed("corps de CTE", Span::DUMMY)),
+                    };
+                    self.ctes.push((name, rename(&cols, &cte.columns)));
+                    continue;
+                }
+            };
             // Récursive : le terme non récursif fixe les types.
-            if recursive && !cte.query.set_ops.is_empty() {
-                let mut base = (*cte.query).clone();
+            if recursive && !query.set_ops.is_empty() {
+                let mut base = (**query).clone();
                 base.set_ops.clear();
                 base.order_by.clear();
                 base.limit = None;
@@ -158,7 +172,7 @@ impl<'c> Analyzer<'c> {
                 let cols = self.select(&base, outer, false)?;
                 self.ctes.push((name.clone(), rename(&cols, &cte.columns)));
             }
-            let cols = self.select(&cte.query, outer, true)?;
+            let cols = self.select(query, outer, true)?;
             if recursive {
                 self.ctes.retain(|(n, _)| *n != name);
             }
@@ -345,6 +359,12 @@ impl<'c> Analyzer<'c> {
         if let ExprKind::Literal(pgweave_ast::expr::Literal::Number(_)) = e.kind {
             return Ok(());
         }
+        if let ExprKind::GroupingSets { sets, .. } = &e.kind {
+            for x in sets.iter().flatten() {
+                self.group_or_order(x, items, scope)?;
+            }
+            return Ok(());
+        }
         if let ExprKind::Column(c) = &e.kind
             && c.table.is_none()
             && scope.lookup(None, &c.column.value, e.span).is_err()
@@ -473,8 +493,20 @@ impl<'c> Analyzer<'c> {
                 with_ordinality,
                 ..
             } => {
-                let (_, fname) = split_name(name);
-                let (mut cols, scalar) = self.table_function(name, args, scope)?;
+                let (schema_part, fname) = split_name(name);
+                // `unnest(a, b)` en FROM : `ROWS FROM (unnest(a), unnest(b))`.
+                let (mut cols, scalar) =
+                    if schema_part.is_none() && fname == "unnest" && args.len() > 1 {
+                        let mut all = Vec::new();
+                        for a in args {
+                            let (c, _) =
+                                self.table_function(name, std::slice::from_ref(a), scope)?;
+                            all.extend(c);
+                        }
+                        (all, false)
+                    } else {
+                        self.table_function(name, args, scope)?
+                    };
                 // Fonction scalaire : sa colonne porte l'alias de la source.
                 if scalar
                     && t.column_aliases.is_empty()
@@ -493,8 +525,36 @@ impl<'c> Analyzer<'c> {
                 (Some(fname.to_string()), cols)
             }
         };
-        for (c, a) in columns.iter_mut().zip(&t.column_aliases) {
-            c.name = a.value.clone();
+        if t.column_types.is_empty() {
+            for (c, a) in columns.iter_mut().zip(&t.column_aliases) {
+                c.name = a.value.clone();
+            }
+        } else {
+            // Liste de définition de colonnes : elle donne les colonnes d'une
+            // fonction renvoyant `record`.
+            if !matches!(t.source, TableSource::Function { .. })
+                || columns.len() != 1
+                || columns[0].ty != Some(pg("record"))
+            {
+                return Err(SemaError::new(
+                    "type-mismatch",
+                    "a column definition list is only allowed for functions returning \"record\"",
+                    Span::DUMMY,
+                ));
+            }
+            columns = t
+                .column_aliases
+                .iter()
+                .zip(&t.column_types)
+                .map(|(a, dt)| {
+                    Ok(Column {
+                        name: a.value.clone(),
+                        ty: Some(self.data_type(dt, Span::DUMMY)?),
+                        modifiers: data_type_modifiers(dt),
+                        nullable: Nullability::Unknown,
+                    })
+                })
+                .collect::<Result<_, SemaError>>()?;
         }
         let mut source = Source::new(t.alias.as_ref().map(|a| a.value.clone()).or(name), columns);
         source.rowtype = rowtype;
@@ -541,12 +601,21 @@ impl<'c> Analyzer<'c> {
                 .iter()
                 .filter(|a| matches!(a.mode, ArgMode::Out | ArgMode::InOut | ArgMode::Table))
                 .collect();
-            if outs.len() > 1 || (outs.len() == 1 && t.ty == pg("record")) {
+            // Colonnes nommées par les paramètres `OUT` / `TABLE`, même un
+            // seul (`jsonb_array_elements` → `value`).
+            let named = outs.len() == 1 && outs[0].name.is_some();
+            if outs.len() > 1 || (outs.len() == 1 && (t.ty == pg("record") || named)) {
+                let single = outs.len() == 1;
                 let cols: Vec<Column> = outs
                     .iter()
                     .map(|a| Column {
                         name: a.name.clone().unwrap_or_default(),
-                        ty: self.ts.of_ref(&a.ty),
+                        // Seul : le type résolu de l'appel (polymorphisme).
+                        ty: if single {
+                            Some(t.ty.clone())
+                        } else {
+                            self.ts.of_ref(&a.ty)
+                        },
                         modifiers: ref_modifiers(&a.ty),
                         nullable: Nullability::Unknown,
                     })
@@ -741,12 +810,39 @@ impl<'c> Analyzer<'c> {
         Ok(())
     }
 
+    /// `RETURNING` : la portée du statement, plus les lignes avant (`old`)
+    /// et après (`new`) modification (PostgreSQL 18), hors de `*`.
     fn returning(
         &mut self,
         items: &[SelectItem],
         scope: &Scope,
+        target: &Source,
+        aliases: &pgweave_ast::stmt::ReturningAliases,
+        old_exists: bool,
+        new_exists: bool,
     ) -> Result<Vec<OutputColumn>, SemaError> {
-        self.projection(items, scope, true)
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut rscope = scope.clone();
+        for (alias, default, exists) in [
+            (&aliases.old, "old", old_exists),
+            (&aliases.new, "new", new_exists),
+        ] {
+            let name = alias.as_ref().map_or(default, |a| a.value.as_str());
+            if rscope.source(name).is_some() {
+                continue;
+            }
+            let mut src = Source::new(Some(name.to_string()), target.columns.clone());
+            if !exists {
+                for c in &mut src.columns {
+                    c.nullable = Nullability::Nullable;
+                }
+            }
+            src.rowtype = target.rowtype.clone();
+            rscope.sources.push(src);
+        }
+        self.projection(items, &rscope, true)
     }
 
     fn insert(
@@ -843,7 +939,14 @@ impl<'c> Analyzer<'c> {
                 self.boolean(w, &uscope)?;
             }
         }
-        self.returning(&s.returning, &scope)
+        self.returning(
+            &s.returning,
+            &scope,
+            &src,
+            &s.returning_aliases,
+            false,
+            true,
+        )
     }
 
     fn assignment(
@@ -926,7 +1029,7 @@ impl<'c> Analyzer<'c> {
         if let Some(w) = &s.where_clause {
             self.boolean(w, &scope)?;
         }
-        self.returning(&s.returning, &scope)
+        self.returning(&s.returning, &scope, &src, &s.returning_aliases, true, true)
     }
 
     fn delete(
@@ -936,7 +1039,7 @@ impl<'c> Analyzer<'c> {
         self.with(&s.with, s.with_recursive, None)?;
         let (src, _) = self.target(&s.table.name, s.table.alias.as_ref())?;
         let mut scope = Scope::default();
-        scope.push(src);
+        scope.push(src.clone());
         for t in &s.using {
             let f = self.table_ref(t, &scope)?;
             scope.push(f);
@@ -947,7 +1050,14 @@ impl<'c> Analyzer<'c> {
         if let Some(w) = &s.where_clause {
             self.boolean(w, &scope)?;
         }
-        self.returning(&s.returning, &scope)
+        self.returning(
+            &s.returning,
+            &scope,
+            &src,
+            &s.returning_aliases,
+            true,
+            false,
+        )
     }
 }
 

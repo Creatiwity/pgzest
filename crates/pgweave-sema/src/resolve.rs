@@ -86,6 +86,7 @@ impl<'c> TypeSystem<'c> {
         schema: Option<&str>,
         name: &str,
         nargs: usize,
+        names: &[Option<String>],
         path: &SearchPath,
     ) -> Vec<Candidate<'c, Routine>> {
         let schemas: Vec<&str> = match schema {
@@ -110,6 +111,64 @@ impl<'c> TypeSystem<'c> {
                 let pronargs = args.len();
                 let is_variadic = r.args.iter().any(|a| a.mode == ArgMode::Variadic);
                 let ndefaults = r.args.iter().filter(|a| a.has_default).count();
+                // Notation nommée (`MatchNamedCall`) : positionnels d'abord,
+                // puis chaque nom désigne un paramètre restant ; les
+                // paramètres non fournis ont une valeur par défaut. Pas de
+                // dépliage variadique.
+                if names.iter().any(Option::is_some) {
+                    let inputs: Vec<_> = r
+                        .args
+                        .iter()
+                        .filter(|a| {
+                            matches!(a.mode, ArgMode::In | ArgMode::InOut | ArgMode::Variadic)
+                        })
+                        .collect();
+                    if nargs > pronargs {
+                        continue;
+                    }
+                    let npos = names.iter().take_while(|n| n.is_none()).count();
+                    let mut used = vec![false; pronargs];
+                    let mut order: Vec<usize> = (0..npos).collect();
+                    used[..npos].iter_mut().for_each(|u| *u = true);
+                    let mut matched = true;
+                    for n in &names[npos..] {
+                        let pos = n
+                            .as_deref()
+                            .and_then(|n| inputs.iter().position(|a| a.name.as_deref() == Some(n)));
+                        match pos {
+                            Some(i) if !used[i] => {
+                                used[i] = true;
+                                order.push(i);
+                            }
+                            _ => {
+                                matched = false;
+                                break;
+                            }
+                        }
+                    }
+                    let first_default = pronargs - ndefaults;
+                    if !matched
+                        || used
+                            .iter()
+                            .enumerate()
+                            .any(|(i, u)| !u && i < first_default)
+                    {
+                        continue;
+                    }
+                    let candidate = Candidate {
+                        target: r,
+                        args: order.iter().map(|&i| args[i].clone()).collect(),
+                        variadic: false,
+                        defaults: pronargs - nargs,
+                        path_rank: rank,
+                    };
+                    match out.iter_mut().find(|c| c.args == candidate.args) {
+                        Some(prev) if prev.path_rank > rank => *prev = candidate,
+                        Some(_) => {}
+                        None => out.push(candidate),
+                    }
+                    continue;
+                }
                 let variadic = is_variadic && pronargs <= nargs;
                 let defaults = if pronargs > nargs {
                     if nargs + ndefaults < pronargs {
@@ -299,12 +358,28 @@ impl<'c> TypeSystem<'c> {
         inputs: &[Ty],
         path: &SearchPath,
     ) -> Result<ResolvedCall<'c>, ResolveError> {
-        let cands = self.routine_candidates(schema, name, inputs.len(), path);
+        self.resolve_function_named(schema, name, inputs, &vec![None; inputs.len()], path)
+    }
+
+    /// Comme [`Self::resolve_function`], avec le nom de chaque argument
+    /// (`None` : positionnel ; `Some` : `nom => valeur`). Les types renvoyés
+    /// suivent l'ordre de l'appel.
+    pub fn resolve_function_named(
+        &self,
+        schema: Option<&str>,
+        name: &str,
+        inputs: &[Ty],
+        names: &[Option<String>],
+        path: &SearchPath,
+    ) -> Result<ResolvedCall<'c>, ResolveError> {
+        let cands = self.routine_candidates(schema, name, inputs.len(), names, path);
+        let named = names.iter().any(Option::is_some);
         let chosen = match cands.iter().find(|c| c.args == inputs) {
             Some(exact) => Some(exact),
             None => {
                 // `nom_de_type(x)` sans fonction exacte : une conversion.
                 if let [input] = inputs
+                    && !named
                     && let Some(target) = self.function_style_cast(schema, name, input, path)
                 {
                     return Ok(ResolvedCall {

@@ -40,6 +40,14 @@ pub enum Literal {
     Null,
 }
 
+/// Forme d'un regroupement multiple de `GROUP BY`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GroupingKind {
+    Rollup,
+    Cube,
+    Sets,
+}
+
 /// Quantificateur d'une comparaison à un ensemble.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Quantifier {
@@ -204,6 +212,13 @@ pub enum ExprKind {
     /// le nœud existe, là où il faisait auparavant échouer tout le statement.
     Parameter(String),
 
+    /// `ROLLUP (…)`, `CUBE (…)`, `GROUPING SETS (…)` : élément de
+    /// `GROUP BY` seulement. Chaque ensemble est une liste d'expressions.
+    GroupingSets {
+        kind: GroupingKind,
+        sets: Vec<Vec<Expr>>,
+    },
+
     /// Expression que cet AST ne modélise pas.
     ///
     /// Remplace un ancien `Literal(Null)` attrape-tout : affirmer `NULL` était
@@ -316,6 +331,7 @@ impl Expr {
                 out.push(time_zone);
             }
             ExprKind::Tuple(items) => out.extend(items),
+            ExprKind::GroupingSets { sets, .. } => out.extend(sets.iter().flatten()),
             ExprKind::FieldAccess { root, .. } => out.push(root),
             ExprKind::NamedArgument { value, .. } => out.push(value),
             ExprKind::Subquery(_)

@@ -217,6 +217,11 @@ fn check_policy_expr(
                 check_policy_expr(e, clause, policy_name, table_schema, schema, diags);
             }
         }
+        ExprKind::GroupingSets { .. } => {
+            for e in expr.children() {
+                check_policy_expr(e, clause, policy_name, table_schema, schema, diags);
+            }
+        }
         ExprKind::FieldAccess { root, .. } => {
             check_policy_expr(root, clause, policy_name, table_schema, schema, diags)
         }

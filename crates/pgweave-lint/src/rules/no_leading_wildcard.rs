@@ -46,8 +46,9 @@ fn visit_stmt(stmt: &Statement, config: &LintConfig, out: &mut Vec<Diagnostic>) 
 }
 
 fn visit_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>) {
-    for cte in &sel.with {
-        visit_select(&cte.query, config, out);
+    // Corps SELECT des CTE (un corps modifiant est un statement à part).
+    for cte_query in sel.with.iter().filter_map(|c| c.select()) {
+        visit_select(cte_query, config, out);
     }
     if let Some(w) = &sel.where_clause {
         visit_expr(w, config, out);

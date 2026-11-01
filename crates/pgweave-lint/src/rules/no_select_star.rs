@@ -25,8 +25,9 @@ fn check_select(sel: &SelectStmt, inside_cte: bool, config: &LintConfig) -> Vec<
 
     // Check CTE bodies — wildcards inside a CTE are acceptable per convention.
     // We still recurse into them but mark them as `inside_cte = true`.
-    for cte in &sel.with {
-        diags.extend(check_select(&cte.query, true, config));
+    // Corps SELECT des CTE (un corps modifiant est un statement à part).
+    for cte_query in sel.with.iter().filter_map(|c| c.select()) {
+        diags.extend(check_select(cte_query, true, config));
     }
 
     if !inside_cte {
