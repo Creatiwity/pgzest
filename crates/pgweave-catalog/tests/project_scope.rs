@@ -4,7 +4,8 @@
 use std::fs;
 use std::path::Path;
 
-use pgweave_schema::{FileRole, ProjectConfig, SchemaProvider, SchemaResolver, SchemaSource};
+use pgweave_catalog::ProjectCatalog;
+use pgweave_schema::{FileRole, ProjectConfig, SchemaProvider, SchemaSource};
 
 /// Crée une arborescence de projet jetable et renvoie sa racine.
 fn scaffold(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
@@ -44,7 +45,7 @@ fn les_sous_repertoires_sont_indexes() {
         ],
     );
     let cfg = load(&root);
-    let resolver = SchemaResolver::from_source(&cfg.to_source(&root));
+    let resolver = ProjectCatalog::from_chunks(&cfg.to_source(&root).chunks());
 
     assert!(
         resolver.get_table("users").is_some(),
@@ -68,7 +69,7 @@ fn sans_schema_directory_la_racine_est_le_scope() {
         ],
     );
     let cfg = load(&root);
-    let resolver = SchemaResolver::from_source(&cfg.to_source(&root));
+    let resolver = ProjectCatalog::from_chunks(&cfg.to_source(&root).chunks());
 
     assert!(resolver.get_table("users").is_some());
     assert!(
@@ -131,7 +132,7 @@ fn node_modules_et_target_sont_ignores() {
         ],
     );
     let cfg = load(&root);
-    let resolver = SchemaResolver::from_source(&cfg.to_source(&root));
+    let resolver = ProjectCatalog::from_chunks(&cfg.to_source(&root).chunks());
 
     assert!(resolver.get_table("real_t").is_some());
     for junk in ["junk_a", "junk_b", "junk_c"] {
@@ -157,7 +158,7 @@ fn schema_include_ajoute_des_repertoires() {
         ],
     );
     let cfg = load(&root);
-    let resolver = SchemaResolver::from_source(&cfg.to_source(&root));
+    let resolver = ProjectCatalog::from_chunks(&cfg.to_source(&root).chunks());
 
     assert!(resolver.get_table("a_t").is_some(), "schema/");
     assert!(resolver.get_table("b_t").is_some(), "extra/ via include");
@@ -186,7 +187,7 @@ fn les_requetes_nommees_ne_sont_pas_indexees_comme_schema() {
         ],
     );
     let cfg = load(&root);
-    let resolver = SchemaResolver::from_source(&cfg.to_source(&root));
+    let resolver = ProjectCatalog::from_chunks(&cfg.to_source(&root).chunks());
 
     assert!(resolver.get_table("t").is_some());
     assert!(

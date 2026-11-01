@@ -16,7 +16,6 @@ use pgweave_ast::Statement;
 use pgweave_ast::ddl::{DdlStatement, FunctionBody};
 use pgweave_diagnostics::Severity;
 use pgweave_parser::{SkipReason, SkippedStatement};
-use pgweave_schema::{FileRole, SchemaResolver, SourceOrigin, SqlChunk};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Token, Tokenizer};
@@ -103,24 +102,8 @@ pub fn run(
     }
     stats.parse_time = parse_start.elapsed();
 
-    // Index du projet, comme `pgweave check` le construit pour un répertoire
-    // de migrations : chaque fichier est une migration, dans l'ordre.
-    let chunks: Vec<SqlChunk> = sources
-        .iter()
-        .enumerate()
-        .map(|(i, (path, sql))| SqlChunk {
-            origin: SourceOrigin {
-                path: path.clone(),
-                byte_range: 0..sql.len(),
-            },
-            sql: sql.clone(),
-            role: FileRole::Migration { sequence: i as u64 },
-        })
-        .collect();
-    let index_start = Instant::now();
-    let resolver = SchemaResolver::from_chunks(&chunks);
-    stats.index_time = index_start.elapsed();
-    stats.index_skipped = resolver.skipped.len();
+    // Statements écartés au parse : absents du catalogue rejoué.
+    stats.index_skipped = stats.statements - stats.analyzed;
 
     // Rejeu par pgweave et diagnostics de `check` : chaque migration est
     // vérifiée contre le catalogue tel qu'il est après elle — l'état réel de
@@ -240,7 +223,6 @@ struct Stats {
     diagnostics: BTreeMap<(&'static str, &'static str), usize>,
     files_with_errors: usize,
     parse_time: Duration,
-    index_time: Duration,
     check_time: Duration,
     /// Diagnostics du rejeu pgweave, par code.
     replay_diagnostics: BTreeMap<&'static str, usize>,
@@ -582,11 +564,6 @@ fn render(
         o,
         "| Parse de tous les fichiers | {} ms |",
         s.parse_time.as_millis()
-    );
-    let _ = writeln!(
-        o,
-        "| Construction de l'index (`SchemaResolver`) | {} ms |",
-        s.index_time.as_millis()
     );
     let _ = writeln!(
         o,

@@ -1,7 +1,8 @@
 //! Le source-mapping de bout en bout : un fragment SQL extrait d'un document
 //! hôte doit produire des spans exprimés dans le repère de ce document.
 
-use pgweave_schema::{FileRole, FragmentSource, SchemaResolver, SchemaSource, SqlChunk};
+use pgweave_catalog::ProjectCatalog;
+use pgweave_schema::{FileRole, FragmentSource, SchemaSource, SqlChunk};
 
 /// Document TypeScript hôte, avec du SQL dans un littéral de template.
 const TS_DOC: &str = r#"import { sql } from "pgweave";
@@ -39,7 +40,7 @@ fn le_chunk_porte_loffset_reel() {
 fn le_schema_est_indexe_depuis_un_fragment_ts() {
     let (sql, offset) = fragment_of(TS_DOC, "CREATE TABLE users (id UUID, email TEXT);");
     let src = FragmentSource::new("app/q.ts", &sql, offset, FileRole::Schema);
-    let resolver = SchemaResolver::from_source(&src);
+    let resolver = ProjectCatalog::from_chunks(&src.chunks());
 
     use pgweave_schema::SchemaProvider;
     let table = resolver
@@ -103,7 +104,7 @@ fn les_ecarts_dindexation_sont_exposes() {
         "CREATE TABLE ok (a INT);\nCREATE TABL oops (b INT);",
         FileRole::Schema,
     );
-    let resolver = SchemaResolver::from_source(&src);
+    let resolver = ProjectCatalog::from_chunks(&src.chunks());
 
     use pgweave_schema::SchemaProvider;
     assert!(resolver.get_table("ok").is_some());

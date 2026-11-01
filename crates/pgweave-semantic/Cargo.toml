@@ -12,6 +12,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+pgweave-catalog = { path = "../pgweave-catalog" }
 pgweave-parser = { path = "../pgweave-parser" }
 
 [[example]]

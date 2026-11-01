@@ -211,7 +211,7 @@ impl SchemaSource for InlineSource {
 /// [`InlineSource`] — qui posent `byte_range: 0..len` parce que le fichier
 /// *est* le SQL — celui-ci porte l'offset réel du fragment dans son document.
 ///
-/// Cet offset traverse [`crate::SchemaResolver`] jusqu'à
+/// Cet offset traverse `pgweave_catalog::ProjectCatalog` jusqu'à
 /// `pgweave_parser::parse_at_with_outcome`, donc les spans des diagnostics sont
 /// exprimés dans le repère du document hôte : l'éditeur souligne le bon endroit
 /// dans le `.ts`, pas une position relative au fragment.
@@ -285,7 +285,7 @@ fn is_ignored_dir(path: &Path) -> bool {
 }
 
 /// `.sql` et `.pgsql` — ce dernier pouvant contenir des macros, désucrées à
-/// l'indexation par [`crate::SchemaResolver`].
+/// l'indexation par `pgweave_catalog::ProjectCatalog`.
 fn is_sql_file(path: &Path) -> bool {
     path.extension()
         .and_then(|s| s.to_str())

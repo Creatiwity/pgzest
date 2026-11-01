@@ -18,7 +18,6 @@ members = [
     "crates/pgweave-query",
     "crates/pgweave-oracle",
     "xtask",
-    "spikes/salsa-catalog",
     "bindings/wasm",
     "bindings/node",
 ]

@@ -12,12 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "allocator-api2"
-version = "0.2.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -139,12 +133,6 @@ checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
 ]
-
-[[package]]
-name = "boxcar"
-version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36f64beae40a84da1b4b26ff2761a5b895c12adc41dc25aaee1c4f2bbfe97a6e"
 
 [[package]]
 name = "bumpalo"
@@ -302,40 +290,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam-deque"
-version = "0.8.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "622f3fc73690be383c7214310406f28a90e6edeadc3cea882f9d71e495b9711a"
-dependencies = [
- "crossbeam-epoch",
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-epoch"
-version = "0.9.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc74980687109a3b14c72fd458107bf0baa1da1a1a805e178d15501ba9b86d9d"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-queue"
-version = "0.3.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03e8bd762f7479489c70ed6c768ddca99d7296857de437a68dcb2a94365b3fae"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-utils"
-version = "0.8.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
-
-[[package]]
 name = "crypto-common"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -400,12 +354,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "either"
-version = "1.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
-
-[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -450,12 +398,6 @@ name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
-
-[[package]]
-name = "foldhash"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
@@ -566,7 +508,7 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
- "foldhash 0.1.5",
+ "foldhash",
 ]
 
 [[package]]
@@ -574,20 +516,6 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
-dependencies = [
- "allocator-api2",
- "equivalent",
- "foldhash 0.2.0",
-]
-
-[[package]]
-name = "hashlink"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
-dependencies = [
- "hashbrown 0.17.1",
-]
 
 [[package]]
 name = "heck"
@@ -766,21 +694,6 @@ dependencies = [
  "once_cell",
  "similar",
  "tempfile",
-]
-
-[[package]]
-name = "intrusive-collections"
-version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4275b20e6057cd7733fd8df8a5a31701e4fe44497dad0f3fa0e1c4fb971506be"
-
-[[package]]
-name = "inventory"
-version = "0.3.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c"
-dependencies = [
- "rustversion",
 ]
 
 [[package]]
@@ -1078,6 +991,7 @@ dependencies = [
  "clap",
  "pgweave-analysis",
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-checker",
  "pgweave-codegen",
  "pgweave-diagnostics",
@@ -1096,6 +1010,7 @@ name = "pgweave-analysis"
 version = "0.1.0"
 dependencies = [
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-checker",
  "pgweave-codegen",
  "pgweave-diagnostics",
@@ -1120,7 +1035,9 @@ version = "0.1.0"
 dependencies = [
  "pgweave-ast",
  "pgweave-diagnostics",
+ "pgweave-macro",
  "pgweave-parser",
+ "pgweave-schema",
  "serde",
  "serde_json",
 ]
@@ -1130,6 +1047,7 @@ name = "pgweave-checker"
 version = "0.1.0"
 dependencies = [
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-diagnostics",
  "pgweave-parser",
  "pgweave-schema",
@@ -1143,6 +1061,7 @@ name = "pgweave-codegen"
 version = "0.1.0"
 dependencies = [
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-diagnostics",
  "pgweave-parser",
  "pgweave-schema",
@@ -1176,6 +1095,7 @@ version = "0.1.0"
 dependencies = [
  "pgweave-analysis",
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-checker",
  "pgweave-diagnostics",
  "pgweave-lint",
@@ -1206,6 +1126,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "pgweave-catalog",
  "pgweave-checker",
  "pgweave-codegen",
  "pgweave-diagnostics",
@@ -1222,6 +1143,7 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-parser",
  "pgweave-query",
  "pgweave-schema",
@@ -1296,6 +1218,7 @@ name = "pgweave-semantic"
 version = "0.1.0"
 dependencies = [
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-diagnostics",
  "pgweave-parser",
  "pgweave-schema",
@@ -1307,6 +1230,7 @@ dependencies = [
 name = "pgweave-wasm"
 version = "0.1.0"
 dependencies = [
+ "pgweave-catalog",
  "pgweave-checker",
  "pgweave-codegen",
  "pgweave-diagnostics",
@@ -1364,12 +1288,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "portable-atomic"
-version = "1.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
 
 [[package]]
 name = "postgres-protocol"
@@ -1461,26 +1379,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
-name = "rayon"
-version = "1.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
-dependencies = [
- "either",
- "rayon-core",
-]
-
-[[package]]
-name = "rayon-core"
-version = "1.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
-dependencies = [
- "crossbeam-deque",
- "crossbeam-utils",
-]
-
-[[package]]
 name = "recursive"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1539,12 +1437,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
-name = "rustc-hash"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
-
-[[package]]
 name = "rustix"
 version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1562,60 +1454,6 @@ name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
-
-[[package]]
-name = "salsa"
-version = "0.28.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27d2e6e19e39591cd99c01ac4141544b4d012cfd0831348629b8187fa9fe6d34"
-dependencies = [
- "boxcar",
- "crossbeam-queue",
- "crossbeam-utils",
- "hashbrown 0.17.1",
- "hashlink",
- "indexmap",
- "intrusive-collections",
- "inventory",
- "parking_lot",
- "portable-atomic",
- "rayon",
- "rustc-hash",
- "salsa-macro-rules",
- "salsa-macros",
- "smallvec",
- "thin-vec",
- "tracing",
- "typeid",
-]
-
-[[package]]
-name = "salsa-catalog-spike"
-version = "0.0.0"
-dependencies = [
- "pgweave-ast",
- "pgweave-parser",
- "pgweave-schema",
- "salsa",
- "sqlparser",
-]
-
-[[package]]
-name = "salsa-macro-rules"
-version = "0.28.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baf90a551c38f25ed8489111d3d5827aa18e1b85963f5e6a298505b1d1e2cb7e"
-
-[[package]]
-name = "salsa-macros"
-version = "0.28.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69dd77f86ec10e72e314f4ddf7c44c8d349e73cdff1aad524ba9668603fb0549"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
 
 [[package]]
 name = "same-file"
@@ -1882,12 +1720,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "thin-vec"
-version = "0.2.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6a4b9ba8738cb4a4f399d37e266becfd475e75eb73425b87a05a2f2039ba63e"
-
-[[package]]
 name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2119,12 +1951,6 @@ checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
 ]
-
-[[package]]
-name = "typeid"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"

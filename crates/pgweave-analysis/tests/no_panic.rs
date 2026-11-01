@@ -16,9 +16,9 @@ use std::path::{Path, PathBuf};
 use pgweave_analysis::{
     AnalysisOptions, analyze_source_self_contained, analyze_source_with_macros,
 };
+use pgweave_catalog::ProjectCatalog;
 use pgweave_codegen::emit::emit_statement;
 use pgweave_macro::MacroSet;
-use pgweave_schema::provider::DdlSchemaProvider;
 
 /// Variantes par fichier, pour chaque famille (troncature, mutation).
 /// `PGWEAVE_FUZZ_PER_FILE` l'augmente pour une passe locale approfondie.
@@ -169,7 +169,7 @@ fn variants(text: &str, rng: &mut XorShift) -> Vec<String> {
 fn exercise(sql: &str, macros: &MacroSet) {
     let opts = AnalysisOptions::default();
     let _ = analyze_source_self_contained(sql, &opts);
-    let schema = DdlSchemaProvider::from_statements(&[]);
+    let schema = ProjectCatalog::empty();
     let _ = analyze_source_with_macros(sql, macros, &schema, &opts);
     if let Ok(stmts) = pgweave_parser::parse(sql) {
         for s in &stmts {

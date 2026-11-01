@@ -5,9 +5,9 @@
 //! consommateur — pas seulement pour les diagnostics.
 
 use pgweave_analysis::{AnalysisOptions, analyze_source_with_macros, prepare_source};
+use pgweave_catalog::ProjectCatalog;
 use pgweave_diagnostics::{Diagnostic, codes};
 use pgweave_macro::MacroSet;
-use pgweave_schema::provider::DdlSchemaProvider;
 
 /// Analyse `src`, schéma dérivé du SQL désucré (sinon une table créée par une
 /// macro n'existerait pas).
@@ -15,7 +15,7 @@ fn analyze(src: &str) -> Vec<Diagnostic> {
     let macros = MacroSet::builtin();
     let prepared = prepare_source(src, &macros);
     let stmts = prepared.parse().expect("parse");
-    let schema = DdlSchemaProvider::from_statements(&stmts);
+    let schema = ProjectCatalog::from_statements(&stmts);
     analyze_source_with_macros(src, &macros, &schema, &AnalysisOptions::default()).diagnostics
 }
 

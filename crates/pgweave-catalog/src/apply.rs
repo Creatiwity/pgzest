@@ -687,14 +687,23 @@ impl Applier<'_> {
         self.add_rowtype_array(&name);
 
         let mut pending: Vec<(TableConstraint, Option<String>)> = Vec::new();
+        let mut ok = true;
         for (i, col) in ct.columns.iter().enumerate() {
             for like in ct.likes.iter().filter(|l| l.position == i) {
-                self.copy_like(&mut rel, like);
+                ok &= self.copy_like(&mut rel, like);
             }
             self.add_column_def(&mut rel, col, &mut pending);
         }
         for like in ct.likes.iter().filter(|l| l.position >= ct.columns.len()) {
-            self.copy_like(&mut rel, like);
+            ok &= self.copy_like(&mut rel, like);
+        }
+        if !ok {
+            // Statement rejeté en entier : ni table, ni type ligne, ni séquence.
+            self.drop_relation(&name);
+            self.cat
+                .sequences
+                .retain(|_, s| s.owned_by.as_ref().is_none_or(|(t, _)| *t != name));
+            return;
         }
         for tc in &ct.constraints {
             pending.push((tc.clone(), None));
@@ -705,9 +714,11 @@ impl Applier<'_> {
         }
     }
 
-    fn copy_like(&mut self, rel: &mut Relation, like: &pgweave_ast::ddl::TableLike) {
+    /// Copie les colonnes d'un `LIKE` ; `false` si la source n'existe pas
+    /// (PostgreSQL rejette alors tout le `CREATE TABLE`).
+    fn copy_like(&mut self, rel: &mut Relation, like: &pgweave_ast::ddl::TableLike) -> bool {
         let Some(src_name) = self.relation_name(&like.source) else {
-            return;
+            return false;
         };
         let src = self.cat.relations[&src_name].clone();
         let include = |f: LikeFeature| {
@@ -763,6 +774,7 @@ impl Applier<'_> {
                 not_valid: con.not_valid,
             });
         }
+        true
     }
 
     /// Colonne d'un `CREATE TABLE` / `ADD COLUMN`, avec ses contraintes de

@@ -3,9 +3,10 @@
 //! `ANALYZE` / `VACUUM` vérifient leurs tables et colonnes.
 
 use pgweave_ast::Statement;
+use pgweave_catalog::ProjectCatalog;
 use pgweave_checker::check_sql_self_contained;
 use pgweave_diagnostics::{Diagnostic, codes};
-use pgweave_schema::provider::{DdlSchemaProvider, SchemaProvider};
+use pgweave_schema::provider::SchemaProvider;
 
 fn errors<'a>(diags: &'a [Diagnostic], code: &str) -> Vec<&'a Diagnostic> {
     diags.iter().filter(|d| d.code == code).collect()
@@ -18,7 +19,7 @@ fn les_colonnes_copiees_sont_a_leur_position() {
          CREATE TABLE copie (id BIGINT, LIKE src INCLUDING ALL, extra BOOLEAN);",
     )
     .expect("parse");
-    let schema = DdlSchemaProvider::from_statements(&stmts);
+    let schema = ProjectCatalog::from_statements(&stmts);
     let t = schema.get_table("copie").expect("table copie");
     let names: Vec<&str> = t.columns.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["id", "a", "b", "extra"]);
@@ -40,7 +41,7 @@ fn une_colonne_copiee_est_visible_des_requetes() {
 #[test]
 fn une_source_inconnue_ne_fabrique_pas_de_table() {
     let stmts = pgweave_parser::parse("CREATE TABLE copie (LIKE absente, id INT);").expect("parse");
-    let schema = DdlSchemaProvider::from_statements(&stmts);
+    let schema = ProjectCatalog::from_statements(&stmts);
     assert!(schema.get_table("copie").is_none());
 }
 

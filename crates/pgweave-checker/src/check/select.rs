@@ -607,11 +607,10 @@ fn check_expr_inner(
 
         ExprKind::FunctionCall { name, .. } => {
             let func_name = pgweave_schema::provider::object_name_to_string(name);
-            // Emit a warning for unknown functions (but only for single-part names;
-            // schema-qualified calls like pg_catalog.now() are trusted).
-            // Built-in PostgreSQL / SQL-standard functions never require a declaration.
+            // Fonction inconnue du catalogue (intégrées et extensions
+            // comprises) : avertissement. Les appels qualifiés sont admis.
             if name.0.len() == 1
-                && !crate::builtins::is_builtin_function(&func_name)
+                && !crate::is_sql_special_form(&func_name)
                 && schema.get_function(&func_name).is_none()
             {
                 diags.push(Diagnostic::warning(

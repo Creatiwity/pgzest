@@ -1,15 +1,14 @@
+use pgweave_catalog::ProjectCatalog;
 use pgweave_checker::{check_sql, check_sql_self_contained, check_statements};
 use pgweave_diagnostics::codes;
-use pgweave_schema::provider::{DdlSchemaProvider, IntrospectionJsonProvider};
+use pgweave_schema::provider::IntrospectionJsonProvider;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Build a schema that contains `organizations(id UUID, name TEXT)`.
-fn org_schema() -> DdlSchemaProvider {
-    DdlSchemaProvider::from_sql(
-        "CREATE TABLE organizations (id UUID NOT NULL, name TEXT NOT NULL);",
-    )
-    .expect("DDL parse should succeed")
+fn org_schema() -> ProjectCatalog {
+    ProjectCatalog::from_sql("CREATE TABLE organizations (id UUID NOT NULL, name TEXT NOT NULL);")
+        .expect("DDL parse should succeed")
 }
 
 // ── SELECT ────────────────────────────────────────────────────────────────────
@@ -290,7 +289,7 @@ fn trigger_new_nonexistent_column_is_error() {
         END;
         $$;"#;
 
-    let schema = DdlSchemaProvider::from_sql(schema_sql).unwrap();
+    let schema = ProjectCatalog::from_sql(schema_sql).unwrap();
     let stmts = pgweave_parser::parse(func_sql).unwrap();
     let diags = check_statements(&stmts, &schema);
 

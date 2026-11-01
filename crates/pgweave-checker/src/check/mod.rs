@@ -134,7 +134,10 @@ fn check_policy_expr(
         ExprKind::FunctionCall { name, .. } => {
             let func_name = object_name_to_string(name);
             // Schema-qualified calls (e.g. auth.uid()) are trusted silently.
-            if name.0.len() == 1 && schema.get_function(&func_name).is_none() {
+            if name.0.len() == 1
+                && !crate::is_sql_special_form(&func_name)
+                && schema.get_function(&func_name).is_none()
+            {
                 // Unqualified unknown function — warning.
                 diags.push(Diagnostic::warning(
                     codes::FUNCTION_NOT_FOUND,

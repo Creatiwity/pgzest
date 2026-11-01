@@ -2,7 +2,7 @@
 
 - **Statut** : acceptée (GO), 2026-11-01
 - **Contexte** : PLAN.md, décision D3 et item P0 « spike salsa »
-- **Preuve** : `spikes/salsa-catalog` (jetable, supprimé en P2)
+- **Preuve** : `spikes/salsa-catalog` (jetable, supprimé en P2 — voir l'historique git)
 
 ## Question
 

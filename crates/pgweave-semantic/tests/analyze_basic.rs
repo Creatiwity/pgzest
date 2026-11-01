@@ -1,4 +1,4 @@
-use pgweave_schema::provider::DdlSchemaProvider;
+use pgweave_catalog::ProjectCatalog;
 use pgweave_semantic::analyze;
 
 #[test]
@@ -10,7 +10,7 @@ fn analyze_simple_select() {
             created_at TIMESTAMPTZ
         );
     ";
-    let schema = DdlSchemaProvider::from_sql(schema_sql).expect("parse schema");
+    let schema = ProjectCatalog::from_sql(schema_sql).expect("parse schema");
 
     let sql = "SELECT id, email FROM users WHERE id = id;";
     let stmts = pgweave_parser::parse(sql).expect("parse sql");
@@ -33,7 +33,7 @@ fn analyze_simple_select() {
 
 /// Noms des colonnes de sortie de l'unique SELECT de `sql`.
 fn star_columns(schema_sql: &str, sql: &str) -> Vec<String> {
-    let schema = DdlSchemaProvider::from_sql(schema_sql).expect("parse schema");
+    let schema = ProjectCatalog::from_sql(schema_sql).expect("parse schema");
     let stmts = pgweave_parser::parse(sql).expect("parse sql");
     let result = analyze(&stmts, &schema);
     let pgweave_ast::Statement::Select(sel) = &stmts[0] else {
@@ -89,7 +89,7 @@ fn analyze_registers_function() {
         RETURNS SETOF UUID
         LANGUAGE sql AS $$ SELECT id FROM tasks WHERE status = 'open' $$;
     ";
-    let schema = DdlSchemaProvider::from_sql(schema_sql).expect("parse schema");
+    let schema = ProjectCatalog::from_sql(schema_sql).expect("parse schema");
     let stmts = pgweave_parser::parse(schema_sql).expect("parse stmts");
     let result = analyze(&stmts, &schema);
 
@@ -110,7 +110,7 @@ fn output_columns_for_schema_sql() {
             project_id UUID NOT NULL
         );
     ";
-    let schema = DdlSchemaProvider::from_sql(schema_sql).expect("parse schema");
+    let schema = ProjectCatalog::from_sql(schema_sql).expect("parse schema");
     let sql = "SELECT COUNT(*) AS total_tasks, COUNT(*) FILTER (WHERE status = 'done') AS done_tasks FROM tasks;";
     let stmts = pgweave_parser::parse(sql).expect("parse");
     let result = analyze(&stmts, &schema);
