@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "contributor": {"name":"unaccent","version":"1.1"},
+  "postgres": "18",
+  "schemas": [],
+  "types": [],
+  "routines": [
+    {"name":"\"@extschema@\".unaccent","kind":"Function","args":[{"ty":"pg_catalog.regdictionary","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text","volatility":"Stable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".unaccent","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text","volatility":"Stable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".unaccent_init","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Volatile","language":"c"},
+    {"name":"\"@extschema@\".unaccent_lexize","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Volatile","language":"c"}
+  ],
+  "operators": [],
+  "casts": [],
+  "opclasses": [],
+  "relations": []
+}

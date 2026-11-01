@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "contributor": {"name":"fuzzystrmatch","version":"1.2"},
+  "postgres": "18",
+  "schemas": [],
+  "types": [],
+  "routines": [
+    {"name":"\"@extschema@\".daitch_mokotoff","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text[]","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".difference","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.int4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".dmetaphone","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".dmetaphone_alt","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".levenshtein","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.int4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".levenshtein","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"}],"returns":"pg_catalog.int4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".levenshtein_less_equal","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"}],"returns":"pg_catalog.int4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".levenshtein_less_equal","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"}],"returns":"pg_catalog.int4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".metaphone","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"}],"returns":"pg_catalog.text","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".soundex","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".text_soundex","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text","volatility":"Immutable","strict":true,"language":"c"}
+  ],
+  "operators": [],
+  "casts": [],
+  "opclasses": [],
+  "relations": []
+}

@@ -7,6 +7,7 @@ members = [
     "crates/pgweave-parser",
     "crates/pgweave-checker",
     "crates/pgweave-schema",
+    "crates/pgweave-catalog",
     "crates/pgweave-semantic",
     "crates/pgweave-plugin",
     "crates/pgweave-lint",

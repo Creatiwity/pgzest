@@ -1097,6 +1097,7 @@ version = "0.1.0"
 dependencies = [
  "pgweave-ast",
  "pgweave-checker",
+ "pgweave-codegen",
  "pgweave-diagnostics",
  "pgweave-lint",
  "pgweave-macro",
@@ -1111,6 +1112,17 @@ name = "pgweave-ast"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "pgweave-catalog"
+version = "0.1.0"
+dependencies = [
+ "pgweave-ast",
+ "pgweave-diagnostics",
+ "pgweave-parser",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2538,6 +2550,7 @@ dependencies = [
  "chrono",
  "clap",
  "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-checker",
  "pgweave-diagnostics",
  "pgweave-parser",

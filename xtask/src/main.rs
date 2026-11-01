@@ -1,5 +1,6 @@
 //! Tâches de développement de pgweave : `cargo xtask <commande>`.
 
+mod catalog_gen;
 mod corpus;
 
 use std::path::PathBuf;
@@ -44,6 +45,24 @@ enum Command {
         #[arg(long)]
         details: bool,
     },
+    /// Génère un pack de catalogue depuis un PostgreSQL réel (PLAN.md, D9).
+    ///
+    /// Sans `--extension` : `postgres@<majeure>`. Avec : le delta apporté par
+    /// `CREATE EXTENSION`. Une base temporaire est créée puis supprimée.
+    CatalogGen {
+        /// Serveur PostgreSQL (défaut : `PGWEAVE_ORACLE_URL`).
+        #[arg(long)]
+        pg_url: Option<String>,
+        /// Extension dont générer le pack.
+        #[arg(long)]
+        extension: Option<String>,
+        /// Version de l'extension (défaut : celle par défaut du serveur).
+        #[arg(long)]
+        version: Option<String>,
+        /// Fichier à écrire (défaut : `crates/pgweave-catalog/packs/<nom>-<version>.json`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -57,6 +76,12 @@ fn main() -> ExitCode {
             out,
             details,
         } => corpus::run(&name, path, layout, pg_url, out, details),
+        Command::CatalogGen {
+            pg_url,
+            extension,
+            version,
+            out,
+        } => catalog_gen::run(pg_url, extension, version, out),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

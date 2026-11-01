@@ -1,0 +1,14 @@
+[package]
+name = "pgweave-catalog"
+version = "0.1.0"
+edition = "2024"
+description = "Catalogue PostgreSQL de pgweave : modèle, packs générés, application des DDL"
+
+[dependencies]
+pgweave-ast = { path = "../pgweave-ast" }
+pgweave-diagnostics = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+pgweave-parser = { path = "../pgweave-parser" }

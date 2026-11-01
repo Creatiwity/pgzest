@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  "contributor": {"name":"pg_trgm","version":"1.6"},
+  "postgres": "18",
+  "schemas": [],
+  "types": [
+    {"name":"\"@extschema@\"._gtrgm","kind":{"Array":{"element":"\"@extschema@\".gtrgm"}},"category":"A"},
+    {"name":"\"@extschema@\".gtrgm","kind":"Base","category":"U","array":"\"@extschema@\"._gtrgm"}
+  ],
+  "routines": [
+    {"name":"\"@extschema@\".gin_extract_query_trgm","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.int2","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gin_extract_value_trgm","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gin_trgm_consistent","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.int2","mode":"In"},{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.bool","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gin_trgm_triconsistent","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.int2","mode":"In"},{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int4","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.char","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_compress","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_consistent","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int2","mode":"In"},{"ty":"pg_catalog.oid","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.bool","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_decompress","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_distance","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.int2","mode":"In"},{"ty":"pg_catalog.oid","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.float8","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_in","kind":"Function","args":[{"ty":"pg_catalog.cstring","mode":"In"}],"returns":"\"@extschema@\".gtrgm","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_options","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.void","volatility":"Immutable","language":"c"},
+    {"name":"\"@extschema@\".gtrgm_out","kind":"Function","args":[{"ty":"\"@extschema@\".gtrgm","mode":"In"}],"returns":"pg_catalog.cstring","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_penalty","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_picksplit","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_same","kind":"Function","args":[{"ty":"\"@extschema@\".gtrgm","mode":"In"},{"ty":"\"@extschema@\".gtrgm","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"pg_catalog.internal","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".gtrgm_union","kind":"Function","args":[{"ty":"pg_catalog.internal","mode":"In"},{"ty":"pg_catalog.internal","mode":"In"}],"returns":"\"@extschema@\".gtrgm","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".set_limit","kind":"Function","args":[{"ty":"pg_catalog.float4","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Volatile","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".show_limit","kind":"Function","args":[],"returns":"pg_catalog.float4","volatility":"Stable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".show_trgm","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.text[]","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".similarity","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".similarity_dist","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".similarity_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.bool","volatility":"Stable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".strict_word_similarity","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".strict_word_similarity_commutator_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.bool","volatility":"Stable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".strict_word_similarity_dist_commutator_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".strict_word_similarity_dist_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".strict_word_similarity_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.bool","volatility":"Stable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".word_similarity","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".word_similarity_commutator_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.bool","volatility":"Stable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".word_similarity_dist_commutator_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".word_similarity_dist_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.float4","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".word_similarity_op","kind":"Function","args":[{"ty":"pg_catalog.text","mode":"In"},{"ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.bool","volatility":"Stable","strict":true,"language":"c"}
+  ],
+  "operators": [
+    {"name":"\"@extschema@\".\"%\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.bool"},
+    {"name":"\"@extschema@\".\"%>\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.bool"},
+    {"name":"\"@extschema@\".\"%>>\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.bool"},
+    {"name":"\"@extschema@\".\"<%\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.bool"},
+    {"name":"\"@extschema@\".\"<->\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.float4"},
+    {"name":"\"@extschema@\".\"<->>\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.float4"},
+    {"name":"\"@extschema@\".\"<->>>\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.float4"},
+    {"name":"\"@extschema@\".\"<<%\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.bool"},
+    {"name":"\"@extschema@\".\"<<->\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.float4"},
+    {"name":"\"@extschema@\".\"<<<->\"","left":"pg_catalog.text","right":"pg_catalog.text","result":"pg_catalog.float4"}
+  ],
+  "casts": [],
+  "opclasses": [
+    {"name":"\"@extschema@\".gin_trgm_ops","access_method":"gin","input":"pg_catalog.text"},
+    {"name":"\"@extschema@\".gist_trgm_ops","access_method":"gist","input":"pg_catalog.text"}
+  ],
+  "relations": []
+}
