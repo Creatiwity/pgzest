@@ -79,11 +79,18 @@ catalogue `postgres@<version>` (PLAN.md, D9).
 |---|---|---|---|
 | `directory` | chemin | absent | Fichiers de schéma, parcourus récursivement. |
 | `include` | liste de chemins | `[]` | Répertoires de schéma supplémentaires. |
+| `declarative` | booléen | `false` | Le schéma décrit seul l'état cible (D10) ; les migrations sont générées par `pgweave migrate create`. Ajouté le 2026-11-03 (P7). |
 
 - `directory` **absent** : tout fichier `.sql` / `.pgsql` du projet, hors
   migrations et requêtes nommées, est un fichier de schéma.
 - `directory` **présent** : seuls `directory` et `include` sont des fichiers
   de schéma ; les autres fichiers sont des requêtes.
+- `declarative = false` : les fichiers de schéma complètent l'état atteint
+  par les migrations (rejoués après elles).
+- `declarative = true` : l'analyse ne rejoue que le schéma ; les migrations
+  sont rejouées à part, et l'écart entre les deux est signalé
+  (`schema-drift`, niveau `info`, réglable dans `[rules]` — `"error"` pour
+  la CI, ou `pgweave migrate check`).
 
 Ne sont jamais parcourus : `node_modules/`, `target/`, `dist/`,
 `.schema-snapshots/` et les répertoires cachés.

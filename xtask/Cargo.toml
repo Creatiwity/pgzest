@@ -11,6 +11,7 @@ pgweave-catalog = { path = "../crates/pgweave-catalog" }
 pgweave-sema = { path = "../crates/pgweave-sema" }
 pgweave-checker = { path = "../crates/pgweave-checker" }
 pgweave-diagnostics = { workspace = true }
+pgweave-oracle = { path = "../crates/pgweave-oracle" }
 pgweave-parser = { path = "../crates/pgweave-parser" }
 pgweave-schema = { path = "../crates/pgweave-schema" }
 clap = { workspace = true }

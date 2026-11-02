@@ -118,12 +118,14 @@ pub fn run(
     let mut check_diags: Vec<(usize, pgweave_diagnostics::Diagnostic)> = Vec::new();
     let mut deferred = Vec::new();
     let mut routines = Vec::new();
-    for (i, (path, _, stmts)) in parsed_files.iter().enumerate() {
+    for (i, (path, sql, stmts)) in parsed_files.iter().enumerate() {
         let mut replay_diags = Vec::new();
         for st in stmts {
             let replay_start = Instant::now();
             replay.apply(st, &mut replay_diags);
             stats.replay_time += replay_start.elapsed();
+            // Corps de routine tel qu'écrit, pour l'export.
+            pgweave_catalog::project::attach_source(&mut replay.catalog, st, sql);
             let check_start = Instant::now();
             let mut d = Vec::new();
             pgweave_sema::check::check_applied(&replay.catalog, &replay.search_path, st, &mut d);
@@ -225,6 +227,37 @@ pub fn run(
         }
         _ => None,
     };
+    // Même confrontation, au texte près (oracle des migrations, P7) : ce que
+    // PostgreSQL dit de chaque objet des deux bases.
+    let fidelity = match (pg_url_for_import.as_deref(), &import_comparison) {
+        (Some(url), Some(Ok(_))) => {
+            let dump = pgweave_catalog::dump::dump(&replay.catalog, 18);
+            let migrations: Vec<(String, String)> = sources
+                .iter()
+                .map(|(p, sql)| (p.display().to_string(), sql.clone()))
+                .collect();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| e.to_string())?;
+            let r = rt.block_on(pgweave_oracle::schema::compare(
+                url,
+                "corpus",
+                &migrations,
+                &dump.baseline,
+            ));
+            if details && let Ok(c) = &r {
+                for l in &c.only_migrations {
+                    eprintln!("fidélité, migrations : {l}");
+                }
+                for l in &c.only_schema {
+                    eprintln!("fidélité, import : {l}");
+                }
+            }
+            Some(r.map_err(|e| redact(&e)))
+        }
+        _ => None,
+    };
     if details && let Some(Ok(c)) = &import_comparison {
         for d in &c.details {
             eprintln!("import : {d}");
@@ -255,6 +288,7 @@ pub fn run(
             pg: pg.as_ref(),
             comparison: comparison.as_ref(),
             import: import_comparison.as_ref(),
+            fidelity: fidelity.as_ref(),
             probes: probe_stats.as_ref(),
         },
     );
@@ -558,6 +592,7 @@ struct Oracle<'a> {
     comparison: Option<&'a crate::catalog_compare::Comparison>,
     /// Import : schéma exporté puis appliqué, comparé au réel.
     import: Option<&'a Result<crate::catalog_compare::Comparison, String>>,
+    fidelity: Option<&'a Result<pgweave_oracle::schema::SchemaComparison, String>>,
     probes: Option<&'a crate::probes::ProbeStats>,
 }
 
@@ -566,6 +601,7 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
         pg,
         comparison,
         import,
+        fidelity,
         probes,
     } = oracle;
     let mut o = String::new();
@@ -734,6 +770,33 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
                     r.extra
                 );
             }
+        }
+    }
+    match fidelity {
+        None => {}
+        Some(Err(e)) => {
+            let _ = writeln!(
+                o,
+                "\nConfrontation au texte près non effectuée : « {e} » (noms masqués)."
+            );
+        }
+        Some(Ok(c)) => {
+            let _ = writeln!(
+                o,
+                "\nAu texte près, selon PostgreSQL (`format_type`, `pg_get_*def` : défauts, index, \
+                 vues, corps de routines ; oracle des migrations de P7, noms des contraintes \
+                 NOT NULL exceptés), {} ligne(s) de description comparée(s) : {}.",
+                c.objects,
+                if c.is_identical() {
+                    "bases identiques".to_string()
+                } else {
+                    format!(
+                        "{} propre(s) aux migrations, {} propre(s) à l'import",
+                        c.only_migrations.len(),
+                        c.only_schema.len()
+                    )
+                }
+            );
         }
     }
 

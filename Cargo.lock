@@ -2693,6 +2693,7 @@ dependencies = [
  "pgweave-catalog",
  "pgweave-checker",
  "pgweave-diagnostics",
+ "pgweave-oracle",
  "pgweave-parser",
  "pgweave-schema",
  "pgweave-sema",

@@ -1,6 +1,6 @@
 # Corpus `siren` — taux d'analyse
 
-> Généré le 2026-11-02 par `cargo xtask corpus siren` (pgweave `2419c4b`).
+> Généré le 2026-11-03 par `cargo xtask corpus siren` (pgweave `d49e938`).
 > Fichiers retenus : Diesel : `*/up.sql`, triés par répertoire horodaté.
 > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
 
@@ -75,6 +75,8 @@ Le catalogue reconstruit, exporté en SQL (`pgweave_catalog::dump`) et appliqué
 | triggers | 2 | 0 | 0 | 2 | 0 |
 | types | 12 | 12 | 0 | 0 | 0 |
 
+Au texte près, selon PostgreSQL (`format_type`, `pg_get_*def` : défauts, index, vues, corps de routines ; oracle des migrations de P7, noms des contraintes NOT NULL exceptés), 386 ligne(s) de description comparée(s) : 2 propre(s) aux migrations, 0 propre(s) à l'import.
+
 ## Requêtes générées (oracle)
 
 Sondes tirées du catalogue reconstruit, préparées par PostgreSQL sur la base des migrations et décrites par `pgweave-sema` (types des paramètres, noms et types des colonnes ; un refus des deux côtés compte comme accord). Les requêtes des corps de routines en vigueur sont préparées avec leurs variables en paramètres typés (`PREPARE`), comme PL/pgSQL les exécute ; seuls les types des colonnes sont comparés :
@@ -93,5 +95,5 @@ Requêtes de corps non sondées (non analysées par pgweave, ou variable sans po
 | Étape | Durée |
 |---|--:|
 | Parse de tous les fichiers | 29 ms |
-| Vérification de tous les fichiers | 96 ms |
-| Rejeu sur le catalogue (`pgweave-catalog`) | 39 ms |
+| Vérification de tous les fichiers | 100 ms |
+| Rejeu sur le catalogue (`pgweave-catalog`) | 40 ms |

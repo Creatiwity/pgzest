@@ -786,7 +786,61 @@ budget de compilation respecté ; benchmark d'exécution comparé à
 **Sortie** : la liste de colonnes siren et les projections récurrentes de
 Mesalia/Sherpa exprimées une seule fois.
 
-### P7 — Migrations
+### P7 — Migrations — ✅ sortie atteinte (2026-11-03)
+
+Fait (2026-11-03) :
+- `pgweave_catalog::diff` : deux catalogues comparés objet par objet
+  (schémas, extensions, enums avec `ADD VALUE` à sa place, types,
+  domaines, séquences, tables, colonnes, contraintes, vues, routines,
+  index, triggers, policies, sécurité par ligne, commentaires) ; ordre par
+  dépendances (suppressions préalables, créations triées ensemble par le
+  graphe de l'export, suppressions définitives en dernier) ; vues
+  reconstruites par fermeture transitive (vue citant une vue, une routine
+  recréée ou une table dont une colonne change de type ou disparaît),
+  remplacées quand leurs colonnes typées le permettent ; routines
+  remplacées, ou supprimées puis recréées si leur signature de sortie
+  change. Ce qui ne s'exprime pas sans perte est rendu non pris en charge,
+  jamais approché.
+- Règles de sûreté M001 à M007 portées par chaque statement ; perte de
+  données refusée sans `--allow-destructive`.
+- Mode déclaratif (`[schema] declarative = true`, D10) : l'analyse ne
+  rejoue que le schéma, les migrations sont rejouées à part (leurs
+  diagnostics et l'en-tête de contexte vérifiés sur leur propre état),
+  l'écart est signalé (`schema-drift`).
+- `pgweave migrate create` (format du répertoire : plat, Prisma, Diesel ;
+  en-tête `-- pgweave:` ; vérifiée par rejeu avant écriture), `migrate
+  check` (CI), `migrate diff` sur le catalogue. L'ancien diff sur l'AST et
+  `.schema-snapshots` sont retirés.
+- Fidélité : le corps d'une routine est repris tel qu'écrit (export et
+  migrations) ; index : ordre, `NULLS`, classe d'opérateurs, `INCLUDE`,
+  `NULLS NOT DISTINCT` modélisés (`WITH (…)` refusé) ; défaut littéral
+  gardant son type quand la colonne change de type, comme PostgreSQL ;
+  `CREATE INDEX` vérifié (colonnes, expressions, prédicat, classe
+  d'opérateurs connue pour la méthode).
+- Oracle (`pgweave_oracle::schema`, `make oracle`) : migrations appliquées
+  et schéma déclaratif donnent deux bases identiques selon PostgreSQL
+  (`format_type`, `pg_get_*def`) — évolution de test en quatre versions ;
+  `cargo xtask migrate-oracle <projet>` sur un projet réel ; rapports de
+  corpus enrichis de la confrontation au texte près.
+- **Sortie** : Mesalia importé (220 migrations ↔ schéma déclaratif :
+  3 864 lignes identiques), puis une évolution (extension `pg_trgm`, index
+  GIN `gin_trgm_ops`, colonne, valeur d'enum) produite par `migrate
+  create` : 221 migrations ↔ schéma, 3 868 lignes identiques.
+
+Reste :
+- `ALTER DOMAIN`, `ALTER TYPE … ATTRIBUTE`, `ALTER SEQUENCE`, identité et
+  expression générée modifiées, `SET LOGGED` : rendus non pris en charge.
+- Privilèges (`GRANT`/`REVOKE`) : ni modélisés ni comparés.
+- Noms des contraintes NOT NULL (PostgreSQL 18) non modélisés : un
+  renommage de colonne laisse l'ancien nom, l'import ne le reproduit pas
+  (sans effet sur le comportement ; l'oracle compare ces contraintes sans
+  leur nom).
+- `CREATE INDEX` : compatibilité de la classe d'opérateurs avec le type,
+  classe par défaut et immutabilité des expressions non vérifiées.
+- Vue reconstruite dès qu'une colonne de sa table change ou disparaît,
+  même non citée (correct, plus large que PostgreSQL).
+- Renommages : non détectés (suppression + ajout, refusés sans
+  `--allow-destructive`).
 
 - Diff sur le modèle complet D2 (schémas, extensions, types, domaines, enums
   y compris `ADD VALUE`, fonctions/procédures avec ordre de dépendances,

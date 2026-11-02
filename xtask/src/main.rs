@@ -3,6 +3,7 @@
 mod catalog_compare;
 mod catalog_gen;
 mod corpus;
+mod migrate_oracle;
 mod probes;
 
 use std::path::PathBuf;
@@ -65,6 +66,18 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Oracle des migrations d'un projet déclaratif : migrations appliquées
+    /// et schéma déclaratif doivent donner deux bases identiques (P7).
+    MigrateOracle {
+        /// Répertoire du projet (`pgweave.toml`).
+        project: PathBuf,
+        /// Serveur PostgreSQL (défaut : `PGWEAVE_ORACLE_URL`).
+        #[arg(long)]
+        pg_url: Option<String>,
+        /// Affiche les écarts, noms compris (sortie d'erreur, travail local).
+        #[arg(long)]
+        details: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -84,6 +97,11 @@ fn main() -> ExitCode {
             version,
             out,
         } => catalog_gen::run(pg_url, extension, version, out),
+        Command::MigrateOracle {
+            project,
+            pg_url,
+            details,
+        } => migrate_oracle::run(&project, pg_url, details),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

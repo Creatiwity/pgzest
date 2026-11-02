@@ -4,8 +4,9 @@
 //! leurs objets (`format_type`, `pg_get_*def`), indépendamment du modèle de
 //! pgweave.
 //!
-//! La position des colonnes n'est pas comparée : `ADD COLUMN` ajoute en fin
-//! de table, et le diff le signale sans pouvoir le reproduire.
+//! Ne sont pas comparés : la position des colonnes (`ADD COLUMN` ajoute en
+//! fin de table, le diff le signale sans pouvoir le reproduire) et le nom
+//! des contraintes NOT NULL (non modélisé par pgweave).
 
 use std::collections::BTreeSet;
 
@@ -59,9 +60,12 @@ const INTROSPECTION: &[&str] = &[
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE c.relkind IN ('v', 'm') AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')",
-    // Contraintes (NOT NULL compris, nommées depuis PostgreSQL 18).
-    "SELECT 'constraint ' || c.conrelid::regclass || ' ' || quote_ident(c.conname) || ' ' || pg_get_constraintdef(c.oid)
-            || ' valid=' || c.convalidated
+    // Contraintes. Une contrainte NOT NULL (nommée depuis PostgreSQL 18)
+    // est comparée sans son nom : pgweave ne modélise pas ce nom, qu'un
+    // renommage de colonne laisse inchangé (limite documentée, PLAN.md P7).
+    "SELECT 'constraint ' || c.conrelid::regclass || ' '
+            || CASE WHEN c.contype = 'n' THEN '' ELSE quote_ident(c.conname) || ' ' END
+            || pg_get_constraintdef(c.oid) || ' valid=' || c.convalidated
      FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
      WHERE c.conrelid <> 0 AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.conrelid AND d.deptype = 'e')",
