@@ -217,6 +217,7 @@ mod tests {
                 alias: None,
                 column_aliases: vec![],
                 column_types: vec![],
+                span: Default::default(),
             }],
             joins: vec![],
             where_clause: Some(Expr::bare(ExprKind::BinaryOp {
@@ -307,6 +308,7 @@ mod tests {
                 alias: None,
                 column_aliases: vec![],
                 column_types: vec![],
+                span: Default::default(),
             },
             constraint: JoinConstraint::Using(vec![Ident::new("product_id")]),
         });

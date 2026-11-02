@@ -36,7 +36,7 @@ fn compatibilite_de_types() {
     let sql = format!("{SCHEMA} SELECT * FROM users WHERE name = 42;");
     assert_eq!(
         check(&sql),
-        vec!["function-not-found: operator text = int4 does not exist"]
+        vec!["function-not-found: operator does not exist: text = integer"]
     );
 }
 
@@ -149,7 +149,7 @@ fn expressions_de_table() {
     for (sql, expected) in [
         (
             "CREATE TABLE e1 (a int DEFAULT 'x'::text)",
-            "type-mismatch: column \"a\" is of type int4 but default expression is of type text",
+            "type-mismatch: column \"a\" is of type integer but default expression is of type text",
         ),
         (
             "CREATE TABLE e2 (a int, b int DEFAULT a)",
@@ -161,19 +161,19 @@ fn expressions_de_table() {
         ),
         (
             "CREATE TABLE e5 (a int CHECK (a))",
-            "type-mismatch: argument must be type boolean, not type int4",
+            "type-mismatch: argument must be type boolean, not type integer",
         ),
         (
             "CREATE TABLE e6 (a text, CHECK (a > 5))",
-            "function-not-found: operator text > int4 does not exist",
+            "function-not-found: operator does not exist: text > integer",
         ),
         (
             "CREATE DOMAIN bad AS text CHECK (VALUE > 0)",
-            "function-not-found: operator text > int4 does not exist",
+            "function-not-found: operator does not exist: text > integer",
         ),
         (
             "CREATE TABLE e7 (a int); ALTER TABLE e7 ALTER COLUMN a SET DEFAULT now()",
-            "type-mismatch: column \"a\" is of type int4 but default expression is of type timestamptz",
+            "type-mismatch: column \"a\" is of type integer but default expression is of type timestamp with time zone",
         ),
     ] {
         assert_eq!(check(sql), vec![expected.to_string()], "{sql}");

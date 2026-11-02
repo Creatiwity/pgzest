@@ -301,7 +301,7 @@ impl<'c> Analyzer<'c> {
                     "type-mismatch",
                     format!(
                         "argument of LIMIT must be type bigint, not type {}",
-                        t.ty.name
+                        crate::expr::format_type(&t.ty)
                     ),
                     l.span,
                 ));
@@ -491,7 +491,7 @@ impl<'c> Analyzer<'c> {
                             SemaError::new(
                                 "table-not-found",
                                 format!("relation \"{n}\" does not exist"),
-                                Span::DUMMY,
+                                t.span,
                             )
                         })?;
                         system = !matches!(rel.kind, RelationKind::View);
@@ -898,7 +898,9 @@ impl<'c> Analyzer<'c> {
                 "type-mismatch",
                 format!(
                     "column \"{}\" is of type {} but expression is of type {}",
-                    column.name, target.name, t.ty.name
+                    column.name,
+                    crate::expr::format_type(target),
+                    crate::expr::format_type(&t.ty)
                 ),
                 value.span,
             ));
@@ -1012,7 +1014,9 @@ impl<'c> Analyzer<'c> {
                             "type-mismatch",
                             format!(
                                 "column \"{}\" is of type {} but expression is of type {}",
-                                c.name, t.name, o.ty.name
+                                c.name,
+                                crate::expr::format_type(t),
+                                crate::expr::format_type(&o.ty)
                             ),
                             q.span,
                         ));
@@ -1145,7 +1149,9 @@ impl<'c> Analyzer<'c> {
                             "type-mismatch",
                             format!(
                                 "column \"{}\" is of type {} but expression is of type {}",
-                                c.name, t.name, o.ty.name
+                                c.name,
+                                crate::expr::format_type(t),
+                                crate::expr::format_type(&o.ty)
                             ),
                             a.value.span,
                         ));

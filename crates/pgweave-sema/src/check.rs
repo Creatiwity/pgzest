@@ -545,7 +545,8 @@ impl Analyzer<'_> {
             "type-mismatch",
             format!(
                 "column \"{column}\" is of type {} but {what} expression is of type {}",
-                target.name, ty.name
+                crate::expr::format_type(target),
+                crate::expr::format_type(ty)
             ),
             span,
         ))

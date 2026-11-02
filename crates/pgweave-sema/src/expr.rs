@@ -80,23 +80,99 @@ fn operator_name(op: &BinaryOp) -> Option<&str> {
     })
 }
 
-fn resolve_error(e: ResolveError, what: String, span: Span) -> SemaError {
-    match e {
-        ResolveError::NotFound => {
-            SemaError::new("function-not-found", format!("{what} does not exist"), span)
-        }
-        ResolveError::Ambiguous => {
-            SemaError::new("ambiguous-function", format!("{what} is not unique"), span)
-        }
-        ResolveError::Polymorphic(m) => SemaError::new("type-mismatch", m, span),
-    }
+/// Ce qu'on cherchait à résoudre, pour le message d'erreur.
+enum Subject<'a> {
+    Operator(&'a str, Option<&'a Ty>, &'a Ty),
+    Function(&'a str, &'a [Ty]),
+    Other(String),
 }
 
-fn type_list(tys: &[Ty]) -> String {
-    tys.iter()
-        .map(|t| t.name.clone())
-        .collect::<Vec<_>>()
-        .join(", ")
+/// Nom d'un type comme `format_type` l'affiche (`integer`, `text[]`…).
+pub(crate) fn format_type(ty: &Ty) -> String {
+    if ty.schema != "pg_catalog" {
+        return ty.name.clone();
+    }
+    if let Some(elem) = ty.name.strip_prefix('_') {
+        return format!("{}[]", format_type(&pg(elem)));
+    }
+    match ty.name.as_str() {
+        "int2" => "smallint",
+        "int4" => "integer",
+        "int8" => "bigint",
+        "float4" => "real",
+        "float8" => "double precision",
+        "bool" => "boolean",
+        "varchar" => "character varying",
+        "bpchar" => "character",
+        "timestamp" => "timestamp without time zone",
+        "timestamptz" => "timestamp with time zone",
+        "time" => "time without time zone",
+        "timetz" => "time with time zone",
+        "varbit" => "bit varying",
+        other => other,
+    }
+    .to_string()
+}
+
+/// Erreur de résolution, avec les messages de PostgreSQL (`parse_oper.c`,
+/// `parse_func.c`).
+fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
+    const CAST: &str = "You might need to add explicit type casts.";
+    let types = |tys: &[Ty]| tys.iter().map(format_type).collect::<Vec<_>>().join(", ");
+    match (e, subject) {
+        (ResolveError::Polymorphic(m), _) => SemaError::new("type-mismatch", m, span),
+        (e, Subject::Operator(op, l, r)) => {
+            let sig = match l {
+                Some(l) => format!("{} {op} {}", format_type(l), format_type(r)),
+                None => format!("{op} {}", format_type(r)),
+            };
+            match e {
+                ResolveError::Ambiguous => SemaError::new(
+                    "ambiguous-function",
+                    format!("operator is not unique: {sig}"),
+                    span,
+                )
+                .with_hint(format!(
+                    "Could not choose a best candidate operator. {CAST}"
+                )),
+                _ => SemaError::new(
+                    "function-not-found",
+                    format!("operator does not exist: {sig}"),
+                    span,
+                )
+                .with_hint(format!(
+                    "No operator matches the given name and argument types. {CAST}"
+                )),
+            }
+        }
+        (e, Subject::Function(name, args)) => {
+            let sig = format!("{name}({})", types(args));
+            match e {
+                ResolveError::Ambiguous => SemaError::new(
+                    "ambiguous-function",
+                    format!("function {sig} is not unique"),
+                    span,
+                )
+                .with_hint(format!(
+                    "Could not choose a best candidate function. {CAST}"
+                )),
+                _ => SemaError::new(
+                    "function-not-found",
+                    format!("function {sig} does not exist"),
+                    span,
+                )
+                .with_hint(format!(
+                    "No function matches the given name and argument types. {CAST}"
+                )),
+            }
+        }
+        (ResolveError::Ambiguous, Subject::Other(what)) => {
+            SemaError::new("ambiguous-function", format!("{what} is not unique"), span)
+        }
+        (_, Subject::Other(what)) => {
+            SemaError::new("function-not-found", format!("{what} does not exist"), span)
+        }
+    }
 }
 
 /// Colonne désignée par `c` dans la portée de requête, ou ligne entière
@@ -294,7 +370,10 @@ impl<'c> Analyzer<'c> {
         {
             return Err(SemaError::new(
                 "type-mismatch",
-                format!("argument must be type boolean, not type {}", t.ty.name),
+                format!(
+                    "argument must be type boolean, not type {}",
+                    format_type(&t.ty)
+                ),
                 e.span,
             ));
         }
@@ -394,11 +473,7 @@ impl<'c> Analyzer<'c> {
                             .ts
                             .resolve_operator(None, "=", Some(&l.ty), &c.ty, &self.path)
                             .map_err(|e| {
-                                resolve_error(
-                                    e,
-                                    format!("operator {} = {}", l.ty.name, c.ty.name),
-                                    span,
-                                )
+                                resolve_error(e, Subject::Operator("=", Some(&l.ty), &c.ty), span)
                             })?;
                         self.coerce_to(item, &call.arg_types[0]);
                     }
@@ -416,7 +491,7 @@ impl<'c> Analyzer<'c> {
                     .ts
                     .resolve_operator(None, "=", Some(&l.ty), &c.ty, &self.path)
                     .map_err(|e| {
-                        resolve_error(e, format!("operator {} = {}", l.ty.name, c.ty.name), span)
+                        resolve_error(e, Subject::Operator("=", Some(&l.ty), &c.ty), span)
                     })?;
                 self.coerce_to(expr, &call.arg_types[0]);
                 Ok(Typed::new(pg("bool"), Nullability::Unknown))
@@ -444,7 +519,7 @@ impl<'c> Analyzer<'c> {
                 let call = self
                     .ts
                     .resolve_function(None, "timezone", &[z.ty.clone(), t.ty.clone()], &self.path)
-                    .map_err(|e| resolve_error(e, "AT TIME ZONE".into(), span))?;
+                    .map_err(|e| resolve_error(e, Subject::Other("AT TIME ZONE".into()), span))?;
                 self.coerce_to(time_zone, &call.arg_types[0]);
                 self.coerce_to(timestamp, &call.arg_types[1]);
                 Ok(Typed::new(
@@ -495,7 +570,11 @@ impl<'c> Analyzer<'c> {
         {
             return Err(SemaError::new(
                 "type-mismatch",
-                format!("cannot cast type {} to {}", t.ty.name, target.name),
+                format!(
+                    "cannot cast type {} to {}",
+                    format_type(&t.ty),
+                    format_type(&target)
+                ),
                 span,
             ));
         }
@@ -517,11 +596,11 @@ impl<'c> Analyzer<'c> {
             .ts
             .resolve_operator(None, name, l.as_ref().map(|t| &t.ty), &r.ty, &self.path)
             .map_err(|e| {
-                let what = match &l {
-                    Some(l) => format!("operator {} {name} {}", l.ty.name, r.ty.name),
-                    None => format!("operator {name} {}", r.ty.name),
-                };
-                resolve_error(e, what, span)
+                resolve_error(
+                    e,
+                    Subject::Operator(name, l.as_ref().map(|t| &t.ty), &r.ty),
+                    span,
+                )
             })?;
         if let Some(le) = left {
             self.coerce_to(le, &call.arg_types[0]);
@@ -613,11 +692,7 @@ impl<'c> Analyzer<'c> {
                 self.ts
                     .resolve_operator(None, "=", Some(&common), &common, &self.path)
                     .map_err(|e| {
-                        resolve_error(
-                            e,
-                            format!("operator {} = {}", common.name, common.name),
-                            expr.span,
-                        )
+                        resolve_error(e, Subject::Operator("=", Some(&common), &common), expr.span)
                     })?;
             }
             Err(_) => {
@@ -673,13 +748,7 @@ impl<'c> Analyzer<'c> {
         let call = self
             .ts
             .resolve_operator(None, name, Some(&l.ty), &elem, &self.path)
-            .map_err(|e| {
-                resolve_error(
-                    e,
-                    format!("operator {} {name} {}", l.ty.name, elem.name),
-                    span,
-                )
-            })?;
+            .map_err(|e| resolve_error(e, Subject::Operator(name, Some(&l.ty), &elem), span))?;
         self.coerce_to(left, &call.arg_types[0]);
         if !from_subquery && let Some(arr) = self.ts.array_of(&call.arg_types[1]) {
             self.coerce_to(right, &arr);
@@ -1071,13 +1140,7 @@ impl<'c> Analyzer<'c> {
         let call: ResolvedCall = self
             .ts
             .resolve_function_named(schema, fname, &inputs, &names, &self.path)
-            .map_err(|err| {
-                resolve_error(
-                    err,
-                    format!("function {fname}({})", type_list(&inputs)),
-                    span,
-                )
-            })?;
+            .map_err(|err| resolve_error(err, Subject::Function(fname, &inputs), span))?;
         for (a, t) in args.iter().zip(&call.arg_types) {
             self.coerce_to(a, t);
         }

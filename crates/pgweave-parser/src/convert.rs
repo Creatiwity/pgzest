@@ -841,6 +841,19 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
             "option de table non modélisée (TABLESAMPLE…) : {factor}"
         )));
     }
+    let factor_span = {
+        use sqlparser::ast::Spanned;
+        let sp_span = match &factor {
+            sp::TableFactor::Table { name, .. } => name.span(),
+            other => other.span(),
+        };
+        SPAN_CTX.with(|c| {
+            c.borrow()
+                .as_ref()
+                .map(|ctx| ctx.resolve(sp_span))
+                .unwrap_or(Span::DUMMY)
+        })
+    };
     let (source, alias) = match factor {
         // `FROM f(…)` : sqlparser le range dans Table, avec des arguments.
         sp::TableFactor::Table {
@@ -928,6 +941,7 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
         alias,
         column_aliases,
         column_types,
+        span: factor_span,
     })
 }
 

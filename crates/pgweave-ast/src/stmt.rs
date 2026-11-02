@@ -121,6 +121,9 @@ pub struct TableRef {
     /// Liste de définition de colonnes d'une fonction renvoyant `record` :
     /// `AS r(a int, b text)`. Un type par alias de colonne, ou vide.
     pub column_types: Vec<DataType>,
+    /// Position de la source (le nom d'une table), `DUMMY` si inconnue.
+    #[serde(default)]
+    pub span: crate::Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
