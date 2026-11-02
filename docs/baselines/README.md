@@ -60,6 +60,23 @@ progrès. Les chiffres ci-dessous datent du 2026-11-01 (commit `62f1e61`).
 
 [`siren.md`](siren.md) : corpus Diesel (`--layout diesel`, chemin local).
 
+## État en P3 (2026-11-02)
+
+| Mesure | P1 | P3 |
+|---|--:|--:|
+| Oracle : colonnes conformes | 84/112 | 559/559 |
+| Oracle : paramètres conformes | 0/29 | 115/115 |
+| Mesalia : erreurs de `check` (faux positifs) | 10 | 0 |
+| Mesalia : colonnes du catalogue identiques au réel | — | 1622/1622 |
+| Mesalia : requêtes générées identiques à PG | — | 3342/3342 |
+| Mesalia : requêtes de corps de routines identiques à PG | — | 58/58 |
+| siren : requêtes générées / de corps identiques à PG | — | 476/476 · 10/10 |
+
+- `check` passe par `pgweave-sema` : chaque migration est vérifiée contre le
+  catalogue rejoué jusqu'à elle, un corps PL/pgSQL contre l'état final.
+- L'ancien analyseur (`pgweave-semantic`, et son repli silencieux sur
+  `text`) est supprimé.
+
 ---
 
 # Historique : mesures P0

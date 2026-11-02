@@ -10,7 +10,7 @@ use crate::{
 /// Read-only AST visitor. Override only the methods relevant to your use case.
 /// The default implementations do nothing (no-op).
 ///
-/// For rules that need the full semantic context, use SemanticCtx from pgweave-semantic.
+/// For rules that need resolved names and types, use the analysis of `pgweave-sema`.
 /// This trait is intentionally simple: it provides structural traversal, not type info.
 pub trait Visit {
     // Statement level

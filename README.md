@@ -458,11 +458,12 @@ crates/
   pgweave-diagnostics/ Diagnostic, Severity, Span, codes — socle sans dépendance
   pgweave-parser/      sqlparser-rs + extension PL/pgSQL → pgweave-ast
   pgweave-schema/      SchemaProvider + types de schéma, resolver, index, config
-  pgweave-semantic/    Table de symboles, arbre de scopes, inférence de types
-  pgweave-checker/     Type-checker (passe linéaire), CheckRule, règles
+  pgweave-catalog/     Catalogue PostgreSQL (packs générés), rejeu des DDL
+  pgweave-sema/        Analyse sémantique : types, surcharges, requêtes, routines
+  pgweave-checker/     Vérification (façade de pgweave-sema) + règles de plugins
   pgweave-lint/        Règles de lint, LintConfig
   pgweave-codegen/     Émetteur SQL, moteur de diff, codegen TypeScript
-  pgweave-analysis/    Façade d'orchestration : parse → semantic → check → lint
+  pgweave-analysis/    Façade d'orchestration : parse → check → lint
   pgweave-plugin/      Système de plugins + plugin PostGIS
   pgweave-plugin-wasm/ Hôte de plugins WASM (wasmi)
   pgweave-lsp/         Serveur tower-lsp (diagnostics, hover, complétion)
@@ -492,12 +493,13 @@ Les dépendances internes forment un DAG strict, du bas vers le haut :
 pgweave-ast · pgweave-diagnostics        (aucune dépendance interne)
   └── pgweave-parser
        └── pgweave-schema              (SchemaProvider vit ici)
-            ├── pgweave-semantic       ┐
-            ├── pgweave-checker        │ passes indépendantes,
-            ├── pgweave-lint           │ qui ne se connaissent pas
-            └── pgweave-codegen        ┘
-                 └── pgweave-analysis  (façade : enchaîne les passes)
-                      └── pgweave-cli · pgweave-lsp · bindings/*
+            └── pgweave-catalog        (catalogue, rejeu)
+                 └── pgweave-sema      (analyse sémantique)
+                      ├── pgweave-checker  ┐ passes indépendantes,
+                      ├── pgweave-lint     │ qui ne se connaissent pas
+                      └── pgweave-codegen  ┘
+                           └── pgweave-analysis  (façade : enchaîne les passes)
+                                └── pgweave-cli · pgweave-lsp · bindings/*
 ```
 
 Deux invariants à ne pas casser :
@@ -506,9 +508,9 @@ Deux invariants à ne pas casser :
    `Diagnostic` et `SchemaProvider` sont des contrats partagés ; ils vivaient
    dans `pgweave-checker`, ce qui obligeait le linter à compiler le
    type-checker et inversait la dépendance de `pgweave-schema`.
-2. **Une passe n'appelle jamais une autre passe.** `pgweave-semantic` n'appelle
-   pas le checker, `pgweave-lint` ne connaît pas le checker. Tout enchaînement
-   vit dans `pgweave-analysis`, au-dessus.
+2. **Une passe n'appelle jamais une autre passe.** `pgweave-lint` ne connaît
+   pas le checker, ni le checker le linter. Tout enchaînement vit dans
+   `pgweave-analysis`, au-dessus.
 
 See `SPECS.md` for full design decisions, `ARCHITECTURE.md` for internals, and `ROADMAP.md` for what's planned.
 

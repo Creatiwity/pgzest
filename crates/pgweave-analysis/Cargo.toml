@@ -11,7 +11,6 @@ pgweave-macro = { path = "../pgweave-macro" }
 pgweave-parser = { path = "../pgweave-parser" }
 pgweave-query = { path = "../pgweave-query" }
 pgweave-schema = { path = "../pgweave-schema" }
-pgweave-semantic = { path = "../pgweave-semantic" }
 pgweave-checker = { path = "../pgweave-checker" }
 pgweave-lint = { path = "../pgweave-lint" }
 

@@ -21,7 +21,6 @@ pgweave-codegen = { path = "../pgweave-codegen" }
 pgweave-lint = { path = "../pgweave-lint" }
 pgweave-plugin = { path = "../pgweave-plugin" }
 pgweave-plugin-wasm = { path = "../pgweave-plugin-wasm" }
-pgweave-semantic = { path = "../pgweave-semantic" }
 serde = { workspace = true }
 clap = { workspace = true }
 chrono = { workspace = true }

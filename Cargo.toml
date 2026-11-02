@@ -10,7 +10,6 @@ members = [
     "crates/pgweave-catalog",
     "crates/pgweave-project",
     "crates/pgweave-sema",
-    "crates/pgweave-semantic",
     "crates/pgweave-plugin",
     "crates/pgweave-lint",
     "crates/pgweave-cli",

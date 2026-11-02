@@ -49,6 +49,9 @@ pub struct Analyzer<'c> {
     /// l'expression et type de la valeur (ce que PostgreSQL passe en
     /// paramètre à la requête).
     pub var_refs: Vec<(Span, Ty)>,
+    /// Références de colonne (ou de variable) résolues, avec leur type et
+    /// leur nullabilité : ce que désigne chaque nom de la requête.
+    pub column_refs: Vec<(Span, Typed)>,
 }
 
 /// Nom d'opérateur PostgreSQL d'un opérateur binaire de l'AST.
@@ -151,6 +154,7 @@ impl<'c> Analyzer<'c> {
             ctes: Vec::new(),
             routine: None,
             var_refs: Vec::new(),
+            column_refs: Vec::new(),
         }
     }
 
@@ -196,7 +200,7 @@ impl<'c> Analyzer<'c> {
     }
 
     /// Type écrit (`CAST`, `::`).
-    pub(crate) fn data_type(&self, dt: &DataType, span: Span) -> Result<Ty, SemaError> {
+    pub fn data_type(&self, dt: &DataType, span: Span) -> Result<Ty, SemaError> {
         let builtin = match dt {
             DataType::SmallInt => "int2",
             DataType::Integer => "int4",
@@ -293,62 +297,11 @@ impl<'c> Analyzer<'c> {
                 ))
             }
             ExprKind::Column(c) => {
-                let core = column_ref(c, scope, span);
-                let Some(routine) = &self.routine else {
-                    return core;
-                };
-                match core {
-                    Err(e) if e.code == "ambiguous-column" => Err(e),
-                    Ok(t) => match (routine.language, routine.lookup(c)) {
-                        (Language::Plpgsql, Some(_)) => Err(SemaError::new(
-                            "ambiguous-column",
-                            format!(
-                                "column reference \"{}\" is ambiguous (PL/pgSQL variable or table column)",
-                                emit_column_ref(c)
-                            ),
-                            span,
-                        )),
-                        _ => Ok(t),
-                    },
-                    Err(e) => match routine.lookup(c) {
-                        Some(v) => {
-                            let t = self.variable(v, span)?;
-                            self.var_refs.push((span, t.ty.clone()));
-                            Ok(t)
-                        }
-                        // Expression PL/pgSQL sans `FROM` : le nom ne peut
-                        // désigner qu'une variable.
-                        None if routine.language == Language::Plpgsql
-                            && e.code == "column-not-found"
-                            && c.table.is_none()
-                            && scope.is_empty() =>
-                        {
-                            let mut known: Vec<&str> = routine
-                                .frames
-                                .iter()
-                                .flat_map(|f| &f.vars)
-                                .map(|v| v.name.as_str())
-                                .filter(|n| !n.starts_with("tg_") && *n != "found")
-                                .collect();
-                            known.sort_unstable();
-                            known.dedup();
-                            let err = SemaError::new(
-                                "undeclared-variable",
-                                format!("variable '{}' is not declared", c.column.value),
-                                span,
-                            );
-                            Err(if known.is_empty() {
-                                err.with_hint("declare it in the DECLARE section or as a parameter")
-                            } else {
-                                err.with_hint(format!(
-                                    "declared variables and parameters: {}",
-                                    known.join(", ")
-                                ))
-                            })
-                        }
-                        None => Err(e),
-                    },
+                let t = self.column(c, scope, span)?;
+                if span != Span::DUMMY {
+                    self.column_refs.push((span, t.clone()));
                 }
+                Ok(t)
             }
             ExprKind::Interval(_) => Ok(Typed::new(pg("interval"), Nullability::NonNull)),
             ExprKind::Collate { expr, .. } => self.expr(expr, scope),
@@ -805,6 +758,72 @@ impl<'c> Analyzer<'c> {
     }
 
     /// Type d'un attribut de type composite (type ligne d'une table compris).
+    /// Colonne de la portée de requête ou, dans un corps de routine,
+    /// variable désignée par `c` (voir [`crate::routine`]).
+    fn column(
+        &mut self,
+        c: &pgweave_ast::expr::ColumnRef,
+        scope: &Scope,
+        span: Span,
+    ) -> Result<Typed, SemaError> {
+        let core = column_ref(c, scope, span);
+        let Some(routine) = &self.routine else {
+            return core;
+        };
+        match core {
+            Err(e) if e.code == "ambiguous-column" => Err(e),
+            Ok(t) => match (routine.language, routine.lookup(c)) {
+                (Language::Plpgsql, Some(_)) => Err(SemaError::new(
+                    "ambiguous-column",
+                    format!(
+                        "column reference \"{}\" is ambiguous (PL/pgSQL variable or table column)",
+                        emit_column_ref(c)
+                    ),
+                    span,
+                )),
+                _ => Ok(t),
+            },
+            Err(e) => match routine.lookup(c) {
+                Some(v) => {
+                    let t = self.variable(v, span)?;
+                    self.var_refs.push((span, t.ty.clone()));
+                    Ok(t)
+                }
+                // Expression PL/pgSQL sans `FROM` : le nom ne peut
+                // désigner qu'une variable.
+                None if routine.language == Language::Plpgsql
+                    && e.code == "column-not-found"
+                    && c.table.is_none()
+                    && scope.is_empty() =>
+                {
+                    let mut known: Vec<&str> = routine
+                        .frames
+                        .iter()
+                        .flat_map(|f| &f.vars)
+                        .map(|v| v.name.as_str())
+                        .filter(|n| !n.starts_with("tg_") && *n != "found")
+                        .collect();
+                    known.sort_unstable();
+                    known.dedup();
+                    let err = SemaError::new(
+                        "undeclared-variable",
+                        format!("variable '{}' is not declared", c.column.value),
+                        span,
+                    );
+                    Err(if known.is_empty() {
+                        err.with_hint("declare it in the DECLARE section or as a parameter")
+                    } else {
+                        err.with_hint(format!(
+                            "declared variables and parameters: {}",
+                            known.join(", ")
+                        ))
+                    })
+                }
+                None => Err(e),
+            },
+        }
+    }
+
     /// Valeur d'une variable de routine ou d'un de ses champs. Une
     /// variable n'est jamais affirmée non nulle.
     pub(crate) fn variable(&self, v: VarRef, span: Span) -> Result<Typed, SemaError> {

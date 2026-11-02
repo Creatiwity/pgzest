@@ -1,5 +1,5 @@
+use pgweave_ast::emit::emit_data_type;
 use pgweave_schema::provider::SchemaProvider;
-use pgweave_semantic::data_type_to_ts;
 use tower_lsp::lsp_types::*;
 
 // ── Cursor context ────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<Co
                         for col in &ts.columns {
                             items.push(col_item(
                                 &col.name,
-                                data_type_to_ts(&col.data_type),
+                                &emit_data_type(&col.data_type),
                                 &binding.alias,
                             ));
                         }
@@ -110,15 +110,15 @@ pub fn build_completions(ctx: &CursorCtx, schema: &dyn SchemaProvider) -> Vec<Co
                 for binding in &ctx.bindings {
                     if let Some(ts) = schema.get_table(&binding.table) {
                         for col in &ts.columns {
-                            let ts_type = data_type_to_ts(&col.data_type);
+                            let sql_type = emit_data_type(&col.data_type);
                             // Unqualified name (first binding wins on collision)
                             if seen.insert(col.name.to_lowercase()) {
-                                items.push(col_item(&col.name, ts_type, &binding.alias));
+                                items.push(col_item(&col.name, &sql_type, &binding.alias));
                             }
                             // Qualified alias.col (always unique)
                             let qualified = format!("{}.{}", binding.alias, col.name);
                             if seen.insert(qualified.clone()) {
-                                items.push(col_item(&qualified, ts_type, &binding.alias));
+                                items.push(col_item(&qualified, &sql_type, &binding.alias));
                             }
                         }
                     }
@@ -392,7 +392,7 @@ fn kw_item(label: &str) -> CompletionItem {
     }
 }
 
-fn col_item(label: &str, type_detail: &'static str, from_alias: &str) -> CompletionItem {
+fn col_item(label: &str, type_detail: &str, from_alias: &str) -> CompletionItem {
     CompletionItem {
         label: label.to_string(),
         kind: Some(CompletionItemKind::FIELD),

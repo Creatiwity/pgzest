@@ -1,20 +1,14 @@
-//! Façade d'orchestration : parse → semantic → check → lint.
+//! Façade d'orchestration : parse → check → lint.
 //!
-//! Ce crate existe pour tenir la règle de couches : `pgweave-semantic`,
-//! `pgweave-checker` et `pgweave-lint` sont des passes indépendantes qui ne se
-//! connaissent pas entre elles. Tout ce qui doit en enchaîner plusieurs vit
-//! ici, au-dessus d'elles.
-//!
-//! Auparavant `analyze_sql` vivait dans `pgweave-semantic` et appelait
-//! `pgweave_checker::check_statements` — une couche basse qui remontait vers une
-//! couche haute, alors que la conception veut l'inverse (le checker consomme
-//! le résultat sémantique).
+//! Ce crate existe pour tenir la règle de couches : `pgweave-checker` (et
+//! l'analyse sémantique qu'il porte) et `pgweave-lint` sont des passes
+//! indépendantes qui ne se connaissent pas entre elles. Tout ce qui doit en
+//! enchaîner plusieurs vit ici, au-dessus d'elles.
 
 use pgweave_catalog::ProjectCatalog;
 use pgweave_diagnostics::{Diagnostic, Severity, Span, Suppressions, codes};
 use pgweave_parser::{SkipReason, SkippedStatement};
 use pgweave_schema::{ParseConfig, SkipLevel};
-use pgweave_semantic::{SemanticResult, analyze};
 
 // ── Tolérance du parser ───────────────────────────────────────────────────────
 
@@ -150,7 +144,6 @@ pub struct AnalysisOptions {
 pub struct AnalysisResult {
     /// Diagnostics, directives en commentaire déjà appliquées.
     pub diagnostics: Vec<Diagnostic>,
-    pub semantic: SemanticResult,
     /// Statements écartés par le parser, quel que soit le niveau configuré.
     pub skipped: Vec<SkippedStatement>,
     /// Directives trouvées dans la source.
@@ -205,25 +198,14 @@ fn analyze_parsed(
                 format!("parse error: {e}"),
             )];
             suppressions.apply(&mut diagnostics);
-            let empty = ProjectCatalog::empty();
             return AnalysisResult {
                 diagnostics,
-                semantic: analyze(&[], &empty),
                 skipped: Vec::new(),
                 suppressions,
             };
         }
     };
 
-    let own;
-    let schema = match catalog {
-        Some(c) => c,
-        None => {
-            own = ProjectCatalog::from_statements(&outcome.statements);
-            &own
-        }
-    };
-    let semantic = analyze(&outcome.statements, schema);
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
     diagnostics.extend(header_diagnostic(sql));
     diagnostics.extend(checks(&outcome.statements, catalog));
@@ -231,7 +213,6 @@ fn analyze_parsed(
 
     AnalysisResult {
         diagnostics,
-        semantic,
         skipped: outcome.skipped,
         suppressions,
     }
@@ -258,52 +239,23 @@ pub fn analyze_source_self_contained(sql: &str, opts: &AnalysisOptions) -> Analy
     analyze_parsed(sql, None, opts)
 }
 
-/// Analyse `sql` et renvoie à la fois les diagnostics et le résultat sémantique.
-///
-/// Utile à l'outillage qui a besoin des deux : LSP (hover, complétion),
-/// codegen, génération de types TypeScript.
-pub fn analyze_sql(sql: &str, schema: &ProjectCatalog) -> (Vec<Diagnostic>, SemanticResult) {
+/// Diagnostics de vérification de `sql` contre `schema`.
+pub fn analyze_sql(sql: &str, schema: &ProjectCatalog) -> Vec<Diagnostic> {
     match pgweave_parser::parse(sql) {
-        Ok(stmts) => {
-            let semantic = analyze(&stmts, schema);
-            let diags = pgweave_checker::check_statements(&stmts, schema);
-            (diags, semantic)
-        }
-        Err(e) => {
-            let empty = ProjectCatalog::empty();
-            (
-                vec![Diagnostic::error(
-                    codes::PARSE_ERROR,
-                    format!("parse error: {e}"),
-                )],
-                analyze(&[], &empty),
-            )
-        }
+        Ok(stmts) => pgweave_checker::check_statements(&stmts, schema),
+        Err(e) => vec![Diagnostic::error(
+            codes::PARSE_ERROR,
+            format!("parse error: {e}"),
+        )],
     }
 }
 
-/// Analyse `sql` en dérivant le schéma du DDL contenu dans le fichier lui-même.
+/// Diagnostics de vérification de `sql`, le schéma dérivé du DDL qu'il
+/// contient (chaque statement vérifié à son application).
 ///
 /// Mode utilisé pour vérifier un fichier autonome, sans schéma externe.
-pub fn analyze_sql_self_contained(sql: &str) -> (Vec<Diagnostic>, SemanticResult) {
-    match pgweave_parser::parse(sql) {
-        Ok(stmts) => {
-            let schema = ProjectCatalog::from_statements(&stmts);
-            let semantic = analyze(&stmts, &schema);
-            let diags = pgweave_checker::check_script(&stmts);
-            (diags, semantic)
-        }
-        Err(e) => {
-            let empty = ProjectCatalog::empty();
-            (
-                vec![Diagnostic::error(
-                    codes::PARSE_ERROR,
-                    format!("parse error: {e}"),
-                )],
-                analyze(&[], &empty),
-            )
-        }
-    }
+pub fn analyze_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
+    pgweave_checker::check_sql_self_contained(sql)
 }
 
 #[cfg(test)]
@@ -313,7 +265,7 @@ mod tests {
     #[test]
     fn analyse_un_fichier_autonome() {
         let sql = "CREATE TABLE t (a INT); SELECT a FROM t;";
-        let (diags, _semantic) = analyze_sql_self_contained(sql);
+        let diags = analyze_sql_self_contained(sql);
         assert!(
             diags.is_empty(),
             "aucun diagnostic attendu, obtenu: {diags:?}"
@@ -323,7 +275,7 @@ mod tests {
     #[test]
     fn signale_une_colonne_absente() {
         let sql = "CREATE TABLE t (a INT); SELECT nope FROM t;";
-        let (diags, _) = analyze_sql_self_contained(sql);
+        let diags = analyze_sql_self_contained(sql);
         assert!(
             diags.iter().any(|d| d.code == codes::COLUMN_NOT_FOUND),
             "column-not-found attendu, obtenu: {diags:?}"
@@ -338,7 +290,7 @@ mod tests {
     /// sont désormais remontés, avec un niveau piloté par la config.
     #[test]
     fn sql_invalide_est_signale() {
-        let (_diags, _) = analyze_sql_self_contained("SELCT * FRM;");
+        let _diags = analyze_sql_self_contained("SELCT * FRM;");
         // analyze_sql_self_contained garde le contrat historique (pas de config) ;
         // c'est analyze_source qui applique la politique de tolérance.
         let r = analyze_source_self_contained("SELCT * FRM;", &AnalysisOptions::default());
@@ -601,17 +553,14 @@ pub fn analyze_source_with_macros(
             )];
             diagnostics.extend(prepared.diagnostics);
             suppressions.apply(&mut diagnostics);
-            let empty = ProjectCatalog::empty();
             return AnalysisResult {
                 diagnostics,
-                semantic: analyze(&[], &empty),
                 skipped: Vec::new(),
                 suppressions,
             };
         }
     };
 
-    let semantic = analyze(&outcome.statements, schema);
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
     diagnostics.extend(header_diagnostic(source));
     diagnostics.extend(pgweave_checker::check_statements(
@@ -624,7 +573,6 @@ pub fn analyze_source_with_macros(
 
     AnalysisResult {
         diagnostics,
-        semantic,
         skipped: outcome.skipped,
         suppressions,
     }

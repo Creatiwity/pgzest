@@ -9,7 +9,7 @@ pgweave-ast = { path = "../pgweave-ast" }
 pgweave-diagnostics = { workspace = true }
 pgweave-schema = { path = "../pgweave-schema" }
 pgweave-parser = { path = "../pgweave-parser" }
-pgweave-semantic = { path = "../pgweave-semantic" }
+pgweave-sema = { path = "../pgweave-sema" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result};
 
-use pgweave_semantic::data_type_to_sql;
+use pgweave_ast::emit::emit_data_type;
 
 use crate::completion::{analyze_cursor, build_completions};
 use crate::line_index::LineIndex;
@@ -656,7 +656,7 @@ impl LanguageServer for PgsqlBackend {
                 if matches!(role, FileRole::Schema) {
                     hover_schema_file(&text, &word, resolver.as_ref())
                 } else {
-                    hover_query(&stmts, resolver.as_ref(), &word)
+                    hover_query(&stmts, resolver.as_ref(), offset as usize, &word)
                 }
             });
 
@@ -718,54 +718,52 @@ fn hover_schema_file(text: &str, word: &str, global: &dyn SchemaProvider) -> Opt
     lookup_hover(word, provider).or_else(|| lookup_hover(word, global))
 }
 
+/// Survol dans une requête : ce que désigne le nom sous le curseur, d'après
+/// l'analyse sémantique du statement qui le contient ; à défaut, la table ou
+/// la colonne de ce nom dans le catalogue.
 fn hover_query(
     stmts: &[pgweave_ast::Statement],
-    schema: &dyn SchemaProvider,
+    catalog: &ProjectCatalog,
+    offset: usize,
     word: &str,
 ) -> Option<String> {
-    let semantic = pgweave_semantic::analyze(stmts, schema);
-
-    // Column in any scope
-    for scope_id in 0..100u32 {
-        let sid = pgweave_semantic::ScopeId(scope_id);
-        let cols = semantic.scopes.available_columns(sid);
-        if cols.is_empty() {
-            break;
-        }
-        for col in &cols {
-            if col.name.to_lowercase() == word {
-                return Some(format!(
-                    "(column) **{}**: `{}`",
-                    col.name,
-                    data_type_to_sql(&col.data_type)
-                ));
-            }
-        }
-    }
-
-    // Table name via symbols
-    if let Some(sym) = semantic.symbols.get_table(word) {
-        if let Some(table) = schema.get_table(&sym.name) {
-            return Some(fmt_table_hover(&table.name, word, table));
-        }
-        return Some(format!("(table) **{}**", sym.name));
-    }
-
-    // Output columns (SELECT aliases)
-    for cols in semantic.select_columns.values() {
-        for col in cols {
-            if col.name.as_deref().map(|n| n.to_lowercase()).as_deref() == Some(word) {
-                return Some(format!(
-                    "(column) **{}**: `{}`",
-                    col.name.as_deref().unwrap_or(word),
-                    data_type_to_sql(&col.data_type)
-                ));
-            }
+    use pgweave_ast::Statement;
+    let stmt = stmts.iter().find(|s| {
+        pgweave_ast::stmt_span(s)
+            .is_some_and(|sp| sp.start as usize <= offset && offset <= sp.end as usize)
+    });
+    if let Some(
+        stmt @ (Statement::Select(_)
+        | Statement::Insert(_)
+        | Statement::Update(_)
+        | Statement::Delete(_)),
+    ) = stmt
+    {
+        let mut a = pgweave_sema::Analyzer::new(
+            pgweave_sema::TypeSystem::new(&catalog.catalog),
+            catalog.search_path.clone(),
+        );
+        // Les références résolues avant une éventuelle erreur restent valables.
+        let _ = a.describe(stmt);
+        let under_cursor = a
+            .column_refs
+            .iter()
+            .filter(|(sp, _)| sp.start as usize <= offset && offset < sp.end as usize)
+            .min_by_key(|(sp, _)| sp.end - sp.start);
+        if let Some((_, t)) = under_cursor {
+            let ty = if t.ty.schema == "pg_catalog" {
+                t.ty.name.clone()
+            } else {
+                format!("{}.{}", t.ty.schema, t.ty.name)
+            };
+            let nn = match t.nullable {
+                pgweave_sema::Nullability::NonNull => " NOT NULL",
+                _ => "",
+            };
+            return Some(format!("(column) **{word}**: `{ty}`{nn}"));
         }
     }
-
-    // Direct schema lookup (table / column)
-    lookup_hover(word, schema)
+    lookup_hover(word, catalog)
 }
 
 /// Format a qualified name so the hovered `word` is bold.
@@ -795,7 +793,7 @@ fn fmt_table_hover(
         .iter()
         .map(|c| {
             let nn = if c.nullable { "" } else { " NOT NULL" };
-            format!("**{}** `{}`{}", c.name, data_type_to_sql(&c.data_type), nn)
+            format!("**{}** `{}`{}", c.name, emit_data_type(&c.data_type), nn)
         })
         .collect();
     if cols.is_empty() {
@@ -820,14 +818,14 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
             let params_str = sig
                 .params
                 .iter()
-                .map(|dt| format!("`{}`", data_type_to_sql(dt)))
+                .map(|dt| format!("`{}`", emit_data_type(dt)))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Some(format!(
                 "(function) **{}**({}): `{}`",
                 sig.name,
                 params_str,
-                data_type_to_sql(&sig.return_type)
+                emit_data_type(&sig.return_type)
             ));
         }
     }
@@ -843,7 +841,7 @@ fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
                 tbl_schema(&table.name),
                 tbl_local(&table.name),
                 col.name,
-                data_type_to_sql(&col.data_type),
+                emit_data_type(&col.data_type),
                 nn
             ));
         }
@@ -861,7 +859,7 @@ fn var_type_to_sql(t: &pgweave_ast::plpgsql::VarType) -> String {
             .join(".")
     };
     match t {
-        VarType::Data(dt) => data_type_to_sql(dt),
+        VarType::Data(dt) => emit_data_type(dt),
         VarType::RowTypeOf(n) => format!("{}%ROWTYPE", path(n)),
         VarType::TypeOf(n) => format!("{}%TYPE", path(n)),
         VarType::Record => "record".into(),
@@ -930,7 +928,7 @@ fn hover_plpgsql_var(
                 return Some(format!(
                     "(parameter) **{}**: `{}`",
                     name.value,
-                    data_type_to_sql(&param.data_type)
+                    emit_data_type(&param.data_type)
                 ));
             }
         }

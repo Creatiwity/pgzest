@@ -431,3 +431,41 @@ fn le_schema_non_sauvegarde_fait_foi_jusqu_a_sa_fermeture() {
         "{diags:?}"
     );
 }
+
+#[test]
+fn le_survol_donne_le_type_du_nom_sous_le_curseur() {
+    // `id` existe dans les deux tables avec des types différents : seul le
+    // statement analysé dit lequel est désigné.
+    let root = scaffold(
+        "hover",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+                 [queries]\ndirectory = \"queries\"\n",
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE a (id BIGINT PRIMARY KEY);\nCREATE TABLE b (id TEXT);\n",
+            ),
+            ("queries/q.sql", "-- name: q\nSELECT b.id FROM b;\n"),
+        ],
+    );
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let uri = lsp.open(&root.join("queries/q.sql"), "sql");
+    lsp.await_diagnostics(&uri);
+    let id = lsp.request(
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 1, "character": 10 }
+        }),
+    );
+    let response = lsp.await_response(id);
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(value, "(column) **id**: `text`", "{response:?}");
+}

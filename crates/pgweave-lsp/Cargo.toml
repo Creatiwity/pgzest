@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 pgweave-catalog = { path = "../pgweave-catalog" }
+pgweave-sema = { path = "../pgweave-sema" }
 pgweave-project = { path = "../pgweave-project" }
 pgweave-analysis = { path = "../pgweave-analysis" }
 pgweave-macro = { path = "../pgweave-macro" }
@@ -19,7 +20,6 @@ pgweave-checker = { path = "../pgweave-checker" }
 pgweave-schema = { path = "../pgweave-schema" }
 pgweave-lint = { path = "../pgweave-lint" }
 pgweave-plugin-wasm = { path = "../pgweave-plugin-wasm" }
-pgweave-semantic = { path = "../pgweave-semantic" }
 tower-lsp = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

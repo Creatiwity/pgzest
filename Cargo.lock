@@ -1089,7 +1089,6 @@ dependencies = [
  "pgweave-plugin-wasm",
  "pgweave-schema",
  "pgweave-sema",
- "pgweave-semantic",
  "serde",
 ]
 
@@ -1107,7 +1106,6 @@ dependencies = [
  "pgweave-parser",
  "pgweave-query",
  "pgweave-schema",
- "pgweave-semantic",
 ]
 
 [[package]]
@@ -1154,7 +1152,7 @@ dependencies = [
  "pgweave-diagnostics",
  "pgweave-parser",
  "pgweave-schema",
- "pgweave-semantic",
+ "pgweave-sema",
  "serde",
  "serde_json",
  "thiserror",
@@ -1193,7 +1191,7 @@ dependencies = [
  "pgweave-plugin-wasm",
  "pgweave-project",
  "pgweave-schema",
- "pgweave-semantic",
+ "pgweave-sema",
  "serde",
  "serde_json",
  "tokio",
@@ -1329,19 +1327,6 @@ dependencies = [
  "pgweave-schema",
  "tokio",
  "tokio-postgres",
-]
-
-[[package]]
-name = "pgweave-semantic"
-version = "0.1.0"
-dependencies = [
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-diagnostics",
- "pgweave-parser",
- "pgweave-schema",
- "serde",
- "serde_json",
 ]
 
 [[package]]

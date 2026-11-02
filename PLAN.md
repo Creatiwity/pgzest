@@ -624,9 +624,10 @@ Reste, dans l'ordre :
    transition, tables temporaires du corps.
 5. ✅ Checker porté sur `pgweave-sema` (l'ancien `TypeContext` et ses règles
    sont supprimés ; `pgweave-checker` n'héberge plus que les règles de
-   plugins) ; diagnostic de compatibilité (`WHERE text_col = 42`). Reste :
-   lints portés sur sema, suppression de `pgweave-semantic` (hover,
-   complétion, codegen TS).
+   plugins) ; diagnostic de compatibilité (`WHERE text_col = 42`).
+   `pgweave-semantic` est supprimé : survol LSP positionnel (références
+   résolues par sema), codegen TypeScript typé par sema (nullabilité D5,
+   enums, plus d'heuristique d'ordre). Reste : lints portés sur sema.
 6. Exécution du SQL dynamique des corps : reportée de P2.
 
 - Crate `pgweave-sema` : normalisation → résolution → HIR typé.
