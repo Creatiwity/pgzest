@@ -440,8 +440,20 @@ fn infer_cardinality(
         Statement::Insert(i) => match (&i.source, &i.on_conflict) {
             (InsertSource::Values(rows), None) if rows.len() == 1 => Cardinality::One,
             (InsertSource::DefaultValues, None) => Cardinality::One,
-            // `ON CONFLICT DO NOTHING` / `DO UPDATE … WHERE` : la ligne peut
-            // ne pas être renvoyée.
+            // `ON CONFLICT DO UPDATE` sans condition : la ligne insérée ou
+            // mise à jour est toujours renvoyée.
+            (
+                InsertSource::Values(rows),
+                Some(pgweave_ast::stmt::OnConflict {
+                    action:
+                        pgweave_ast::stmt::OnConflictAction::Update {
+                            where_clause: None, ..
+                        },
+                    ..
+                }),
+            ) if rows.len() == 1 => Cardinality::One,
+            // `DO NOTHING` / `DO UPDATE … WHERE` : la ligne peut ne pas être
+            // renvoyée.
             (InsertSource::Values(rows), Some(_)) if rows.len() == 1 => Cardinality::Optional,
             _ => Cardinality::Many,
         },

@@ -85,6 +85,20 @@ fn cardinalite_inferee() {
         ),
         ("INSERT INTO tags (page_id, tag) VALUES ($p, $t)", None),
         (
+            "INSERT INTO pages (slug, title, site, path) VALUES ($s, $t, 1, '/') \
+             ON CONFLICT (slug) DO UPDATE SET title = excluded.title RETURNING id",
+            One,
+        ),
+        (
+            "INSERT INTO pages (slug, title, site, path) VALUES ($s, $t, 1, '/') \
+             ON CONFLICT (slug) DO UPDATE SET title = excluded.title WHERE pages.title <> excluded.title RETURNING id",
+            Optional,
+        ),
+        (
+            "INSERT INTO pages (slug, title, site, path) VALUES ($s, $t, 1, '/') ON CONFLICT DO NOTHING RETURNING id",
+            Optional,
+        ),
+        (
             "INSERT INTO tags (page_id, tag) SELECT id, 'x' FROM pages RETURNING tag",
             Many,
         ),
