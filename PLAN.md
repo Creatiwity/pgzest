@@ -587,7 +587,7 @@ compris extensions et schémas ; schéma déclaratif de Mesalia importé et
 relu ; modification d'un fichier → seules les requêtes dépendantes sont
 recalculées (test).
 
-### P3 — Analyse sémantique unifiée — 🚧 en cours
+### P3 — Analyse sémantique unifiée — ✅ terminée (2026-11-02)
 
 Fait (2026-11-01) :
 - `pgweave-sema`, système de types tiré du catalogue :
@@ -618,7 +618,11 @@ Reste, dans l'ordre :
    temporaires et de transition recréées) : Mesalia 58/58, siren 10/10, aucune
    non sondée. Reste : le parser accepte `default` non quoté comme nom de
    colonne, ce que PostgreSQL refuse.
-2. HIR explicite (références résolues vers le catalogue et la portée) plutôt que le seul couple (type, nullabilité).
+2. Références résolues : ✅ ce que P4 et le LSP consomment — objets du
+   catalogue résolus (`TypeSystem::depends`), références de colonnes et de
+   variables avec position, type et nullabilité (`column_refs`,
+   `var_refs`). Un HIR complet (arbre typé autonome) reste à faire quand un
+   consommateur en aura besoin (lints, P6).
 3. ✅ Arguments nommés (`MatchNamedCall`), CTE modifiantes, `GROUPING SETS`,
    listes de définition de colonnes, `RETURNING old/new`. Les lints de
    requête ne visitent que les corps `SELECT` des CTE.
@@ -634,6 +638,17 @@ Reste, dans l'ordre :
    résolues par sema), codegen TypeScript typé par sema (nullabilité D5,
    enums, plus d'heuristique d'ordre). Reste : lints portés sur sema.
 6. Exécution du SQL dynamique des corps : reportée de P2.
+7. ✅ Expressions de table dans leur contexte : `DEFAULT` (sans colonne,
+   convertible vers la colonne), expression générée (colonnes non générées),
+   `CHECK` booléen, `ALTER … SET DEFAULT`, `CREATE DOMAIN … CHECK (VALUE …)`
+   — messages de PostgreSQL 18, vérifiés.
+
+Critères de sortie atteints : 311 requêtes représentatives confrontées à
+PostgreSQL (243 écrites, 68 de corps de routines Mesalia et siren), zéro
+faux positif sur les corpus, `WHERE text_col = 42` diagnostiqué. Reportés,
+sans bloquer P4 : lints portés sur sema, HIR complet, SQL dynamique des
+corps, `ROWS FROM (…)` (illisible pour sqlparser), `default` non quoté
+accepté comme nom de colonne.
 
 - Crate `pgweave-sema` : normalisation → résolution → HIR typé.
 - Système de types fidèle : catégories, casts implicites/assignation,

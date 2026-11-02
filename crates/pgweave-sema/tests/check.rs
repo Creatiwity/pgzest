@@ -131,3 +131,51 @@ fn fonction_sql_parametres() {
         vec!["parameter-not-found: there is no parameter $2"]
     );
 }
+
+/// Expressions d'une table typées dans son contexte ; chaque cas est refusé
+/// (ou accepté) par PostgreSQL 18 avec ce message.
+#[test]
+fn expressions_de_table() {
+    assert_eq!(
+        check(
+            "CREATE TABLE ok1 (a int DEFAULT 1 + 1, b text DEFAULT 'x', c timestamptz DEFAULT now(), \
+             d int GENERATED ALWAYS AS (a * 2) STORED, e text GENERATED ALWAYS AS (a > 1) STORED, \
+             CHECK (a > 0 AND b <> ''));
+             CREATE DOMAIN pos AS int CHECK (VALUE > 0);
+             ALTER TABLE ok1 ALTER COLUMN b SET DEFAULT 'y', ADD COLUMN f int DEFAULT 0 CHECK (f >= 0);"
+        ),
+        Vec::<String>::new()
+    );
+    for (sql, expected) in [
+        (
+            "CREATE TABLE e1 (a int DEFAULT 'x'::text)",
+            "type-mismatch: column \"a\" is of type int4 but default expression is of type text",
+        ),
+        (
+            "CREATE TABLE e2 (a int, b int DEFAULT a)",
+            "column-not-found: cannot use column reference in DEFAULT expression",
+        ),
+        (
+            "CREATE TABLE e4 (a int, b int GENERATED ALWAYS AS (a + 1) STORED, c int GENERATED ALWAYS AS (b + 1) STORED)",
+            "generated-column: cannot use generated column \"b\" in column generation expression",
+        ),
+        (
+            "CREATE TABLE e5 (a int CHECK (a))",
+            "type-mismatch: argument must be type boolean, not type int4",
+        ),
+        (
+            "CREATE TABLE e6 (a text, CHECK (a > 5))",
+            "function-not-found: operator text > int4 does not exist",
+        ),
+        (
+            "CREATE DOMAIN bad AS text CHECK (VALUE > 0)",
+            "function-not-found: operator text > int4 does not exist",
+        ),
+        (
+            "CREATE TABLE e7 (a int); ALTER TABLE e7 ALTER COLUMN a SET DEFAULT now()",
+            "type-mismatch: column \"a\" is of type int4 but default expression is of type timestamptz",
+        ),
+    ] {
+        assert_eq!(check(sql), vec![expected.to_string()], "{sql}");
+    }
+}

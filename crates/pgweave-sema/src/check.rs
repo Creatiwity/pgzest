@@ -207,6 +207,38 @@ pub fn check_applied(
                 sink.push(a.select(&v.query, None, true).map(|_| ()), span)
             }
             DdlStatement::CreatePolicy(p) => sink.push(a.policy(p), p.span),
+            DdlStatement::CreateTable(t) if t.as_query.is_none() => {
+                let checks: Vec<&Expr> = t
+                    .constraints
+                    .iter()
+                    .filter_map(|c| match c {
+                        pgweave_ast::ddl::TableConstraint::Check { expr, .. } => Some(expr),
+                        _ => None,
+                    })
+                    .collect();
+                sink.push(a.table_expressions(&t.name, &t.columns, &checks), t.span);
+            }
+            DdlStatement::AlterTable(t) => {
+                use pgweave_ast::ddl::{AlterColumnAction, AlterTableOp, TableConstraint};
+                for op in &t.operations {
+                    let r = match op {
+                        AlterTableOp::AddColumn { column, .. } => {
+                            a.table_expressions(&t.name, std::slice::from_ref(column), &[])
+                        }
+                        AlterTableOp::AddConstraint {
+                            constraint: TableConstraint::Check { expr, .. },
+                            ..
+                        } => a.table_expressions(&t.name, &[], &[expr]),
+                        AlterTableOp::AlterColumn {
+                            name,
+                            action: AlterColumnAction::SetDefault(e),
+                        } => a.column_default(&t.name, &name.value, e),
+                        _ => Ok(()),
+                    };
+                    sink.push(r, span);
+                }
+            }
+            DdlStatement::CreateDomain(d) => sink.push(a.domain_checks(d), span),
             DdlStatement::CreateFunction(f) => {
                 empty_body(
                     &f.body,
@@ -386,6 +418,158 @@ impl Analyzer<'_> {
                     Span::DUMMY,
                 ));
             }
+        }
+        Ok(())
+    }
+
+    /// Expressions d'une table, dans son contexte (`transformColumnDefinition`,
+    /// `cookDefault`, `cookConstraint`) : `DEFAULT` sans colonne, convertible
+    /// vers la colonne ; expression générée sur les colonnes non générées,
+    /// convertible vers la colonne ; `CHECK` booléen sur les colonnes.
+    fn table_expressions(
+        &mut self,
+        table: &ObjectName,
+        columns: &[pgweave_ast::ddl::ColumnDef],
+        checks: &[&Expr],
+    ) -> Result<(), SemaError> {
+        // Table absente : son rejeu a échoué, déjà signalé.
+        let Ok(source) = self.relation_source(table, None) else {
+            return Ok(());
+        };
+        let rel = source.rowtype.clone();
+        let mut scope = Scope::default();
+        scope.push(source);
+        for col in columns {
+            let target = scope.sources[0]
+                .columns
+                .iter()
+                .find(|c| c.name == col.name.value)
+                .cloned();
+            if let Some(e) = &col.default {
+                self.default_expr(&col.name.value, target.as_ref(), e)?;
+            }
+            if let Some(g) = &col.generated {
+                if let Some(r) = &rel
+                    && let Some(other) = first_column_ref(&g.expr).filter(|c| {
+                        self.ts.catalog.relations.get(r).is_some_and(|rel| {
+                            rel.columns
+                                .iter()
+                                .any(|x| x.name == c.column.value && x.generated.is_some())
+                        })
+                    })
+                {
+                    return Err(SemaError::new(
+                        "generated-column",
+                        format!(
+                            "cannot use generated column \"{}\" in column generation expression",
+                            other.column.value
+                        ),
+                        g.expr.span,
+                    ));
+                }
+                let t = self.expr(&g.expr, &scope)?;
+                self.assignable(
+                    &col.name.value,
+                    target.as_ref(),
+                    &t.ty,
+                    "generation",
+                    g.expr.span,
+                )?;
+            }
+            for c in &col.constraints {
+                if let pgweave_ast::ddl::ColumnConstraint::Check(e) = c {
+                    self.boolean(e, &scope)?;
+                }
+            }
+        }
+        for e in checks {
+            self.boolean(e, &scope)?;
+        }
+        Ok(())
+    }
+
+    /// `ALTER COLUMN … SET DEFAULT`.
+    fn column_default(
+        &mut self,
+        table: &ObjectName,
+        column: &str,
+        e: &Expr,
+    ) -> Result<(), SemaError> {
+        let Ok(source) = self.relation_source(table, None) else {
+            return Ok(());
+        };
+        let target = source.columns.iter().find(|c| c.name == column).cloned();
+        self.default_expr(column, target.as_ref(), e)
+    }
+
+    /// `DEFAULT` : aucune colonne, et une valeur convertible (affectation)
+    /// vers celle de la colonne.
+    fn default_expr(
+        &mut self,
+        column: &str,
+        target: Option<&Column>,
+        e: &Expr,
+    ) -> Result<(), SemaError> {
+        if first_column_ref(e).is_some() {
+            return Err(SemaError::new(
+                "column-not-found",
+                "cannot use column reference in DEFAULT expression",
+                e.span,
+            ));
+        }
+        let t = self.expr(e, &Scope::default())?;
+        self.assignable(column, target, &t.ty, "default", e.span)
+    }
+
+    fn assignable(
+        &self,
+        column: &str,
+        target: Option<&Column>,
+        ty: &Ty,
+        what: &str,
+        span: Span,
+    ) -> Result<(), SemaError> {
+        let Some(target) = target.and_then(|c| c.ty.as_ref()) else {
+            return Ok(());
+        };
+        if *ty == pg("unknown")
+            || self.ts.can_coerce(
+                std::slice::from_ref(ty),
+                std::slice::from_ref(target),
+                crate::coerce::CoercionContext::Assignment,
+            )
+        {
+            return Ok(());
+        }
+        Err(SemaError::new(
+            "type-mismatch",
+            format!(
+                "column \"{column}\" is of type {} but {what} expression is of type {}",
+                target.name, ty.name
+            ),
+            span,
+        ))
+    }
+
+    /// `CREATE DOMAIN … CHECK (VALUE …)` : `VALUE` est la valeur du type de
+    /// base.
+    fn domain_checks(&mut self, d: &pgweave_ast::ddl::CreateDomain) -> Result<(), SemaError> {
+        if d.checks.is_empty() {
+            return Ok(());
+        }
+        let base = self.data_type(&d.data_type, Span::DUMMY)?;
+        let mut scope = Scope::default();
+        scope.push(Source::new(
+            None,
+            vec![Column {
+                name: "value".into(),
+                ty: Some(base),
+                modifiers: Vec::new(),
+                nullable: Nullability::Unknown,
+            }],
+        ));
+        for c in &d.checks {
+            self.boolean(&c.expr, &scope)?;
         }
         Ok(())
     }
@@ -1563,6 +1747,16 @@ fn collect_sql<'b>(b: &'b Block, out: &mut Vec<&'b Statement>) {
         for h in &exc.handlers {
             walk(&h.statements, out);
         }
+    }
+}
+
+/// Première référence de colonne d'une expression, hors sous-requêtes.
+fn first_column_ref(e: &Expr) -> Option<&ColumnRef> {
+    use pgweave_ast::expr::ExprKind;
+    match &e.kind {
+        ExprKind::Column(c) => Some(c),
+        ExprKind::Subquery(_) | ExprKind::Exists { .. } | ExprKind::InSubquery { .. } => None,
+        _ => e.children().into_iter().find_map(first_column_ref),
     }
 }
 
