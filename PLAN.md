@@ -736,9 +736,12 @@ Fait (2026-11-02) :
   (texte, CSV), sur client ou transaction ; l'exemple reproduit le motif
   siren (staging + COPY binaire et CSV + bascule) contre PostgreSQL 18.
 
-Reste : `query_file!`, `RowStream`, correspondance de types par pack
-(PostGIS), en-tête CSV vérifié (`HEADER MATCH`), budget de compilation,
-benchmarks.
+- Lignes en flux (`_stream`) pour les requêtes de cardinalité `many`.
+- `make bench` : `page_by_id` généré face à `tokio-postgres` écrit à la
+  main, 145,0 contre 145,7 µs par requête (rapport 0,995, garde-fou à 1,25).
+
+Reste : `query_file!`, correspondance de types par pack (PostGIS), en-tête
+CSV vérifié (`HEADER MATCH`), budget de compilation, comparaison à sqlx.
 
 - `pgweave-runtime` : exécution D8, `fetch_one`/`fetch_optional`/`fetch_all`/
   `execute` alignés sur la cardinalité, flux (`RowStream`), transactions,

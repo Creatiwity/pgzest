@@ -130,6 +130,10 @@ oracle: oracle-up ## Confronte l'analyse à PostgreSQL 18 (rapport : crates/pgwe
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test precedence -- --ignored
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-example-rust-service -- --ignored
 
+.PHONY: bench
+bench: oracle-up ## Coût du code généré face à tokio-postgres écrit à la main (rapport affiché)
+	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test --release -p pgweave-example-rust-service --test bench -- --ignored --nocapture
+
 .PHONY: oracle-accept
 oracle-accept: oracle-up ## Comme `oracle`, en acceptant le nouveau rapport (à relire avant commit)
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) INSTA_UPDATE=always $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
