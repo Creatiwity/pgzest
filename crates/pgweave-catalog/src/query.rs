@@ -30,7 +30,7 @@ type Row = HashMap<&'static str, Value>;
 
 /// Lignes liées à un alias, du niveau le plus interne au plus externe.
 struct Bindings<'a> {
-    rows: Vec<(String, &'a Row)>,
+    rows: Vec<(&'a str, &'a Row)>,
     outer: Option<&'a Bindings<'a>>,
 }
 
@@ -238,7 +238,7 @@ pub fn eval_condition(cat: &Catalog, expr: &Expr) -> Option<bool> {
 
 fn lookup(b: &Bindings, table: Option<&str>, column: &str) -> Option<Value> {
     for (alias, row) in &b.rows {
-        if table.is_some_and(|t| t != alias) {
+        if table.is_some_and(|t| t != *alias) {
             continue;
         }
         if let Some(v) = row.get(column) {
@@ -370,6 +370,32 @@ fn exists(cat: &Catalog, sel: &SelectStmt, outer: &Bindings) -> Option<bool> {
         return None;
     }
 
+    // Filtrage avant jointure : une condition du `WHERE` (conjonction de
+    // premier niveau) qui ne lit qu'une source écarte d'emblée ses lignes
+    // où elle n'est pas vraie. Une source de `LEFT JOIN` n'est pas filtrée
+    // (ses lignes absentes deviennent des NULL). Un résultat inconnu garde
+    // la ligne : le test complet tranche ensuite.
+    if let Some(w) = &sel.where_clause {
+        let mut conjuncts = Vec::new();
+        split_and(w, &mut conjuncts);
+        for c in conjuncts {
+            let Some(i) = single_source(c, &sources) else {
+                continue;
+            };
+            if sources[i].3 {
+                continue;
+            }
+            let alias = sources[i].0.clone();
+            sources[i].1.retain(|row| {
+                let b = Bindings {
+                    rows: vec![(alias.as_str(), row)],
+                    outer: Some(outer),
+                };
+                !matches!(eval(cat, c, &b), Some(v) if v != Value::Bool(true))
+            });
+        }
+    }
+
     // Boucles imbriquées : chaque combinaison de lignes est testée.
     let mut unknown = false;
     let found = combine(
@@ -390,6 +416,64 @@ fn exists(cat: &Catalog, sel: &SelectStmt, outer: &Bindings) -> Option<bool> {
     }
 }
 
+/// Conjonctions de premier niveau d'une condition.
+fn split_and<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
+    match &e.kind {
+        ExprKind::BinaryOp {
+            left,
+            op: pgweave_ast::expr::BinaryOp::And,
+            right,
+        } => {
+            split_and(left, out);
+            split_and(right, out);
+        }
+        _ => out.push(e),
+    }
+}
+
+/// La seule source que lit `e`, s'il n'en lit qu'une (et aucune requête
+/// imbriquée) : référence qualifiée par son alias, ou nom de colonne
+/// qu'elle seule possède.
+fn single_source(e: &Expr, sources: &[(String, Vec<Row>, Option<&Expr>, bool)]) -> Option<usize> {
+    fn walk(
+        e: &Expr,
+        sources: &[(String, Vec<Row>, Option<&Expr>, bool)],
+        found: &mut Option<usize>,
+    ) -> bool {
+        match &e.kind {
+            ExprKind::Subquery(_) | ExprKind::Exists { .. } | ExprKind::InSubquery { .. } => false,
+            ExprKind::Column(c) => {
+                let owners: Vec<usize> = sources
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (alias, rows, _, _))| match &c.table {
+                        Some(t) => t.value == *alias,
+                        None => rows
+                            .first()
+                            .is_some_and(|r| r.contains_key(c.column.value.as_str())),
+                    })
+                    .map(|(i, _)| i)
+                    .collect();
+                match (owners.as_slice(), *found) {
+                    ([i], None) => {
+                        *found = Some(*i);
+                        true
+                    }
+                    ([i], Some(f)) => *i == f,
+                    _ => false,
+                }
+            }
+            _ => e.children().into_iter().all(|c| walk(c, sources, found)),
+        }
+    }
+    let mut found = None;
+    if walk(e, sources, &mut found) {
+        found
+    } else {
+        None
+    }
+}
+
 fn combine<'r>(
     cat: &Catalog,
     sources: &'r [(String, Vec<Row>, Option<&Expr>, bool)],
@@ -404,7 +488,7 @@ fn combine<'r>(
             return true;
         };
         let b = Bindings {
-            rows: bound.iter().rev().map(|(a, r)| (a.clone(), *r)).collect(),
+            rows: bound.iter().rev().map(|(a, r)| (a.as_str(), *r)).collect(),
             outer: Some(outer),
         };
         match eval(cat, cond, &b) {

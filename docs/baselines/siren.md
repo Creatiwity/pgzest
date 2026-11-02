@@ -1,6 +1,6 @@
 # Corpus `siren` — taux d'analyse
 
-> Généré le 2026-11-02 par `cargo xtask corpus siren` (pgweave `e6c1d7d`).
+> Généré le 2026-11-02 par `cargo xtask corpus siren` (pgweave `2419c4b`).
 > Fichiers retenus : Diesel : `*/up.sql`, triés par répertoire horodaté.
 > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
 
@@ -92,6 +92,6 @@ Requêtes de corps non sondées (non analysées par pgweave, ou variable sans po
 
 | Étape | Durée |
 |---|--:|
-| Parse de tous les fichiers | 25 ms |
-| Vérification de tous les fichiers | 99 ms |
-| Rejeu sur le catalogue (`pgweave-catalog`) | 41 ms |
+| Parse de tous les fichiers | 29 ms |
+| Vérification de tous les fichiers | 96 ms |
+| Rejeu sur le catalogue (`pgweave-catalog`) | 39 ms |
