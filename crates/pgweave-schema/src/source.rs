@@ -128,6 +128,11 @@ impl SchemaSource for MigrationDirSource {
     fn chunks(&self) -> Vec<SqlChunk> {
         sorted_sql_files(&self.root)
             .into_iter()
+            // `down.sql` (Diesel) annule sa migration : jamais appliqué.
+            .filter(|p| {
+                !p.file_name()
+                    .is_some_and(|n| n.eq_ignore_ascii_case("down.sql"))
+            })
             .flat_map(|path| {
                 let seq = sequence_from_path(&path);
                 FileSource::new(path, FileRole::Migration { sequence: seq }).chunks()

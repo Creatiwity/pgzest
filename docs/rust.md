@@ -58,6 +58,18 @@ pub mod queries {
 }
 ```
 
+Le schéma vient de fichiers déclaratifs (`[schema]`) ou des migrations
+(`[migrations] directory`), rejouées dans l'ordre. Formats reconnus :
+fichiers numérotés (`0001_init.sql`), Prisma
+(`<horodatage>_<nom>/migration.sql`), Diesel (`<date>_<nom>/up.sql`, les
+`down.sql` n'étant jamais appliqués). Un projet Prisma existant se branche
+donc sans conversion :
+
+```toml
+[migrations]
+directory = "packages/models/prisma/migrations"
+```
+
 Une requête que l'analyse ne décrit pas fait **échouer la compilation**, avec
 sa position dans le fichier SQL. Modifier le schéma, une migration ou une
 requête relance la génération. `pgweave describe --rust queries/x.sql`

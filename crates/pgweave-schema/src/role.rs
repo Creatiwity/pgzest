@@ -47,10 +47,21 @@ pub fn sequence_from_stem(stem: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-/// Parse a migration sequence number from a file path.
+/// Parse a migration sequence number from a file path : celui du nom du
+/// fichier (`000010_init.sql`), sinon celui de son répertoire
+/// (`20240101120000_init/migration.sql` de Prisma, `…/up.sql` de Diesel).
 pub fn sequence_from_path(path: &std::path::Path) -> u64 {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .and_then(sequence_from_stem)
+    let stem = |p: &std::path::Path| {
+        p.file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(sequence_from_stem)
+    };
+    stem(path)
+        .or_else(|| {
+            path.parent()
+                .and_then(|d| d.file_name())
+                .and_then(|s| s.to_str())
+                .and_then(sequence_from_stem)
+        })
         .unwrap_or(0)
 }
