@@ -378,6 +378,22 @@ impl PgsqlBackend {
         self.publish(uri, &diags, &line_index).await;
     }
 
+    /// Le schéma a changé : chaque autre document ouvert est revérifié (le
+    /// rejeu est mémorisé, seules les vérifications sont refaites).
+    async fn refresh_other_documents(&self, changed: &str) {
+        let others: Vec<(String, String)> = self
+            .documents
+            .lock()
+            .await
+            .iter()
+            .filter(|(u, _)| u.as_str() != changed)
+            .map(|(u, t)| (u.clone(), t.clone()))
+            .collect();
+        for (uri, text) in others {
+            self.run_diagnostics(&uri, &text).await;
+        }
+    }
+
     async fn publish(&self, uri: &str, diags: &[Diagnostic], line_index: &LineIndex) {
         let lsp_diags: Vec<tower_lsp::lsp_types::Diagnostic> = diags
             .iter()
@@ -422,7 +438,11 @@ impl PgsqlBackend {
             severity: Some(severity),
             code: Some(NumberOrString::String(d.code.to_string())),
             source: Some("pgweave-lsp".to_string()),
-            message: d.message.clone(),
+            // L'indice suit le message, comme le HINT de PostgreSQL.
+            message: match &d.hint {
+                Some(h) => format!("{}\n{h}", d.message),
+                None => d.message.clone(),
+            },
             related_information: None,
             tags: None,
             code_description: None,
@@ -585,6 +605,7 @@ impl LanguageServer for PgsqlBackend {
                 .insert(uri.clone(), text.clone());
 
             let path = uri_to_path(&uri);
+            let mut schema_changed = false;
             if path
                 .as_deref()
                 .and_then(Path::extension)
@@ -592,6 +613,7 @@ impl LanguageServer for PgsqlBackend {
             {
                 // Macro du projet : tous les fichiers sont relus.
                 self.rebuild_macros().await;
+                schema_changed = true;
             } else if matches!(
                 self.role_of(&uri).await,
                 FileRole::Schema | FileRole::Migration { .. }
@@ -605,9 +627,13 @@ impl LanguageServer for PgsqlBackend {
                 if !known {
                     self.reload_workspace().await;
                 }
+                schema_changed = true;
             }
 
             self.run_diagnostics(&uri, &text).await;
+            if schema_changed {
+                self.refresh_other_documents(&uri).await;
+            }
         }
     }
 
@@ -617,8 +643,9 @@ impl LanguageServer for PgsqlBackend {
         // Modifications abandonnées : le disque refait foi.
         if let Some(path) = uri_to_path(&uri)
             && let Ok(text) = std::fs::read_to_string(&path)
+            && self.workspace.lock().await.set_text(&path, &text)
         {
-            self.workspace.lock().await.set_text(&path, &text);
+            self.refresh_other_documents(&uri).await;
         }
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
@@ -763,7 +790,8 @@ fn hover_query(
             };
             let nn = match t.nullable {
                 pgweave_sema::Nullability::NonNull => " NOT NULL",
-                _ => "",
+                pgweave_sema::Nullability::Nullable => " NULL",
+                pgweave_sema::Nullability::Unknown => " (nullabilité inconnue)",
             };
             return Some(format!("(column) **{word}**: `{ty}`{nn}"));
         }

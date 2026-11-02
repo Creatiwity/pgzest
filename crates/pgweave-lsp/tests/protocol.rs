@@ -413,9 +413,9 @@ fn le_schema_non_sauvegarde_fait_foi_jusqu_a_sa_fermeture() {
     // La colonne est ajoutée dans l'éditeur, sans sauvegarde.
     let t = lsp.open(&root.join("schema/t.sql"), "sql");
     lsp.await_diagnostics(&t);
+    // Les autres documents ouverts sont revérifiés sans y toucher.
     change(&mut lsp, &t, 2, "CREATE TABLE t (a INT, b INT);\n");
     lsp.await_diagnostics(&t);
-    change(&mut lsp, &q, 2, "-- name: q\nSELECT b FROM t;\n");
     let diags = lsp.await_diagnostics(&q);
     assert!(codes(&diags).is_empty(), "{diags:?}");
 
@@ -424,7 +424,6 @@ fn le_schema_non_sauvegarde_fait_foi_jusqu_a_sa_fermeture() {
         "textDocument/didClose",
         serde_json::json!({ "textDocument": { "uri": t } }),
     );
-    change(&mut lsp, &q, 3, "-- name: q\nSELECT b FROM t;\n");
     let diags = lsp.await_diagnostics(&q);
     assert!(
         codes(&diags).contains(&"column-not-found".to_string()),
@@ -467,7 +466,7 @@ fn le_survol_donne_le_type_du_nom_sous_le_curseur() {
         .as_str()
         .unwrap_or_default()
         .to_string();
-    assert_eq!(value, "(column) **id**: `text`", "{response:?}");
+    assert_eq!(value, "(column) **id**: `text` NULL", "{response:?}");
 }
 
 #[test]
@@ -512,4 +511,37 @@ fn le_survol_d_un_en_tete_donne_le_descripteur() {
          Colonnes :\n- `title` `pg_catalog.text` NOT NULL\n- `note` `pg_catalog.text` NULL",
         "{response:?}"
     );
+}
+
+#[test]
+fn modifier_le_schema_revérifie_les_autres_documents() {
+    let root = scaffold(
+        "refresh",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+                 [queries]\ndirectory = \"queries\"\n",
+            ),
+            ("schema/t.sql", "CREATE TABLE t (a INT);\n"),
+            ("queries/q.sql", "-- name: q\nSELECT b FROM t;\n"),
+        ],
+    );
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let q = lsp.open(&root.join("queries/q.sql"), "sql");
+    assert_eq!(lsp.await_diagnostics(&q).len(), 1, "colonne b absente");
+    let t = lsp.open(&root.join("schema/t.sql"), "sql");
+    lsp.await_diagnostics(&t);
+    lsp.notify(
+        "textDocument/didChange",
+        serde_json::json!({
+            "textDocument": { "uri": t, "version": 2 },
+            "contentChanges": [{ "text": "CREATE TABLE t (a INT, b INT);\n" }]
+        }),
+    );
+    // La requête n'a pas été touchée : ses diagnostics sont republiés.
+    lsp.await_diagnostics(&t);
+    let diags = lsp.await_diagnostics(&q);
+    assert!(diags.is_empty(), "{diags:?}");
 }

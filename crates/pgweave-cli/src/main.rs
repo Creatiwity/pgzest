@@ -353,10 +353,12 @@ fn cmd_check(
     // y est vérifié quand il s'applique, contre l'état du catalogue à ce
     // point ; un corps PL/pgSQL l'est contre l'état final (`pgweave-sema`).
     let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    // Même classement que le LSP : un fichier du projet hors des répertoires
+    // de schéma et de migrations s'exécute sur le schéma final.
     let is_query_file = |file: &str| {
-        project
-            .as_ref()
-            .is_some_and(|(root, cfg)| cfg.is_query_file(Path::new(file), root))
+        project.as_ref().is_some_and(|(root, cfg)| {
+            cfg.classify_file(Path::new(file), root) == pgweave_schema::FileRole::Query
+        })
     };
     let mut builder = pgweave_catalog::project::ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
@@ -511,6 +513,8 @@ fn cmd_check(
 
         // Directives en commentaire (-- pgweave-disable-next-line, …).
         pgweave_diagnostics::Suppressions::scan(sql).apply(&mut diagnostics);
+        // Dans l'ordre du fichier.
+        diagnostics.sort_by_key(|d| d.span.as_ref().map_or(0, |s| s.start));
 
         for diag in &diagnostics {
             use pgweave_diagnostics::Severity;
