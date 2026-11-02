@@ -215,7 +215,9 @@ pub fn check_applied(
                     sink.out,
                 );
                 if !matches!(f.body, FunctionBody::Parsed(_)) {
-                    sql_routine(catalog, path, &f.name, &f.params, &f.body, sink.out);
+                    sql_routine(
+                        catalog, path, &f.name, &f.params, &f.body, sink.out, &mut None,
+                    );
                 }
             }
             DdlStatement::CreateProcedure(p) => {
@@ -226,7 +228,9 @@ pub fn check_applied(
                     sink.out,
                 );
                 if !matches!(p.body, FunctionBody::Parsed(_)) {
-                    sql_routine(catalog, path, &p.name, &p.params, &p.body, sink.out);
+                    sql_routine(
+                        catalog, path, &p.name, &p.params, &p.body, sink.out, &mut None,
+                    );
                 }
             }
             _ => {}
@@ -241,10 +245,20 @@ pub fn check_deferred(
     stmt: &Statement,
     out: &mut Vec<Diagnostic>,
 ) {
+    deferred(catalog, path, stmt, out, &mut None);
+}
+
+fn deferred(
+    catalog: &Catalog,
+    path: &SearchPath,
+    stmt: &Statement,
+    out: &mut Vec<Diagnostic>,
+    collect: &mut Option<Vec<BodyQuery>>,
+) {
     match stmt {
         Statement::Ddl(DdlStatement::CreateFunction(f)) => {
             if let FunctionBody::Parsed(b) = &f.body {
-                plpgsql_function(catalog, path, f, b, out);
+                plpgsql_function(catalog, path, f, b, out, collect);
             }
         }
         Statement::Ddl(DdlStatement::CreateProcedure(p)) => {
@@ -253,11 +267,78 @@ pub fn check_deferred(
                 let (_, name) = split_name(&p.name);
                 let routine =
                     routine_scope(&mut a, Language::Plpgsql, name, &p.params, out, p.span);
-                let mut w = Walker::new(catalog, path, routine, None);
-                w.body(b, out);
+                run(Walker::new(catalog, path, routine, None), b, out, collect);
             }
         }
         _ => {}
+    }
+}
+
+/// Requête d'un corps de routine, telle que PostgreSQL la prépare à
+/// l'exécution : chaque variable y est un paramètre.
+#[derive(Debug, Clone)]
+pub struct BodyQuery {
+    pub statement: Statement,
+    /// Colonnes décrites, ou l'erreur (code et message).
+    pub result: Result<Vec<crate::query::OutputColumn>, String>,
+    /// Références aux variables : position de l'expression et type du
+    /// paramètre qui la remplace.
+    pub var_refs: Vec<(Span, Ty)>,
+    /// SQL qui recrée ce que le corps voit en plus du schéma : ses DDL
+    /// (tables temporaires…) et les tables de transition du trigger.
+    pub setup: Vec<String>,
+}
+
+/// Requêtes du corps de la routine créée par `stmt` (PL/pgSQL ou SQL),
+/// analysées dans sa portée, contre `catalog`.
+pub fn body_queries(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> Vec<BodyQuery> {
+    let mut collect = Some(Vec::new());
+    let mut ignored = Vec::new();
+    match stmt {
+        Statement::Ddl(DdlStatement::CreateFunction(f))
+            if !matches!(f.body, FunctionBody::Parsed(_)) =>
+        {
+            sql_routine(
+                catalog,
+                path,
+                &f.name,
+                &f.params,
+                &f.body,
+                &mut ignored,
+                &mut collect,
+            );
+        }
+        Statement::Ddl(DdlStatement::CreateProcedure(p))
+            if !matches!(p.body, FunctionBody::Parsed(_)) =>
+        {
+            sql_routine(
+                catalog,
+                path,
+                &p.name,
+                &p.params,
+                &p.body,
+                &mut ignored,
+                &mut collect,
+            );
+        }
+        _ => deferred(catalog, path, stmt, &mut ignored, &mut collect),
+    }
+    collect.unwrap_or_default()
+}
+
+/// Parcourt `body` avec `w`, en recueillant ses requêtes si demandé.
+fn run(
+    mut w: Walker,
+    body: &PlpgsqlBody,
+    out: &mut Vec<Diagnostic>,
+    collect: &mut Option<Vec<BodyQuery>>,
+) {
+    if collect.is_some() {
+        w.queries = Some(Vec::new());
+    }
+    w.body(body, out);
+    if let (Some(c), Some(q)) = (collect.as_mut(), w.queries.take()) {
+        c.extend(q);
     }
 }
 
@@ -388,6 +469,7 @@ fn sql_routine(
     params: &[FunctionParam],
     body: &FunctionBody,
     out: &mut Vec<Diagnostic>,
+    collect: &mut Option<Vec<BodyQuery>>,
 ) {
     let (_, fname) = split_name(name);
     let stmts: Vec<Statement> = match body {
@@ -434,7 +516,23 @@ fn sql_routine(
             &mut scratch,
             span,
         ));
-        if let Err(e) = a.describe(stmt) {
+        let result = a.describe(stmt);
+        if let Some(c) = collect.as_mut() {
+            c.push(BodyQuery {
+                statement: stmt.clone(),
+                result: result
+                    .as_ref()
+                    .map(|d| d.columns.clone())
+                    .map_err(|e| format!("[{}] {}", e.code, e.message)),
+                var_refs: a.var_refs.clone(),
+                setup: stmts
+                    .iter()
+                    .filter(|s| matches!(s, Statement::Ddl(_)))
+                    .map(pgweave_ast::emit::emit_statement)
+                    .collect(),
+            });
+        }
+        if let Err(e) = result {
             out.push(diagnostic(e, span));
         }
     }
@@ -505,6 +603,7 @@ fn plpgsql_function(
     f: &CreateFunction,
     body: &PlpgsqlBody,
     out: &mut Vec<Diagnostic>,
+    collect: &mut Option<Vec<BodyQuery>>,
 ) {
     let (_, name) = split_name(&f.name);
     let make = |out: &mut Vec<Diagnostic>| {
@@ -527,12 +626,12 @@ fn plpgsql_function(
         let mut r = make(out);
         r.declare("tg_event", VarTy::Scalar(pg("text")));
         r.declare("tg_tag", VarTy::Scalar(pg("text")));
-        Walker::new(catalog, path, r, None).body(body, out);
+        run(Walker::new(catalog, path, r, None), body, out, collect);
         return;
     }
     if f.return_type != ReturnType::Trigger {
         let r = make(out);
-        Walker::new(catalog, path, r, None).body(body, out);
+        run(Walker::new(catalog, path, r, None), body, out, collect);
         return;
     }
     let contexts = trigger_contexts(catalog, &routine_qname(&f.name, path));
@@ -552,7 +651,12 @@ fn plpgsql_function(
         );
         let r = make(out);
         let mut d = Vec::new();
-        Walker::new(catalog, path, r, Some(None)).body(body, &mut d);
+        run(
+            Walker::new(catalog, path, r, Some(None)),
+            body,
+            &mut d,
+            collect,
+        );
         // NEW et OLD sans table : ce qui en dépend n'est pas vérifiable, et
         // vient d'être dit une fois pour la fonction.
         out.extend(
@@ -566,10 +670,16 @@ fn plpgsql_function(
     let passes: Vec<(String, Vec<Diagnostic>)> = contexts
         .into_iter()
         .map(|ctx| {
+            let collect = &mut *collect;
             let mut d = Vec::new();
             let r = make(&mut d);
             let table = ctx.table.name.clone();
-            Walker::new(catalog, path, r, Some(Some(ctx))).body(body, &mut d);
+            run(
+                Walker::new(catalog, path, r, Some(Some(ctx))),
+                body,
+                &mut d,
+                collect,
+            );
             (table, d)
         })
         .collect();
@@ -629,6 +739,10 @@ struct Walker<'c> {
     trigger: Option<Option<TriggerContext>>,
     /// Colonnes des requêtes de curseurs déclarés, par nom.
     cursors: BTreeMap<String, Option<Vec<Column>>>,
+    /// Requêtes analysées, si elles sont recueillies ([`body_queries`]).
+    queries: Option<Vec<BodyQuery>>,
+    /// Contexte des requêtes recueillies (voir [`BodyQuery::setup`]).
+    setup: Vec<String>,
 }
 
 impl<'c> Walker<'c> {
@@ -644,6 +758,8 @@ impl<'c> Walker<'c> {
             routine,
             trigger,
             cursors: BTreeMap::new(),
+            queries: None,
+            setup: Vec::new(),
         }
     }
 
@@ -651,6 +767,26 @@ impl<'c> Walker<'c> {
         // Les DDL du corps (tables temporaires…) sont visibles de ses requêtes.
         let mut ddl = Vec::new();
         collect_sql(&body.block, &mut ddl);
+        if self.queries.is_some() {
+            self.setup = ddl
+                .iter()
+                .filter(|s| matches!(s, Statement::Ddl(_)))
+                .map(|s| pgweave_ast::emit::emit_statement(s))
+                .collect();
+            if let Some(Some(ctx)) = &self.trigger {
+                let table = format!(
+                    "{}.{}",
+                    pgweave_catalog::model::quote_sql_ident(&ctx.table.schema),
+                    pgweave_catalog::model::quote_sql_ident(&ctx.table.name)
+                );
+                for n in &ctx.transition {
+                    self.setup.push(format!(
+                        "CREATE TEMP TABLE {} (LIKE {table})",
+                        pgweave_catalog::model::quote_sql_ident(n)
+                    ));
+                }
+            }
+        }
         let overlay = body_overlay(self.catalog, &self.path, ddl.into_iter());
         let catalog = overlay.as_ref().unwrap_or(self.catalog);
         let mut ctx = Ctx { catalog, out };
@@ -925,12 +1061,33 @@ impl<'c> Walker<'c> {
     /// Requête du corps : ses colonnes, si elle est valide.
     fn query(&mut self, q: &SelectStmt, ctx: &mut Ctx) -> Option<Vec<Column>> {
         let mut a = self.analyzer(ctx.catalog);
-        match a.select(q, None, true) {
+        let result = a.select(q, None, true);
+        self.record(|| Statement::Select(q.clone()), &result, &a);
+        match result {
             Ok(cols) => Some(cols.iter().map(Column::from).collect()),
             Err(err) => {
                 ctx.out.push(diagnostic(err, q.span));
                 None
             }
+        }
+    }
+
+    /// Recueille une requête analysée, si demandé ([`body_queries`]).
+    fn record(
+        &mut self,
+        statement: impl FnOnce() -> Statement,
+        result: &Result<Vec<crate::query::OutputColumn>, SemaError>,
+        a: &Analyzer,
+    ) {
+        if let Some(q) = self.queries.as_mut() {
+            q.push(BodyQuery {
+                statement: statement(),
+                result: result
+                    .clone()
+                    .map_err(|e| format!("[{}] {}", e.code, e.message)),
+                var_refs: a.var_refs.clone(),
+                setup: self.setup.clone(),
+            });
         }
     }
 
@@ -951,8 +1108,10 @@ impl<'c> Walker<'c> {
                     | Statement::Update(_)
                     | Statement::Delete(_) => {
                         let mut a = self.analyzer(ctx.catalog);
-                        match a.describe(statement) {
-                            Ok(d) => Some(d.columns.iter().map(Column::from).collect()),
+                        let result = a.describe(statement).map(|d| d.columns);
+                        self.record(|| statement.clone(), &result, &a);
+                        match result {
+                            Ok(cols) => Some(cols.iter().map(Column::from).collect()),
                             Err(e) => {
                                 ctx.out.push(diagnostic(e, s.span));
                                 None

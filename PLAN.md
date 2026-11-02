@@ -605,12 +605,14 @@ Fait (2026-11-01) :
   siren : inchangé.
 
 Reste, dans l'ordre :
-1. Corpus : ✅ 178 requêtes écrites à la main (`make oracle`), plus les
+1. Corpus : ✅ 183 requêtes écrites à la main (`make oracle`), plus les
    sondes générées depuis les catalogues réels de `cargo xtask corpus`
    (`SELECT *`, `= $1`, `INSERT … VALUES ($1)`) : Mesalia 3 342/3 342,
-   siren 476/476. Reste : les requêtes des corps de routines de Mesalia
-   (variables PL/pgSQL en paramètres) ; le parser accepte `default` non
-   quoté comme nom de colonne, ce que PostgreSQL refuse.
+   siren 476/476 ; et les requêtes des corps des routines en vigueur,
+   préparées par PostgreSQL avec leurs variables en paramètres typés (tables
+   temporaires et de transition recréées) : Mesalia 58/58, siren 10/10, aucune
+   non sondée. Reste : le parser accepte `default` non quoté comme nom de
+   colonne, ce que PostgreSQL refuse.
 2. HIR explicite (références résolues vers le catalogue et la portée) plutôt que le seul couple (type, nullabilité).
 3. ✅ Arguments nommés (`MatchNamedCall`), CTE modifiantes, `GROUPING SETS`,
    listes de définition de colonnes, `RETURNING old/new`. Les lints de

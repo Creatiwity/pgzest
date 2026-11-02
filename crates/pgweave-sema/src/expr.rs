@@ -45,6 +45,10 @@ pub struct Analyzer<'c> {
     pub(crate) ctes: Vec<(String, Vec<crate::scope::Column>)>,
     /// Routine dont le corps est analysé : ses paramètres et variables.
     pub routine: Option<Routine>,
+    /// Références résolues vers une variable de la routine : position de
+    /// l'expression et type de la valeur (ce que PostgreSQL passe en
+    /// paramètre à la requête).
+    pub var_refs: Vec<(Span, Ty)>,
 }
 
 /// Nom d'opérateur PostgreSQL d'un opérateur binaire de l'AST.
@@ -146,6 +150,7 @@ impl<'c> Analyzer<'c> {
             params: Vec::new(),
             ctes: Vec::new(),
             routine: None,
+            var_refs: Vec::new(),
         }
     }
 
@@ -306,7 +311,11 @@ impl<'c> Analyzer<'c> {
                         _ => Ok(t),
                     },
                     Err(e) => match routine.lookup(c) {
-                        Some(v) => self.variable(v, span),
+                        Some(v) => {
+                            let t = self.variable(v, span)?;
+                            self.var_refs.push((span, t.ty.clone()));
+                            Ok(t)
+                        }
                         // Expression PL/pgSQL sans `FROM` : le nom ne peut
                         // désigner qu'une variable.
                         None if routine.language == Language::Plpgsql
@@ -865,13 +874,15 @@ impl<'c> Analyzer<'c> {
                 span,
             ));
         };
-        self.variable(
+        let t = self.variable(
             VarRef::Whole(crate::routine::Var {
                 name: name.to_string(),
                 ty,
             }),
             span,
-        )
+        )?;
+        self.var_refs.push((span, t.ty.clone()));
+        Ok(t)
     }
 
     pub(crate) fn composite_attribute(&self, ty: &Ty, field: &str) -> Option<Ty> {

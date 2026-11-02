@@ -14,6 +14,7 @@ pgweave-diagnostics = { workspace = true }
 pgweave-parser = { path = "../crates/pgweave-parser" }
 pgweave-schema = { path = "../crates/pgweave-schema" }
 clap = { workspace = true }
+serde_json = { workspace = true }
 chrono = { workspace = true }
 sqlparser = { workspace = true }
 tokio = { workspace = true }

@@ -1,6 +1,6 @@
 # Corpus `mesalia` — taux d'analyse
 
-> Généré le 2026-11-02 par `cargo xtask corpus mesalia` (pgweave `27883a9`).
+> Généré le 2026-11-02 par `cargo xtask corpus mesalia` (pgweave `eb41c31`).
 > Fichiers retenus : Prisma : `*/migration.sql`, triés par répertoire horodaté.
 > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
 
@@ -73,18 +73,21 @@ Le catalogue reconstruit, exporté en SQL (`pgweave_catalog::dump`) et appliqué
 
 ## Requêtes générées (oracle)
 
-Sondes tirées du catalogue reconstruit, préparées par PostgreSQL sur la base des migrations et décrites par `pgweave-sema` (types des paramètres, noms et types des colonnes ; un refus des deux côtés compte comme accord) :
+Sondes tirées du catalogue reconstruit, préparées par PostgreSQL sur la base des migrations et décrites par `pgweave-sema` (types des paramètres, noms et types des colonnes ; un refus des deux côtés compte comme accord). Les requêtes des corps de routines en vigueur sont préparées avec leurs variables en paramètres typés (`PREPARE`), comme PL/pgSQL les exécute ; seuls les types des colonnes sont comparés :
 
 | Sonde | Total | Identiques |
 |---|--:|--:|
 | INSERT … VALUES ($1) | 1598 | 1598 |
 | SELECT * | 122 | 122 |
 | WHERE colonne = $1 | 1622 | 1622 |
+| requête de corps de routine | 58 | 58 |
+
+Requêtes de corps non sondées (non analysées par pgweave, ou variable sans position dans l'AST) : 0.
 
 ## Temps (indicatif, dépend de la machine)
 
 | Étape | Durée |
 |---|--:|
-| Parse de tous les fichiers | 139 ms |
-| Vérification de tous les fichiers | 611 ms |
-| Rejeu sur le catalogue (`pgweave-catalog`) | 4230 ms |
+| Parse de tous les fichiers | 143 ms |
+| Vérification de tous les fichiers | 592 ms |
+| Rejeu sur le catalogue (`pgweave-catalog`) | 4092 ms |

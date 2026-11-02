@@ -18,6 +18,20 @@ use pgweave_sema::{Analyzer, Ty, TypeSystem};
 pub struct Probe {
     pub kind: &'static str,
     pub sql: String,
+    /// Requête d'un corps de routine : préparée avec ces types de
+    /// paramètres (les variables), et décrite d'avance par sema dans la
+    /// portée de la routine.
+    pub typed: Option<TypedProbe>,
+}
+
+pub struct TypedProbe {
+    /// Types des paramètres, qualifiés et quotés pour `PREPARE`.
+    pub params: Vec<String>,
+    /// SQL exécuté avant, dans une transaction annulée ensuite : tables
+    /// temporaires du corps, tables de transition.
+    pub setup: Vec<String>,
+    /// Description par pgweave : types des colonnes, qualifiés.
+    pub expected: Result<Described, String>,
 }
 
 /// Description d'une requête : types des paramètres, nom et type des
@@ -66,12 +80,14 @@ pub fn generate(cat: &Catalog) -> Vec<Probe> {
         out.push(Probe {
             kind: "SELECT *",
             sql: format!("SELECT * FROM {name}"),
+            typed: None,
         });
         for c in &rel.columns {
             let col = quote_sql_ident(&c.name);
             out.push(Probe {
                 kind: "WHERE colonne = $1",
                 sql: format!("SELECT 1 FROM {name} WHERE {col} = $1"),
+                typed: None,
             });
             if matches!(
                 rel.kind,
@@ -80,11 +96,221 @@ pub fn generate(cat: &Catalog) -> Vec<Probe> {
                 out.push(Probe {
                     kind: "INSERT … VALUES ($1)",
                     sql: format!("INSERT INTO {name} ({col}) VALUES ($1)"),
+                    typed: None,
                 });
             }
         }
     }
     out
+}
+
+/// Sondes des requêtes de corps de routines : chaque référence à une
+/// variable devient un paramètre `$n` du type établi par sema, comme
+/// PL/pgSQL la passe à la requête qu'il prépare.
+/// Renvoie aussi le nombre de requêtes non sondées : non analysées par
+/// pgweave (un accord de refus n'y prouverait rien), ou dont une référence à
+/// une variable n'a pas de position dans l'AST.
+pub fn body_probes(
+    cat: &Catalog,
+    queries: Vec<pgweave_sema::check::BodyQuery>,
+) -> (Vec<Probe>, usize) {
+    let ts = TypeSystem::new(cat);
+    let mut out = Vec::new();
+    let mut skipped = 0;
+    for q in queries {
+        if q.result
+            .as_ref()
+            .is_err_and(|e| e.starts_with("[not-analyzed]"))
+        {
+            skipped += 1;
+            continue;
+        }
+        let Some((sql, params)) = substitute(&q) else {
+            skipped += 1;
+            continue;
+        };
+        let setup = q.setup.clone();
+        let expected = q.result.map(|cols| {
+            (
+                params.iter().map(qualified_type).collect(),
+                cols.iter()
+                    .map(|c| (String::new(), qualified_type(&ts.base_type(&c.ty))))
+                    .collect(),
+            )
+        });
+        out.push(Probe {
+            kind: "requête de corps de routine",
+            sql,
+            typed: Some(TypedProbe {
+                params: params
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            "{}.{}",
+                            quote_sql_ident(&t.schema),
+                            quote_sql_ident(&t.name)
+                        )
+                    })
+                    .collect(),
+                setup,
+                expected,
+            }),
+        });
+    }
+    (out, skipped)
+}
+
+fn qualified_type(t: &Ty) -> String {
+    format!("{}.{}", t.schema, t.name)
+}
+
+/// SQL de la requête, les variables remplacées par `$1`, `$2`… (une par
+/// position), et les types de ces paramètres. `None` si une référence n'a
+/// pas de position dans l'AST.
+fn substitute(q: &pgweave_sema::check::BodyQuery) -> Option<(String, Vec<Ty>)> {
+    use serde_json::Value;
+    let mut refs: Vec<(u32, u32, Ty)> = Vec::new();
+    for (span, ty) in &q.var_refs {
+        if *span == pgweave_ast::Span::DUMMY {
+            return None;
+        }
+        if !refs
+            .iter()
+            .any(|(s, e, _)| (*s, *e) == (span.start, span.end))
+        {
+            refs.push((span.start, span.end, ty.clone()));
+        }
+    }
+    let mut json = serde_json::to_value(&q.statement).ok()?;
+    let mut replaced = vec![false; refs.len()];
+    fn walk(v: &mut Value, refs: &[(u32, u32, Ty)], replaced: &mut [bool]) {
+        match v {
+            Value::Object(map) => {
+                let hit = match (map.get("span"), map.get("kind")) {
+                    (Some(span), Some(Value::Object(kind)))
+                        if kind.contains_key("Column") || kind.contains_key("Parameter") =>
+                    {
+                        let start = span.get("start").and_then(Value::as_u64);
+                        let end = span.get("end").and_then(Value::as_u64);
+                        refs.iter().position(|(s, e, _)| {
+                            Some(u64::from(*s)) == start && Some(u64::from(*e)) == end
+                        })
+                    }
+                    _ => None,
+                };
+                if let Some(i) = hit {
+                    replaced[i] = true;
+                    map.insert(
+                        "kind".into(),
+                        serde_json::json!({ "Parameter": format!("${}", i + 1) }),
+                    );
+                    return;
+                }
+                for x in map.values_mut() {
+                    walk(x, refs, replaced);
+                }
+            }
+            Value::Array(items) => {
+                for x in items {
+                    walk(x, refs, replaced);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&mut json, &refs, &mut replaced);
+    if replaced.iter().any(|r| !r) {
+        return None;
+    }
+    let stmt: pgweave_ast::Statement = serde_json::from_value(json).ok()?;
+    let sql = pgweave_ast::emit::emit_statement(&stmt);
+    Some((sql, refs.into_iter().map(|(_, _, t)| t).collect()))
+}
+
+/// Description par PostgreSQL d'une requête à paramètres typés : `PREPARE`,
+/// puis les types de résultat de `pg_prepared_statements` (qualifiés).
+pub async fn theirs_typed(
+    client: &tokio_postgres::Client,
+    sql: &str,
+    params: &[String],
+    setup: &[String],
+) -> Result<Described, String> {
+    client
+        .batch_execute("BEGIN")
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut result = Ok(());
+    for s in setup {
+        if let Err(e) = client.batch_execute(s).await {
+            result = Err(e
+                .as_db_error()
+                .map(|d| format!("contexte : {}", d.message()))
+                .unwrap_or_else(|| e.to_string()));
+            break;
+        }
+    }
+    let described = match result {
+        Ok(()) => prepare_typed(client, sql, params).await,
+        Err(e) => Err(e),
+    };
+    client
+        .batch_execute("ROLLBACK")
+        .await
+        .map_err(|e| e.to_string())?;
+    described
+}
+
+async fn prepare_typed(
+    client: &tokio_postgres::Client,
+    sql: &str,
+    params: &[String],
+) -> Result<Described, String> {
+    let message = |e: tokio_postgres::Error| {
+        e.as_db_error()
+            .map(|d| d.message().to_string())
+            .unwrap_or_else(|| e.to_string())
+    };
+    // Un nom par sondage : une instruction préparée survit à l'annulation
+    // de la transaction.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let name = format!(
+        "pgweave_body_probe_{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let sql = sql.trim_end().trim_end_matches(';');
+    let types = if params.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", params.join(", "))
+    };
+    client
+        .batch_execute(&format!("PREPARE {name}{types} AS {sql}"))
+        .await
+        .map_err(message)?;
+    let row = client
+        .query_one(
+            "SELECT coalesce((
+                 SELECT array_agg(format('%s.%s', n.nspname, t.typname) ORDER BY u.i)
+                 FROM unnest(p.result_types::oid[]) WITH ORDINALITY AS u(oid, i)
+                 JOIN pg_type t ON t.oid = u.oid
+                 JOIN pg_namespace n ON n.oid = t.typnamespace
+             ), '{}')
+             FROM pg_prepared_statements p WHERE p.name = $1",
+            &[&name],
+        )
+        .await
+        .map_err(message);
+    client
+        .batch_execute(&format!("DEALLOCATE {name}"))
+        .await
+        .map_err(message)?;
+    let types: Vec<String> = row?.get(0);
+    // Paramètres : ceux qui ont été déclarés, qualifiés comme les colonnes.
+    let params = params.iter().map(|p| p.replace('"', "")).collect();
+    Ok((
+        params,
+        types.into_iter().map(|t| (String::new(), t)).collect(),
+    ))
 }
 
 /// Nom d'un type comme le rapporte le `Prepare` : `[]` pour le tableau
@@ -151,6 +377,8 @@ pub async fn theirs(client: &tokio_postgres::Client, sql: &str) -> Result<Descri
 #[derive(Default)]
 pub struct ProbeStats {
     pub by_kind: BTreeMap<&'static str, (usize, usize)>,
+    /// Requêtes de corps de routines non sondées.
+    pub bodies_skipped: usize,
 }
 
 pub fn compare(
@@ -162,7 +390,10 @@ pub fn compare(
 ) -> ProbeStats {
     let mut stats = ProbeStats::default();
     for (probe, theirs) in probes.iter().zip(pg) {
-        let mine = ours(cat, path, &probe.sql);
+        let mine = match &probe.typed {
+            Some(t) => t.expected.clone(),
+            None => ours(cat, path, &probe.sql),
+        };
         let same = match (theirs, &mine) {
             (Ok(a), Ok(b)) => a == b,
             // Refusée des deux côtés : le message n'est pas comparé.
@@ -193,10 +424,19 @@ pub fn render(o: &mut String, stats: Option<&ProbeStats>) {
         o,
         "Sondes tirées du catalogue reconstruit, préparées par PostgreSQL sur la base des \
          migrations et décrites par `pgweave-sema` (types des paramètres, noms et types des \
-         colonnes ; un refus des deux côtés compte comme accord) :\n"
+         colonnes ; un refus des deux côtés compte comme accord). Les requêtes des corps de \
+         routines en vigueur sont préparées avec leurs variables en paramètres typés \
+         (`PREPARE`), comme PL/pgSQL les exécute ; seuls les types des colonnes sont \
+         comparés :\n"
     );
     let _ = writeln!(o, "| Sonde | Total | Identiques |\n|---|--:|--:|");
     for (kind, (total, same)) in &s.by_kind {
         let _ = writeln!(o, "| {kind} | {total} | {same} |");
     }
+    let _ = writeln!(
+        o,
+        "\nRequêtes de corps non sondées (non analysées par pgweave, ou variable sans \
+         position dans l'AST) : {}.",
+        s.bodies_skipped
+    );
 }

@@ -117,6 +117,7 @@ pub fn run(
     // final s'il est encore en vigueur (`pgweave_sema::check`).
     let mut check_diags: Vec<(usize, pgweave_diagnostics::Diagnostic)> = Vec::new();
     let mut deferred = Vec::new();
+    let mut routines = Vec::new();
     for (i, (path, _, stmts)) in parsed_files.iter().enumerate() {
         let mut replay_diags = Vec::new();
         for st in stmts {
@@ -129,6 +130,15 @@ pub fn run(
             check_diags.extend(d.into_iter().map(|d| (i, d)));
             if pgweave_sema::check::is_deferred(st) {
                 deferred.push((i, replay.search_path.clone(), st));
+            }
+            if matches!(
+                st,
+                Statement::Ddl(
+                    pgweave_ast::DdlStatement::CreateFunction(_)
+                        | pgweave_ast::DdlStatement::CreateProcedure(_)
+                )
+            ) {
+                routines.push((replay.search_path.clone(), st));
             }
             stats.check_time += check_start.elapsed();
         }
@@ -171,19 +181,30 @@ pub fn run(
     stats.files_with_errors = files_with_errors.len();
 
     let pg_url_for_import = pg_url.or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok());
-    let probes = crate::probes::generate(&replay.catalog);
+    let mut probes = crate::probes::generate(&replay.catalog);
+    // Requêtes des corps des routines en vigueur, analysées dans leur portée.
+    let mut queries = Vec::new();
+    for (path, st) in &routines {
+        if pgweave_catalog::project::routine_in_force(&replay.catalog, st) {
+            queries.extend(pgweave_sema::check::body_queries(&replay.catalog, path, st));
+        }
+    }
+    let (body_probes, bodies_skipped) = crate::probes::body_probes(&replay.catalog, queries);
+    probes.extend(body_probes);
     let pg = match &pg_url_for_import {
         Some(url) => Some(replay_on_postgres(url, &sources, &probes, details)?),
         None => None,
     };
     let probe_stats = pg.as_ref().filter(|p| p.catalog.is_some()).map(|p| {
-        crate::probes::compare(
+        let mut stats = crate::probes::compare(
             &probes,
             &p.probes,
             &replay.catalog,
             &replay.search_path,
             details,
-        )
+        );
+        stats.bodies_skipped = bodies_skipped;
+        stats
     });
 
     // Import : le catalogue reconstruit, exporté en SQL et appliqué à une base
@@ -425,7 +446,12 @@ fn replay_on_postgres(
             let catalog = crate::catalog_compare::real_catalog(&client).await?;
             let mut described = Vec::with_capacity(probes.len());
             for p in probes {
-                described.push(crate::probes::theirs(&client, &p.sql).await);
+                described.push(match &p.typed {
+                    Some(t) => {
+                        crate::probes::theirs_typed(&client, &p.sql, &t.params, &t.setup).await
+                    }
+                    None => crate::probes::theirs(&client, &p.sql).await,
+                });
             }
             Ok((applied, None, Some(catalog), described))
         }

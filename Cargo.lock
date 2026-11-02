@@ -2587,6 +2587,7 @@ dependencies = [
  "pgweave-parser",
  "pgweave-schema",
  "pgweave-sema",
+ "serde_json",
  "sqlparser",
  "tokio",
  "tokio-postgres",
