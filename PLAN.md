@@ -647,8 +647,8 @@ Critères de sortie atteints : 311 requêtes représentatives confrontées à
 PostgreSQL (243 écrites, 68 de corps de routines Mesalia et siren), zéro
 faux positif sur les corpus, `WHERE text_col = 42` diagnostiqué. Reportés,
 sans bloquer P4 : lints portés sur sema, HIR complet, SQL dynamique des
-corps, `ROWS FROM (…)` (illisible pour sqlparser), `default` non quoté
-accepté comme nom de colonne.
+corps, `ROWS FROM (…)` (illisible pour sqlparser). (`DEFAULT` hors
+affectation : refusé comme par PostgreSQL depuis le 2026-11-02.)
 
 - Crate `pgweave-sema` : normalisation → résolution → HIR typé.
 - Système de types fidèle : catégories, casts implicites/assignation,
@@ -742,7 +742,8 @@ Fait (2026-11-02) :
 
 - Budget de compilation (exemple, machine de dev) : schéma modifié → 1,5 s
   de reconstruction en debug (génération `build.rs` et `query!` comprises),
-  code seul modifié → 1,05 s.
+  code seul modifié → 1,05 s. À l'échelle de Mesalia (220 migrations),
+  catalogue + description + génération : 0,29 s en debug.
 - Guide : [`docs/rust.md`](docs/rust.md).
 
 - `query_file!` : requête lue dans un fichier du crate, erreurs

@@ -793,6 +793,19 @@ impl<'c> Analyzer<'c> {
         scope: &Scope,
         span: Span,
     ) -> Result<Typed, SemaError> {
+        // `DEFAULT` n'est une valeur qu'affectée à une colonne (`VALUES` d'un
+        // INSERT, `SET`), traitée avant d'arriver ici (`SetToDefault`).
+        if c.schema.is_none()
+            && c.table.is_none()
+            && !c.column.quoted
+            && c.column.value == "default"
+        {
+            return Err(SemaError::new(
+                "default-not-allowed",
+                "DEFAULT is not allowed in this context",
+                span,
+            ));
+        }
         let core = column_ref(c, scope, span);
         let Some(routine) = &self.routine else {
             return core;

@@ -179,3 +179,17 @@ fn expressions_de_table() {
         assert_eq!(check(sql), vec![expected.to_string()], "{sql}");
     }
 }
+
+#[test]
+fn default_hors_affectation() {
+    let sql = format!(
+        "{SCHEMA}
+        SELECT default FROM users;
+        INSERT INTO posts (id, user_id, title) VALUES (1, DEFAULT, DEFAULT);
+        UPDATE posts SET title = DEFAULT WHERE id = 1;"
+    );
+    assert_eq!(
+        check(&sql),
+        vec!["default-not-allowed: DEFAULT is not allowed in this context"]
+    );
+}
