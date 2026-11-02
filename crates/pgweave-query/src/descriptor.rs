@@ -668,7 +668,7 @@ fn unique_keys(catalog: &ProjectCatalog, rel: &Relation) -> Vec<Vec<String>> {
         let columns: Option<Vec<String>> = ci
             .elements
             .iter()
-            .map(|e| match e {
+            .map(|e| match &e.element {
                 pgweave_ast::ddl::IndexElement::Column(c) => Some(c.value.clone()),
                 pgweave_ast::ddl::IndexElement::Expr(_) => None,
             })

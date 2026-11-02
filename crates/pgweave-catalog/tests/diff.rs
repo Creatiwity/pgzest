@@ -346,3 +346,41 @@ fn corps_de_fonction_repris_tel_qu_ecrit() {
     let m = diff(&replay("").catalog, &after.catalog);
     assert!(sql(&m).contains("commentaire gardé"), "{}", sql(&m));
 }
+
+#[test]
+fn options_d_index_conservees() {
+    // Ordre, NULLS, classe d'opérateurs et INCLUDE font partie de l'index.
+    let m = migrate(
+        "CREATE TABLE t (a INT, b TEXT, c TEXT);",
+        "CREATE TABLE t (a INT, b TEXT, c TEXT);\n\
+         CREATE INDEX t_ab ON t (a DESC NULLS LAST, b text_pattern_ops) INCLUDE (c);",
+    );
+    assert!(
+        sql(&m).contains("(a DESC NULLS LAST, b text_pattern_ops) INCLUDE (c)"),
+        "{}",
+        sql(&m)
+    );
+    let before = replay("CREATE TABLE t (a INT);\nCREATE INDEX t_a ON t (a);");
+    let after = replay("CREATE TABLE t (a INT);\nCREATE INDEX t_a ON t (a DESC);");
+    let m = diff(&before.catalog, &after.catalog);
+    assert!(sql(&m).contains("DROP INDEX t_a"), "{}", sql(&m));
+}
+
+#[test]
+fn defaut_litteral_garde_son_type_au_changement_de_type() {
+    // PostgreSQL convertit la constante d'origine à chaque insertion.
+    let p = replay(
+        "CREATE TABLE t (d TIMESTAMPTZ DEFAULT '2023-01-01 00:00:00 +00:00');\n\
+         ALTER TABLE t ALTER COLUMN d SET DATA TYPE DATE;",
+    );
+    let t = p
+        .catalog
+        .relations
+        .values()
+        .find(|r| r.name.name == "t")
+        .unwrap();
+    assert_eq!(
+        t.column("d").unwrap().default.as_deref(),
+        Some("CAST('2023-01-01 00:00:00 +00:00' AS TIMESTAMP WITH TIME ZONE)")
+    );
+}

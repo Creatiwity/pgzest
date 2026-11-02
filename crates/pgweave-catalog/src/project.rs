@@ -313,7 +313,7 @@ impl ProjectBuilder {
 /// Rattache à la routine créée par `stmt` son texte dans `text`, s'il se
 /// relit en ce même statement (un texte réécrit par une macro ne l'est pas,
 /// la définition émise reste alors la seule source).
-fn attach_source(cat: &mut Catalog, stmt: &Statement, text: &str) {
+pub fn attach_source(cat: &mut Catalog, stmt: &Statement, text: &str) {
     use pgweave_ast::DdlStatement;
     let span = match stmt {
         Statement::Ddl(DdlStatement::CreateFunction(f)) => f.span,

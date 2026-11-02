@@ -351,6 +351,7 @@ pub fn stmt_span(stmt: &Statement) -> Option<Span> {
             DdlStatement::CreateFunction(c) => c.span,
             DdlStatement::CreateProcedure(c) => c.span,
             DdlStatement::CreatePolicy(c) => c.span,
+            DdlStatement::CreateIndex(c) => c.span,
             _ => return None,
         },
     };

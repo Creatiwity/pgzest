@@ -168,6 +168,7 @@ pub(crate) fn set_stmt_span(stmt: &mut Statement, start: usize, end: usize) {
             DdlStatement::CreateProcedure(cp) => cp.span = span,
             DdlStatement::CreatePolicy(p) => p.span = span,
             DdlStatement::CreateTable(ct) => ct.span = span,
+            DdlStatement::CreateIndex(ci) => ci.span = span,
             _ => {}
         },
     }

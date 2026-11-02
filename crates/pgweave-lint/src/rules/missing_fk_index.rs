@@ -62,7 +62,8 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                     .unwrap_or_default();
                 // Un index couvre la colonne de FK si elle en est le premier
                 // élément — une expression en tête ne la couvre pas.
-                if let Some(pgweave_ast::ddl::IndexElement::Column(first_col)) = ci.elements.first()
+                if let Some(pgweave_ast::ddl::IndexElement::Column(first_col)) =
+                    ci.elements.first().map(|c| &c.element)
                 {
                     indexed.insert((table, first_col.value.to_lowercase()));
                 }

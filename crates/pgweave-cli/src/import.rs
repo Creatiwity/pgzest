@@ -84,11 +84,15 @@ pub fn run(
         });
     }
 
-    let project = pgweave_catalog::ProjectCatalog::from_chunks_typed(
-        &chunks,
-        &pgweave_macro::MacroSet::builtin(),
-        Some(pgweave_sema::ViewTyper::shared()),
-    );
+    let macros = pgweave_macro::MacroSet::builtin();
+    let mut builder = pgweave_catalog::project::ProjectBuilder::new()
+        .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .keep_sources(true);
+    for chunk in &chunks {
+        let parsed = pgweave_catalog::project::parse_source(&chunk.sql, 0, &macros);
+        builder.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());
+    }
+    let project = builder.finish();
     let mut errors = 0;
     for (path, sk) in &project.skipped {
         eprintln!(

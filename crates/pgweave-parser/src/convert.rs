@@ -9,8 +9,8 @@ use pgweave_ast::{
         AlterColumnAction, AlterTable, AlterTableOp, AlterType, AlterTypeOp, ColumnConstraint,
         ColumnDef, CreateIndex, CreatePolicy, CreateSchema, CreateTable, CreateTrigger, CreateType,
         CreateView, DdlStatement, DropObject, EnumValuePosition, GeneratedColumn, Identity,
-        IndexElement, ObjectKind, OnCommit, PolicyCommand, ReferentialAction, ReturnType,
-        TableConstraint, TransitionTable, TriggerEvent, TriggerForEach, TriggerTiming,
+        IndexColumn, IndexElement, ObjectKind, OnCommit, PolicyCommand, ReferentialAction,
+        ReturnType, TableConstraint, TransitionTable, TriggerEvent, TriggerForEach, TriggerTiming,
         TypeDefinition,
     },
     expr::{BinaryOp, ColumnRef, Expr, Ident, Literal, ObjectName, UnaryOp},
@@ -2513,22 +2513,40 @@ fn convert_referential_action(action: sp::ReferentialAction) -> ReferentialActio
 fn convert_create_index(ci: sp::CreateIndex) -> Result<CreateIndex, ParseError> {
     let name = ci.name.map(last_ident).transpose()?;
     let table = convert_object_name(ci.table_name);
+    // Rien d'écrit n'est perdu : ce que l'AST ne porte pas est refusé.
+    if !ci.with.is_empty() || !ci.index_options.is_empty() || !ci.alter_options.is_empty() {
+        return Err(ParseError::Unsupported(
+            "CREATE INDEX … WITH (paramètres de stockage) non modélisé".into(),
+        ));
+    }
     let elements = ci
         .columns
         .into_iter()
         .map(|ic| {
+            if ic.column.with_fill.is_some() {
+                return Err(ParseError::Unsupported("WITH FILL dans un index".into()));
+            }
             let expr = convert_expr(ic.column.expr)?;
-            Ok(match expr.kind {
+            let element = match expr.kind {
                 ExprKind::Column(c) if c.table.is_none() => IndexElement::Column(c.column),
                 _ => IndexElement::Expr(expr),
+            };
+            Ok(IndexColumn {
+                element,
+                opclass: ic.operator_class.map(convert_object_name),
+                descending: ic.column.options.asc == Some(false),
+                nulls_first: ic.column.options.nulls_first,
             })
         })
         .collect::<Result<Vec<_>, ParseError>>()?;
 
     Ok(CreateIndex {
+        span: Span::DUMMY,
         name,
         table,
         elements,
+        include: ci.include.into_iter().map(convert_ident).collect(),
+        nulls_not_distinct: ci.nulls_distinct == Some(false),
         unique: ci.unique,
         if_not_exists: ci.if_not_exists,
         concurrently: ci.concurrently,

@@ -1292,7 +1292,17 @@ impl Applier<'_> {
                     AlterColumnAction::DropDefault => c.default = None,
                     AlterColumnAction::SetNotNull => c.not_null = true,
                     AlterColumnAction::DropNotNull => c.not_null = false,
-                    AlterColumnAction::SetDataType { .. } => c.ty = ty.expect("calculé plus haut"),
+                    AlterColumnAction::SetDataType { .. } => {
+                        // Un défaut littéral a pris le type de la colonne à sa
+                        // définition : PostgreSQL garde cette constante et la
+                        // convertit vers le nouveau type à chaque insertion.
+                        if let Some(d) = &c.default
+                            && is_string_literal(d)
+                        {
+                            c.default = Some(typed_literal(d, &c.ty));
+                        }
+                        c.ty = ty.expect("calculé plus haut");
+                    }
                 }
             }
             AlterTableOp::AddConstraint {
@@ -1546,10 +1556,13 @@ impl Applier<'_> {
                 let cols: Vec<String> = ci
                     .elements
                     .iter()
-                    .map(|e| match e {
+                    .map(|e| match &e.element {
                         IndexElement::Column(c) => c.value.clone(),
                         IndexElement::Expr(x) => index_column_name(x),
                     })
+                    // Le nom choisi par PostgreSQL cite aussi les colonnes
+                    // INCLUDE.
+                    .chain(ci.include.iter().map(|c| c.value.clone()))
                     .collect();
                 let add = columns_addition(cols.iter().map(String::as_str));
                 let n = choose_name(&table.name, Some(&add), "idx", |n| {
@@ -1570,7 +1583,7 @@ impl Applier<'_> {
         }
         let mut columns = Vec::new();
         for e in &ci.elements {
-            match e {
+            match &e.element {
                 IndexElement::Column(c) => push_unique(&mut columns, &c.value),
                 IndexElement::Expr(x) => {
                     for c in columns_of(x) {
@@ -1578,6 +1591,9 @@ impl Applier<'_> {
                     }
                 }
             }
+        }
+        for c in &ci.include {
+            push_unique(&mut columns, &c.value);
         }
         for c in ci.where_clause.iter().flat_map(columns_of) {
             push_unique(&mut columns, &c);
@@ -2527,5 +2543,27 @@ fn collect_calls(v: &serde_json::Value, out: &mut Vec<Vec<String>>) {
         }
         serde_json::Value::Array(items) => items.iter().for_each(|c| collect_calls(c, out)),
         _ => {}
+    }
+}
+
+/// `'…'` émis : une constante chaîne seule, sans type écrit.
+fn is_string_literal(sql: &str) -> bool {
+    sql.len() >= 2
+        && sql.starts_with('\'')
+        && sql.ends_with('\'')
+        && !sql[1..sql.len() - 1].replace("''", "").contains('\'')
+}
+
+/// `'…'::type`, sous la forme émise d'un défaut (relu puis réémis : le
+/// schéma déclaratif qui l'écrit ainsi est rejoué en ce même texte).
+fn typed_literal(literal: &str, ty: &TypeRef) -> String {
+    let written = format!("{literal}::{}", crate::dump::type_sql(ty));
+    let parsed = pgweave_parser::parse(&format!("SELECT {written}"));
+    match parsed.as_deref() {
+        Ok([Statement::Select(s)]) => match s.columns.as_slice() {
+            [pgweave_ast::SelectItem::Expr { expr, .. }] => emit_expr(expr),
+            _ => written,
+        },
+        _ => written,
     }
 }

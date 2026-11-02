@@ -1096,6 +1096,23 @@ fn emit_index_element(e: &IndexElement) -> String {
     }
 }
 
+fn emit_index_column(c: &IndexColumn) -> String {
+    let mut out = emit_index_element(&c.element);
+    if let Some(op) = &c.opclass {
+        out.push(' ');
+        out.push_str(&emit_object_name(op));
+    }
+    if c.descending {
+        out.push_str(" DESC");
+    }
+    match c.nulls_first {
+        Some(true) => out.push_str(" NULLS FIRST"),
+        Some(false) => out.push_str(" NULLS LAST"),
+        None => {}
+    }
+    out
+}
+
 fn emit_referential_action(action: &ReferentialAction) -> &'static str {
     match action {
         ReferentialAction::Cascade => "CASCADE",
@@ -1124,14 +1141,31 @@ pub fn emit_create_index(ci: &CreateIndex) -> String {
         .as_ref()
         .map(|u| format!(" USING {u}"))
         .unwrap_or_default();
-    let elements: Vec<String> = ci.elements.iter().map(emit_index_element).collect();
+    let elements: Vec<String> = ci.elements.iter().map(emit_index_column).collect();
+    let include = if ci.include.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " INCLUDE ({})",
+            ci.include
+                .iter()
+                .map(emit_ident)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let nulls = if ci.nulls_not_distinct {
+        " NULLS NOT DISTINCT"
+    } else {
+        ""
+    };
     let where_clause = ci
         .where_clause
         .as_ref()
         .map(|w| format!(" WHERE {}", emit_expr(w)))
         .unwrap_or_default();
     format!(
-        "CREATE {}INDEX {}{}{}ON {}{} ({}){};",
+        "CREATE {}INDEX {}{}{}ON {}{} ({}){}{}{};",
         unique,
         concurrently,
         if_not_exists,
@@ -1139,6 +1173,8 @@ pub fn emit_create_index(ci: &CreateIndex) -> String {
         emit_object_name(&ci.table),
         using,
         elements.join(", "),
+        include,
+        nulls,
         where_clause
     )
 }

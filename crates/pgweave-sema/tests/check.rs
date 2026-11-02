@@ -193,3 +193,36 @@ fn default_hors_affectation() {
         vec!["default-not-allowed: DEFAULT is not allowed in this context"]
     );
 }
+
+#[test]
+fn index_verifie_dans_le_contexte_de_sa_table() {
+    let d = check(
+        "CREATE TABLE t (a int, c text);
+         CREATE INDEX t_ok ON t (a DESC NULLS LAST, (lower(c))) INCLUDE (c) WHERE a > 0;
+         CREATE INDEX t_b ON t (b);
+         CREATE INDEX t_i ON t (a) INCLUDE (zz);
+         CREATE INDEX t_x ON t ((lower(zz)));
+         CREATE INDEX t_w ON t (a) WHERE c;
+         CREATE INDEX t_g ON t USING gin (c gin_trgm_ops);",
+    );
+    assert_eq!(
+        d,
+        vec![
+            "column-not-found: column \"b\" does not exist",
+            "column-not-found: column \"zz\" does not exist",
+            "column-not-found: column \"zz\" does not exist",
+            "type-mismatch: argument must be type boolean, not type text",
+            "object-not-found: operator class \"gin_trgm_ops\" does not exist for access method \"gin\"",
+        ],
+        "{d:?}"
+    );
+    // Fournie par pg_trgm : connue une fois l'extension créée.
+    assert!(
+        check(
+            "CREATE EXTENSION pg_trgm;
+             CREATE TABLE t (c text);
+             CREATE INDEX t_g ON t USING gin (c gin_trgm_ops);"
+        )
+        .is_empty()
+    );
+}

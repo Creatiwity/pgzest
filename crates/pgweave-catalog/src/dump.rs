@@ -233,7 +233,9 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
                     schema: r.name.schema.clone(),
                     order: r.order,
                     deps,
-                    sql: def.clone(),
+                    // Le corps tel qu'écrit, quand il est connu : PostgreSQL
+                    // le garde à la lettre.
+                    sql: r.source.clone().unwrap_or_else(|| def.clone()),
                 });
             }
         }

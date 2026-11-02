@@ -218,10 +218,16 @@ pub struct ExclusionElement {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateIndex {
+    pub span: Span,
     pub name: Option<Ident>,
     pub table: ObjectName,
-    /// Éléments indexés, dans l'ordre : colonnes ou expressions.
-    pub elements: Vec<IndexElement>,
+    /// Éléments indexés, dans l'ordre : colonnes ou expressions, avec leur
+    /// classe d'opérateurs et leur ordre.
+    pub elements: Vec<IndexColumn>,
+    /// `INCLUDE (…)` : colonnes portées sans être indexées.
+    pub include: Vec<Ident>,
+    /// `NULLS NOT DISTINCT` : un index unique refuse deux NULL.
+    pub nulls_not_distinct: bool,
     pub unique: bool,
     pub if_not_exists: bool,
     pub concurrently: bool,
@@ -237,10 +243,34 @@ pub enum IndexElement {
     Expr(Expr),
 }
 
+/// Un élément d'index et ses options.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IndexColumn {
+    pub element: IndexElement,
+    /// Classe d'opérateurs (`gin_trgm_ops`) ; absente = celle par défaut du
+    /// type pour la méthode.
+    pub opclass: Option<ObjectName>,
+    /// `DESC` ; sinon croissant.
+    pub descending: bool,
+    /// `NULLS FIRST` (`Some(true)`) ou `NULLS LAST` (`Some(false)`) écrit.
+    pub nulls_first: Option<bool>,
+}
+
+impl IndexColumn {
+    pub fn plain(element: IndexElement) -> Self {
+        IndexColumn {
+            element,
+            opclass: None,
+            descending: false,
+            nulls_first: None,
+        }
+    }
+}
+
 impl CreateIndex {
     /// Colonnes indexées directement (hors expressions).
     pub fn columns(&self) -> impl Iterator<Item = &Ident> {
-        self.elements.iter().filter_map(|e| match e {
+        self.elements.iter().filter_map(|e| match &e.element {
             IndexElement::Column(c) => Some(c),
             IndexElement::Expr(_) => None,
         })

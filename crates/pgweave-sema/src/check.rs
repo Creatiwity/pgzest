@@ -239,6 +239,7 @@ pub fn check_applied(
                 }
             }
             DdlStatement::CreateDomain(d) => sink.push(a.domain_checks(d), span),
+            DdlStatement::CreateIndex(ci) => sink.push(a.index(ci), span),
             DdlStatement::CreateFunction(f) => {
                 empty_body(
                     &f.body,
@@ -484,6 +485,78 @@ impl Analyzer<'_> {
         }
         for e in checks {
             self.boolean(e, &scope)?;
+        }
+        Ok(())
+    }
+
+    /// `CREATE INDEX` (`DefineIndex`) : colonnes indexées et `INCLUDE`
+    /// existantes, expressions typées dans le contexte de la table,
+    /// prédicat booléen, classe d'opérateurs connue pour la méthode.
+    ///
+    /// Non vérifiés : la compatibilité de la classe d'opérateurs avec le
+    /// type, l'existence d'une classe par défaut, l'immutabilité des
+    /// fonctions d'une expression.
+    fn index(&mut self, ci: &pgweave_ast::ddl::CreateIndex) -> Result<(), SemaError> {
+        use pgweave_ast::ddl::IndexElement;
+        // Table absente : son rejeu a échoué, déjà signalé.
+        let Ok(source) = self.relation_source(&ci.table, None) else {
+            return Ok(());
+        };
+        let missing = |name: &str| {
+            SemaError::new(
+                "column-not-found",
+                format!("column \"{name}\" does not exist"),
+                Span::DUMMY,
+            )
+        };
+        let mut scope = Scope::default();
+        scope.push(source);
+        let method = ci.using.as_deref().unwrap_or("btree");
+        for item in &ci.elements {
+            match &item.element {
+                IndexElement::Column(c) => {
+                    if !scope.sources[0].columns.iter().any(|x| x.name == c.value) {
+                        return Err(missing(&c.value));
+                    }
+                }
+                IndexElement::Expr(e) => {
+                    self.expr(e, &scope)?;
+                }
+            }
+            if let Some(op) = &item.opclass {
+                let (schema, name) = match op.0.as_slice() {
+                    [n] => (None, n.value.as_str()),
+                    [s, n] => (Some(s.value.as_str()), n.value.as_str()),
+                    _ => continue,
+                };
+                let lookup = self.path.lookup_order();
+                let known = self.ts.catalog.opclasses.iter().any(|o| {
+                    o.access_method == method
+                        && o.name.name == name
+                        && match schema {
+                            Some(s) => o.name.schema == s,
+                            None => lookup.contains(&o.name.schema.as_str()),
+                        }
+                });
+                if !known {
+                    return Err(SemaError::new(
+                        "object-not-found",
+                        format!(
+                            "operator class \"{}\" does not exist for access method \"{method}\"",
+                            pgweave_ast::emit::emit_object_name(op)
+                        ),
+                        Span::DUMMY,
+                    ));
+                }
+            }
+        }
+        for c in &ci.include {
+            if !scope.sources[0].columns.iter().any(|x| x.name == c.value) {
+                return Err(missing(&c.value));
+            }
+        }
+        if let Some(w) = &ci.where_clause {
+            self.boolean(w, &scope)?;
         }
         Ok(())
     }
