@@ -285,6 +285,7 @@ impl<'c> Analyzer<'c> {
                 Literal::String(_) => Typed::new(pg("unknown"), Nullability::NonNull),
                 Literal::Boolean(_) => Typed::new(pg("bool"), Nullability::NonNull),
                 Literal::Null => Typed::new(pg("unknown"), Nullability::Nullable),
+                Literal::BitString(_) => Typed::new(pg("bit"), Nullability::NonNull),
             }),
             ExprKind::Parameter(name) if self.routine.is_some() => {
                 self.routine_parameter(name, span)

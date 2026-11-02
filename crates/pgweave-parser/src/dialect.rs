@@ -33,6 +33,10 @@ pub struct PgweaveDialect;
 
 const PG: PostgreSqlDialect = PostgreSqlDialect {};
 
+/// Précédence de l'opérande d'un moins unaire : au-dessus de `COLLATE`
+/// (120 chez sqlparser), au-dessous des crochets (130), de `::` et de `.`.
+const UMINUS_PREC: u8 = 125;
+
 /// Méthodes redéfinies par `PostgreSqlDialect` dans sqlparser 0.62, toutes
 /// déléguées ci-dessous. Tenue à jour par le test `dialect_parity`.
 pub const DELEGATED: &[&str] = &[
@@ -86,6 +90,25 @@ impl Dialect for PgweaveDialect {
     /// `trim(BOTH FROM x)` : forme PostgreSQL sans caractères à retirer, que
     /// sqlparser refuse (il attend une expression avant `FROM`).
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
+        // `-x ^ y` : dans `gram.y`, le moins unaire (`UMINUS`) lie plus fort
+        // que `^`, `AT TIME ZONE` et `COLLATE`, moins que `[…]`, `::` et `.` ;
+        // sqlparser lui donne la précédence de `*`, donc `-(x ^ y)`.
+        if let op @ (Token::Minus | Token::Plus) = &parser.peek_token_ref().token {
+            let op = if *op == Token::Minus {
+                sqlparser::ast::UnaryOperator::Minus
+            } else {
+                sqlparser::ast::UnaryOperator::Plus
+            };
+            parser.next_token();
+            return Some(
+                parser
+                    .parse_subexpr(UMINUS_PREC)
+                    .map(|operand| Expr::UnaryOp {
+                        op,
+                        expr: Box::new(operand),
+                    }),
+            );
+        }
         let is_trim = matches!(&parser.peek_token_ref().token, Token::Word(w) if w.keyword == Keyword::TRIM)
             && parser.peek_nth_token_ref(1).token == Token::LParen;
         if !is_trim {
@@ -119,6 +142,45 @@ impl Dialect for PgweaveDialect {
                 trim_characters: None,
             })
         })())
+    }
+
+    /// `a IS [NOT] DISTINCT FROM b` : sqlparser lit `b` comme une expression
+    /// complète, donc `x IS DISTINCT FROM y AND z` devenait
+    /// `x IS DISTINCT FROM (y AND z)`. Dans `gram.y`, l'opérande droit a la
+    /// précédence de `IS` : il absorbe `=`, `+`… mais s'arrête à `AND`/`OR`.
+    fn parse_infix(
+        &self,
+        parser: &mut Parser,
+        expr: &Expr,
+        _precedence: u8,
+    ) -> Option<Result<Expr, ParserError>> {
+        let kw = |n: usize| match &parser.peek_nth_token_ref(n).token {
+            Token::Word(w) => Some(w.keyword),
+            _ => None,
+        };
+        if kw(0) != Some(Keyword::IS) {
+            return None;
+        }
+        let negated = kw(1) == Some(Keyword::NOT);
+        let at = if negated { 2 } else { 1 };
+        if kw(at) != Some(Keyword::DISTINCT) || kw(at + 1) != Some(Keyword::FROM) {
+            return None;
+        }
+        for _ in 0..at + 2 {
+            parser.next_token();
+        }
+        Some(
+            parser
+                .parse_subexpr(self.prec_value(Precedence::Is))
+                .map(|right| {
+                    let (l, r) = (Box::new(expr.clone()), Box::new(right));
+                    if negated {
+                        Expr::IsNotDistinctFrom(l, r)
+                    } else {
+                        Expr::IsDistinctFrom(l, r)
+                    }
+                }),
+        )
     }
 
     /// `GENERATED ALWAYS AS (expr) [STORED | VIRTUAL]`. sqlparser n'accepte

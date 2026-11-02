@@ -808,6 +808,10 @@ fn emit_literal(lit: &Literal) -> String {
         Literal::String(s) => format!("'{}'", s.replace('\'', "''")),
         Literal::Boolean(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
         Literal::Null => "NULL".to_string(),
+        Literal::BitString(b) => match b.split_at(1) {
+            ("x", digits) => format!("X'{digits}'"),
+            (_, digits) => format!("B'{digits}'"),
+        },
     }
 }
 

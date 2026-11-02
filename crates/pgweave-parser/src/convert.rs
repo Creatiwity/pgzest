@@ -1087,8 +1087,23 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             expr: Box::new(convert_expr(*e)?),
         }),
         sp::Expr::BinaryOp { left, op, right } => {
+            let overlaps = op == sp::BinaryOperator::Overlaps;
             let l = convert_expr(*left)?;
             let r = convert_expr(*right)?;
+            // `(a, b) OVERLAPS (c, d)` : `overlaps(a, b, c, d)` (`gram.y`).
+            if overlaps {
+                return match (l.kind, r.kind) {
+                    (ExprKind::Tuple(mut a), ExprKind::Tuple(b))
+                        if a.len() == 2 && b.len() == 2 =>
+                    {
+                        a.extend(b);
+                        system_call("overlaps", a)
+                    }
+                    _ => Err(ParseError::Unsupported(
+                        "OVERLAPS attend deux lignes de deux valeurs".to_string(),
+                    )),
+                };
+            }
             let bop = convert_binary_op(op)?;
             Ok(ExprKind::BinaryOp {
                 left: Box::new(l),
@@ -1203,22 +1218,15 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
                 .ok_or_else(|| ParseError::Unsupported("empty qualified wildcard".to_string()))?;
             Ok(ExprKind::QualifiedWildcard(convert_ident(last)))
         }
-        sp::Expr::Like { any: true, .. }
-        | sp::Expr::ILike { any: true, .. }
-        | sp::Expr::Like {
-            escape_char: Some(_),
-            ..
+        sp::Expr::Like { any: true, .. } | sp::Expr::ILike { any: true, .. } => {
+            Err(ParseError::Unsupported("LIKE ANY non modélisé".to_string()))
         }
-        | sp::Expr::ILike {
-            escape_char: Some(_),
-            ..
-        } => Err(ParseError::Unsupported(
-            "LIKE … ESCAPE / LIKE ANY non modélisés".to_string(),
-        )),
+        // `x LIKE p ESCAPE e` : `x ~~ like_escape(p, e)` (`gram.y`).
         sp::Expr::Like {
             negated,
             expr,
             pattern,
+            escape_char,
             ..
         } => {
             let op = if negated {
@@ -1229,24 +1237,40 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             Ok(ExprKind::BinaryOp {
                 left: Box::new(convert_expr(*expr)?),
                 op,
-                right: Box::new(convert_expr(*pattern)?),
+                right: Box::new(escaped_pattern("like_escape", *pattern, escape_char)?),
             })
         }
         sp::Expr::ILike {
             negated,
             expr,
             pattern,
+            escape_char,
             ..
+        } => Ok(ExprKind::BinaryOp {
+            left: Box::new(convert_expr(*expr)?),
+            op: if negated {
+                BinaryOp::Custom("!~~*".to_string())
+            } else {
+                BinaryOp::ILike
+            },
+            right: Box::new(escaped_pattern("like_escape", *pattern, escape_char)?),
+        }),
+        // `x SIMILAR TO p [ESCAPE e]` : `x ~ similar_to_escape(p[, e])`.
+        sp::Expr::SimilarTo {
+            negated,
+            expr,
+            pattern,
+            escape_char,
         } => {
-            if negated {
-                return Err(ParseError::Unsupported(
-                    "NOT ILIKE not supported".to_string(),
-                ));
+            let pattern_expr = convert_expr(*pattern)?;
+            let mut args = vec![pattern_expr];
+            if let Some(e) = escape_char {
+                args.push(Expr::bare(convert_value(e.value)?));
             }
             Ok(ExprKind::BinaryOp {
                 left: Box::new(convert_expr(*expr)?),
-                op: BinaryOp::ILike,
-                right: Box::new(convert_expr(*pattern)?),
+                op: BinaryOp::Custom(if negated { "!~" } else { "~" }.to_string()),
+                right: Box::new(Expr::bare(system_call("similar_to_escape", args)?)),
             })
         }
         sp::Expr::IsTrue(e) => Ok(ExprKind::BinaryOp {
@@ -1520,6 +1544,23 @@ fn grouping_sets(
 
 /// Appel à `pg_catalog.name(args)`, forme que PostgreSQL donne aux syntaxes
 /// SQL `POSITION`, `SUBSTRING`, `TRIM`, `OVERLAY`.
+/// Motif de `LIKE` : tel quel, ou passé à `escape_fn` avec son caractère
+/// d'échappement.
+fn escaped_pattern(
+    escape_fn: &str,
+    pattern: sp::Expr,
+    escape: Option<sp::ValueWithSpan>,
+) -> Result<Expr, ParseError> {
+    let pattern = convert_expr(pattern)?;
+    match escape {
+        None => Ok(pattern),
+        Some(e) => Ok(Expr::bare(system_call(
+            escape_fn,
+            vec![pattern, Expr::bare(convert_value(e.value)?)],
+        )?)),
+    }
+}
+
 fn system_call(name: &str, args: Vec<Expr>) -> Result<ExprKind, ParseError> {
     Ok(ExprKind::FunctionCall {
         name: ObjectName::unquoted(&["pg_catalog", name]),
@@ -1579,6 +1620,13 @@ fn convert_value(v: sp::Value) -> Result<ExprKind, ParseError> {
         // statement entier, donc aucune requête paramétrée d'application ne
         // passait — alors que c'est la forme normale du SQL applicatif.
         sp::Value::Placeholder(p) => Ok(ExprKind::Parameter(p)),
+        // `B'0101'` et `X'1F'` : chaînes de bits (`gram.y`, `BCONST`/`XCONST`).
+        sp::Value::SingleQuotedByteStringLiteral(s) => {
+            Ok(ExprKind::Literal(Literal::BitString(format!("b{s}"))))
+        }
+        sp::Value::HexStringLiteral(s) => {
+            Ok(ExprKind::Literal(Literal::BitString(format!("x{s}"))))
+        }
 
         // Littéral d'une forme que nous ne modélisons pas (chaînes nationales,
         // hexadécimales, Unicode…). On ne prétend pas connaître sa valeur, mais
@@ -2862,6 +2910,19 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
         sp::DataType::TsVector => Ok(DataType::Custom("tsvector".to_string())),
         sp::DataType::TsQuery => Ok(DataType::Custom("tsquery".to_string())),
         sp::DataType::GeometricType(kind) => Ok(DataType::Custom(kind.to_string().to_lowercase())),
+        // `bit` sans longueur est `bit(1)` ; `bit varying` sans longueur n'a
+        // pas de limite (`gram.y`, `Bit`).
+        sp::DataType::Bit(n) => Ok(DataType::Modified {
+            name: "bit".to_string(),
+            modifiers: vec![n.unwrap_or(1).to_string()],
+        }),
+        sp::DataType::BitVarying(n) => Ok(match n {
+            Some(n) => DataType::Modified {
+                name: "varbit".to_string(),
+                modifiers: vec![n.to_string()],
+            },
+            None => DataType::Custom("varbit".to_string()),
+        }),
         other => Err(ParseError::Unsupported(format!(
             "unsupported data type: {}",
             other

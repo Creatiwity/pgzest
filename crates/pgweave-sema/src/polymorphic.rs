@@ -273,15 +273,31 @@ impl TypeSystem<'_> {
                     }
                 },
                 "anyrange" => d.range.clone().ok_or_else(missing),
-                "anymultirange" => d.multirange.clone().ok_or_else(missing),
+                "anymultirange" => match &d.multirange {
+                    Some(m) => Ok(m.clone()),
+                    None => {
+                        let r = d.range.as_ref().ok_or_else(missing)?;
+                        self.range_multirange(r).ok_or_else(|| {
+                            PolymorphicError(format!(
+                                "could not find multirange type for data type {r}"
+                            ))
+                        })
+                    }
+                },
                 "anycompatible" | "anycompatiblenonarray" => common.clone().ok_or_else(missing),
                 "anycompatiblearray" => {
                     let c = common.as_ref().ok_or_else(missing)?;
                     self.array_of(c).ok_or_else(|| no_array(c))
                 }
                 "anycompatiblerange" => d.compatible_range.clone().ok_or_else(missing),
-                // Multi-intervalle d'un intervalle : non modélisé dans le
-                // catalogue (pas de lien intervalle → multi-intervalle).
+                "anycompatiblemultirange" => {
+                    let r = d.compatible_range.as_ref().ok_or_else(missing)?;
+                    self.range_multirange(r).ok_or_else(|| {
+                        PolymorphicError(format!(
+                            "could not find multirange type for data type {r}"
+                        ))
+                    })
+                }
                 _ => Err(missing()),
             }
         };

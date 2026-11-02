@@ -705,6 +705,14 @@ impl<'c> Analyzer<'c> {
     fn join(&mut self, j: &pgweave_ast::stmt::Join, scope: &mut Scope) -> Result<(), SemaError> {
         let left_sources = scope.sources.len();
         let mut src = self.table_ref(&j.table, scope)?;
+        // Colonnes avant l'effet de la jointure externe : la colonne fusionnée
+        // d'un `USING` en dépend.
+        let left_before: Vec<Column> = scope
+            .star
+            .iter()
+            .map(|(s, c)| scope.sources[*s].columns[*c].clone())
+            .collect();
+        let right_before = src.columns.clone();
         if matches!(j.kind, JoinKind::Left | JoinKind::Full) {
             for c in &mut src.columns {
                 c.nullable = c.nullable.outer();
@@ -743,21 +751,72 @@ impl<'c> Analyzer<'c> {
             let left_star: Vec<(usize, usize)> = std::mem::take(&mut scope.star);
             let name_of =
                 |s: &Scope, (si, ci): (usize, usize)| s.sources[si].columns[ci].name.clone();
-            let mut star = Vec::new();
+            // Colonnes fusionnées (`buildMergedJoinVar`) : type commun des deux
+            // côtés ; à gauche ou à droite selon le côté conservé, `COALESCE`
+            // des deux pour une jointure complète.
+            let mut merged = Vec::new();
             for u in &using {
-                match left_star.iter().find(|p| name_of(scope, **p) == *u) {
-                    Some(p) => star.push(*p),
-                    None => {
-                        return Err(SemaError::new(
-                            "column-not-found",
-                            format!(
-                                "column \"{u}\" specified in USING clause does not exist in left table"
-                            ),
-                            Span::DUMMY,
-                        ));
+                let Some(l) = left_before.iter().find(|c| c.name == *u) else {
+                    return Err(SemaError::new(
+                        "column-not-found",
+                        format!(
+                            "column \"{u}\" specified in USING clause does not exist in left table"
+                        ),
+                        Span::DUMMY,
+                    ));
+                };
+                let Some(r) = right_before.iter().find(|c| c.name == *u) else {
+                    return Err(SemaError::new(
+                        "column-not-found",
+                        format!(
+                            "column \"{u}\" specified in USING clause does not exist in right table"
+                        ),
+                        Span::DUMMY,
+                    ));
+                };
+                let ty = match (&l.ty, &r.ty) {
+                    (Some(a), Some(b)) if a == b => Some(a.clone()),
+                    (Some(a), Some(b)) => {
+                        Some(self.ts.common_type(&[a.clone(), b.clone()]).map_err(|_| {
+                            SemaError::new(
+                                "type-mismatch",
+                                format!(
+                                    "JOIN/USING types {} and {} cannot be matched",
+                                    a.name, b.name
+                                ),
+                                Span::DUMMY,
+                            )
+                        })?)
                     }
-                }
+                    _ => None,
+                };
+                let nullable = match j.kind {
+                    JoinKind::Right => r.nullable,
+                    JoinKind::Full => match (l.nullable, r.nullable) {
+                        (Nullability::NonNull, Nullability::NonNull) => Nullability::NonNull,
+                        (Nullability::Unknown, _) | (_, Nullability::Unknown) => {
+                            Nullability::Unknown
+                        }
+                        _ => Nullability::Nullable,
+                    },
+                    _ => l.nullable,
+                };
+                let modifiers = if ty == l.ty && l.modifiers == r.modifiers {
+                    l.modifiers.clone()
+                } else {
+                    Vec::new()
+                };
+                merged.push(Column {
+                    name: u.clone(),
+                    ty,
+                    modifiers,
+                    nullable,
+                });
             }
+            let merged_source = scope.sources.len();
+            scope.sources.push(Source::new(None, merged));
+            let mut star: Vec<(usize, usize)> =
+                (0..using.len()).map(|i| (merged_source, i)).collect();
             star.extend(
                 left_star
                     .iter()
@@ -1063,6 +1122,41 @@ impl<'c> Analyzer<'c> {
             (_, ExprKind::Tuple(values)) => {
                 for (v, c) in values.iter().zip(&cols) {
                     self.assign(v, c, scope)?;
+                }
+                Ok(())
+            }
+            // `SET (a, b) = (SELECT x, y …)` : une colonne de la sous-requête
+            // par cible (`MULTIEXPR_SUBLINK`).
+            (_, ExprKind::Subquery(q)) => {
+                let out = self.subquery(q, scope)?;
+                if out.len() != cols.len() {
+                    return Err(SemaError::new(
+                        "subquery-columns",
+                        format!(
+                            "number of columns does not match number of values ({} for {})",
+                            out.len(),
+                            cols.len()
+                        ),
+                        a.value.span,
+                    ));
+                }
+                for (o, c) in out.iter().zip(&cols) {
+                    if let Some(t) = &c.ty
+                        && !self.ts.can_coerce(
+                            std::slice::from_ref(&o.ty),
+                            std::slice::from_ref(t),
+                            CoercionContext::Assignment,
+                        )
+                    {
+                        return Err(SemaError::new(
+                            "type-mismatch",
+                            format!(
+                                "column \"{}\" is of type {} but expression is of type {}",
+                                c.name, t.name, o.ty.name
+                            ),
+                            a.value.span,
+                        ));
+                    }
                 }
                 Ok(())
             }

@@ -254,6 +254,7 @@ fn eval(cat: &Catalog, expr: &Expr, b: &Bindings) -> Option<Value> {
         ExprKind::Literal(Literal::Number(n)) => Value::Text(n.clone()),
         ExprKind::Literal(Literal::Boolean(v)) => Value::Bool(*v),
         ExprKind::Literal(Literal::Null) => Value::Null,
+        ExprKind::Literal(Literal::BitString(_)) => return None,
         ExprKind::Column(c) => lookup(
             b,
             c.table.as_ref().map(|t| t.value.as_str()),

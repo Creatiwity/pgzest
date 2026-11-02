@@ -75,6 +75,9 @@ jobs:
       - name: Résolution des surcharges (balayage)
         run: cargo test -p pgweave-sema --test oracle_sweep -- --ignored
 
+      - name: Précédence des opérateurs
+        run: cargo test -p pgweave-oracle --test precedence -- --ignored
+
   typescript:
     name: TypeScript (paquet npm + extension)
     runs-on: ubuntu-latest

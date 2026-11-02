@@ -186,7 +186,13 @@ impl<'p> Scope<'p> {
                 format!("column reference \"{column}\" is ambiguous"),
                 span,
             )),
-            [first, ..] => Ok(first),
+            // Colonne fusionnée par `USING` : celle de `*`.
+            [first, ..] => Ok(self
+                .star
+                .iter()
+                .map(|(s, c)| &self.sources[*s].columns[*c])
+                .find(|c| c.name == column)
+                .unwrap_or(first)),
             // Source trouvée à ce niveau, colonne absente : PostgreSQL ne
             // cherche pas plus loin.
             [] if table_seen => Err(SemaError::new(

@@ -595,7 +595,9 @@ Fait (2026-11-01) :
   - paramètres typés par leur premier usage ;
   - nullabilité D5 ;
   - noms de colonnes de `FigureColname`.
-- Oracle de requêtes : 183 requêtes, 559/559 colonnes, 115/115 paramètres.
+- Oracle de requêtes : 243 requêtes, 749/751 colonnes (`ROWS FROM (…)`,
+  illisible pour sqlparser, reste à lire), 146/146 paramètres ; précédence
+  des opérateurs confrontée à PostgreSQL (`make oracle`).
 - Colonnes de vues typées pendant le rejeu (`QueryTyper`) : Mesalia identique au réel, 1 622/1 622 colonnes.
 - (2026-11-02) `check` passe par sema (`pgweave_sema::check`) : chaque
   statement est vérifié quand il s'applique, contre l'état du catalogue à ce

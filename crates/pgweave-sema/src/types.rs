@@ -114,6 +114,14 @@ impl<'c> TypeSystem<'c> {
         }
     }
 
+    /// Multi-intervalle d'un intervalle (`get_range_multirange`).
+    pub fn range_multirange(&self, range: &Ty) -> Option<Ty> {
+        self.catalog.types.values().find_map(|d| match &d.kind {
+            TypeKind::Multirange { range: r } if r == range => Some(d.name.clone()),
+            _ => None,
+        })
+    }
+
     /// Intervalle d'un multi-intervalle (`get_multirange_range`).
     pub fn multirange_range(&self, ty: &Ty) -> Option<Ty> {
         match self.def(ty).map(|d| &d.kind) {

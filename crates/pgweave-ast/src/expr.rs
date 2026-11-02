@@ -53,6 +53,9 @@ pub enum Literal {
     String(String),
     Boolean(bool),
     Null,
+    /// Chaîne de bits `B'0101'` ou `X'1F'` : préfixe (`b` ou `x`) suivi des
+    /// chiffres, comme `T_BitString` dans PostgreSQL. Type `bit`.
+    BitString(String),
 }
 
 /// Forme d'un regroupement multiple de `GROUP BY`.
