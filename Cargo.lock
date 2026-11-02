@@ -1231,6 +1231,7 @@ dependencies = [
  "pgweave-parser",
  "pgweave-plugin-wasm",
  "pgweave-project",
+ "pgweave-query",
  "pgweave-schema",
  "pgweave-sema",
  "serde",

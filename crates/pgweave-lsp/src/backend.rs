@@ -653,8 +653,10 @@ impl LanguageServer for PgsqlBackend {
         let stmts = pgweave_parser::parse(&text).unwrap_or_default();
 
         let hover_text: Option<String> =
+            // En-tête d'une requête nommée : son descripteur.
+            hover_named_query(&text, offset as usize, resolver.as_ref())
             // PL/pgSQL declared variables / parameters take priority in any file type.
-            hover_plpgsql_var(&stmts, offset as usize, &word)
+            .or_else(|| hover_plpgsql_var(&stmts, offset as usize, &word))
             .or_else(|| {
                 if matches!(role, FileRole::Schema) {
                     hover_schema_file(&text, &word, resolver.as_ref())
@@ -767,6 +769,63 @@ fn hover_query(
         }
     }
     lookup_hover(word, catalog)
+}
+
+/// Survol de l'en-tête `-- name: …` d'une requête nommée : ce que décrit
+/// son descripteur (paramètres, colonnes, cardinalité), ou pourquoi il n'y
+/// en a pas.
+fn hover_named_query(text: &str, offset: usize, catalog: &ProjectCatalog) -> Option<String> {
+    let file = pgweave_query::parse_query_file(text);
+    let q = file.queries.iter().find(|q| {
+        let line_start = text[..q.name_range.start].rfind('\n').map_or(0, |i| i + 1);
+        let line_end = text[q.name_range.end..]
+            .find('\n')
+            .map_or(text.len(), |i| q.name_range.end + i);
+        (line_start..=line_end).contains(&offset)
+    })?;
+    let d = match pgweave_query::describe_named(catalog, q) {
+        Ok(d) => d,
+        Err(diags) => {
+            let why: Vec<String> = diags
+                .iter()
+                .map(|d| format!("- `{}` {}", d.code, d.message))
+                .collect();
+            return Some(format!(
+                "(requête) **{}** : non décrite\n\n{}",
+                q.name,
+                why.join("\n")
+            ));
+        }
+    };
+    let null = |n: pgweave_query::descriptor::NullabilityDesc| match n {
+        pgweave_query::descriptor::NullabilityDesc::NonNull => " NOT NULL",
+        pgweave_query::descriptor::NullabilityDesc::Nullable => " NULL",
+        pgweave_query::descriptor::NullabilityDesc::Unknown => "",
+    };
+    let mut out = format!("(requête) **{}** — `{}`", d.name, d.cardinality.as_str());
+    if !d.params.is_empty() {
+        out.push_str("\n\nParamètres :");
+        for p in &d.params {
+            out.push_str(&format!(
+                "\n- `${}` `{}`{}",
+                p.name,
+                p.ty.pg,
+                null(p.nullable)
+            ));
+        }
+    }
+    if !d.columns.is_empty() {
+        out.push_str("\n\nColonnes :");
+        for c in &d.columns {
+            out.push_str(&format!(
+                "\n- `{}` `{}`{}",
+                c.name,
+                c.ty.pg,
+                null(c.nullable)
+            ));
+        }
+    }
+    Some(out)
 }
 
 /// Format a qualified name so the hovered `word` is bold.

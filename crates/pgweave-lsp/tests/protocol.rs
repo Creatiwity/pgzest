@@ -469,3 +469,47 @@ fn le_survol_donne_le_type_du_nom_sous_le_curseur() {
         .to_string();
     assert_eq!(value, "(column) **id**: `text`", "{response:?}");
 }
+
+#[test]
+fn le_survol_d_un_en_tete_donne_le_descripteur() {
+    let root = scaffold(
+        "hover-query",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+                 [queries]\ndirectory = \"queries\"\n",
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE pages (id BIGINT PRIMARY KEY, title TEXT NOT NULL, note TEXT);\n",
+            ),
+            (
+                "queries/q.sql",
+                "-- name: page_by_id\nSELECT title, note FROM pages WHERE id = $id;\n",
+            ),
+        ],
+    );
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let uri = lsp.open(&root.join("queries/q.sql"), "sql");
+    lsp.await_diagnostics(&uri);
+    let id = lsp.request(
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 0, "character": 12 }
+        }),
+    );
+    let response = lsp.await_response(id);
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(
+        value,
+        "(requête) **page_by_id** — `optional`\n\nParamètres :\n- `$id` `pg_catalog.int8`\n\n\
+         Colonnes :\n- `title` `pg_catalog.text` NOT NULL\n- `note` `pg_catalog.text` NULL",
+        "{response:?}"
+    );
+}
