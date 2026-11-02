@@ -110,6 +110,9 @@ pub fn generate_rust(
 
 impl Generator<'_> {
     fn query(&mut self, d: &Descriptor) -> Result<String, String> {
+        if let Some(copy) = &d.copy {
+            return self.copy(d, copy);
+        }
         let rt = self.opts.runtime.clone();
         let fn_name = rust_ident(&d.name)?;
         let pascal = pascal(&d.name);
@@ -257,6 +260,90 @@ impl Generator<'_> {
         Ok(o)
     }
 
+    /// `COPY … FROM STDIN` : enregistrements typés (binaire) ou flux
+    /// d'octets (texte, CSV).
+    fn copy(
+        &mut self,
+        d: &Descriptor,
+        copy: &pgweave_query::descriptor::CopyDesc,
+    ) -> Result<String, String> {
+        let rt = self.opts.runtime.clone();
+        let fn_name = rust_ident(&d.name)?;
+        let const_name = d.name.to_uppercase();
+        let mut oids = Some(Vec::new());
+        for c in &d.columns {
+            let base = self.ts.base_type(&qname(&c.ty.pg));
+            match (self.ts.def(&base).and_then(|t| t.oid), oids.as_mut()) {
+                (Some(oid), Some(v)) => v.push(oid),
+                _ => oids = None,
+            }
+        }
+        let oids = match oids {
+            Some(v) => format!(
+                "Some(&[{}])",
+                v.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
+            ),
+            None => "None".into(),
+        };
+        let quote = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+        let table = qname(&copy.table);
+        let table = format!("{}.{}", quote(&table.schema), quote(&table.name));
+        let columns = d
+            .columns
+            .iter()
+            .map(|c| quote(&c.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut o = String::new();
+        let _ = writeln!(o, "/// `{}`", d.sql.replace('\n', " "));
+        let _ = writeln!(
+            o,
+            "pub const {const_name}: {rt}::CopyIn = {rt}::CopyIn {{ name: {:?}, sql: {:?}, table: {table:?}, columns: {columns:?}, column_oids: {oids} }};\n",
+            d.name, d.sql
+        );
+        if copy.format != "binary" {
+            let _ = writeln!(
+                o,
+                "/// Données au format {} lues dans `reader`, telles quelles ; renvoie le nombre de lignes copiées.\npub async fn {fn_name}<C: {rt}::CopyClient + ?Sized, R: {rt}::tokio::io::AsyncRead + Unpin>(client: &C, reader: R) -> Result<u64, {rt}::Error> {{\n    {rt}::copy_in_stream(client, &{const_name}, reader).await\n}}\n",
+                copy.format
+            );
+            return Ok(o);
+        }
+        let record = format!("{}Record", pascal(&d.name));
+        let mut fields = Vec::new();
+        let mut lifetime = false;
+        for c in &d.columns {
+            let t = self.rust_type(&c.ty.pg)?;
+            lifetime |= t.lifetime;
+            let ty = match c.nullable {
+                NullabilityDesc::NonNull => t.borrowed,
+                _ => format!("Option<{}>", t.borrowed),
+            };
+            fields.push((field_ident(&c.name)?, ty));
+        }
+        let lt = if lifetime { "<'a>" } else { "" };
+        let _ = writeln!(o, "#[derive(Debug, Clone)]\npub struct {record}{lt} {{");
+        for (f, t) in &fields {
+            let _ = writeln!(o, "    pub {f}: {t},");
+        }
+        let _ = writeln!(o, "}}\n");
+        let item = if lifetime {
+            format!("{record}<'a>")
+        } else {
+            record.clone()
+        };
+        let values = fields
+            .iter()
+            .map(|(f, _)| format!("&r.{f}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            o,
+            "/// Copie binaire des enregistrements ; renvoie le nombre de lignes copiées.\npub async fn {fn_name}<'a, C: {rt}::CopyClient + ?Sized>(client: &C, records: impl IntoIterator<Item = {item}>) -> Result<u64, {rt}::Error> {{\n    let mut copy = {rt}::BinaryCopy::open(client, &{const_name}).await?;\n    for r in records {{\n        copy.write(&[{values}]).await?;\n    }}\n    copy.finish().await\n}}\n"
+        );
+        Ok(o)
+    }
+
     /// Type Rust d'un type PostgreSQL (nom qualifié du descripteur).
     fn rust_type(&mut self, qualified: &str) -> Result<RustTy, String> {
         if let Some(t) = self.opts.overrides.get(qualified) {
@@ -355,6 +442,9 @@ pub fn inline_query(
     catalog: &ProjectCatalog,
     opts: &RustOptions,
 ) -> Result<InlineQuery, String> {
+    if d.copy.is_some() {
+        return Err("COPY : déclarer une requête nommée (build.rs)".into());
+    }
     let mut g = Generator {
         ts: TypeSystem::new(&catalog.catalog),
         opts,

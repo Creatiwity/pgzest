@@ -12,3 +12,14 @@ CREATE TABLE pages (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     published_on DATE
 );
+
+-- Chargement par lots (motif siren) : COPY dans une table de staging, puis
+-- bascule dans la table finale.
+CREATE TABLE etablissements (
+    siret    CHAR(14) PRIMARY KEY,
+    nom      TEXT NOT NULL,
+    effectif INT,
+    ouvert   DATE
+);
+
+CREATE UNLOGGED TABLE etablissements_staging (LIKE etablissements);

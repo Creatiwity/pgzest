@@ -124,6 +124,41 @@ async fn les_requetes_generees_s_executent() {
     .expect_err("CHECK du domaine");
     assert!(matches!(err, pgweave_runtime::Error::Db { .. }), "{err}");
 
+    // Chargement par lots : COPY binaire et CSV dans la staging, bascule,
+    // le tout dans une transaction.
+    let tx = client.transaction().await.expect("transaction");
+    let records = [
+        ("12345678900011", "Alpha", Some(3)),
+        ("12345678900029", "Beta", None),
+    ];
+    let copied = queries::load_staging(
+        &tx,
+        records
+            .iter()
+            .map(|(siret, nom, effectif)| queries::LoadStagingRecord {
+                siret,
+                nom,
+                effectif: *effectif,
+                ouvert: Some(day),
+            }),
+    )
+    .await
+    .expect("load_staging");
+    assert_eq!(copied, 2);
+    let csv: &[u8] = b"siret,nom,effectif,ouvert\n12345678900037,Gamma,,2026-01-02\n";
+    let copied = queries::load_staging_csv(&tx, csv)
+        .await
+        .expect("load_staging_csv");
+    assert_eq!(copied, 1);
+    let swapped = queries::swap_from_staging(&tx)
+        .await
+        .expect("swap_from_staging");
+    assert_eq!(swapped, 3);
+    queries::clear_staging(&tx).await.expect("clear_staging");
+    tx.commit().await.expect("commit");
+    let n = queries::count_etablissements(&client).await.expect("count");
+    assert_eq!(n.n, 3);
+
     drop(client);
     admin
         .batch_execute(&format!("DROP DATABASE {db} WITH (FORCE)"))

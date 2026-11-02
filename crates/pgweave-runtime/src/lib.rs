@@ -15,6 +15,7 @@
 
 use std::fmt;
 
+pub use tokio;
 pub use tokio_postgres::types::{self, FromSql, ToSql, Type};
 pub use tokio_postgres::{self, GenericClient, Row};
 
@@ -50,6 +51,11 @@ pub enum Error {
         query: &'static str,
         source: tokio_postgres::Error,
     },
+    /// Lecture des données d'un `COPY`.
+    Io {
+        query: &'static str,
+        source: std::io::Error,
+    },
 }
 
 impl fmt::Display for Error {
@@ -67,6 +73,9 @@ impl fmt::Display for Error {
             Error::Decode { query, source } => {
                 write!(f, "requête `{query}` : décodage d'une ligne : {source}")
             }
+            Error::Io { query, source } => {
+                write!(f, "requête `{query}` : lecture des données : {source}")
+            }
         }
     }
 }
@@ -75,6 +84,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Db { source, .. } | Error::Decode { source, .. } => Some(source),
+            Error::Io { source, .. } => Some(source),
             Error::RowCount { .. } => None,
         }
     }
@@ -300,4 +310,152 @@ impl Inline<'_, (), cardinality::NoRows> {
     pub async fn execute<C: GenericClient + ?Sized>(self, client: &C) -> Result<u64, Error> {
         execute(client, self.query, &self.params()).await
     }
+}
+
+// ── COPY … FROM STDIN ─────────────────────────────────────────────────────────
+
+/// Client capable de `COPY … FROM STDIN` : client nu ou transaction
+/// (`GenericClient` ne l'expose pas).
+pub trait CopyClient: GenericClient {
+    fn copy_in_sink(
+        &self,
+        sql: &str,
+    ) -> impl std::future::Future<
+        Output = Result<tokio_postgres::CopyInSink<bytes::Bytes>, tokio_postgres::Error>,
+    > + Send;
+}
+
+impl CopyClient for tokio_postgres::Client {
+    async fn copy_in_sink(
+        &self,
+        sql: &str,
+    ) -> Result<tokio_postgres::CopyInSink<bytes::Bytes>, tokio_postgres::Error> {
+        self.copy_in(sql).await
+    }
+}
+
+impl CopyClient for tokio_postgres::Transaction<'_> {
+    async fn copy_in_sink(
+        &self,
+        sql: &str,
+    ) -> Result<tokio_postgres::CopyInSink<bytes::Bytes>, tokio_postgres::Error> {
+        self.copy_in(sql).await
+    }
+}
+
+/// Un `COPY … FROM STDIN` généré.
+#[derive(Debug, Clone, Copy)]
+pub struct CopyIn {
+    pub name: &'static str,
+    pub sql: &'static str,
+    /// Table et colonnes alimentées, quotées, pour retrouver leurs types.
+    pub table: &'static str,
+    pub columns: &'static str,
+    /// OID des colonnes, `None` si l'une est d'un type du projet.
+    pub column_oids: Option<&'static [u32]>,
+}
+
+/// Écriture binaire typée d'un `COPY` : une ligne par appel à [`write`].
+///
+/// [`write`]: BinaryCopy::write
+pub struct BinaryCopy {
+    copy: &'static CopyIn,
+    writer: std::pin::Pin<Box<tokio_postgres::binary_copy::BinaryCopyInWriter>>,
+}
+
+impl BinaryCopy {
+    /// Ouvre le `COPY` ; les types des colonnes sont ceux du catalogue
+    /// (OID fixes) ou, pour un type du projet, ceux de la base.
+    pub async fn open<C: CopyClient + ?Sized>(
+        client: &C,
+        copy: &'static CopyIn,
+    ) -> Result<Self, Error> {
+        let db = |source| Error::Db {
+            query: copy.name,
+            source,
+        };
+        let types: Vec<Type> = match copy.column_oids.and_then(|oids| {
+            oids.iter()
+                .map(|o| Type::from_oid(*o))
+                .collect::<Option<Vec<_>>>()
+        }) {
+            Some(t) => t,
+            None => client
+                .prepare(&format!(
+                    "SELECT {} FROM {} LIMIT 0",
+                    copy.columns, copy.table
+                ))
+                .await
+                .map_err(db)?
+                .columns()
+                .iter()
+                .map(|c| c.type_().clone())
+                .collect(),
+        };
+        let sink = client.copy_in_sink(copy.sql).await.map_err(db)?;
+        Ok(BinaryCopy {
+            copy,
+            writer: Box::pin(tokio_postgres::binary_copy::BinaryCopyInWriter::new(
+                sink, &types,
+            )),
+        })
+    }
+
+    pub async fn write(&mut self, values: &[Param<'_>]) -> Result<(), Error> {
+        self.writer
+            .as_mut()
+            .write(values)
+            .await
+            .map_err(|source| Error::Db {
+                query: self.copy.name,
+                source,
+            })
+    }
+
+    /// Termine le `COPY` : nombre de lignes copiées.
+    pub async fn finish(mut self) -> Result<u64, Error> {
+        self.writer
+            .as_mut()
+            .finish()
+            .await
+            .map_err(|source| Error::Db {
+                query: self.copy.name,
+                source,
+            })
+    }
+}
+
+/// `COPY` au format texte ou CSV : les octets de `reader`, tels quels, par
+/// blocs. Renvoie le nombre de lignes copiées.
+pub async fn copy_in_stream<C, R>(
+    client: &C,
+    copy: &'static CopyIn,
+    mut reader: R,
+) -> Result<u64, Error>
+where
+    C: CopyClient + ?Sized,
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use futures_util::SinkExt;
+    use tokio::io::AsyncReadExt;
+    let db = |source| Error::Db {
+        query: copy.name,
+        source,
+    };
+    let sink = client.copy_in_sink(copy.sql).await.map_err(db)?;
+    let mut sink = Box::pin(sink);
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buf).await.map_err(|e| Error::Io {
+            query: copy.name,
+            source: e,
+        })?;
+        if n == 0 {
+            break;
+        }
+        sink.send(bytes::Bytes::copy_from_slice(&buf[..n]))
+            .await
+            .map_err(db)?;
+    }
+    sink.as_mut().finish().await.map_err(db)
 }

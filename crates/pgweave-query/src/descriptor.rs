@@ -38,6 +38,9 @@ pub struct Descriptor {
     pub depends_on: Vec<String>,
     /// Empreinte du SQL normalisé et des définitions de `depends_on`.
     pub fingerprint: String,
+    /// Format des données d'un `COPY … FROM STDIN`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy: Option<CopyDesc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +51,19 @@ pub enum Command {
     Update,
     Delete,
     Call,
+    /// `COPY table FROM STDIN` : `columns` sont les colonnes alimentées.
+    CopyIn,
+}
+
+/// Format d'un `COPY … FROM STDIN`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CopyDesc {
+    /// Table alimentée, nom qualifié.
+    pub table: String,
+    /// `text`, `csv` ou `binary`.
+    pub format: String,
+    /// La première ligne (CSV) est un en-tête.
+    pub header: bool,
 }
 
 /// Référence au catalogue : nom qualifié, modificateurs (`varchar(20)`),
@@ -208,11 +224,12 @@ fn describe(
         Statement::Utility(u) if matches!(u.kind, pgweave_ast::UtilityKind::Call { .. }) => {
             Command::Call
         }
+        Statement::Utility(u) if copy_in(&u.kind).is_some() => Command::CopyIn,
         _ => {
             return Err(vec![
                 Diagnostic::error(
                     codes::QUERY_NOT_DESCRIBABLE,
-                    "seuls SELECT, INSERT, UPDATE, DELETE et CALL sont décrits",
+                    "seuls SELECT, INSERT, UPDATE, DELETE, CALL et COPY … FROM STDIN sont décrits",
                 )
                 .with_span(whole),
             ]);
@@ -221,7 +238,21 @@ fn describe(
 
     let ts = TypeSystem::new(&catalog.catalog);
     let mut a = Analyzer::new(ts, catalog.search_path.clone());
-    let described = a.describe(stmt).map_err(|e| {
+    let copy = match stmt {
+        Statement::Utility(u) => copy_in(&u.kind),
+        _ => None,
+    };
+    let described = match &copy {
+        Some((table, cols, _)) => {
+            a.copy_columns(table, cols)
+                .map(|columns| pgweave_sema::Description {
+                    columns,
+                    params: Vec::new(),
+                })
+        }
+        None => a.describe(stmt),
+    }
+    .map_err(|e| {
         let span = if e.span == pgweave_ast::Span::DUMMY {
             whole.clone()
         } else {
@@ -289,7 +320,11 @@ fn describe(
         return Err(errors);
     }
 
-    let inferred = infer_cardinality(catalog, stmt, &a, columns.is_empty());
+    let inferred = if copy.is_some() {
+        Cardinality::None
+    } else {
+        infer_cardinality(catalog, stmt, &a, columns.is_empty())
+    };
     let cardinality = match declared {
         None => inferred,
         Some(d) => {
@@ -325,7 +360,49 @@ fn describe(
         cardinality,
         depends_on,
         fingerprint,
+        copy: copy.map(|(table, _, mut c)| {
+            let (schema, n) = split(table);
+            c.table = catalog
+                .catalog
+                .resolve_relation(schema, n, &catalog.search_path)
+                .map(|r| r.name.to_string())
+                .unwrap_or_default();
+            c
+        }),
     })
+}
+
+/// `COPY table [(colonnes)] FROM STDIN [(options)]` : table, colonnes,
+/// format.
+fn copy_in(
+    u: &pgweave_ast::UtilityKind,
+) -> Option<(
+    &pgweave_ast::ObjectName,
+    &[pgweave_ast::expr::Ident],
+    CopyDesc,
+)> {
+    use pgweave_ast::utility::{CopyOption, CopySource, CopyTarget};
+    let pgweave_ast::UtilityKind::Copy(c) = u else {
+        return None;
+    };
+    let (false, CopyTarget::Stdin, CopySource::Table { name, columns }) =
+        (c.to, &c.target, &c.source)
+    else {
+        return None;
+    };
+    let mut desc = CopyDesc {
+        table: String::new(),
+        format: "text".into(),
+        header: false,
+    };
+    for o in &c.options {
+        match o {
+            CopyOption::Format(f) => desc.format = f.to_ascii_lowercase(),
+            CopyOption::Header(h) => desc.header = *h,
+            _ => {}
+        }
+    }
+    Some((name, columns.as_slice(), desc))
 }
 
 /// Une déclaration (`-- name: x :one`) restreint l'inférence, sans la

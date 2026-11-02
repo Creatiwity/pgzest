@@ -208,3 +208,28 @@ fn format_json() {
     json["fingerprint"] = serde_json::json!("…");
     insta::assert_snapshot!(serde_json::to_string_pretty(&json).expect("json"));
 }
+
+#[test]
+fn copy_from_stdin() {
+    let cat = ProjectCatalog::from_sql(
+        "CREATE TABLE g (id INT PRIMARY KEY, label TEXT, twice INT GENERATED ALWAYS AS (id * 2) STORED);",
+    )
+    .expect("schéma");
+    let file = parse_query_file(
+        "-- name: all_columns\nCOPY g FROM STDIN (FORMAT csv, HEADER true);\n\n\
+         -- name: generated\nCOPY g (id, twice) FROM STDIN;\n",
+    );
+    let d = describe_named(&cat, &file.queries[0]).expect("descripteur");
+    assert_eq!(d.command, Command::CopyIn);
+    assert_eq!(d.cardinality, Cardinality::None);
+    let cols: Vec<&str> = d.columns.iter().map(|c| c.name.as_str()).collect();
+    // Une colonne générée n'est pas alimentée par COPY.
+    assert_eq!(cols, ["id", "label"]);
+    let copy = d.copy.expect("format");
+    assert_eq!(
+        (copy.table.as_str(), copy.format.as_str(), copy.header),
+        ("public.g", "csv", true)
+    );
+    let err = describe_named(&cat, &file.queries[1]).expect_err("colonne générée");
+    assert_eq!(err[0].message, "column \"twice\" is a generated column");
+}

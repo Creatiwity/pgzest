@@ -574,6 +574,78 @@ impl Analyzer<'_> {
         Ok(())
     }
 
+    /// Colonnes alimentées par `COPY table [(colonnes)] FROM` : celles
+    /// citées, ou toutes sauf les colonnes générées (`CopyGetAttnums`).
+    pub fn copy_columns(
+        &self,
+        table: &ObjectName,
+        columns: &[Ident],
+    ) -> Result<Vec<crate::query::OutputColumn>, SemaError> {
+        let source = self.relation_source(table, None)?;
+        let rel = source
+            .rowtype
+            .as_ref()
+            .and_then(|r| self.ts.catalog.relations.get(r));
+        let generated = |name: &str| {
+            rel.is_some_and(|r| {
+                r.columns
+                    .iter()
+                    .any(|c| c.name == name && c.generated.is_some())
+            })
+        };
+        let chosen: Vec<&Column> = if columns.is_empty() {
+            source
+                .columns
+                .iter()
+                .filter(|c| !generated(&c.name))
+                .collect()
+        } else {
+            let mut out = Vec::new();
+            for c in columns {
+                let col = source
+                    .columns
+                    .iter()
+                    .find(|x| x.name == c.value)
+                    .ok_or_else(|| {
+                        SemaError::new(
+                            "column-not-found",
+                            format!(
+                                "column \"{}\" of relation \"{}\" does not exist",
+                                c.value,
+                                source.name.clone().unwrap_or_default()
+                            ),
+                            Span::DUMMY,
+                        )
+                    })?;
+                if generated(&c.value) {
+                    return Err(SemaError::new(
+                        "generated-column",
+                        format!("column \"{}\" is a generated column", c.value),
+                        Span::DUMMY,
+                    ));
+                }
+                out.push(col);
+            }
+            out
+        };
+        chosen
+            .into_iter()
+            .map(|c| {
+                Ok(crate::query::OutputColumn {
+                    name: c.name.clone(),
+                    ty: c.ty.clone().ok_or_else(|| {
+                        SemaError::not_analyzed(
+                            format!("type de la colonne « {} »", c.name),
+                            Span::DUMMY,
+                        )
+                    })?,
+                    modifiers: c.modifiers.clone(),
+                    nullable: c.nullable,
+                })
+            })
+            .collect()
+    }
+
     /// `CREATE POLICY` : `USING` et `WITH CHECK` sont des conditions sur
     /// une ligne de la table.
     fn policy(&mut self, p: &CreatePolicy) -> Result<(), SemaError> {

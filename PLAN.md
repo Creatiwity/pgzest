@@ -730,9 +730,15 @@ Fait (2026-11-02) :
   recompilation ; projet mis en cache par le serveur de macros, invalidé
   par date de modification). Enums refusés en inline : requête nommée.
 
-Reste : `query_file!`/`copy_in!`, `RowStream`, `COPY` typé,
-correspondance de types par pack (PostGIS), exemple siren (staging + COPY
-+ swap), budget de compilation, benchmarks.
+- `COPY … FROM STDIN` comme requête nommée : descripteur `copy_in`
+  (colonnes alimentées, générées exclues ou refusées comme par PostgreSQL),
+  fonction générée sur enregistrements typés (binaire) ou flux d'octets
+  (texte, CSV), sur client ou transaction ; l'exemple reproduit le motif
+  siren (staging + COPY binaire et CSV + bascule) contre PostgreSQL 18.
+
+Reste : `query_file!`, `RowStream`, correspondance de types par pack
+(PostGIS), en-tête CSV vérifié (`HEADER MATCH`), budget de compilation,
+benchmarks.
 
 - `pgweave-runtime` : exécution D8, `fetch_one`/`fetch_optional`/`fetch_all`/
   `execute` alignés sur la cardinalité, flux (`RowStream`), transactions,
