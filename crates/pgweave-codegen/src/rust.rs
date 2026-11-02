@@ -351,6 +351,16 @@ impl Generator<'_> {
         Ok(o)
     }
 
+    /// Extension qui apporte ce type, s'il en vient une.
+    fn extension_of(&self, ty: &Ty) -> Option<String> {
+        let cat = self.ts.catalog;
+        cat.extension_packs.iter().find_map(|(ext, pack)| {
+            let schema = &cat.extensions.get(ext)?.schema;
+            (*schema == ty.schema && pack.types.iter().any(|t| t.name.name == ty.name))
+                .then(|| ext.clone())
+        })
+    }
+
     /// Type Rust d'un type PostgreSQL (nom qualifié du descripteur).
     fn rust_type(&mut self, qualified: &str) -> Result<RustTy, String> {
         if let Some(t) = self.opts.overrides.get(qualified) {
@@ -381,9 +391,21 @@ impl Generator<'_> {
             _ => {}
         }
         if ty.schema != "pg_catalog" {
-            return Err(format!(
-                "pas de type Rust pour {qualified} : le déclarer dans la table de correspondance du projet"
-            ));
+            // Type d'une extension : correspondance par extension et nom,
+            // quel que soit le schéma où elle est installée (D9).
+            return match (self.extension_of(&ty).as_deref(), ty.name.as_str()) {
+                (Some("citext"), "citext") => Ok(RustTy {
+                    owned: "String".into(),
+                    borrowed: "&'a str".into(),
+                    lifetime: true,
+                }),
+                (Some(ext), _) => Err(format!(
+                    "pas de type Rust pour {qualified} (extension {ext}) : le déclarer dans la table de correspondance du projet"
+                )),
+                (None, _) => Err(format!(
+                    "pas de type Rust pour {qualified} : le déclarer dans la table de correspondance du projet"
+                )),
+            };
         }
         let time = self.opts.temporal == Temporal::Time;
         Ok(match ty.name.as_str() {
@@ -395,7 +417,7 @@ impl Generator<'_> {
             "float8" => RustTy::copy("f64"),
             "oid" => RustTy::copy("u32"),
             "char" => RustTy::copy("i8"),
-            "text" | "varchar" | "bpchar" | "name" | "citext" => RustTy {
+            "text" | "varchar" | "bpchar" | "name" => RustTy {
                 owned: "String".into(),
                 borrowed: "&'a str".into(),
                 lifetime: true,
@@ -624,12 +646,44 @@ fn qname(qualified: &str) -> Ty {
     }
 }
 
-/// `page_by_id` → `PageById`.
-fn pascal(s: &str) -> String {
-    s.split(|c: char| !c.is_ascii_alphanumeric())
+/// Mots d'un nom, en minuscules : séparés par tout caractère non
+/// alphanumérique et par les changements de casse (`createdAt` → created,
+/// at ; `HTTPServer` → http, server ; `ORDERED` → ordered).
+fn words(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for part in s
+        .split(|c: char| !c.is_ascii_alphanumeric())
         .filter(|p| !p.is_empty())
-        .map(|p| {
-            let mut c = p.chars();
+    {
+        let chars: Vec<char> = part.chars().collect();
+        let mut word = String::new();
+        for (i, &c) in chars.iter().enumerate() {
+            let prev = i.checked_sub(1).map(|p| chars[p]);
+            let next = chars.get(i + 1);
+            let boundary = c.is_ascii_uppercase()
+                && prev.is_some_and(|p| {
+                    p.is_ascii_lowercase()
+                        || p.is_ascii_digit()
+                        || (p.is_ascii_uppercase() && next.is_some_and(|n| n.is_ascii_lowercase()))
+                });
+            if boundary && !word.is_empty() {
+                out.push(std::mem::take(&mut word));
+            }
+            word.push(c.to_ascii_lowercase());
+        }
+        if !word.is_empty() {
+            out.push(word);
+        }
+    }
+    out
+}
+
+/// `page_by_id` → `PageById`, `ORDERED` → `Ordered`.
+fn pascal(s: &str) -> String {
+    words(s)
+        .iter()
+        .map(|w| {
+            let mut c = w.chars();
             match c.next() {
                 Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
                 None => String::new(),
@@ -652,21 +706,12 @@ fn rust_ident(name: &str) -> Result<String, String> {
 }
 
 /// Champ Rust d'un nom de colonne ou de paramètre : en snake_case
-/// (`createdAt` → `created_at`), mot-clé en identifiant brut.
+/// (`createdAt` → `created_at`, `ID` → `id`), mot-clé en identifiant brut.
 fn field_ident(name: &str) -> Result<String, String> {
-    let mut out = String::new();
-    for (i, c) in name.chars().enumerate() {
-        if c.is_ascii_uppercase() {
-            if i > 0 && !out.ends_with('_') {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-        } else if c.is_ascii_alphanumeric() || c == '_' {
-            out.push(c);
-        } else {
-            return Err(format!("`{name}` n'est pas un identifiant Rust"));
-        }
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("`{name}` n'est pas un identifiant Rust"));
     }
+    let out = words(name).join("_");
     if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) {
         return Err(format!("`{name}` n'est pas un identifiant Rust"));
     }
@@ -675,4 +720,28 @@ fn field_ident(name: &str) -> Result<String, String> {
     } else {
         out
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn noms_rust() {
+        for (name, field, ty) in [
+            ("createdAt", "created_at", "CreatedAt"),
+            ("companyId", "company_id", "CompanyId"),
+            ("ID", "id", "Id"),
+            ("HTTPServer", "http_server", "HttpServer"),
+            ("ORDERED", "ordered", "Ordered"),
+            ("IN_PROGRESS", "in_progress", "InProgress"),
+            ("page_by_id", "page_by_id", "PageById"),
+            ("v2Count", "v2_count", "V2Count"),
+            ("type", "r#type", "Type"),
+        ] {
+            assert_eq!(field_ident(name).unwrap(), field, "{name}");
+            assert_eq!(pascal(name), ty, "{name}");
+        }
+        assert!(field_ident("?column?").is_err());
+    }
 }

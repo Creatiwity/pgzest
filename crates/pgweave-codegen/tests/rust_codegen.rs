@@ -109,3 +109,23 @@ fn refus_explicites() {
         ["q : deux colonnes de sortie s'appellent `id` : leur donner des alias distincts"]
     );
 }
+
+#[test]
+fn types_d_extension() {
+    let cat = ProjectCatalog::from_sql(
+        "CREATE SCHEMA ext; CREATE EXTENSION citext SCHEMA ext; CREATE EXTENSION pg_trgm;\n\
+         CREATE TABLE u (email ext.citext NOT NULL);",
+    )
+    .expect("schéma");
+    let file = parse_query_file("-- name: q\nSELECT email FROM u WHERE email = $email;\n");
+    let d = describe_named(&cat, &file.queries[0]).expect("descripteur");
+    let code = generate_rust(&[d], &cat, &RustOptions::default()).expect("code");
+    assert!(code.contains("pub email: String,"), "{code}");
+    assert!(code.contains("pub email: &'a str,"), "{code}");
+
+    let file = parse_query_file("-- name: q\nSELECT show_trgm('x') AS t, 'x'::gtrgm AS g;\n");
+    if let Ok(d) = describe_named(&cat, &file.queries[0]) {
+        let err = generate_rust(&[d], &cat, &RustOptions::default()).expect_err("gtrgm");
+        assert!(err[0].contains("(extension pg_trgm)"), "{err:?}");
+    }
+}
