@@ -1,0 +1,14 @@
+[package]
+name = "pgweave-build"
+version = "0.1.0"
+edition = "2024"
+description = "Génération des requêtes nommées pour build.rs (PLAN.md §5, P5)"
+
+[dependencies]
+pgweave-catalog = { path = "../pgweave-catalog" }
+pgweave-codegen = { path = "../pgweave-codegen" }
+pgweave-diagnostics = { workspace = true }
+pgweave-macro = { path = "../pgweave-macro" }
+pgweave-query = { path = "../pgweave-query" }
+pgweave-schema = { path = "../pgweave-schema" }
+pgweave-sema = { path = "../pgweave-sema" }

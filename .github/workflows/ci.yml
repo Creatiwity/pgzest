@@ -78,6 +78,9 @@ jobs:
       - name: Précédence des opérateurs
         run: cargo test -p pgweave-oracle --test precedence -- --ignored
 
+      - name: Service Rust d'exemple (requêtes générées, exécutées)
+        run: cargo test -p pgweave-example-rust-service -- --ignored
+
   typescript:
     name: TypeScript (paquet npm + extension)
     runs-on: ubuntu-latest

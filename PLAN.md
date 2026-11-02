@@ -699,7 +699,33 @@ Fait (2026-11-02) :
 **Sortie** : descripteurs déterministes (snapshots) ; refus explicite quand
 un type est inconnu ; oracle vert sur types de paramètres et colonnes.
 
-### P5 — Intégration Rust
+### P5 — Intégration Rust — 🚧 en cours
+
+Fait (2026-11-02) :
+- `pgweave-runtime` : `Query` (SQL positionnel, OID des paramètres),
+  `fetch_one`/`fetch_optional`/`fetch_all`/`execute` alignés sur la
+  cardinalité, sur `GenericClient` (client, transaction, pool) ;
+  `query_typed` quand les OID sont fixes, préparation par le serveur pour un
+  type du projet (enum) ; décodage par index ; erreurs `Db`/`RowCount`/
+  `Decode`.
+- `pgweave_codegen::rust` : une fonction par requête, struct de paramètres
+  (empruntés) et de ligne, nullabilité D5 (`Option` sauf non-nullité
+  établie ; paramètre de nullabilité inconnue attendu non nul), enums
+  générés (libellés), domaines par leur type de base, tableaux en
+  `Vec<Option<T>>`, `time` ou `chrono` ; table de correspondance du projet ;
+  refus explicite d'un type sans correspondance ou d'une colonne sans nom
+  Rust.
+- `pgweave-build` : génération depuis `build.rs` (projet de `pgweave.toml`,
+  aucune connexion), `rerun-if-changed` sur le schéma, les migrations, les
+  requêtes et les macros ; une requête non décrite fait échouer la
+  compilation avec sa position.
+- `examples/rust-service` : schéma (enum, domaine, tableau, uuid, dates),
+  requêtes nommées, test de bout en bout contre PostgreSQL 18 (`make
+  oracle`, CI).
+
+Reste : macros `query!`/`query_file!`/`copy_in!`, `RowStream`, `COPY` typé,
+correspondance de types par pack (PostGIS), exemple siren (staging + COPY
++ swap), budget de compilation, benchmarks.
 
 - `pgweave-runtime` : exécution D8, `fetch_one`/`fetch_optional`/`fetch_all`/
   `execute` alignés sur la cardinalité, flux (`RowStream`), transactions,

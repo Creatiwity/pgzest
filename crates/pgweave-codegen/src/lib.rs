@@ -3,6 +3,7 @@ pub mod diff;
 pub use pgweave_ast::emit;
 pub mod inject;
 pub mod migration_safety;
+pub mod rust;
 pub mod ts_types;
 
 pub use diff::{DiffOp, MigrationDiff, diff_schemas};

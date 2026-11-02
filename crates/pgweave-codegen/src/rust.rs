@@ -1,0 +1,470 @@
+//! Code Rust des requêtes nommées, depuis leurs descripteurs (PLAN.md §5,
+//! P5) : une fonction par requête, alignée sur sa cardinalité, une struct de
+//! paramètres et une struct de ligne, exécutées par `pgweave-runtime`.
+//!
+//! Correspondance des types : table ci-dessous, extensible par projet
+//! ([`RustOptions::overrides`], D9). Un type sans correspondance est un
+//! refus, jamais un repli.
+
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+
+use pgweave_catalog::ProjectCatalog;
+use pgweave_catalog::model::TypeKind;
+use pgweave_query::Descriptor;
+use pgweave_query::descriptor::NullabilityDesc;
+use pgweave_sema::{Ty, TypeSystem};
+
+/// Crate de dates et heures du projet.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Temporal {
+    #[default]
+    Time,
+    Chrono,
+}
+
+#[derive(Debug, Clone)]
+pub struct RustOptions {
+    /// Chemin du runtime dans le crate utilisateur.
+    pub runtime: String,
+    pub temporal: Temporal,
+    /// Type Rust d'un type PostgreSQL (`"public.geometry"` →
+    /// `"geo_types::Geometry"`), prioritaire sur la table intégrée.
+    pub overrides: BTreeMap<String, String>,
+}
+
+impl Default for RustOptions {
+    fn default() -> Self {
+        RustOptions {
+            runtime: "pgweave_runtime".into(),
+            temporal: Temporal::default(),
+            overrides: BTreeMap::new(),
+        }
+    }
+}
+
+/// Type Rust d'une valeur : possédée (colonne) et empruntée (paramètre).
+#[derive(Debug, Clone)]
+struct RustTy {
+    owned: String,
+    borrowed: String,
+    /// La forme empruntée porte la durée de vie `'a`.
+    lifetime: bool,
+}
+
+impl RustTy {
+    fn copy(t: &str) -> Self {
+        RustTy {
+            owned: t.into(),
+            borrowed: t.into(),
+            lifetime: false,
+        }
+    }
+}
+
+struct Generator<'c> {
+    ts: TypeSystem<'c>,
+    opts: &'c RustOptions,
+    /// Enums utilisés : nom qualifié → (type Rust, libellés).
+    enums: BTreeMap<Ty, (String, String, Vec<String>)>,
+}
+
+/// Module Rust des requêtes `descriptors`, typées contre `catalog`. Les
+/// erreurs disent quelle requête ne se traduit pas, et pourquoi.
+pub fn generate_rust(
+    descriptors: &[Descriptor],
+    catalog: &ProjectCatalog,
+    opts: &RustOptions,
+) -> Result<String, Vec<String>> {
+    let mut g = Generator {
+        ts: TypeSystem::new(&catalog.catalog),
+        opts,
+        enums: BTreeMap::new(),
+    };
+    let mut errors = Vec::new();
+    let mut body = String::new();
+    for d in descriptors {
+        match g.query(d) {
+            Ok(code) => body.push_str(&code),
+            Err(e) => errors.push(format!("{} : {e}", d.name)),
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    let mut out = String::from(
+        "// Généré par pgweave à partir des descripteurs de requêtes. Ne pas modifier.\n\n",
+    );
+    let mut names = BTreeMap::new();
+    for (ty, (rust, typname, labels)) in &g.enums {
+        if let Some(other) = names.insert(rust.clone(), ty.clone()) {
+            return Err(vec![format!(
+                "les enums {other} et {ty} donnent le même type Rust `{rust}`"
+            )]);
+        }
+        out.push_str(&enum_code(&g.opts.runtime, rust, typname, labels)?);
+    }
+    out.push_str(&body);
+    Ok(out)
+}
+
+impl Generator<'_> {
+    fn query(&mut self, d: &Descriptor) -> Result<String, String> {
+        let rt = self.opts.runtime.clone();
+        let fn_name = rust_ident(&d.name)?;
+        let pascal = pascal(&d.name);
+        let const_name = d.name.to_uppercase();
+        let mut o = String::new();
+
+        // OID de chaque paramètre ; un domaine est passé sous son type de
+        // base (le serveur convertit implicitement), un type sans OID fixe
+        // laisse le serveur typer la requête.
+        let mut oids = Some(Vec::new());
+        for p in &d.params {
+            let base = self.ts.base_type(&qname(&p.ty.pg));
+            match (self.ts.def(&base).and_then(|t| t.oid), oids.as_mut()) {
+                (Some(oid), Some(v)) => v.push(oid),
+                _ => oids = None,
+            }
+        }
+        let oids = match oids {
+            Some(v) => format!(
+                "Some(&[{}])",
+                v.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
+            ),
+            None => "None".into(),
+        };
+        let _ = writeln!(o, "/// `{}`", d.sql.replace('\n', " "));
+        let _ = writeln!(
+            o,
+            "pub const {const_name}: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};\n",
+            d.name, d.sql
+        );
+
+        // Paramètres.
+        let mut params = Vec::new();
+        let mut lifetime = false;
+        for p in &d.params {
+            let t = self.rust_type(&p.ty.pg)?;
+            lifetime |= t.lifetime;
+            let ty = match p.nullable {
+                // Un paramètre de nullabilité non établie est attendu non
+                // nul : NULL n'a de sens que là où la requête l'accepte
+                // explicitement (colonne nullable).
+                NullabilityDesc::Nullable => format!("Option<{}>", t.borrowed),
+                NullabilityDesc::NonNull | NullabilityDesc::Unknown => t.borrowed,
+            };
+            params.push((field_ident(&p.name)?, ty));
+        }
+        let params_ty = if params.is_empty() {
+            None
+        } else {
+            let name = format!("{pascal}Params");
+            let lt = if lifetime { "<'a>" } else { "" };
+            let _ = writeln!(o, "#[derive(Debug, Clone)]\npub struct {name}{lt} {{");
+            for (f, t) in &params {
+                let _ = writeln!(o, "    pub {f}: {t},");
+            }
+            let _ = writeln!(o, "}}\n");
+            Some(format!("{name}{}", if lifetime { "<'_>" } else { "" }))
+        };
+
+        // Ligne.
+        let row_ty = if d.columns.is_empty() {
+            None
+        } else {
+            let name = format!("{pascal}Row");
+            let mut seen = std::collections::BTreeSet::new();
+            let mut fields = Vec::new();
+            for c in &d.columns {
+                let f = field_ident(&c.name)
+                    .map_err(|e| format!("{e} (colonne de sortie : lui donner un alias)"))?;
+                if !seen.insert(f.clone()) {
+                    return Err(format!(
+                        "deux colonnes de sortie s'appellent `{}` : leur donner des alias distincts",
+                        c.name
+                    ));
+                }
+                let t = self.rust_type(&c.ty.pg)?;
+                let ty = match c.nullable {
+                    NullabilityDesc::NonNull => t.owned,
+                    NullabilityDesc::Nullable | NullabilityDesc::Unknown => {
+                        format!("Option<{}>", t.owned)
+                    }
+                };
+                fields.push((f, ty));
+            }
+            let _ = writeln!(
+                o,
+                "#[derive(Debug, Clone, PartialEq)]\npub struct {name} {{"
+            );
+            for (f, t) in &fields {
+                let _ = writeln!(o, "    pub {f}: {t},");
+            }
+            let _ = writeln!(o, "}}\n");
+            let _ = writeln!(o, "impl {name} {{");
+            let _ = writeln!(
+                o,
+                "    fn from_row(row: &{rt}::Row) -> Result<Self, {rt}::tokio_postgres::Error> {{"
+            );
+            let _ = writeln!(o, "        Ok(Self {{");
+            for (i, (f, _)) in fields.iter().enumerate() {
+                let _ = writeln!(o, "            {f}: row.try_get({i})?,");
+            }
+            let _ = writeln!(o, "        }})\n    }}\n}}\n");
+            Some(name)
+        };
+
+        // Fonction.
+        let args = match &params_ty {
+            Some(t) => format!(", params: {t}"),
+            None => String::new(),
+        };
+        let bound = match &params_ty {
+            Some(_) => format!(
+                "&[{}]",
+                params
+                    .iter()
+                    .map(|(f, _)| format!("&params.{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            None => "&[]".into(),
+        };
+        use pgweave_query::Cardinality;
+        let (ret, call) = match (d.cardinality, &row_ty) {
+            (Cardinality::None, _) | (_, None) => (
+                "u64".to_string(),
+                format!("{rt}::execute(client, &{const_name}, {bound})"),
+            ),
+            (Cardinality::One, Some(r)) => (
+                r.clone(),
+                format!("{rt}::fetch_one(client, &{const_name}, {bound}, {r}::from_row)"),
+            ),
+            (Cardinality::Optional, Some(r)) => (
+                format!("Option<{r}>"),
+                format!("{rt}::fetch_optional(client, &{const_name}, {bound}, {r}::from_row)"),
+            ),
+            (Cardinality::Many, Some(r)) => (
+                format!("Vec<{r}>"),
+                format!("{rt}::fetch_all(client, &{const_name}, {bound}, {r}::from_row)"),
+            ),
+        };
+        let _ = writeln!(
+            o,
+            "pub async fn {fn_name}<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<{ret}, {rt}::Error> {{\n    {call}.await\n}}\n"
+        );
+        Ok(o)
+    }
+
+    /// Type Rust d'un type PostgreSQL (nom qualifié du descripteur).
+    fn rust_type(&mut self, qualified: &str) -> Result<RustTy, String> {
+        if let Some(t) = self.opts.overrides.get(qualified) {
+            return Ok(RustTy::copy(t));
+        }
+        let ty = qname(qualified);
+        let def = self.ts.def(&ty);
+        match def.map(|d| &d.kind) {
+            Some(TypeKind::Domain { .. }) => {
+                let base = self.ts.base_type(&ty);
+                return self.rust_type(&base.to_string());
+            }
+            Some(TypeKind::Enum { labels }) => {
+                let rust = pascal(&ty.name);
+                self.enums
+                    .insert(ty.clone(), (rust.clone(), ty.name.clone(), labels.clone()));
+                return Ok(RustTy::copy(&rust));
+            }
+            Some(TypeKind::Array { element }) => {
+                let e = self.rust_type(&element.to_string())?;
+                return Ok(RustTy {
+                    // Un élément de tableau peut être NULL.
+                    owned: format!("Vec<Option<{}>>", e.owned),
+                    borrowed: format!("&'a [{}]", e.owned),
+                    lifetime: true,
+                });
+            }
+            _ => {}
+        }
+        if ty.schema != "pg_catalog" {
+            return Err(format!(
+                "pas de type Rust pour {qualified} : le déclarer dans la table de correspondance du projet"
+            ));
+        }
+        let time = self.opts.temporal == Temporal::Time;
+        Ok(match ty.name.as_str() {
+            "bool" => RustTy::copy("bool"),
+            "int2" => RustTy::copy("i16"),
+            "int4" => RustTy::copy("i32"),
+            "int8" => RustTy::copy("i64"),
+            "float4" => RustTy::copy("f32"),
+            "float8" => RustTy::copy("f64"),
+            "oid" => RustTy::copy("u32"),
+            "char" => RustTy::copy("i8"),
+            "text" | "varchar" | "bpchar" | "name" | "citext" => RustTy {
+                owned: "String".into(),
+                borrowed: "&'a str".into(),
+                lifetime: true,
+            },
+            "bytea" => RustTy {
+                owned: "Vec<u8>".into(),
+                borrowed: "&'a [u8]".into(),
+                lifetime: true,
+            },
+            "uuid" => RustTy::copy("uuid::Uuid"),
+            "json" | "jsonb" => RustTy {
+                owned: "serde_json::Value".into(),
+                borrowed: "&'a serde_json::Value".into(),
+                lifetime: true,
+            },
+            "numeric" => RustTy::copy("rust_decimal::Decimal"),
+            "date" if time => RustTy::copy("time::Date"),
+            "time" if time => RustTy::copy("time::Time"),
+            "timestamp" if time => RustTy::copy("time::PrimitiveDateTime"),
+            "timestamptz" if time => RustTy::copy("time::OffsetDateTime"),
+            "date" => RustTy::copy("chrono::NaiveDate"),
+            "time" => RustTy::copy("chrono::NaiveTime"),
+            "timestamp" => RustTy::copy("chrono::NaiveDateTime"),
+            "timestamptz" => RustTy::copy("chrono::DateTime<chrono::Utc>"),
+            _ => {
+                return Err(format!(
+                    "pas de type Rust pour {qualified} : le déclarer dans la table de correspondance du projet"
+                ));
+            }
+        })
+    }
+}
+
+/// Enum Rust d'un enum PostgreSQL, encodé par ses libellés.
+fn enum_code(
+    rt: &str,
+    rust: &str,
+    typname: &str,
+    labels: &[String],
+) -> Result<String, Vec<String>> {
+    let mut variants = Vec::new();
+    for l in labels {
+        let v = pascal(l);
+        if v.is_empty() || !v.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+            return Err(vec![format!(
+                "libellé {l:?} de l'enum {typname} : pas de variante Rust possible"
+            )]);
+        }
+        if variants.iter().any(|(x, _)| *x == v) {
+            return Err(vec![format!(
+                "libellés de l'enum {typname} : deux donnent la variante `{v}`"
+            )]);
+        }
+        variants.push((v, l.clone()));
+    }
+    let mut o = String::new();
+    let _ = writeln!(
+        o,
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub enum {rust} {{"
+    );
+    for (v, l) in &variants {
+        let _ = writeln!(o, "    /// `{l}`\n    {v},");
+    }
+    let _ = writeln!(o, "}}\n");
+    let _ = writeln!(o, "impl {rt}::PgEnum for {rust} {{");
+    let _ = writeln!(o, "    const TYPE_NAME: &'static str = {typname:?};");
+    let _ = writeln!(
+        o,
+        "    fn label(&self) -> &'static str {{\n        match self {{"
+    );
+    for (v, l) in &variants {
+        let _ = writeln!(o, "            {rust}::{v} => {l:?},");
+    }
+    let _ = writeln!(o, "        }}\n    }}");
+    let _ = writeln!(
+        o,
+        "    fn from_label(label: &str) -> Option<Self> {{\n        match label {{"
+    );
+    for (v, l) in &variants {
+        let _ = writeln!(o, "            {l:?} => Some({rust}::{v}),");
+    }
+    let _ = writeln!(o, "            _ => None,\n        }}\n    }}\n}}\n");
+    let _ = writeln!(
+        o,
+        "impl<'a> {rt}::FromSql<'a> for {rust} {{
+    fn from_sql(_: &{rt}::Type, raw: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {{
+        {rt}::enum_from_sql(raw)
+    }}
+    fn accepts(ty: &{rt}::Type) -> bool {{
+        ty.name() == {typname:?}
+    }}
+}}
+
+impl {rt}::ToSql for {rust} {{
+    fn to_sql(&self, _: &{rt}::Type, out: &mut {rt}::types::private::BytesMut) -> Result<{rt}::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {{
+        {rt}::enum_to_sql(self, out)
+    }}
+    fn accepts(ty: &{rt}::Type) -> bool {{
+        ty.name() == {typname:?}
+    }}
+    {rt}::types::to_sql_checked!();
+}}
+"
+    );
+    Ok(o)
+}
+
+fn qname(qualified: &str) -> Ty {
+    match qualified.split_once('.') {
+        Some((s, n)) => pgweave_catalog::QName::new(s, n),
+        None => pgweave_sema::pg(qualified),
+    }
+}
+
+/// `page_by_id` → `PageById`.
+fn pascal(s: &str) -> String {
+    s.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let mut c = p.chars();
+            match c.next() {
+                Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect()
+}
+
+const KEYWORDS: &[&str] = &[
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
+    "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+    "ref", "return", "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
+    "where", "while", "abstract", "become", "box", "do", "final", "gen", "macro", "override",
+    "priv", "try", "typeof", "unsized", "virtual", "yield",
+];
+
+/// Identifiant Rust d'un nom de requête (tel quel, il doit en être un).
+fn rust_ident(name: &str) -> Result<String, String> {
+    field_ident(name)
+}
+
+/// Champ Rust d'un nom de colonne ou de paramètre : en snake_case
+/// (`createdAt` → `created_at`), mot-clé en identifiant brut.
+fn field_ident(name: &str) -> Result<String, String> {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_ascii_uppercase() {
+            if i > 0 && !out.ends_with('_') {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else if c.is_ascii_alphanumeric() || c == '_' {
+            out.push(c);
+        } else {
+            return Err(format!("`{name}` n'est pas un identifiant Rust"));
+        }
+    }
+    if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) {
+        return Err(format!("`{name}` n'est pas un identifiant Rust"));
+    }
+    Ok(if KEYWORDS.contains(&out.as_str()) {
+        format!("r#{out}")
+    } else {
+        out
+    })
+}

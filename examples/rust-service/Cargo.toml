@@ -1,0 +1,19 @@
+[package]
+name = "pgweave-example-rust-service"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Exemple de bout en bout : requêtes nommées compilées par pgweave-build, exécutées par pgweave-runtime"
+
+[dependencies]
+pgweave-runtime = { path = "../../crates/pgweave-runtime" }
+tokio-postgres = { workspace = true, features = ["with-time-0_3", "with-uuid-1"] }
+time = "0.3"
+uuid = "1"
+
+[build-dependencies]
+pgweave-build = { path = "../../crates/pgweave-build" }
+
+[dev-dependencies]
+pgweave-runtime = { path = "../../crates/pgweave-runtime" }
+tokio = { workspace = true }
