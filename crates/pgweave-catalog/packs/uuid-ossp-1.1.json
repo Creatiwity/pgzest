@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "contributor": {"name":"uuid-ossp","version":"1.1"},
+  "postgres": "18",
+  "schemas": [],
+  "types": [],
+  "routines": [
+    {"name":"\"@extschema@\".uuid_generate_v1","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Volatile","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_generate_v1mc","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Volatile","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_generate_v3","kind":"Function","args":[{"name":"namespace","ty":"pg_catalog.uuid","mode":"In"},{"name":"name","ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.uuid","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_generate_v4","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Volatile","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_generate_v5","kind":"Function","args":[{"name":"namespace","ty":"pg_catalog.uuid","mode":"In"},{"name":"name","ty":"pg_catalog.text","mode":"In"}],"returns":"pg_catalog.uuid","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_nil","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_ns_dns","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_ns_oid","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_ns_url","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Immutable","strict":true,"language":"c"},
+    {"name":"\"@extschema@\".uuid_ns_x500","kind":"Function","args":[],"returns":"pg_catalog.uuid","volatility":"Immutable","strict":true,"language":"c"}
+  ],
+  "operators": [],
+  "casts": [],
+  "opclasses": [],
+  "relations": []
+}

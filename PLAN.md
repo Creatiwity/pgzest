@@ -595,8 +595,14 @@ Fait (2026-11-01) :
   - paramètres typés par leur premier usage ;
   - nullabilité D5 ;
   - noms de colonnes de `FigureColname`.
-- Oracle de requêtes : 178 requêtes, 550/550 colonnes, 114/114 paramètres.
+- Oracle de requêtes : 183 requêtes, 559/559 colonnes, 115/115 paramètres.
 - Colonnes de vues typées pendant le rejeu (`QueryTyper`) : Mesalia identique au réel, 1 622/1 622 colonnes.
+- (2026-11-02) `check` passe par sema (`pgweave_sema::check`) : chaque
+  statement est vérifié quand il s'applique, contre l'état du catalogue à ce
+  point (`StatementChecker` du rejeu) ; un corps PL/pgSQL l'est contre l'état
+  final s'il est encore en vigueur. CLI, LSP, base incrémentale et corpus
+  partagent ce mécanisme. Mesalia : 0 diagnostic (faute injectée : détectée) ;
+  siren : inchangé.
 
 Reste, dans l'ordre :
 1. Corpus : ✅ 178 requêtes écrites à la main (`make oracle`), plus les
@@ -609,8 +615,16 @@ Reste, dans l'ordre :
 3. ✅ Arguments nommés (`MatchNamedCall`), CTE modifiantes, `GROUPING SETS`,
    listes de définition de colonnes, `RETURNING old/new`. Les lints de
    requête ne visitent que les corps `SELECT` des CTE.
-4. Portées routine/bloc (PL/pgSQL) dans sema.
-5. Checker et lint portés sur `pgweave-sema` ; diagnostic de compatibilité (`WHERE text_col = 42`) ; suppression de `pgweave-semantic` et du `TypeContext`.
+4. ✅ Portées routine/bloc dans sema (`routine.rs`) : paramètres nommés et
+   positionnels, blocs étiquetés, `variable_conflict = error` en PL/pgSQL,
+   colonne avant paramètre en SQL, records dont la structure suit les
+   affectations, curseurs, `NEW`/`OLD`/`TG_*` par table du trigger, tables de
+   transition, tables temporaires du corps.
+5. ✅ Checker porté sur `pgweave-sema` (l'ancien `TypeContext` et ses règles
+   sont supprimés ; `pgweave-checker` n'héberge plus que les règles de
+   plugins) ; diagnostic de compatibilité (`WHERE text_col = 42`). Reste :
+   lints portés sur sema, suppression de `pgweave-semantic` (hover,
+   complétion, codegen TS).
 6. Exécution du SQL dynamique des corps : reportée de P2.
 
 - Crate `pgweave-sema` : normalisation → résolution → HIR typé.

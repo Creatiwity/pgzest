@@ -48,6 +48,7 @@ fn create_table(
         columns,
         constraints,
         likes: vec![],
+        as_query: None,
     }))
 }
 
@@ -69,6 +70,7 @@ fn quoted_table(name: &str) -> Statement {
             columns: vec![],
         }],
         likes: vec![],
+        as_query: None,
     }))
 }
 
@@ -111,6 +113,7 @@ fn named_columns_no_warning() {
     use pgweave_ast::expr::{ColumnRef, Expr, ExprKind};
     let col_expr = SelectItem::Expr {
         expr: Expr::bare(ExprKind::Column(ColumnRef {
+            schema: None,
             table: None,
             column: Ident::new("id"),
         })),
@@ -267,6 +270,7 @@ fn not_in_subquery_triggers_warning() {
         distinct_on: vec![],
         columns: vec![SelectItem::Expr {
             expr: Expr::bare(ExprKind::Column(ColumnRef {
+                schema: None,
                 table: None,
                 column: Ident::new("id"),
             })),
@@ -287,6 +291,7 @@ fn not_in_subquery_triggers_warning() {
 
     let where_clause = Expr::bare(ExprKind::InSubquery {
         expr: Box::new(Expr::bare(ExprKind::Column(ColumnRef {
+            schema: None,
             table: None,
             column: Ident::new("user_id"),
         }))),

@@ -13,7 +13,6 @@
 use pgweave_catalog::ProjectCatalog;
 use pgweave_diagnostics::{Diagnostic, Severity, Span, Suppressions, codes};
 use pgweave_parser::{SkipReason, SkippedStatement};
-use pgweave_schema::provider::SchemaProvider;
 use pgweave_schema::{ParseConfig, SkipLevel};
 use pgweave_semantic::{SemanticResult, analyze};
 
@@ -175,7 +174,25 @@ impl AnalysisResult {
 /// mêmes suppressions.
 pub fn analyze_source(
     sql: &str,
-    schema: &dyn SchemaProvider,
+    schema: &ProjectCatalog,
+    opts: &AnalysisOptions,
+) -> AnalysisResult {
+    analyze_parsed(sql, Some(schema), opts)
+}
+
+/// Vérification des statements : contre `catalog` s'il est donné (le
+/// fichier s'exécute sur ce schéma), sinon en rejouant le fichier lui-même,
+/// chaque statement vérifié à son application.
+fn checks(stmts: &[pgweave_ast::Statement], catalog: Option<&ProjectCatalog>) -> Vec<Diagnostic> {
+    match catalog {
+        Some(c) => pgweave_checker::check_statements(stmts, c),
+        None => pgweave_checker::check_script(stmts),
+    }
+}
+
+fn analyze_parsed(
+    sql: &str,
+    catalog: Option<&ProjectCatalog>,
     opts: &AnalysisOptions,
 ) -> AnalysisResult {
     let suppressions = Suppressions::scan(sql);
@@ -198,13 +215,18 @@ pub fn analyze_source(
         }
     };
 
+    let own;
+    let schema = match catalog {
+        Some(c) => c,
+        None => {
+            own = ProjectCatalog::from_statements(&outcome.statements);
+            &own
+        }
+    };
     let semantic = analyze(&outcome.statements, schema);
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
     diagnostics.extend(header_diagnostic(sql));
-    diagnostics.extend(pgweave_checker::check_statements(
-        &outcome.statements,
-        schema,
-    ));
+    diagnostics.extend(checks(&outcome.statements, catalog));
     suppressions.apply(&mut diagnostics);
 
     AnalysisResult {
@@ -233,23 +255,14 @@ fn header_diagnostic(text: &str) -> Option<Diagnostic> {
 
 /// Variante autonome : le schéma est dérivé du DDL contenu dans la source.
 pub fn analyze_source_self_contained(sql: &str, opts: &AnalysisOptions) -> AnalysisResult {
-    match pgweave_parser::parse(sql) {
-        Ok(stmts) => {
-            let schema = ProjectCatalog::from_statements(&stmts);
-            analyze_source(sql, &schema, opts)
-        }
-        Err(_) => {
-            let empty = ProjectCatalog::empty();
-            analyze_source(sql, &empty, opts)
-        }
-    }
+    analyze_parsed(sql, None, opts)
 }
 
 /// Analyse `sql` et renvoie à la fois les diagnostics et le résultat sémantique.
 ///
 /// Utile à l'outillage qui a besoin des deux : LSP (hover, complétion),
 /// codegen, génération de types TypeScript.
-pub fn analyze_sql(sql: &str, schema: &dyn SchemaProvider) -> (Vec<Diagnostic>, SemanticResult) {
+pub fn analyze_sql(sql: &str, schema: &ProjectCatalog) -> (Vec<Diagnostic>, SemanticResult) {
     match pgweave_parser::parse(sql) {
         Ok(stmts) => {
             let semantic = analyze(&stmts, schema);
@@ -277,7 +290,7 @@ pub fn analyze_sql_self_contained(sql: &str) -> (Vec<Diagnostic>, SemanticResult
         Ok(stmts) => {
             let schema = ProjectCatalog::from_statements(&stmts);
             let semantic = analyze(&stmts, &schema);
-            let diags = pgweave_checker::check_statements(&stmts, &schema);
+            let diags = pgweave_checker::check_script(&stmts);
             (diags, semantic)
         }
         Err(e) => {
@@ -573,7 +586,7 @@ pub fn prepare_source(source: &str, macros: &pgweave_macro::MacroSet) -> Prepare
 pub fn analyze_source_with_macros(
     source: &str,
     macros: &pgweave_macro::MacroSet,
-    schema: &dyn SchemaProvider,
+    schema: &ProjectCatalog,
     opts: &AnalysisOptions,
 ) -> AnalysisResult {
     let prepared = prepare_source(source, macros);

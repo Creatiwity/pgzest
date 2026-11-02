@@ -17,11 +17,13 @@
 //! Chaque règle cite la fonction de PostgreSQL qu'elle reproduit ; un écart
 //! est un bug, révélé par l'oracle.
 
+pub mod check;
 pub mod coerce;
 pub mod expr;
 pub mod polymorphic;
 pub mod query;
 pub mod resolve;
+pub mod routine;
 pub mod scope;
 mod types;
 pub mod view;

@@ -221,10 +221,16 @@ impl<'c> Analyzer<'c> {
             self.boolean(w, &scope)?;
         }
         for g in &n.group_by {
-            self.group_or_order(g, &n.columns, &scope)?;
+            self.group_or_order(g, &n.columns, &scope, Clause::GroupBy)?;
         }
         if let Some(h) = &n.having {
             self.boolean(h, &scope)?;
+        }
+        // `WINDOW w AS (…)` : partitions et tris sur la portée de `FROM`.
+        for w in &n.windows {
+            for x in w.spec.exprs() {
+                self.expr(x, &scope)?;
+            }
         }
 
         let leaf = !n.set_ops.is_empty();
@@ -235,7 +241,7 @@ impl<'c> Analyzer<'c> {
         };
 
         for d in &n.distinct_on {
-            self.group_or_order(d, &n.columns, &scope)?;
+            self.group_or_order(d, &n.columns, &scope, Clause::DistinctOn)?;
         }
 
         // Opérations ensemblistes : type commun colonne à colonne, de gauche
@@ -278,7 +284,7 @@ impl<'c> Analyzer<'c> {
         // ORDER BY voit les colonnes de sortie (alias) et la portée.
         if n.set_ops.is_empty() {
             for o in &n.order_by {
-                self.group_or_order(&o.expr, &n.columns, &scope)?;
+                self.group_or_order(&o.expr, &n.columns, &scope, Clause::OrderBy)?;
             }
         }
         for l in n.limit.iter().chain(&n.offset) {
@@ -350,28 +356,59 @@ impl<'c> Analyzer<'c> {
         Ok(out)
     }
 
-    /// `GROUP BY` / `ORDER BY` : position, alias de sortie, ou expression.
+    /// `GROUP BY` / `ORDER BY` / `DISTINCT ON` : position, colonne de
+    /// sortie, ou expression (`findTargetlistEntrySQL92`).
     fn group_or_order(
         &mut self,
         e: &Expr,
         items: &[SelectItem],
         scope: &Scope,
+        clause: Clause,
     ) -> Result<(), SemaError> {
         if let ExprKind::Literal(pgweave_ast::expr::Literal::Number(_)) = e.kind {
             return Ok(());
         }
         if let ExprKind::GroupingSets { sets, .. } = &e.kind {
             for x in sets.iter().flatten() {
-                self.group_or_order(x, items, scope)?;
+                self.group_or_order(x, items, scope, clause)?;
             }
             return Ok(());
         }
+        // Un nom seul désigne la colonne de sortie de ce nom ; en `GROUP BY`,
+        // une colonne de `FROM` du même nom passe avant.
         if let ExprKind::Column(c) = &e.kind
             && c.table.is_none()
-            && scope.lookup(None, &c.column.value, e.span).is_err()
-            && items.iter().any(|i| matches!(i, SelectItem::Expr { alias: Some(a), .. } if a.value == c.column.value))
+            && !(clause == Clause::GroupBy && scope.has_local_column(&c.column.value))
         {
-            return Ok(());
+            let mut found: Option<&Expr> = None;
+            for item in items {
+                let SelectItem::Expr { expr, alias } = item else {
+                    continue;
+                };
+                let name = alias
+                    .as_ref()
+                    .map_or_else(|| figure_colname(expr), |a| a.value.clone());
+                if name != c.column.value {
+                    continue;
+                }
+                match found {
+                    Some(prev)
+                        if pgweave_ast::emit::emit_expr(prev)
+                            != pgweave_ast::emit::emit_expr(expr) =>
+                    {
+                        return Err(SemaError::new(
+                            "ambiguous-column",
+                            format!("{} \"{}\" is ambiguous", clause.label(), c.column.value),
+                            e.span,
+                        ));
+                    }
+                    Some(_) => {}
+                    None => found = Some(expr),
+                }
+            }
+            if found.is_some() {
+                return Ok(());
+            }
         }
         self.expr(e, scope).map(|_| ())
     }
@@ -558,6 +595,9 @@ impl<'c> Analyzer<'c> {
                 .collect::<Result<_, SemaError>>()?;
         }
         let mut source = Source::new(t.alias.as_ref().map(|a| a.value.clone()).or(name), columns);
+        if t.alias.is_none() {
+            source.relation = rowtype.clone();
+        }
         source.rowtype = rowtype;
         Ok(if system {
             source.with_system_columns()
@@ -775,6 +815,9 @@ impl<'c> Analyzer<'c> {
         );
         let mut source = source.with_system_columns();
         source.rowtype = Some(qname.clone());
+        if alias.is_none() {
+            source.relation = Some(qname.clone());
+        }
         Ok((source, qname))
     }
 
@@ -1142,6 +1185,24 @@ impl Analyzer<'_> {
     }
 }
 
+/// Clause qui désigne une colonne de sortie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Clause {
+    GroupBy,
+    OrderBy,
+    DistinctOn,
+}
+
+impl Clause {
+    fn label(self) -> &'static str {
+        match self {
+            Clause::GroupBy => "GROUP BY",
+            Clause::OrderBy => "ORDER BY",
+            Clause::DistinctOn => "DISTINCT ON",
+        }
+    }
+}
+
 /// Mot-clé `DEFAULT` à la place d'une valeur.
 fn is_default_keyword(e: &Expr) -> bool {
     matches!(&e.kind, ExprKind::Column(c) if c.table.is_none() && c.column.value == "default" && !c.column.quoted)
@@ -1225,11 +1286,7 @@ fn data_type_modifiers(dt: &pgweave_ast::types::DataType) -> Vec<String> {
 fn expr_modifiers(e: &Expr, scope: &Scope) -> Vec<String> {
     match &e.kind {
         ExprKind::Column(c) => scope
-            .lookup(
-                c.table.as_ref().map(|t| t.value.as_str()),
-                &c.column.value,
-                e.span,
-            )
+            .lookup_ref(c, e.span)
             .map(|col| col.modifiers.clone())
             .unwrap_or_default(),
         ExprKind::Cast { data_type, .. } => data_type_modifiers(data_type),

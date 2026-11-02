@@ -30,6 +30,7 @@ fn make_select(columns: Vec<SelectItem>, from: Vec<TableRef>) -> SelectStmt {
 fn col(name: &str) -> SelectItem {
     SelectItem::Expr {
         expr: Expr::bare(ExprKind::Column(ColumnRef {
+            schema: None,
             table: None,
             column: Ident::new(name),
         })),
@@ -70,6 +71,7 @@ fn make_create_table(table_name: &str, cols: Vec<ColumnDef>) -> Statement {
         columns: cols,
         constraints: vec![],
         likes: vec![],
+        as_query: None,
     }))
 }
 
@@ -117,6 +119,7 @@ fn emit_select_with_where_and_limit() {
         joins: vec![],
         where_clause: Some(Expr::bare(ExprKind::BinaryOp {
             left: Box::new(Expr::bare(ExprKind::Column(ColumnRef {
+                schema: None,
                 table: None,
                 column: Ident::new("status"),
             }))),

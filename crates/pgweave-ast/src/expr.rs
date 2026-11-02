@@ -28,8 +28,23 @@ impl ObjectName {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnRef {
+    /// Premier nom d'une référence en trois parties : `schema` de
+    /// `schema.table.colonne`, ou, en PL/pgSQL, label de `bloc.variable.champ`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<Ident>,
     pub table: Option<Ident>,
     pub column: Ident,
+}
+
+impl ColumnRef {
+    /// Colonne `column`, qualifiée ou non par `table`.
+    pub fn new(table: Option<Ident>, column: Ident) -> Self {
+        ColumnRef {
+            schema: None,
+            table,
+            column,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

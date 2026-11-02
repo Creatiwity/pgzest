@@ -63,6 +63,34 @@ pub fn parse_source(
     }
 }
 
+/// Vérification des statements pendant le rejeu.
+///
+/// Fournie par l'analyse sémantique (`pgweave-sema`), qui dépend du
+/// catalogue. Un statement est vérifié au moment où PostgreSQL le ferait :
+/// à son application, contre l'état du catalogue à ce point (une requête de
+/// migration voit les colonnes de ce moment), ou en fin de rejeu pour un
+/// corps exécuté plus tard (PL/pgSQL), s'il est encore en vigueur.
+pub trait StatementChecker: Send + Sync {
+    /// `stmt` vient d'être appliqué au catalogue.
+    fn check_applied(
+        &self,
+        catalog: &Catalog,
+        path: &SearchPath,
+        stmt: &Statement,
+        out: &mut Vec<Diagnostic>,
+    );
+    /// Une partie de `stmt` n'est vérifiable que sur l'état final.
+    fn is_deferred(&self, stmt: &Statement) -> bool;
+    /// Partie différée de `stmt`, contre le catalogue final.
+    fn check_deferred(
+        &self,
+        catalog: &Catalog,
+        path: &SearchPath,
+        stmt: &Statement,
+        out: &mut Vec<Diagnostic>,
+    );
+}
+
 /// Rejeu ordonné des fichiers d'un projet (schéma, puis migrations par
 /// séquence), chacun déjà parsé.
 pub struct ProjectBuilder {
@@ -71,6 +99,12 @@ pub struct ProjectBuilder {
     diagnostics: Vec<(PathBuf, Diagnostic)>,
     /// Première migration sans en-tête, et leur nombre.
     without_header: Option<(PathBuf, usize)>,
+    checker: Option<std::sync::Arc<dyn StatementChecker>>,
+    /// Statements à vérifier en fin de rejeu : (fichier, chemin à ce point,
+    /// statement, vérification complète). Complète pour un fichier de
+    /// requêtes, qui s'exécute sur l'état final ; sinon, seule la partie
+    /// différée (corps PL/pgSQL).
+    deferred: Vec<(PathBuf, SearchPath, Statement, bool)>,
 }
 
 impl Default for ProjectBuilder {
@@ -86,7 +120,15 @@ impl ProjectBuilder {
             skipped: Vec::new(),
             diagnostics: Vec::new(),
             without_header: None,
+            checker: None,
+            deferred: Vec::new(),
         }
+    }
+
+    /// Les statements sont vérifiés par `checker` (voir [`StatementChecker`]).
+    pub fn with_checker(mut self, checker: Option<std::sync::Arc<dyn StatementChecker>>) -> Self {
+        self.checker = checker;
+        self
     }
 
     /// Les colonnes des vues sont typées par `typer` (voir [`QueryTyper`]).
@@ -121,7 +163,35 @@ impl ProjectBuilder {
         );
         let mut diags = Vec::new();
         for s in &outcome.statements {
+            // Un fichier de requêtes s'exécute sur le schéma final.
+            if *role == FileRole::Query {
+                if self.checker.is_some() {
+                    self.deferred.push((
+                        path.to_path_buf(),
+                        self.replay.search_path.clone(),
+                        s.clone(),
+                        true,
+                    ));
+                }
+                continue;
+            }
             self.replay.apply(s, &mut diags);
+            if let Some(c) = &self.checker {
+                c.check_applied(
+                    &self.replay.catalog,
+                    &self.replay.search_path,
+                    s,
+                    &mut diags,
+                );
+                if c.is_deferred(s) {
+                    self.deferred.push((
+                        path.to_path_buf(),
+                        self.replay.search_path.clone(),
+                        s.clone(),
+                        false,
+                    ));
+                }
+            }
         }
         if is_migration {
             check_header(sql, &self.replay.catalog, &mut diags);
@@ -131,6 +201,19 @@ impl ProjectBuilder {
     }
 
     pub fn finish(mut self) -> ProjectCatalog {
+        if let Some(c) = &self.checker {
+            for (file, path, stmt, full) in std::mem::take(&mut self.deferred) {
+                let mut diags = Vec::new();
+                if full {
+                    c.check_applied(&self.replay.catalog, &path, &stmt, &mut diags);
+                    c.check_deferred(&self.replay.catalog, &path, &stmt, &mut diags);
+                } else if routine_in_force(&self.replay.catalog, &stmt) {
+                    c.check_deferred(&self.replay.catalog, &path, &stmt, &mut diags);
+                }
+                self.diagnostics
+                    .extend(diags.into_iter().map(|d| (file.clone(), d)));
+            }
+        }
         if let Some((first, n)) = self.without_header {
             self.diagnostics.push((
                 first,
@@ -194,13 +277,37 @@ impl ProjectCatalog {
         macros: &pgweave_macro::MacroSet,
         typer: Option<std::sync::Arc<dyn QueryTyper>>,
     ) -> Self {
-        let mut b = ProjectBuilder::new().with_typer(typer);
+        Self::from_chunks_checked(chunks, macros, typer, None)
+    }
+
+    /// Comme [`Self::from_chunks_typed`], les statements vérifiés par
+    /// `checker` (diagnostics rattachés à leur fichier).
+    pub fn from_chunks_checked(
+        chunks: &[SqlChunk],
+        macros: &pgweave_macro::MacroSet,
+        typer: Option<std::sync::Arc<dyn QueryTyper>>,
+        checker: Option<std::sync::Arc<dyn StatementChecker>>,
+    ) -> Self {
+        let mut b = ProjectBuilder::new()
+            .with_typer(typer)
+            .with_checker(checker);
         for chunk in chunks {
             let parsed = parse_source(&chunk.sql, chunk.origin.byte_range.start, macros);
             b.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());
         }
         b.finish()
     }
+}
+
+/// La routine créée par `stmt` est-elle encore celle du catalogue (ni
+/// remplacée, ni supprimée) ? Son corps n'est vérifié que dans ce cas : un
+/// corps remplacé ne s'exécutera jamais.
+pub fn routine_in_force(cat: &Catalog, stmt: &Statement) -> bool {
+    let definition = pgweave_ast::emit::emit_statement(stmt);
+    cat.routines
+        .values()
+        .flatten()
+        .any(|r| r.definition.as_deref() == Some(definition.as_str()))
 }
 
 /// Confronte l'en-tête d'une migration à l'état rejoué après elle (D9).

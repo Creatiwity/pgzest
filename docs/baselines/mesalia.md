@@ -1,6 +1,6 @@
 # Corpus `mesalia` — taux d'analyse
 
-> Généré le 2026-11-01 par `cargo xtask corpus mesalia` (pgweave `4f31690`).
+> Généré le 2026-11-02 par `cargo xtask corpus mesalia` (pgweave `27883a9`).
 > Fichiers retenus : Prisma : `*/migration.sql`, triés par répertoire horodaté.
 > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
 
@@ -85,6 +85,6 @@ Sondes tirées du catalogue reconstruit, préparées par PostgreSQL sur la base 
 
 | Étape | Durée |
 |---|--:|
-| Parse de tous les fichiers | 145 ms |
-| Vérification de tous les fichiers | 4224 ms |
-| Rejeu sur le catalogue (`pgweave-catalog`) | 4099 ms |
+| Parse de tous les fichiers | 139 ms |
+| Vérification de tous les fichiers | 611 ms |
+| Rejeu sur le catalogue (`pgweave-catalog`) | 4230 ms |

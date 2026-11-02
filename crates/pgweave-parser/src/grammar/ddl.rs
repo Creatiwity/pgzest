@@ -142,6 +142,7 @@ pub(crate) fn parse_create_table(p: &mut Parser) -> Result<Statement> {
         columns,
         constraints,
         likes,
+        as_query: None,
     })))
 }
 

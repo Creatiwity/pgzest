@@ -9,6 +9,7 @@ pgweave-ast = { path = "../pgweave-ast" }
 pgweave-diagnostics = { workspace = true }
 pgweave-schema = { path = "../pgweave-schema" }
 pgweave-parser = { path = "../pgweave-parser" }
+pgweave-sema = { path = "../pgweave-sema" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

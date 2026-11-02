@@ -56,6 +56,9 @@ pub struct Source {
     pub hidden: Vec<Column>,
     /// Type ligne de la source : celui de la relation, `record` sinon.
     pub rowtype: Option<Ty>,
+    /// Relation désignée sans alias : visible aussi comme
+    /// `schéma.table.colonne`.
+    pub relation: Option<crate::types::Ty>,
 }
 
 impl Source {
@@ -65,6 +68,7 @@ impl Source {
             columns,
             hidden: Vec::new(),
             rowtype: None,
+            relation: None,
         }
     }
 
@@ -97,6 +101,8 @@ pub struct SemaError {
     pub code: &'static str,
     pub message: String,
     pub span: Span,
+    /// Piste de correction, s'il y en a une.
+    pub hint: Option<String>,
 }
 
 impl SemaError {
@@ -105,7 +111,13 @@ impl SemaError {
             code,
             message: message.into(),
             span,
+            hint: None,
         }
+    }
+
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 
     /// Construction que l'analyse ne couvre pas : signalée, jamais devinée.
@@ -175,6 +187,16 @@ impl<'p> Scope<'p> {
                 span,
             )),
             [first, ..] => Ok(first),
+            // Source trouvée à ce niveau, colonne absente : PostgreSQL ne
+            // cherche pas plus loin.
+            [] if table_seen => Err(SemaError::new(
+                "column-not-found",
+                format!(
+                    "column {}.{column} does not exist",
+                    table.unwrap_or_default()
+                ),
+                span,
+            )),
             [] => match self.parent {
                 Some(p) => p.lookup(table, column, span),
                 None if table.is_some() && !table_seen => Err(SemaError::new(
@@ -195,6 +217,65 @@ impl<'p> Scope<'p> {
                 )),
             },
         }
+    }
+
+    /// Colonne d'une référence `colonne`, `table.colonne` ou
+    /// `schéma.table.colonne`.
+    pub fn lookup_ref(
+        &self,
+        c: &pgweave_ast::expr::ColumnRef,
+        span: Span,
+    ) -> Result<&Column, SemaError> {
+        let (Some(schema), Some(table)) = (&c.schema, &c.table) else {
+            return self.lookup(
+                c.table.as_ref().map(|t| t.value.as_str()),
+                &c.column.value,
+                span,
+            );
+        };
+        let mut scope = Some(self);
+        while let Some(s) = scope {
+            if let Some(src) = s.sources.iter().find(|src| {
+                src.relation
+                    .as_ref()
+                    .is_some_and(|r| r.schema == schema.value && r.name == table.value)
+            }) {
+                return src
+                    .columns
+                    .iter()
+                    .chain(&src.hidden)
+                    .find(|col| col.name == c.column.value)
+                    .ok_or_else(|| {
+                        SemaError::new(
+                            "column-not-found",
+                            format!(
+                                "column {}.{}.{} does not exist",
+                                schema.value, table.value, c.column.value
+                            ),
+                            span,
+                        )
+                    });
+            }
+            scope = s.parent;
+        }
+        Err(SemaError::new(
+            "table-not-found",
+            format!("missing FROM-clause entry for table \"{}\"", table.value),
+            span,
+        ))
+    }
+
+    /// Aucune source, à aucun niveau : une expression hors requête.
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty() && self.parent.is_none_or(|p| p.is_empty())
+    }
+
+    /// Une source de ce niveau (sans les portées englobantes) a une colonne
+    /// de ce nom.
+    pub fn has_local_column(&self, column: &str) -> bool {
+        self.sources
+            .iter()
+            .any(|s| s.columns.iter().chain(&s.hidden).any(|c| c.name == column))
     }
 
     /// Colonne fusionnée par `USING` : visible une seule fois dans `*`.

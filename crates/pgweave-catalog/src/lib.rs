@@ -22,4 +22,4 @@ pub use apply::{QueryTyper, Replay};
 pub use catalog::{Catalog, SearchPath};
 pub use model::{QName, TypeRef};
 pub use pack::{Contributor, Pack, PackError};
-pub use project::ProjectCatalog;
+pub use project::{ProjectCatalog, StatementChecker};

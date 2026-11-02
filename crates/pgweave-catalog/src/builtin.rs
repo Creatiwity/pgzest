@@ -35,6 +35,11 @@ const PACKS: &[(&str, &str, &str)] = &[
         "1.1",
         include_str!("../packs/unaccent-1.1.json"),
     ),
+    (
+        "uuid-ossp",
+        "1.1",
+        include_str!("../packs/uuid-ossp-1.1.json"),
+    ),
 ];
 
 /// Versions disponibles d'un contributeur.

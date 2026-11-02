@@ -77,11 +77,7 @@ fn modifier_une_requete_ne_relance_qu_elle() {
     let executed = f.db.take_executions();
     assert_eq!(
         executed,
-        [
-            "parse_file(q1.sql)",
-            "trigger_definitions",
-            "check_file(q1.sql)"
-        ],
+        ["parse_file(q1.sql)", "check_file(q1.sql)"],
         "ni le catalogue ni q2 ne sont recalculés"
     );
 }

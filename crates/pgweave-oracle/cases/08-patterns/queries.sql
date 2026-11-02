@@ -135,3 +135,20 @@ SELECT EXISTS (SELECT 1 FROM users WHERE handle = $handle);
 
 -- name: scalar_param_math
 SELECT $a::numeric * 2, $b::int + $c::int, $d::text || '!';
+
+-- name: order_by_output_name_over_join
+SELECT DISTINCT ON (p.author, p.title) p.author, p.title
+FROM posts p JOIN users u ON u.id = p.author
+ORDER BY author, title;
+
+-- name: group_by_prefers_input_column
+SELECT u.karma AS id, count(*) FROM users u JOIN posts p ON p.author = u.id GROUP BY u.karma;
+
+-- name: row_in_subquery
+SELECT title FROM posts WHERE (author, posted_on) IN (SELECT user_id, at::date FROM events WHERE kind = $kind);
+
+-- name: normalize_form
+SELECT normalize(bio, NFKC), bio IS NOT NULL FROM users;
+
+-- name: named_window
+SELECT author, sum(score) OVER w FROM posts WINDOW w AS (PARTITION BY author ORDER BY posted_on);

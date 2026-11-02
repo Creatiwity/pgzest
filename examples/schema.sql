@@ -8,13 +8,26 @@
 --   - Helper SECURITY DEFINER référencé dans les policies
 --   - Procédure stockée avec DECLARE, validation métier, RAISE
 --   - Fonction retournant une TABLE (typage du résultat)
---   - auth.uid() : fonction externe non définie dans ce DDL (cas SchemaProvider inconnu)
+--   - auth.uid() : fonction fournie par la plateforme (Supabase), déclarée
+--     ici pour que l'analyse la connaisse, comme toute dépendance externe
 
 -- ---------------------------------------------------------------------------
 -- Extensions
 -- ---------------------------------------------------------------------------
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ---------------------------------------------------------------------------
+-- Dépendance externe : sur Supabase, le schéma `auth` existe déjà. pgweave ne
+-- suppose rien de ce qu'il ne voit pas : la signature est déclarée.
+-- ---------------------------------------------------------------------------
+
+CREATE SCHEMA IF NOT EXISTS auth;
+
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID
+LANGUAGE sql STABLE AS $$
+  SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
 
 -- ---------------------------------------------------------------------------
 -- Tables

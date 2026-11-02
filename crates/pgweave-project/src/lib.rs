@@ -4,10 +4,9 @@
 //! SourceFile ─┐
 //!             ├► parse_file ──┬──────────────────────────► check_file(f)
 //! Project ────┘ (macros)      │                                  ▲
-//!   └─────────► project_replay ─► project_catalog ───────────────┤
-//!               (rejeu ordonné,    (comparé par contenu)         │
-//!                diagnostics)                                    │
-//!               trigger_definitions ─────────────────────────────┘
+//!   └─────────► project_replay ─► project_catalog ───────────────┘
+//!               (rejeu ordonné et   (comparé par contenu)
+//!                vérifié, diagnostics)
 //! ```
 //!
 //! - `parse_file` relit un fichier dont le texte change, ou tous les
@@ -18,8 +17,10 @@
 //! - `project_catalog` n'en retient que le catalogue et le `search_path` :
 //!   s'il retrouve les mêmes (un commentaire modifié), salsa s'arrête là et
 //!   aucune vérification n'est relancée ;
-//! - `check_file` ne dépend que de son fichier, du catalogue et des
-//!   définitions de triggers (contexte des fonctions trigger).
+//! - `check_file` d'un fichier de requêtes ne dépend que de son fichier et
+//!   du catalogue ; un fichier de schéma ou de migration est vérifié pendant
+//!   le rejeu (chaque statement contre l'état du catalogue à ce point), et
+//!   `check_file` en rend les diagnostics.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -134,7 +135,9 @@ fn defines_schema(role: &FileRole) -> bool {
 #[salsa::tracked(returns(ref), no_eq)]
 pub fn project_replay(db: &dyn Db, project: Project) -> Arc<ProjectCatalog> {
     db.log_execution("project_replay".into());
-    let mut builder = ProjectBuilder::new().with_typer(Some(pgweave_sema::ViewTyper::shared()));
+    let mut builder = ProjectBuilder::new()
+        .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .with_checker(Some(pgweave_sema::check::SemaChecker::shared()));
     for &file in project.files(db) {
         if !defines_schema(file.role(db)) {
             continue;
@@ -169,45 +172,32 @@ pub fn project_catalog(db: &dyn Db, project: Project) -> CatalogState {
     CatalogState(project_replay(db, project).clone())
 }
 
-/// `CREATE TRIGGER` du projet, émis : le contexte des fonctions trigger
-/// (table, événements). Texte comparable, donc une modification qui ne
-/// touche aucun trigger n'invalide pas les vérifications.
-#[salsa::tracked(returns(ref))]
-pub fn trigger_definitions(db: &dyn Db, project: Project) -> Vec<String> {
-    db.log_execution("trigger_definitions".into());
-    project
-        .files(db)
-        .iter()
-        .flat_map(|f| parse_file(db, project, *f).statements())
-        .filter(|s| {
-            matches!(
-                s,
-                Statement::Ddl(pgweave_ast::DdlStatement::CreateTrigger(_))
-            )
-        })
-        .map(pgweave_ast::emit::emit_statement)
-        .collect()
-}
-
 // ── Vérification ──────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct FileDiagnostics(pub Arc<Vec<Diagnostic>>);
 
+/// Diagnostics de vérification d'un fichier : ceux de son rejeu pour un
+/// fichier de schéma ou de migration, sinon ses statements vérifiés contre
+/// le catalogue du projet.
 #[salsa::tracked(returns(ref), no_eq)]
 pub fn check_file(db: &dyn Db, project: Project, file: SourceFile) -> FileDiagnostics {
     db.log_execution(format!("check_file({})", label(db, file)));
+    if defines_schema(file.role(db)) {
+        let path = file.path(db);
+        return FileDiagnostics(Arc::new(
+            project_replay(db, project)
+                .diagnostics
+                .iter()
+                .filter(|(p, _)| p == path)
+                .map(|(_, d)| d.clone())
+                .collect(),
+        ));
+    }
     let state = project_catalog(db, project);
-    let triggers: Vec<Statement> = trigger_definitions(db, project)
-        .iter()
-        .filter_map(|sql| pgweave_parser::parse(sql).ok())
-        .flatten()
-        .collect();
     let stmts = parse_file(db, project, file).statements();
-    let checker = pgweave_checker::Checker::with_builtin_rules();
-    FileDiagnostics(Arc::new(checker.run_with_context(
+    FileDiagnostics(Arc::new(pgweave_checker::check_statements(
         stmts,
-        &triggers,
         state.0.as_ref(),
     )))
 }
@@ -275,6 +265,11 @@ impl Workspace {
     /// Remplace les macros du projet : tous les fichiers sont relus.
     pub fn set_macros(&mut self, macros: Arc<MacroSet>) {
         self.project.set_macros(&mut self.db).to(macros);
+    }
+
+    /// `path` est un fichier du projet.
+    pub fn contains(&self, path: &Path) -> bool {
+        self.by_path.contains_key(path)
     }
 
     /// Catalogue du projet à jour (rejeu mémorisé).

@@ -1051,28 +1051,32 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
         sp::Expr::Value(v) => convert_value(v.value),
         sp::Expr::Identifier(id) => {
             // Single ident — could be a column name
-            Ok(ExprKind::Column(ColumnRef {
-                table: None,
-                column: convert_ident(id),
-            }))
+            Ok(ExprKind::Column(ColumnRef::new(None, convert_ident(id))))
         }
         sp::Expr::CompoundIdentifier(parts) => match parts.len() {
             0 => Err(ParseError::Unsupported(
                 "empty compound identifier".to_string(),
             )),
-            1 => Ok(ExprKind::Column(ColumnRef {
-                table: None,
-                column: convert_ident(parts.into_iter().next().unwrap()),
-            })),
-            _ => {
+            1 => Ok(ExprKind::Column(ColumnRef::new(
+                None,
+                convert_ident(parts.into_iter().next().unwrap()),
+            ))),
+            2 | 3 => {
                 let mut iter = parts.into_iter().rev();
-                let col = convert_ident(iter.next().unwrap());
-                let tbl = convert_ident(iter.next().unwrap());
+                let column = convert_ident(iter.next().unwrap());
+                let table = Some(convert_ident(iter.next().unwrap()));
+                let schema = iter.next().map(convert_ident);
                 Ok(ExprKind::Column(ColumnRef {
-                    table: Some(tbl),
-                    column: col,
+                    schema,
+                    table,
+                    column,
                 }))
             }
+            // `base.schema.table.colonne` : la base doit être la base courante,
+            // ce que l'analyse ne peut pas vérifier.
+            n => Err(ParseError::Unsupported(format!(
+                "column reference with {n} parts"
+            ))),
         },
         sp::Expr::IsNull(e) => Ok(ExprKind::UnaryOp {
             op: UnaryOp::IsNull,
@@ -1692,6 +1696,24 @@ fn convert_function_call(f: sp::Function) -> Result<ExprKind, ParseError> {
             });
         }
     }
+    // `NORMALIZE(texte, forme)` : la forme est un mot-clé de la grammaire
+    // (`unicode_normal_form`), passé à `pg_catalog.normalize` comme chaîne.
+    if let ([n], [_, form]) = (name.0.as_slice(), args.as_slice())
+        && n.value == "normalize"
+        && !n.quoted
+        && let ExprKind::Column(c) = &form.kind
+        && c.table.is_none()
+        && !c.column.quoted
+        && matches!(c.column.value.as_str(), "nfc" | "nfd" | "nfkc" | "nfkd")
+    {
+        let form_span = form.span;
+        let literal = Expr::new(
+            ExprKind::Literal(Literal::String(c.column.value.to_ascii_uppercase())),
+            form_span,
+        );
+        args[1] = literal;
+        return system_call("normalize", args);
+    }
     let filter = f
         .filter
         .map(|e| convert_expr(*e).map(Box::new))
@@ -2237,6 +2259,24 @@ fn convert_create_view(cv: sp::CreateView) -> Result<CreateView, ParseError> {
 // ── CREATE TABLE ──────────────────────────────────────────────────────────────
 
 fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> {
+    // Formes que l'AST ne représente pas : refusées plutôt que perdues.
+    let unsupported = [
+        (ct.partition_of.is_some(), "PARTITION OF"),
+        (ct.inherits.is_some(), "INHERITS"),
+        (ct.like.is_some(), "LIKE"),
+        (ct.clone.is_some(), "CLONE"),
+        (ct.partition_by.is_some(), "PARTITION BY"),
+        (ct.for_values.is_some(), "FOR VALUES"),
+    ];
+    if let Some((_, what)) = unsupported.iter().find(|(set, _)| *set) {
+        return Err(ParseError::Unsupported(format!(
+            "CREATE TABLE … {what} non modélisé"
+        )));
+    }
+    let as_query = ct
+        .query
+        .map(|q| convert_query(*q).map(Box::new))
+        .transpose()?;
     let name = convert_object_name(ct.name);
     let if_not_exists = ct.if_not_exists;
     let columns = ct
@@ -2265,6 +2305,7 @@ fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> 
         columns,
         constraints,
         likes: vec![],
+        as_query,
     })
 }
 

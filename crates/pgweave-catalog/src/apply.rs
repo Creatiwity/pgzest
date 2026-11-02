@@ -779,6 +779,16 @@ impl Applier<'_> {
         self.cat.relations.insert(name.clone(), rel.clone());
         self.add_rowtype_array(&name);
 
+        if let Some(q) = &ct.as_query {
+            // `CREATE TABLE … AS` : les colonnes de la requête, nommées par la
+            // liste éventuelle.
+            let aliases: Vec<&Ident> = ct.columns.iter().map(|c| &c.name).collect();
+            let (columns, opaque) = self.query_columns("table", &name, q, &aliases);
+            rel.columns = columns;
+            rel.opaque = opaque;
+            self.cat.relations.insert(name.clone(), rel);
+            return;
+        }
         let mut pending: Vec<(TableConstraint, Option<String>)> = Vec::new();
         let mut ok = true;
         for (i, col) in ct.columns.iter().enumerate() {
@@ -1947,42 +1957,8 @@ impl Applier<'_> {
             );
             return;
         }
-        let (names, opaque) = match self.output_names(&cv.query) {
-            Some(n) => (n, false),
-            None => (Vec::new(), true),
-        };
-        let mut names = names;
-        for (n, alias) in names.iter_mut().zip(&cv.columns) {
-            *n = alias.value.clone();
-        }
-        // Types des colonnes : ceux de l'analyse de la requête, si un typeur
-        // est fourni et qu'il les établit.
-        let types: Vec<TypeRef> = match self.typer {
-            Some(t) => match t.output_columns(self.cat, self.path, &cv.query) {
-                Ok(cols) if cols.len() == names.len() => {
-                    cols.into_iter().map(|(_, ty)| ty).collect()
-                }
-                Ok(cols) => {
-                    self.out.push(Diagnostic::info(
-                        codes::VIEW_NOT_TYPED,
-                        format!(
-                            "vue « {name} » : {} colonnes analysées pour {} nommées ; types non établis",
-                            cols.len(),
-                            names.len()
-                        ),
-                    ));
-                    Vec::new()
-                }
-                Err(why) => {
-                    self.out.push(Diagnostic::info(
-                        codes::VIEW_NOT_TYPED,
-                        format!("vue « {name} » : types des colonnes non établis ({why})"),
-                    ));
-                    Vec::new()
-                }
-            },
-            None => Vec::new(),
-        };
+        let aliases: Vec<&Ident> = cv.columns.iter().collect();
+        let (columns, opaque) = self.query_columns("vue", &name, &cv.query, &aliases);
         let existed = self.cat.relations.contains_key(&name);
         if !existed {
             self.add_rowtype_array(&name);
@@ -2002,19 +1978,7 @@ impl Applier<'_> {
                 } else {
                     Persistence::Permanent
                 },
-                // Sans typage de la requête, types inconnus, jamais supposés.
-                columns: names
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, n)| Column {
-                        name: n,
-                        ty: types.get(i).cloned().unwrap_or(TypeRef::Unknown),
-                        not_null: false,
-                        default: None,
-                        identity: None,
-                        generated: None,
-                    })
-                    .collect(),
+                columns,
                 constraints: Vec::new(),
                 row_level_security: false,
                 opaque,
@@ -2024,6 +1988,65 @@ impl Applier<'_> {
                 order,
             },
         );
+    }
+
+    /// Colonnes produites par la requête d'une vue ou d'un `CREATE TABLE …
+    /// AS` (renommées par `aliases`), et vrai si leurs noms ne sont pas
+    /// établis. Les types sont ceux de l'analyse de la requête, si un typeur
+    /// est fourni et qu'il les établit ; inconnus sinon, jamais supposés.
+    fn query_columns(
+        &mut self,
+        what: &str,
+        name: &QName,
+        query: &SelectStmt,
+        aliases: &[&Ident],
+    ) -> (Vec<Column>, bool) {
+        let (mut names, opaque) = match self.output_names(query) {
+            Some(n) => (n, false),
+            None => (Vec::new(), true),
+        };
+        for (n, alias) in names.iter_mut().zip(aliases) {
+            *n = alias.value.clone();
+        }
+        let types: Vec<TypeRef> = match self.typer {
+            Some(t) => match t.output_columns(self.cat, self.path, query) {
+                Ok(cols) if cols.len() == names.len() => {
+                    cols.into_iter().map(|(_, ty)| ty).collect()
+                }
+                Ok(cols) => {
+                    self.out.push(Diagnostic::info(
+                        codes::VIEW_NOT_TYPED,
+                        format!(
+                            "{what} « {name} » : {} colonnes analysées pour {} nommées ; types non établis",
+                            cols.len(),
+                            names.len()
+                        ),
+                    ));
+                    Vec::new()
+                }
+                Err(why) => {
+                    self.out.push(Diagnostic::info(
+                        codes::VIEW_NOT_TYPED,
+                        format!("{what} « {name} » : types des colonnes non établis ({why})"),
+                    ));
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
+        };
+        let columns = names
+            .into_iter()
+            .enumerate()
+            .map(|(i, n)| Column {
+                name: n,
+                ty: types.get(i).cloned().unwrap_or(TypeRef::Unknown),
+                not_null: false,
+                default: None,
+                identity: None,
+                generated: None,
+            })
+            .collect();
+        (columns, opaque)
     }
 
     /// Noms des colonnes produites par une requête, comme PostgreSQL les

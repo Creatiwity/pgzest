@@ -10,6 +10,7 @@ use pgweave_catalog::model::RoutineKind;
 
 use crate::coerce::{CoercionContext, Pathway};
 use crate::resolve::{Resolution, ResolveError, ResolvedCall};
+use crate::routine::{Language, Routine, VarRef, VarTy};
 use crate::scope::{Nullability, Scope, SemaError};
 use crate::types::{Ty, TypeSystem, pg};
 
@@ -42,6 +43,8 @@ pub struct Analyzer<'c> {
     pub params: Vec<Param>,
     /// CTE visibles, la plus récente en dernier.
     pub(crate) ctes: Vec<(String, Vec<crate::scope::Column>)>,
+    /// Routine dont le corps est analysé : ses paramètres et variables.
+    pub routine: Option<Routine>,
 }
 
 /// Nom d'opérateur PostgreSQL d'un opérateur binaire de l'AST.
@@ -86,6 +89,39 @@ fn type_list(tys: &[Ty]) -> String {
         .join(", ")
 }
 
+/// Colonne désignée par `c` dans la portée de requête, ou ligne entière
+/// d'une source nommée `c`.
+fn column_ref(
+    c: &pgweave_ast::expr::ColumnRef,
+    scope: &Scope,
+    span: Span,
+) -> Result<Typed, SemaError> {
+    let col = match scope.lookup_ref(c, span) {
+        Ok(col) => col,
+        // Nom d'une source : la ligne entière, de son type ligne.
+        Err(e) if e.code == "column-not-found" && c.table.is_none() => {
+            return match scope.whole_row(&c.column.value) {
+                Some(ty) => Ok(Typed::new(ty, Nullability::Unknown)),
+                None => Err(e),
+            };
+        }
+        Err(e) => return Err(e),
+    };
+    let ty = col.ty.clone().ok_or_else(|| {
+        SemaError::not_analyzed(format!("type de la colonne « {} »", col.name), span)
+    })?;
+    Ok(Typed::new(ty, col.nullable))
+}
+
+fn emit_column_ref(c: &pgweave_ast::expr::ColumnRef) -> String {
+    [c.schema.as_ref(), c.table.as_ref(), Some(&c.column)]
+        .into_iter()
+        .flatten()
+        .map(|i| i.value.as_str())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
 /// Type d'un littéral numérique (`make_const`) : entier sur 4 puis 8
 /// octets, sinon `numeric`.
 fn number_type(n: &str) -> Ty {
@@ -109,6 +145,7 @@ impl<'c> Analyzer<'c> {
             path,
             params: Vec::new(),
             ctes: Vec::new(),
+            routine: None,
         }
     }
 
@@ -240,6 +277,9 @@ impl<'c> Analyzer<'c> {
                 Literal::Boolean(_) => Typed::new(pg("bool"), Nullability::NonNull),
                 Literal::Null => Typed::new(pg("unknown"), Nullability::Nullable),
             }),
+            ExprKind::Parameter(name) if self.routine.is_some() => {
+                self.routine_parameter(name, span)
+            }
             ExprKind::Parameter(name) => {
                 let i = self.param_index(name);
                 Ok(Typed::new(
@@ -248,25 +288,58 @@ impl<'c> Analyzer<'c> {
                 ))
             }
             ExprKind::Column(c) => {
-                let col = match scope.lookup(
-                    c.table.as_ref().map(|t| t.value.as_str()),
-                    &c.column.value,
-                    span,
-                ) {
-                    Ok(col) => col,
-                    // Nom d'une source : la ligne entière, de son type ligne.
-                    Err(e) if e.code == "column-not-found" && c.table.is_none() => {
-                        return match scope.whole_row(&c.column.value) {
-                            Some(ty) => Ok(Typed::new(ty, Nullability::Unknown)),
-                            None => Err(e),
-                        };
-                    }
-                    Err(e) => return Err(e),
+                let core = column_ref(c, scope, span);
+                let Some(routine) = &self.routine else {
+                    return core;
                 };
-                let ty = col.ty.clone().ok_or_else(|| {
-                    SemaError::not_analyzed(format!("type de la colonne « {} »", col.name), span)
-                })?;
-                Ok(Typed::new(ty, col.nullable))
+                match core {
+                    Err(e) if e.code == "ambiguous-column" => Err(e),
+                    Ok(t) => match (routine.language, routine.lookup(c)) {
+                        (Language::Plpgsql, Some(_)) => Err(SemaError::new(
+                            "ambiguous-column",
+                            format!(
+                                "column reference \"{}\" is ambiguous (PL/pgSQL variable or table column)",
+                                emit_column_ref(c)
+                            ),
+                            span,
+                        )),
+                        _ => Ok(t),
+                    },
+                    Err(e) => match routine.lookup(c) {
+                        Some(v) => self.variable(v, span),
+                        // Expression PL/pgSQL sans `FROM` : le nom ne peut
+                        // désigner qu'une variable.
+                        None if routine.language == Language::Plpgsql
+                            && e.code == "column-not-found"
+                            && c.table.is_none()
+                            && scope.is_empty() =>
+                        {
+                            let mut known: Vec<&str> = routine
+                                .frames
+                                .iter()
+                                .flat_map(|f| &f.vars)
+                                .map(|v| v.name.as_str())
+                                .filter(|n| !n.starts_with("tg_") && *n != "found")
+                                .collect();
+                            known.sort_unstable();
+                            known.dedup();
+                            let err = SemaError::new(
+                                "undeclared-variable",
+                                format!("variable '{}' is not declared", c.column.value),
+                                span,
+                            );
+                            Err(if known.is_empty() {
+                                err.with_hint("declare it in the DECLARE section or as a parameter")
+                            } else {
+                                err.with_hint(format!(
+                                    "declared variables and parameters: {}",
+                                    known.join(", ")
+                                ))
+                            })
+                        }
+                        None => Err(e),
+                    },
+                }
             }
             ExprKind::Interval(_) => Ok(Typed::new(pg("interval"), Nullability::NonNull)),
             ExprKind::Collate { expr, .. } => self.expr(expr, scope),
@@ -312,6 +385,36 @@ impl<'c> Analyzer<'c> {
             }
             ExprKind::InSubquery { expr, subquery, .. } => {
                 let cols = self.subquery(subquery, scope)?;
+                // `(a, b) IN (SELECT x, y …)` : comparaison ligne à ligne
+                // (`make_row_comparison_op`).
+                if let ExprKind::Tuple(items) = &expr.kind {
+                    if items.len() != cols.len() {
+                        return Err(SemaError::new(
+                            "subquery-columns",
+                            if items.len() < cols.len() {
+                                "subquery has too many columns"
+                            } else {
+                                "subquery has too few columns"
+                            },
+                            span,
+                        ));
+                    }
+                    for (item, c) in items.iter().zip(&cols) {
+                        let l = self.expr(item, scope)?;
+                        let call = self
+                            .ts
+                            .resolve_operator(None, "=", Some(&l.ty), &c.ty, &self.path)
+                            .map_err(|e| {
+                                resolve_error(
+                                    e,
+                                    format!("operator {} = {}", l.ty.name, c.ty.name),
+                                    span,
+                                )
+                            })?;
+                        self.coerce_to(item, &call.arg_types[0]);
+                    }
+                    return Ok(Typed::new(pg("bool"), Nullability::Unknown));
+                }
                 let [c] = cols.as_slice() else {
                     return Err(SemaError::new(
                         "subquery-columns",
@@ -693,6 +796,84 @@ impl<'c> Analyzer<'c> {
     }
 
     /// Type d'un attribut de type composite (type ligne d'une table compris).
+    /// Valeur d'une variable de routine ou d'un de ses champs. Une
+    /// variable n'est jamais affirmée non nulle.
+    pub(crate) fn variable(&self, v: VarRef, span: Span) -> Result<Typed, SemaError> {
+        let unknown = |why: &str| SemaError::not_analyzed(why.to_string(), span);
+        let ty = match v {
+            VarRef::Whole(var) => match var.ty {
+                VarTy::Scalar(t) | VarTy::Row(t) => t,
+                VarTy::Record(Some(_)) => pg("record"),
+                VarTy::Record(None) => {
+                    return Err(unknown(&format!(
+                        "structure du record « {} », non affecté à ce point",
+                        var.name
+                    )));
+                }
+                VarTy::Unknown(why) => return Err(unknown(&why)),
+            },
+            VarRef::Field(var, field) => {
+                let found = match &var.ty {
+                    VarTy::Row(t) => {
+                        let base = self.ts.base_type(t);
+                        self.composite_attribute(&base, &field)
+                    }
+                    VarTy::Record(Some(cols)) => match cols.iter().find(|c| c.name == field) {
+                        Some(c) => Some(c.ty.clone().ok_or_else(|| {
+                            unknown(&format!("type du champ « {}.{field} »", var.name))
+                        })?),
+                        None => None,
+                    },
+                    VarTy::Record(None) => {
+                        return Err(unknown(&format!(
+                            "structure du record « {} », non affecté à ce point",
+                            var.name
+                        )));
+                    }
+                    VarTy::Unknown(why) => return Err(unknown(why)),
+                    VarTy::Scalar(_) => None,
+                };
+                found.ok_or_else(|| {
+                    // Le type de la ligne est nommé : pour NEW et OLD, c'est
+                    // la table du trigger.
+                    let of = match &var.ty {
+                        VarTy::Row(t) => format!(" (type {})", t.name),
+                        _ => String::new(),
+                    };
+                    SemaError::new(
+                        "column-not-found",
+                        format!("record \"{}\" has no field \"{field}\"{of}", var.name),
+                        span,
+                    )
+                })?
+            }
+        };
+        Ok(Typed::new(ty, Nullability::Unknown))
+    }
+
+    /// `$n` dans un corps de routine : le n-ième paramètre.
+    fn routine_parameter(&mut self, name: &str, span: Span) -> Result<Typed, SemaError> {
+        let n = name
+            .strip_prefix('$')
+            .and_then(|d| d.parse::<usize>().ok())
+            .filter(|n| *n >= 1);
+        let ty = n.and_then(|n| self.routine.as_ref()?.positional.get(n - 1).cloned());
+        let Some(ty) = ty else {
+            return Err(SemaError::new(
+                "parameter-not-found",
+                format!("there is no parameter {name}"),
+                span,
+            ));
+        };
+        self.variable(
+            VarRef::Whole(crate::routine::Var {
+                name: name.to_string(),
+                ty,
+            }),
+            span,
+        )
+    }
+
     pub(crate) fn composite_attribute(&self, ty: &Ty, field: &str) -> Option<Ty> {
         use pgweave_catalog::model::TypeKind;
         if let Some(TypeKind::Composite { attributes }) = self.ts.def(ty).map(|d| &d.kind) {

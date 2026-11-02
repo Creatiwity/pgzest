@@ -71,12 +71,10 @@ fn une_erreur_dans_un_corps_de_macro_pointe_le_fichier_source() {
     );
 }
 
-/// `RETURN <expr>` est confronté aux variables déclarées.
-///
-/// Le diagnostic est `undeclared-variable` et non `column-not-found` : un
-/// identifiant nu dans une expression PL/pgSQL désigne une variable, pas une
-/// colonne. Les tokens du corps gardent leurs positions : il désigne
-/// l'identifiant exact dans le `.pgsql`.
+/// `RETURN <expr>` est confronté aux variables déclarées : hors requête, un
+/// identifiant nu ne peut désigner qu'une variable. Les tokens du corps
+/// gardent leurs positions : le diagnostic désigne l'identifiant exact dans
+/// le `.pgsql`.
 #[test]
 fn un_return_dune_variable_inconnue_est_signale_dans_un_pgsql() {
     let src = format!("{SCHEMA}\n@function f(): INTEGER {{\n    RETURN nope;\n}}\n");
@@ -144,13 +142,13 @@ fn une_directive_de_la_source_taire_un_diagnostic_du_corps() {
     let src = format!(
         "{SCHEMA}\n\
          @function f(): INTEGER {{\n\
-         \x20   -- pgweave-disable-next-line column-not-found\n\
+         \x20   -- pgweave-disable-next-line undeclared-variable\n\
          \x20   RETURN nope;\n\
          }}\n"
     );
     let diags = analyze(&src);
     assert!(
-        !diags.iter().any(|d| d.code == codes::COLUMN_NOT_FOUND),
+        !diags.iter().any(|d| d.code == codes::UNDECLARED_VARIABLE),
         "la directive doit taire l'erreur, obtenu : {diags:?}"
     );
 }

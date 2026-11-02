@@ -8,9 +8,9 @@ description = "Analyse sémantique de pgweave : système de types fidèle à Pos
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-parser = { path = "../pgweave-parser" }
 pgweave-catalog = { path = "../pgweave-catalog" }
+pgweave-diagnostics = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
 pgweave-schema = { path = "../pgweave-schema" }
-pgweave-diagnostics = { workspace = true }

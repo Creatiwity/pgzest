@@ -180,6 +180,7 @@ mod tests {
 
     fn col(name: &str) -> Expr {
         Expr::bare(ExprKind::Column(ColumnRef {
+            schema: None,
             table: None,
             column: Ident::new(name),
         }))

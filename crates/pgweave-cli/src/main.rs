@@ -316,73 +316,81 @@ fn cmd_check(
         out
     };
 
-    // ── Build global schema (per-file schema detection) ────────────────────────
-    // Index du projet : tables et fonctions de tous les fichiers du scope,
-    // indexés sans être checkés. C'est la même construction que côté LSP.
-    // `from_chunks_with_macros` et non `from_source` : l'index doit voir les
-    // objets déclarés par les macros du PROJET, pas seulement par celles
-    // fournies.
-    let project_resolver = project.as_ref().map(|(root, cfg)| {
+    // ── Catalogue et vérification ──────────────────────────────────────────────
+    // Un seul rejeu : schémas `--schema`, fichiers du projet (même
+    // construction que le LSP), puis les cibles hors projet. Chaque statement
+    // y est vérifié quand il s'applique, contre l'état du catalogue à ce
+    // point ; un corps PL/pgSQL l'est contre l'état final (`pgweave-sema`).
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let is_query_file = |file: &str| {
+        project
+            .as_ref()
+            .is_some_and(|(root, cfg)| cfg.is_query_file(Path::new(file), root))
+    };
+    let mut builder = pgweave_catalog::project::ProjectBuilder::new()
+        .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .with_checker(Some(pgweave_sema::check::SemaChecker::shared()));
+    let mut replayed: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
+    for (path, (sql, stmts)) in schemas.iter().zip(&context_files) {
+        let outcome = pgweave_parser::ParseOutcome {
+            statements: stmts.clone(),
+            skipped: Vec::new(),
+        };
+        let path = canonical(Path::new(path));
+        builder.add_file(&path, sql, &pgweave_schema::FileRole::Schema, Ok(&outcome));
+        replayed.insert(path);
+    }
+    if let Some((root, cfg)) = &project {
         let source = cfg.to_source(root);
-        pgweave_catalog::ProjectCatalog::from_chunks_typed(
-            &pgweave_schema::SchemaSource::chunks(&source),
-            &macros,
-            Some(pgweave_sema::ViewTyper::shared()),
-        )
-    });
+        for chunk in pgweave_schema::SchemaSource::chunks(&source) {
+            let parsed = pgweave_catalog::project::parse_source(
+                &chunk.sql,
+                chunk.origin.byte_range.start,
+                &macros,
+            );
+            let path = canonical(&chunk.origin.path);
+            builder.add_file(&path, &chunk.sql, &chunk.role, parsed.as_ref());
+            replayed.insert(path);
+        }
+    }
+    for (file, sql, stmts, _, _) in &parsed_targets {
+        let path = canonical(Path::new(file));
+        if is_query_file(file) || replayed.contains(&path) {
+            continue;
+        }
+        let outcome = pgweave_parser::ParseOutcome {
+            statements: stmts.clone(),
+            skipped: Vec::new(),
+        };
+        builder.add_file(&path, sql, &pgweave_schema::FileRole::Schema, Ok(&outcome));
+        replayed.insert(path);
+    }
+    let catalog = std::sync::Arc::new(builder.finish());
 
+    // Un statement illisible dans un fichier du scope retire ses objets du
+    // catalogue, ce qui produit ensuite des `does not exist` qui sont des faux
+    // positifs. On le dit plutôt que de laisser croire à un catalogue complet.
+    if parse_cfg.unparsable != pgweave_schema::SkipLevel::Ignore {
+        for (path, sk) in &catalog.skipped {
+            eprintln!(
+                "warning: {}: statement non indexé, les objets qu'il définit \
+                 seront introuvables ({:?})",
+                path.display(),
+                sk.reason
+            );
+        }
+    }
+
+    // Règles des plugins : elles voient le schéma par `SchemaProvider`.
     let has_external_schema = !schemas.is_empty();
-    let has_project_schema = project_resolver.is_some();
     let mut composite = pgweave_schema::provider::CompositeSchemaProvider::new();
-
-    if has_external_schema {
-        // Explicit --schema files are added first (highest priority).
-        // `SET search_path` d'un fichier est appliqué par le rejeu.
-        for (_, stmts) in &context_files {
-            composite.add(Box::new(pgweave_catalog::ProjectCatalog::from_statements(
-                stmts,
-            )));
-        }
-    }
-    // Always include target files' own definitions so intra-file references
-    // (e.g. a function defined later in the same file) resolve correctly.
-    for (_, _, stmts, _, _) in &parsed_targets {
-        composite.add(Box::new(pgweave_catalog::ProjectCatalog::from_statements(
-            stmts,
-        )));
-    }
-
-    // Index du projet, après les sources explicites (CompositeSchemaProvider est
-    // « premier trouvé gagne » : un --schema ou le fichier courant l'emporte).
-    // Diagnostics du rejeu du projet (types introuvables, en-têtes de
-    // migration…), rattachés à leur fichier.
-    let replay_diags: Vec<(std::path::PathBuf, pgweave_diagnostics::Diagnostic)> = project_resolver
-        .as_ref()
-        .map(|r| r.diagnostics.clone())
-        .unwrap_or_default();
-    if let Some(resolver) = project_resolver {
-        // Un statement illisible dans un fichier du scope retire sa table de
-        // l'index, ce qui produit ensuite des `does not exist` qui sont des
-        // faux positifs. On le dit plutôt que de laisser croire à un index complet.
-        if !resolver.skipped.is_empty() && parse_cfg.unparsable != pgweave_schema::SkipLevel::Ignore
-        {
-            for (path, sk) in &resolver.skipped {
-                eprintln!(
-                    "warning: {}: statement non indexé, les objets qu'il définit \
-                     seront introuvables ({:?})",
-                    path.display(),
-                    sk.reason
-                );
-            }
-        }
-        composite.add(Box::new(resolver));
-    }
-
+    composite.add(Box::new(SharedCatalog(catalog.clone())));
     for provider in registry.collect_schema_providers(&builtin_plugins) {
         composite.add(provider);
     }
 
-    let mut checker = pgweave_checker::Checker::with_builtin_rules();
+    let mut checker = pgweave_checker::Checker::default();
     for rule in registry.collect_rules(&builtin_plugins) {
         checker.add_rule(rule);
     }
@@ -419,36 +427,33 @@ fn cmd_check(
         .unwrap_or_default();
 
     for (file, sql, stmts, skipped, macro_diags) in &parsed_targets {
-        let mut diagnostics =
-            if has_external_schema || has_project_schema || parsed_targets.len() > 1 {
-                // Cross-file mode: trigger map built from context + ALL target files.
-                let all_other_stmts: Vec<Statement> = context_stmts
+        // Contexte des règles de plugins : les triggers des autres fichiers.
+        let all_other_stmts: Vec<Statement> = context_stmts
+            .iter()
+            .chain(
+                parsed_targets
                     .iter()
-                    .chain(
-                        parsed_targets
-                            .iter()
-                            .filter(|(f, _, _, _, _)| f != file)
-                            .flat_map(|(_, _, s, _, _)| s.iter()),
-                    )
-                    .cloned()
-                    .collect();
-                checker.run_with_context(stmts, &all_other_stmts, &composite)
-            } else {
-                // Fichier seul, sans schéma : catalogue rejoué depuis le fichier.
-                pgweave_checker::check_statements(
-                    stmts,
-                    &pgweave_catalog::ProjectCatalog::from_statements(stmts),
-                )
-            };
+                    .filter(|(f, _, _, _, _)| f != file)
+                    .flat_map(|(_, _, s, _, _)| s.iter()),
+            )
+            .cloned()
+            .collect();
+        let mut diagnostics = checker.run_with_context(stmts, &all_other_stmts, &composite);
 
-        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        // Vérification sémantique : un fichier de requêtes s'exécute sur le
+        // schéma final ; un fichier rejoué porte ses diagnostics du rejeu.
         let this_file = canonical(Path::new(file));
-        diagnostics.extend(
-            replay_diags
-                .iter()
-                .filter(|(p, _)| canonical(p) == this_file)
-                .map(|(_, d)| d.clone()),
-        );
+        if is_query_file(file) {
+            diagnostics.extend(pgweave_checker::check_statements(stmts, &catalog));
+        } else {
+            diagnostics.extend(
+                catalog
+                    .diagnostics
+                    .iter()
+                    .filter(|(p, _)| *p == this_file)
+                    .map(|(_, d)| d.clone()),
+            );
+        }
 
         // Statements écartés par le parser → diagnostics selon la config.
         let mut all = macro_diags.clone();
@@ -896,4 +901,25 @@ fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
         }
     }
     if failed { 1 } else { 0 }
+}
+
+/// Catalogue partagé vu comme un `SchemaProvider` (règles de plugins).
+struct SharedCatalog(std::sync::Arc<pgweave_catalog::ProjectCatalog>);
+
+impl pgweave_schema::provider::SchemaProvider for SharedCatalog {
+    fn get_table(&self, name: &str) -> Option<&pgweave_schema::provider::TableSchema> {
+        self.0.get_table(name)
+    }
+
+    fn get_function(&self, name: &str) -> Option<&pgweave_schema::provider::FunctionSignature> {
+        self.0.get_function(name)
+    }
+
+    fn all_table_names(&self) -> Vec<&str> {
+        self.0.all_table_names()
+    }
+
+    fn as_rls_aware(&self) -> Option<&dyn pgweave_schema::provider::RlsAwareSchemaProvider> {
+        self.0.as_rls_aware()
+    }
 }

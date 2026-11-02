@@ -45,6 +45,10 @@ pub struct CreateTable {
     pub constraints: Vec<TableConstraint>,
     /// Éléments `LIKE` : colonnes copiées d'une autre table.
     pub likes: Vec<TableLike>,
+    /// `CREATE TABLE … AS requête` : les colonnes sont celles de la requête
+    /// (`columns` n'en donne alors que les noms, s'il n'est pas vide).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_query: Option<Box<crate::stmt::SelectStmt>>,
 }
 
 /// `LIKE source [{INCLUDING | EXCLUDING} option …]` parmi les éléments d'un

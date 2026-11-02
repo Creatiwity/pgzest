@@ -258,9 +258,9 @@ impl PgsqlBackend {
         self.load_workspace(chunks).await;
     }
 
-    /// Build a Checker with built-in rules + any loaded WASM plugins.
+    /// Règles des plugins WASM chargés.
     async fn make_checker(&self) -> pgweave_checker::Checker {
-        let mut checker = pgweave_checker::Checker::with_builtin_rules();
+        let mut checker = pgweave_checker::Checker::default();
         for plugin in self.wasm_plugins.lock().await.iter() {
             checker.add_rule(Box::new(WasmCheckRule::new(plugin.clone())));
         }
@@ -340,33 +340,26 @@ impl PgsqlBackend {
             &parse_cfg,
         ));
 
-        // ── Checker ───────────────────────────────────────────────────────────
-        let checker_diags: Vec<Diagnostic> = match role {
-            FileRole::Schema => {
-                // Schema file: 2-pass — check against self-schema merged with global.
-                let mut composite = pgweave_schema::provider::CompositeSchemaProvider::new();
-                if let Ok(self_schema) = ProjectCatalog::from_sql(&prepared.sql) {
-                    composite.add(Box::new(self_schema));
-                }
-                composite.add(Box::new(GlobalResolver(resolver.clone())));
-
-                self.check_stmts(&stmts, &composite)
-                    .await
-                    .into_iter()
-                    .filter(|d| !is_suppressable_schema_error(d))
-                    .collect()
-            }
-            FileRole::Migration { .. } | FileRole::Query => {
-                self.check_stmts(&stmts, resolver.as_ref()).await
-            }
+        // ── Vérification ──────────────────────────────────────────────────────
+        // Comme `pgweave check` : un fichier de schéma ou de migration du
+        // projet est vérifié pendant le rejeu (diagnostics du rejeu, texte de
+        // l'éditeur compris) ; un fichier de requêtes, contre le catalogue
+        // final ; un fichier hors projet, en rejouant son propre DDL.
+        let path = uri_to_path(uri);
+        let in_project = match &path {
+            Some(p) => self.workspace.lock().await.contains(p),
+            None => false,
         };
-        diags.extend(checker_diags);
-
-        // Diagnostics du rejeu du projet rattachés à ce fichier (types
-        // introuvables, en-têtes de migration…), comme `pgweave check`.
-        if let Some(path) = uri_to_path(uri) {
-            diags.extend(self.workspace.lock().await.replay_diagnostics(&path));
+        match (&role, &path) {
+            (FileRole::Query, _) => {
+                diags.extend(pgweave_checker::check_statements(&stmts, &resolver));
+            }
+            (_, Some(p)) if in_project => {
+                diags.extend(self.workspace.lock().await.replay_diagnostics(p));
+            }
+            _ => diags.extend(pgweave_checker::check_script(&stmts)),
         }
+        diags.extend(self.check_stmts(&stmts, resolver.as_ref()).await);
 
         // ── Lint + règles de rôle ─────────────────────────────────────────────
         diags.extend(pgweave_lint::lint_statements(&stmts, &LintConfig::default()).diagnostics);
@@ -715,25 +708,6 @@ impl LanguageServer for PgsqlBackend {
     }
 }
 
-// ── Cross-schema error filter ─────────────────────────────────────────────────
-
-fn is_suppressable_schema_error(d: &Diagnostic) -> bool {
-    if d.code == pgweave_diagnostics::codes::TABLE_NOT_FOUND
-        && let Some(start) = d.message.find('\'')
-    {
-        let rest = &d.message[start + 1..];
-        if let Some(end) = rest.find('\'') {
-            let table = &rest[..end];
-            if let Some(dot) = table.find('.')
-                && &table[..dot] != "public"
-            {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 // ── Hover helpers ─────────────────────────────────────────────────────────────
 
 fn hover_schema_file(text: &str, word: &str, global: &dyn SchemaProvider) -> Option<String> {
@@ -977,24 +951,6 @@ fn tbl_local(qualified: &str) -> &str {
         .rfind('.')
         .map(|d| &qualified[d + 1..])
         .unwrap_or(qualified)
-}
-
-// ── Newtype: let Arc<ProjectCatalog> work as a SchemaProvider ─────────────────
-
-/// Thin wrapper so we can pass Arc<ProjectCatalog> where &dyn SchemaProvider is needed
-/// without cloning the entire map.
-struct GlobalResolver(Arc<ProjectCatalog>);
-
-impl SchemaProvider for GlobalResolver {
-    fn get_table(&self, name: &str) -> Option<&pgweave_schema::provider::TableSchema> {
-        self.0.get_table(name)
-    }
-    fn get_function(&self, name: &str) -> Option<&pgweave_schema::provider::FunctionSignature> {
-        self.0.get_function(name)
-    }
-    fn all_table_names(&self) -> Vec<&str> {
-        self.0.all_table_names()
-    }
 }
 
 // ── Schema loading (legacy schemaFile path) ───────────────────────────────────

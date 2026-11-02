@@ -4,7 +4,7 @@ expression: report
 ---
 # Oracle différentiel — PostgreSQL 18
 
-Requêtes : 178 · Colonnes conformes : 550/550 (100 %) · Paramètres conformes : 114/114 (100 %)
+Requêtes : 183 · Colonnes conformes : 559/559 (100 %) · Paramètres conformes : 115/115 (100 %)
 
 ## 01-basics
 
@@ -1820,3 +1820,47 @@ Paramètres — PostgreSQL : `numeric`, `int4`, `int4`, `text` · pgweave : `num
 | 1 | `?column? numeric` | `?column? numeric` | ✓ |
 | 2 | `?column? int4` | `?column? int4` | ✓ |
 | 3 | `?column? text` | `?column? text` | ✓ |
+
+### `order_by_output_name_over_join`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `author uuid` | `author uuid` | ✓ |
+| 2 | `title text` | `title text` | ✓ |
+
+### `group_by_prefers_input_column`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `id int4` | `id int4` | ✓ |
+| 2 | `count int8` | `count int8` | ✓ |
+
+### `row_in_subquery`
+
+Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `title text` | `title text` | ✓ |
+
+### `normalize_form`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `normalize text` | `normalize text` | ✓ |
+| 2 | `?column? bool` | `?column? bool` | ✓ |
+
+### `named_window`
+
+Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+
+| # | PostgreSQL | pgweave | |
+|--:|---|---|:-:|
+| 1 | `author uuid` | `author uuid` | ✓ |
+| 2 | `sum float8` | `sum float8` | ✓ |

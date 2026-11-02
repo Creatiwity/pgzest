@@ -1,7 +1,6 @@
 use pgweave_catalog::ProjectCatalog;
-use pgweave_checker::{check_sql, check_sql_self_contained, check_statements};
+use pgweave_checker::{check_sql, check_sql_self_contained};
 use pgweave_diagnostics::codes;
-use pgweave_schema::provider::IntrospectionJsonProvider;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -162,60 +161,6 @@ fn ddl_passes_through_without_errors() {
     );
 }
 
-// ── IntrospectionJsonProvider ─────────────────────────────────────────────────
-
-#[test]
-fn json_provider_valid_select() {
-    let json = r#"{
-        "tables": [
-            {
-                "name": "organizations",
-                "columns": [
-                    { "name": "id", "type": "uuid", "nullable": false },
-                    { "name": "name", "type": "text", "nullable": false }
-                ]
-            }
-        ]
-    }"#;
-    let schema = IntrospectionJsonProvider::from_json(json).expect("JSON parse should succeed");
-
-    let diags = check_sql("SELECT id, name FROM organizations", &schema);
-    assert!(
-        diags.is_empty(),
-        "expected no diagnostics, got: {:#?}",
-        diags
-    );
-}
-
-#[test]
-fn json_provider_missing_column_is_error() {
-    let json = r#"{
-        "tables": [
-            {
-                "name": "organizations",
-                "columns": [
-                    { "name": "id", "type": "uuid", "nullable": false }
-                ]
-            }
-        ]
-    }"#;
-    let schema = IntrospectionJsonProvider::from_json(json).expect("JSON parse should succeed");
-
-    let diags = check_sql("SELECT id, nonexistent FROM organizations", &schema);
-    let errors: Vec<_> = diags
-        .iter()
-        .filter(|d| matches!(d.severity, pgweave_diagnostics::Severity::Error))
-        .collect();
-
-    assert_eq!(
-        errors.len(),
-        1,
-        "expected exactly 1 error, got: {:#?}",
-        diags
-    );
-    assert_eq!(errors[0].code, codes::COLUMN_NOT_FOUND);
-}
-
 // ── RLS policy checks ─────────────────────────────────────────────────────────
 
 /// CREATE POLICY on a table that does not exist in the schema → E003 error.
@@ -274,31 +219,27 @@ fn rls_policy_valid_column_passes() {
 
 // ── PL/pgSQL body checks ──────────────────────────────────────────────────────
 
-/// Trigger function that assigns to NEW.nonexistent_col → must produce E001 or at
-/// least not panic.
+/// Fonction trigger qui affecte `NEW.nonexistent_col` : le champ n'existe
+/// pas sur la table du trigger.
 #[test]
 fn trigger_new_nonexistent_column_is_error() {
-    // Schema: tasks(id UUID, status TEXT)
-    let schema_sql = "CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT NOT NULL);";
-    let func_sql = r#"
+    let sql = r#"
+        CREATE TABLE tasks (id UUID PRIMARY KEY, status TEXT NOT NULL);
         CREATE OR REPLACE FUNCTION bad_trigger()
         RETURNS TRIGGER LANGUAGE plpgsql AS $$
         BEGIN
           NEW.nonexistent_col = now();
           RETURN NEW;
         END;
-        $$;"#;
-
-    let schema = ProjectCatalog::from_sql(schema_sql).unwrap();
-    let stmts = pgweave_parser::parse(func_sql).unwrap();
-    let diags = check_statements(&stmts, &schema);
-
-    // At minimum, must not panic.
-    println!("diags: {:?}", diags);
-
-    // If the body is Parsed, the AST checker should emit E001.
-    // If it falls back to Raw, the text scanner may find it too.
-    // Either way, we only assert no panic here as documented in the spec.
+        $$;
+        CREATE TRIGGER t BEFORE UPDATE ON tasks FOR EACH ROW EXECUTE FUNCTION bad_trigger();"#;
+    let diags = check_sql_self_contained(sql);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code == codes::COLUMN_NOT_FOUND && d.message.contains("nonexistent_col")),
+        "{diags:#?}"
+    );
 }
 
 // ── self-contained mode ───────────────────────────────────────────────────────

@@ -565,9 +565,10 @@ pub fn emit_expr(expr: &Expr) -> String {
         ExprKind::Literal(lit) => emit_literal(lit),
         ExprKind::Column(col_ref) => {
             let col = emit_ident(&col_ref.column);
-            match &col_ref.table {
-                Some(t) => format!("{}.{}", emit_ident(t), col),
-                None => col,
+            match (&col_ref.schema, &col_ref.table) {
+                (Some(s), Some(t)) => format!("{}.{}.{}", emit_ident(s), emit_ident(t), col),
+                (_, Some(t)) => format!("{}.{}", emit_ident(t), col),
+                (_, None) => col,
             }
         }
         ExprKind::BinaryOp { left, op, right } => {
@@ -908,6 +909,29 @@ pub fn emit_create_table(ct: &CreateTable) -> String {
         Some(OnCommit::DeleteRows) => " ON COMMIT DELETE ROWS",
         Some(OnCommit::Drop) => " ON COMMIT DROP",
     };
+    if let Some(q) = &ct.as_query {
+        let names = if ct.columns.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " ({})",
+                ct.columns
+                    .iter()
+                    .map(|c| emit_ident(&c.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        return format!(
+            "CREATE {}TABLE {}{}{}{} AS\n{};",
+            kind,
+            if_not_exists,
+            emit_object_name(&ct.name),
+            names,
+            on_commit,
+            emit_select(q)
+        );
+    }
     format!(
         "CREATE {}TABLE {}{} (\n  {}\n){};",
         kind,

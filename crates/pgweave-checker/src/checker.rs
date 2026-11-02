@@ -5,6 +5,9 @@ use pgweave_diagnostics::Diagnostic;
 use pgweave_schema::provider::SchemaProvider;
 use std::collections::HashMap;
 
+/// Règles des plugins, appliquées à chaque statement. Les vérifications
+/// intégrées relèvent de `pgweave-sema` (voir [`crate::check`]).
+#[derive(Default)]
 pub struct Checker {
     rules: Vec<Box<dyn CheckRule>>,
 }
@@ -12,10 +15,6 @@ pub struct Checker {
 impl Checker {
     pub fn new(rules: Vec<Box<dyn CheckRule>>) -> Self {
         Self { rules }
-    }
-
-    pub fn with_builtin_rules() -> Self {
-        Self::new(crate::rules::builtin_rules())
     }
 
     pub fn add_rule(&mut self, rule: Box<dyn CheckRule>) {

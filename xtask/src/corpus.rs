@@ -108,52 +108,67 @@ pub fn run(
     // Rejeu par pgweave et diagnostics de `check` : chaque migration est
     // vérifiée contre le catalogue tel qu'il est après elle — l'état réel de
     // la base au moment où elle s'applique (P2), pas l'état final.
-    let all_stmts: Vec<Statement> = parsed_files
-        .iter()
-        .flat_map(|(_, _, s)| s.iter().cloned())
-        .collect();
-    let checker = pgweave_checker::Checker::with_builtin_rules();
     let mut replay = pgweave_catalog::Replay::new(
         pgweave_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
     );
     replay.typer = Some(pgweave_sema::ViewTyper::shared());
-    let check_start = Instant::now();
-    for (path, _, stmts) in &parsed_files {
-        let replay_start = Instant::now();
+    // Chaque statement est vérifié quand il s'applique, contre l'état de ce
+    // moment ; un corps PL/pgSQL, exécuté plus tard, l'est contre l'état
+    // final s'il est encore en vigueur (`pgweave_sema::check`).
+    let mut check_diags: Vec<(usize, pgweave_diagnostics::Diagnostic)> = Vec::new();
+    let mut deferred = Vec::new();
+    for (i, (path, _, stmts)) in parsed_files.iter().enumerate() {
         let mut replay_diags = Vec::new();
         for st in stmts {
+            let replay_start = Instant::now();
             replay.apply(st, &mut replay_diags);
+            stats.replay_time += replay_start.elapsed();
+            let check_start = Instant::now();
+            let mut d = Vec::new();
+            pgweave_sema::check::check_applied(&replay.catalog, &replay.search_path, st, &mut d);
+            check_diags.extend(d.into_iter().map(|d| (i, d)));
+            if pgweave_sema::check::is_deferred(st) {
+                deferred.push((i, replay.search_path.clone(), st));
+            }
+            stats.check_time += check_start.elapsed();
         }
-        stats.replay_time += replay_start.elapsed();
         for d in &replay_diags {
             *stats.replay_diagnostics.entry(d.code).or_default() += 1;
             if details {
                 eprintln!("{}: rejeu : [{}] {}", path.display(), d.code, d.message);
             }
         }
-        let schema =
-            pgweave_catalog::compat::CatalogSchema::new(&replay.catalog, &replay.search_path);
-        let diags = checker.run_with_context(stmts, &all_stmts, &schema);
-        let mut file_has_error = false;
-        for d in &diags {
-            let sev = match d.severity {
-                Severity::Error => {
-                    file_has_error = true;
-                    "error"
-                }
-                Severity::Warning => "warning",
-                Severity::Info => "info",
-            };
-            *stats.diagnostics.entry((sev, d.code)).or_default() += 1;
-            if details {
-                eprintln!("{}: {sev}[{}] {}", path.display(), d.code, d.message);
-            }
-        }
-        if file_has_error {
-            stats.files_with_errors += 1;
+    }
+    let check_start = Instant::now();
+    for (i, path, st) in deferred {
+        if pgweave_catalog::project::routine_in_force(&replay.catalog, st) {
+            let mut d = Vec::new();
+            pgweave_sema::check::check_deferred(&replay.catalog, &path, st, &mut d);
+            check_diags.extend(d.into_iter().map(|d| (i, d)));
         }
     }
-    stats.check_time = check_start.elapsed();
+    stats.check_time += check_start.elapsed();
+    let mut files_with_errors = std::collections::BTreeSet::new();
+    for (i, d) in &check_diags {
+        let sev = match d.severity {
+            Severity::Error => {
+                files_with_errors.insert(*i);
+                "error"
+            }
+            Severity::Warning => "warning",
+            Severity::Info => "info",
+        };
+        *stats.diagnostics.entry((sev, d.code)).or_default() += 1;
+        if details {
+            let (file, sql, _) = &parsed_files[*i];
+            let line = d
+                .span
+                .as_ref()
+                .map_or(0, |s| sql[..s.start.min(sql.len())].lines().count());
+            eprintln!("{}:{line}: {sev}[{}] {}", file.display(), d.code, d.message);
+        }
+    }
+    stats.files_with_errors = files_with_errors.len();
 
     let pg_url_for_import = pg_url.or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok());
     let probes = crate::probes::generate(&replay.catalog);
