@@ -223,12 +223,19 @@ impl Generator<'_> {
             Some(t) => format!(", params: {t}"),
             None => String::new(),
         };
+        // Un domaine passe par `Domain` : le serveur peut l'annoncer tel quel.
+        let domains: Vec<bool> = d.params.iter().map(|p| self.is_domain(&p.ty.pg)).collect();
         let bound = match &params_ty {
             Some(_) => format!(
                 "&[{}]",
                 params
                     .iter()
-                    .map(|(f, _)| format!("&params.{f}"))
+                    .zip(&domains)
+                    .map(|((f, _), dom)| if *dom {
+                        format!("&{rt}::Domain(params.{f})")
+                    } else {
+                        format!("&params.{f}")
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -351,6 +358,14 @@ impl Generator<'_> {
         Ok(o)
     }
 
+    /// Le type (ou l'élément de tableau) est un domaine.
+    fn is_domain(&self, qualified: &str) -> bool {
+        matches!(
+            self.ts.def(&qname(qualified)).map(|d| &d.kind),
+            Some(TypeKind::Domain { .. })
+        )
+    }
+
     /// Extension qui apporte ce type, s'il en vient une.
     fn extension_of(&self, ty: &Ty) -> Option<String> {
         let cat = self.ts.catalog;
@@ -457,9 +472,10 @@ pub struct InlineQuery {
     pub query_const: String,
     /// Struct `Row` et son décodage, si la requête renvoie des lignes.
     pub row: Option<String>,
-    /// Paramètres dans l'ordre : nom et type Rust attendu (sans durée de
-    /// vie nommée : `&str`, `Option<i64>`…).
-    pub params: Vec<(String, String)>,
+    /// Paramètres dans l'ordre : nom, type Rust attendu (sans durée de vie
+    /// nommée : `&str`, `Option<i64>`…), et s'il est d'un domaine (à passer
+    /// par `Domain`).
+    pub params: Vec<(String, String, bool)>,
     /// Marqueur de cardinalité (`One`, `Optional`, `Many`, `NoRows`).
     pub cardinality: &'static str,
 }
@@ -494,7 +510,7 @@ pub fn inline_query(
             NullabilityDesc::Nullable => format!("Option<{ty}>"),
             NullabilityDesc::NonNull | NullabilityDesc::Unknown => ty,
         };
-        params.push((p.name.clone(), ty));
+        params.push((p.name.clone(), ty, g.is_domain(&p.ty.pg)));
     }
     let oids = match oids {
         Some(v) => format!(

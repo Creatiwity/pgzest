@@ -44,6 +44,7 @@ fn table_ref(name: &str) -> TableRef {
         alias: None,
         column_aliases: vec![],
         column_types: vec![],
+        span: Default::default(),
     }
 }
 

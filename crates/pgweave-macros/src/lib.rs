@@ -203,9 +203,13 @@ fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, St
         q.cardinality
     ))?;
     let mut params = Vec::new();
-    for ((_, ty), e) in q.params.iter().zip(&binds) {
+    for ((_, ty, domain), e) in q.params.iter().zip(&binds) {
         let ty = parse(ty)?;
-        params.push(quote!(::pgweave_runtime::bind({ let v: #ty = #e; v })));
+        params.push(if *domain {
+            quote!(::pgweave_runtime::bind(::pgweave_runtime::Domain({ let v: #ty = #e; v })))
+        } else {
+            quote!(::pgweave_runtime::bind({ let v: #ty = #e; v }))
+        });
     }
     let watched: Vec<String> = project
         .files

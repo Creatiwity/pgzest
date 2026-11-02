@@ -500,3 +500,33 @@ where
         }),
     }))
 }
+
+// ── Domaines ──────────────────────────────────────────────────────────────────
+
+/// Valeur passée à un paramètre de type domaine. Une requête préparée par le
+/// serveur annonce le domaine lui-même (`cents`), que les types Rust de base
+/// refusent ; la valeur est encodée avec le type de base du domaine.
+#[derive(Debug, Clone, Copy)]
+pub struct Domain<T>(pub T);
+
+impl<T: ToSql> ToSql for Domain<T> {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut types::private::BytesMut,
+    ) -> Result<types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        match ty.kind() {
+            types::Kind::Domain(base) => self.0.to_sql(base, out),
+            _ => self.0.to_sql(ty, out),
+        }
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        match ty.kind() {
+            types::Kind::Domain(base) => T::accepts(base),
+            _ => T::accepts(ty),
+        }
+    }
+
+    types::to_sql_checked!();
+}
