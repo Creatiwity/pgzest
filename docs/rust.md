@@ -1,0 +1,216 @@
+# Requêtes typées en Rust
+
+> Statut : **utilisable** (P5 en cours, 2026-11-02). Exemple complet :
+> [`examples/rust-service`](../examples/rust-service), testé contre
+> PostgreSQL 18 en CI.
+
+Les requêtes SQL d'un projet deviennent des fonctions Rust typées, à la
+compilation et **sans connexion à une base**. Les types viennent du
+catalogue que pgweave reconstruit en rejouant le schéma et les migrations
+du projet (`pgweave.toml`). L'exécution passe par `tokio-postgres`.
+
+Deux façons d'écrire une requête :
+
+- **requête nommée** dans `queries/*.sql`, compilée par `build.rs` : c'est
+  la forme principale (enums générés, `COPY`, réutilisable) ;
+- **`query!`**, en ligne dans le code Rust, pour une requête ponctuelle.
+
+## Mise en place
+
+```toml
+# pgweave.toml
+[postgres]
+version = 18
+
+[schema]
+directory = "schema"        # ou [migrations] directory = "migrations"
+
+[queries]
+directory = "queries"
+```
+
+```toml
+# Cargo.toml
+[dependencies]
+pgweave-runtime = { path = "…/crates/pgweave-runtime" }
+pgweave-macros  = { path = "…/crates/pgweave-macros" }   # pour query!
+tokio-postgres  = { version = "0.7", features = ["with-time-0_3", "with-uuid-1"] }
+time = "0.3"      # dates (ou chrono, voir plus bas)
+uuid = "1"        # si le schéma a des uuid
+
+[build-dependencies]
+pgweave-build = { path = "…/crates/pgweave-build" }
+```
+
+```rust
+// build.rs
+fn main() {
+    pgweave_build::Builder::new()
+        .generate()
+        .unwrap_or_else(|e| panic!("pgweave : {e}"));
+}
+```
+
+```rust
+// src/lib.rs
+pub mod queries {
+    include!(concat!(env!("OUT_DIR"), "/pgweave_queries.rs"));
+}
+```
+
+Une requête que l'analyse ne décrit pas fait **échouer la compilation**, avec
+sa position dans le fichier SQL. Modifier le schéma, une migration ou une
+requête relance la génération. `pgweave describe --rust queries/x.sql`
+affiche le code généré sans compiler ; `pgweave describe` seul affiche les
+descripteurs JSON.
+
+## Requêtes nommées
+
+Format des fichiers : [`named-queries.md`](named-queries.md).
+
+```sql
+-- name: page_by_id
+SELECT id, slug, title, status, published_on FROM pages WHERE id = $id;
+```
+
+devient :
+
+```rust
+pub struct PageByIdParams { pub id: i64 }
+pub struct PageByIdRow {
+    pub id: i64,
+    pub slug: String,
+    pub title: String,
+    pub status: PageStatus,               // enum PostgreSQL → enum Rust
+    pub published_on: Option<time::Date>, // colonne nullable → Option
+}
+pub async fn page_by_id<C: GenericClient + ?Sized>(client: &C, params: PageByIdParams)
+    -> Result<Option<PageByIdRow>, pgweave_runtime::Error>;
+```
+
+`client` est tout ce qui implémente `GenericClient` : client, transaction,
+connexion de pool.
+
+### Cardinalité
+
+Le type de retour suit le nombre de lignes, **inféré** de façon
+conservatrice :
+
+| Requête | Cardinalité | Retour |
+|---|---|---|
+| égalités sur toutes les colonnes d'une clé primaire, d'une contrainte ou d'un index unique (sans prédicat) | `optional` | `Option<Row>` |
+| `INSERT … VALUES (une ligne) RETURNING` | `one` | `Row` |
+| agrégat sans `GROUP BY` (`count(*)`…) | `one` | `Row` |
+| `LIMIT 1` | `optional` | `Option<Row>` |
+| sans `RETURNING` | `none` | `u64` (lignes touchées) |
+| sinon | `many` | `Vec<Row>`, et `x_stream` en flux |
+
+Une déclaration dans l'en-tête (`-- name: x :one`) **restreint**
+l'inférence : `:one` sur une requête `optional` affirme que la ligne
+existe, et c'est vérifié à l'exécution (`Error::RowCount`). Elle ne peut
+pas la contredire (`:none` sur une requête qui renvoie des lignes est une
+erreur).
+
+### Nullabilité
+
+Jamais supposée (PLAN.md D5) :
+
+- **colonne** : `T` seulement si sa non-nullité est établie (`NOT NULL`
+  conservé à travers les jointures, `count(*)`, littéral…), sinon
+  `Option<T>` ;
+- **paramètre** : affecté à une colonne (`VALUES`, `SET`), il en prend la
+  nullabilité (`Option<T>` pour une colonne nullable) ; ailleurs
+  (`WHERE id = $id`), il est attendu non nul.
+
+### Types
+
+| PostgreSQL | Rust |
+|---|---|
+| `bool` | `bool` |
+| `int2`, `int4`, `int8` | `i16`, `i32`, `i64` |
+| `float4`, `float8` | `f32`, `f64` |
+| `numeric` | `rust_decimal::Decimal` |
+| `text`, `varchar`, `char(n)`, `name`, `citext` | `String` (paramètre : `&str`) |
+| `bytea` | `Vec<u8>` (paramètre : `&[u8]`) |
+| `uuid` | `uuid::Uuid` |
+| `json`, `jsonb` | `serde_json::Value` |
+| `date`, `time`, `timestamp`, `timestamptz` | `time::Date`, `time::Time`, `time::PrimitiveDateTime`, `time::OffsetDateTime` (ou `chrono`) |
+| tableau `T[]` | `Vec<Option<T>>` (paramètre : `&[T]`) |
+| enum du projet | enum Rust généré (variantes en PascalCase) |
+| domaine | type de son type de base |
+
+Un type absent de la table est un **refus**, jamais un repli : on le
+déclare dans `build.rs`.
+
+```rust
+pgweave_build::Builder::new()
+    .temporal(pgweave_codegen::rust::Temporal::Chrono)
+    .type_override("public.geometry", "geo_types::Geometry<f64>")
+    .generate()
+```
+
+Les noms de colonnes deviennent des champs en snake_case (`"createdAt"` →
+`created_at`). Une colonne sans nom Rust (`?column?`) ou deux colonnes de
+même nom sont refusées : leur donner un alias.
+
+### Exécution
+
+- Types des paramètres tous intégrés : `query_typed`, en un seul aller-retour.
+- Type du projet en paramètre (enum) : la requête est préparée par le
+  serveur, qui en fixe les types (un aller-retour de plus).
+- Coût mesuré (`make bench`) : identique à `tokio-postgres` écrit à la
+  main (rapport 0,995 sur `page_by_id`).
+
+## `COPY … FROM STDIN`
+
+Une requête nommée peut être un `COPY` :
+
+```sql
+-- name: load_staging
+COPY etablissements_staging (siret, nom, effectif, ouvert) FROM STDIN (FORMAT binary);
+
+-- name: load_staging_csv
+COPY etablissements_staging FROM STDIN (FORMAT csv, HEADER true);
+```
+
+- format binaire : `load_staging(&tx, records)` où `records` itère sur des
+  `LoadStagingRecord { siret: &str, nom: &str, effectif: Option<i32>, … }` ;
+- texte ou CSV : `load_staging_csv(&tx, reader)` où `reader` est un
+  `tokio::io::AsyncRead`, transmis tel quel.
+
+`COPY` demande un `Client` ou une `Transaction` (trait `CopyClient`). Les
+colonnes générées ne sont pas alimentées (et refusées si on les cite).
+L'exemple enchaîne staging, `COPY` et bascule `INSERT … ON CONFLICT` dans
+une transaction.
+
+## `query!`
+
+```rust
+let title = pgweave_macros::query!("SELECT title FROM pages WHERE id = $id", id = id)
+    .fetch(&client)          // optional → Option<Row>
+    .await?
+    .map(|r| r.title);
+
+let n = pgweave_macros::query!(
+    "UPDATE pages SET title = $title WHERE author = $author",
+    title = "Bonjour",
+    author = author,
+)
+.execute(&client)            // sans ligne → u64
+.await?;
+```
+
+- paramètres nommés (`$nom`), liés par `nom = valeur` ; chaque valeur est
+  vérifiée au type attendu ;
+- `fetch` renvoie ce que promet la cardinalité ; `fetch_one` /
+  `fetch_optional` restreignent (vérifié à l'exécution) ;
+- une erreur SQL est une erreur de compilation sur la chaîne ;
+- pas d'enum ni de `COPY` en ligne : ils demandent des types uniques dans
+  le crate, donc une requête nommée.
+
+## Erreurs
+
+`pgweave_runtime::Error` : `Db` (erreur PostgreSQL ou de connexion),
+`RowCount` (nombre de lignes contraire à la cardinalité), `Decode`
+(valeur non décodable), `Io` (lecture des données d'un `COPY`). Chacune
+nomme la requête.

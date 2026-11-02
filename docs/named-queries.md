@@ -9,8 +9,10 @@ d'un en-tête qui lui donne un nom. C'est l'unité à partir de laquelle seront
 générés les appels typés (Rust en P5, TypeScript en P8) : une fonction par
 requête, une struct de paramètres, une struct de ligne.
 
-Dès aujourd'hui, `pgweave check` et l'éditeur vérifient le format de ces
-fichiers **et** chaque requête contre le schéma (tables, colonnes).
+`pgweave check` et l'éditeur vérifient le format de ces fichiers, chaque
+requête contre le schéma, et ce qui empêcherait de la décrire (paramètre
+non typé, cardinalité contredite). `pgweave describe` produit les
+descripteurs ; leur usage en Rust est décrit dans [`rust.md`](rust.md).
 
 ## Exemple
 
