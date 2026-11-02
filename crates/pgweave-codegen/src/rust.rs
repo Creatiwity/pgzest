@@ -335,6 +335,117 @@ impl Generator<'_> {
     }
 }
 
+/// Pièces d'une requête inline (`query!`), à placer dans un bloc.
+pub struct InlineQuery {
+    /// `const QUERY: Query = …;`
+    pub query_const: String,
+    /// Struct `Row` et son décodage, si la requête renvoie des lignes.
+    pub row: Option<String>,
+    /// Paramètres dans l'ordre : nom et type Rust attendu (sans durée de
+    /// vie nommée : `&str`, `Option<i64>`…).
+    pub params: Vec<(String, String)>,
+    /// Marqueur de cardinalité (`One`, `Optional`, `Many`, `NoRows`).
+    pub cardinality: &'static str,
+}
+
+/// Requête inline : comme une requête nommée, sans enum (ses types Rust
+/// doivent être uniques dans le crate : requêtes nommées, `build.rs`).
+pub fn inline_query(
+    d: &Descriptor,
+    catalog: &ProjectCatalog,
+    opts: &RustOptions,
+) -> Result<InlineQuery, String> {
+    let mut g = Generator {
+        ts: TypeSystem::new(&catalog.catalog),
+        opts,
+        enums: BTreeMap::new(),
+    };
+    let rt = &opts.runtime;
+    let mut oids = Some(Vec::new());
+    let mut params = Vec::new();
+    for p in &d.params {
+        let base = g.ts.base_type(&qname(&p.ty.pg));
+        match (g.ts.def(&base).and_then(|t| t.oid), oids.as_mut()) {
+            (Some(oid), Some(v)) => v.push(oid),
+            _ => oids = None,
+        }
+        let t = g.rust_type(&p.ty.pg)?;
+        let ty = t.borrowed.replace("&'a ", "&");
+        let ty = match p.nullable {
+            NullabilityDesc::Nullable => format!("Option<{ty}>"),
+            NullabilityDesc::NonNull | NullabilityDesc::Unknown => ty,
+        };
+        params.push((p.name.clone(), ty));
+    }
+    let oids = match oids {
+        Some(v) => format!(
+            "Some(&[{}])",
+            v.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
+        ),
+        None => "None".into(),
+    };
+    let query_const = format!(
+        "const QUERY: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};",
+        d.name, d.sql
+    );
+    let row = if d.columns.is_empty() {
+        None
+    } else {
+        let mut o = String::new();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut fields = Vec::new();
+        for c in &d.columns {
+            let f = field_ident(&c.name)
+                .map_err(|e| format!("{e} (colonne de sortie : lui donner un alias)"))?;
+            if !seen.insert(f.clone()) {
+                return Err(format!(
+                    "deux colonnes de sortie s'appellent `{}` : leur donner des alias distincts",
+                    c.name
+                ));
+            }
+            let t = g.rust_type(&c.ty.pg)?;
+            fields.push((
+                f,
+                match c.nullable {
+                    NullabilityDesc::NonNull => t.owned,
+                    _ => format!("Option<{}>", t.owned),
+                },
+            ));
+        }
+        let _ = writeln!(o, "#[derive(Debug, Clone, PartialEq)]\npub struct Row {{");
+        for (f, t) in &fields {
+            let _ = writeln!(o, "    pub {f}: {t},");
+        }
+        let _ = writeln!(
+            o,
+            "}}\nimpl Row {{ fn from_row(row: &{rt}::Row) -> Result<Self, {rt}::tokio_postgres::Error> {{ Ok(Self {{"
+        );
+        for (i, (f, _)) in fields.iter().enumerate() {
+            let _ = writeln!(o, "    {f}: row.try_get({i})?,");
+        }
+        let _ = writeln!(o, "}}) }} }}");
+        Some(o)
+    };
+    if let Some((ty, _)) = g.enums.iter().next() {
+        return Err(format!(
+            "l'enum {ty} n'a pas de type Rust dans une requête inline : utiliser une requête nommée (build.rs), qui génère ses enums"
+        ));
+    }
+    use pgweave_query::Cardinality;
+    let cardinality = match (d.cardinality, &row) {
+        (Cardinality::None, _) | (_, None) => "NoRows",
+        (Cardinality::One, _) => "One",
+        (Cardinality::Optional, _) => "Optional",
+        (Cardinality::Many, _) => "Many",
+    };
+    Ok(InlineQuery {
+        query_const,
+        row,
+        params,
+        cardinality,
+    })
+}
+
 /// Enum Rust d'un enum PostgreSQL, encodé par ses libellés.
 fn enum_code(
     rt: &str,

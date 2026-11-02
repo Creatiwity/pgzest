@@ -723,7 +723,14 @@ Fait (2026-11-02) :
   requêtes nommées, test de bout en bout contre PostgreSQL 18 (`make
   oracle`, CI).
 
-Reste : macros `query!`/`query_file!`/`copy_in!`, `RowStream`, `COPY` typé,
+- `pgweave-macros` : `query!` (requête inline, paramètres `$nom` liés par
+  `nom = expr` et vérifiés au type attendu, `fetch` aligné sur la
+  cardinalité, `execute` sans ligne ; erreur SQL = erreur de compilation sur
+  la chaîne ; `include_bytes!` des fichiers du projet pour la
+  recompilation ; projet mis en cache par le serveur de macros, invalidé
+  par date de modification). Enums refusés en inline : requête nommée.
+
+Reste : `query_file!`/`copy_in!`, `RowStream`, `COPY` typé,
 correspondance de types par pack (PostGIS), exemple siren (staging + COPY
 + swap), budget de compilation, benchmarks.
 

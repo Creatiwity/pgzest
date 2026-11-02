@@ -90,51 +90,12 @@ impl Builder {
 
     /// Code Rust des requêtes du projet ; `watch` reçoit chaque fichier lu.
     pub fn generate_code(&self, watch: &mut dyn FnMut(&Path)) -> Result<String, String> {
-        let (root, config) = ProjectConfig::find_and_load(&self.root)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| {
-                format!(
-                    "pas de {} au-dessus de {}",
-                    ProjectConfig::FILENAME,
-                    self.root.display()
-                )
-            })?;
-        watch(&root.join(ProjectConfig::FILENAME));
-
-        let mut macros = pgweave_macro::MacroSet::builtin();
-        let macro_dir = root.join(&config.macros.directory);
-        if macro_dir.is_dir() {
-            watch(&macro_dir);
-            let errors = macros.load_dir(&macro_dir);
-            if !errors.is_empty() {
-                return Err(errors.join("\n"));
-            }
+        let project = load_project(&self.root)?;
+        for f in &project.files {
+            watch(f);
         }
-
-        // Catalogue du projet, rejoué ; un rejeu en erreur donnerait des
-        // types faux.
-        let mut builder = ProjectBuilder::new().with_typer(Some(pgweave_sema::ViewTyper::shared()));
-        for chunk in SchemaSource::chunks(&config.to_source(&root)) {
-            watch(&chunk.origin.path);
-            let parsed = parse_source(&chunk.sql, chunk.origin.byte_range.start, &macros);
-            builder.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());
-        }
-        let catalog = builder.finish();
-        let mut errors: Vec<String> = catalog
-            .diagnostics
-            .iter()
-            .filter(|(_, d)| d.severity == Severity::Error)
-            .map(|(p, d)| format!("{}: error[{}]: {}", p.display(), d.code, d.message))
-            .collect();
-        errors.extend(
-            catalog
-                .skipped
-                .iter()
-                .map(|(p, s)| format!("{}: statement non lu : {:?}", p.display(), s.reason)),
-        );
-        if !errors.is_empty() {
-            return Err(format!("catalogue incomplet :\n{}", errors.join("\n")));
-        }
+        let (root, config, catalog) = (project.root, project.config, project.catalog);
+        let mut errors = Vec::new();
 
         let Some(dir) = &config.queries.directory else {
             return Err(format!(
@@ -183,6 +144,72 @@ impl Builder {
         generate_rust(&descriptors, &catalog, &self.options)
             .map_err(|e| format!("génération Rust :\n{}", e.join("\n")))
     }
+}
+
+/// Projet chargé : sa configuration, son catalogue rejoué, et les fichiers
+/// lus pour le construire (à surveiller).
+pub struct Project {
+    pub root: PathBuf,
+    pub config: ProjectConfig,
+    pub catalog: pgweave_catalog::ProjectCatalog,
+    pub files: Vec<PathBuf>,
+}
+
+/// Projet de `pgweave.toml` trouvé en remontant depuis `start`, catalogue
+/// rejoué. Un catalogue incomplet (statement non lu, rejeu en erreur) est
+/// une erreur : il donnerait des types faux.
+pub fn load_project(start: &Path) -> Result<Project, String> {
+    let (root, config) = ProjectConfig::find_and_load(start)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| {
+            format!(
+                "pas de {} au-dessus de {}",
+                ProjectConfig::FILENAME,
+                start.display()
+            )
+        })?;
+    let mut files = vec![root.join(ProjectConfig::FILENAME)];
+
+    let mut macros = pgweave_macro::MacroSet::builtin();
+    let macro_dir = root.join(&config.macros.directory);
+    if macro_dir.is_dir() {
+        files.push(macro_dir.clone());
+        let errors = macros.load_dir(&macro_dir);
+        if !errors.is_empty() {
+            return Err(errors.join("\n"));
+        }
+    }
+
+    let mut builder = ProjectBuilder::new().with_typer(Some(pgweave_sema::ViewTyper::shared()));
+    for chunk in SchemaSource::chunks(&config.to_source(&root)) {
+        if !files.contains(&chunk.origin.path) {
+            files.push(chunk.origin.path.clone());
+        }
+        let parsed = parse_source(&chunk.sql, chunk.origin.byte_range.start, &macros);
+        builder.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());
+    }
+    let catalog = builder.finish();
+    let mut errors: Vec<String> = catalog
+        .diagnostics
+        .iter()
+        .filter(|(_, d)| d.severity == Severity::Error)
+        .map(|(p, d)| format!("{}: error[{}]: {}", p.display(), d.code, d.message))
+        .collect();
+    errors.extend(
+        catalog
+            .skipped
+            .iter()
+            .map(|(p, s)| format!("{}: statement non lu : {:?}", p.display(), s.reason)),
+    );
+    if !errors.is_empty() {
+        return Err(format!("catalogue incomplet :\n{}", errors.join("\n")));
+    }
+    Ok(Project {
+        root,
+        config,
+        catalog,
+        files,
+    })
 }
 
 fn collect_sql(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {

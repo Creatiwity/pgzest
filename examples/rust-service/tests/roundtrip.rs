@@ -92,6 +92,16 @@ async fn les_requetes_generees_s_executent() {
     assert_eq!(published.published_on, Some(day));
     tx.commit().await.expect("commit");
 
+    // Requêtes inline (`query!`).
+    let title = pgweave_example_rust_service::page_title(&client, inserted.id)
+        .await
+        .expect("page_title");
+    assert_eq!(title.as_deref(), Some("Hello"));
+    let renamed = pgweave_example_rust_service::rename_by_author(&client, author, "Bonjour")
+        .await
+        .expect("rename_by_author");
+    assert_eq!(renamed, 1);
+
     let n = queries::count_pages(&client).await.expect("count_pages");
     // `count(*)` n'est jamais NULL : champ non optionnel.
     assert_eq!(n.n, 1);

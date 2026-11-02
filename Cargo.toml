@@ -19,6 +19,7 @@ members = [
     "crates/pgweave-query",
     "crates/pgweave-runtime",
     "crates/pgweave-build",
+    "crates/pgweave-macros",
     "examples/rust-service",
     "crates/pgweave-oracle",
     "xtask",

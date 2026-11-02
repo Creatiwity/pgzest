@@ -1198,6 +1198,7 @@ name = "pgweave-example-rust-service"
 version = "0.1.0"
 dependencies = [
  "pgweave-build",
+ "pgweave-macros",
  "pgweave-runtime",
  "time",
  "tokio",
@@ -1245,6 +1246,18 @@ dependencies = [
  "pgweave-ast",
  "pgweave-diagnostics",
  "pgweave-parser",
+]
+
+[[package]]
+name = "pgweave-macros"
+version = "0.1.0"
+dependencies = [
+ "pgweave-build",
+ "pgweave-codegen",
+ "pgweave-query",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

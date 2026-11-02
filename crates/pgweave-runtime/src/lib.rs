@@ -208,3 +208,96 @@ pub fn enum_to_sql<E: PgEnum>(
     out.extend_from_slice(e.label().as_bytes());
     Ok(types::IsNull::No)
 }
+
+// ── Requêtes inline (`query!`) ────────────────────────────────────────────────
+
+/// Valeur liée à un paramètre d'une requête inline, possédée par elle.
+pub type Bound<'a> = Box<dyn ToSql + Sync + 'a>;
+
+/// Lie une valeur à un paramètre (code généré par `query!`).
+pub fn bind<'a, T: ToSql + Sync + 'a>(v: T) -> Bound<'a> {
+    Box::new(v)
+}
+
+/// Marqueurs de cardinalité d'une requête inline.
+pub mod cardinality {
+    /// Exactement une ligne.
+    pub struct One;
+    /// Zéro ou une ligne.
+    pub struct Optional;
+    /// Un nombre quelconque de lignes.
+    pub struct Many;
+    /// Aucune ligne renvoyée.
+    pub struct NoRows;
+}
+
+/// Requête inline prête à s'exécuter : ses paramètres liés, sa ligne, sa
+/// cardinalité `K`. `fetch` renvoie ce que la cardinalité promet ; les
+/// variantes plus étroites sont des contrats vérifiés à l'exécution.
+pub struct Inline<'a, T, K> {
+    query: &'static Query,
+    params: Vec<Bound<'a>>,
+    decode: Decode<T>,
+    _cardinality: std::marker::PhantomData<K>,
+}
+
+impl<'a, T, K> Inline<'a, T, K> {
+    pub fn new(query: &'static Query, params: Vec<Bound<'a>>, decode: Decode<T>) -> Self {
+        Inline {
+            query,
+            params,
+            decode,
+            _cardinality: std::marker::PhantomData,
+        }
+    }
+
+    fn params(&self) -> Vec<Param<'_>> {
+        self.params
+            .iter()
+            .map(|b| b.as_ref() as Param<'_>)
+            .collect()
+    }
+}
+
+impl<T> Inline<'_, T, cardinality::One> {
+    pub async fn fetch<C: GenericClient + ?Sized>(self, client: &C) -> Result<T, Error> {
+        fetch_one(client, self.query, &self.params(), self.decode).await
+    }
+}
+
+impl<T> Inline<'_, T, cardinality::Optional> {
+    pub async fn fetch<C: GenericClient + ?Sized>(self, client: &C) -> Result<Option<T>, Error> {
+        fetch_optional(client, self.query, &self.params(), self.decode).await
+    }
+
+    /// Exactement une ligne attendue : une absence est une erreur.
+    pub async fn fetch_one<C: GenericClient + ?Sized>(self, client: &C) -> Result<T, Error> {
+        fetch_one(client, self.query, &self.params(), self.decode).await
+    }
+}
+
+impl<T> Inline<'_, T, cardinality::Many> {
+    pub async fn fetch<C: GenericClient + ?Sized>(self, client: &C) -> Result<Vec<T>, Error> {
+        fetch_all(client, self.query, &self.params(), self.decode).await
+    }
+
+    /// Au plus une ligne attendue.
+    pub async fn fetch_optional<C: GenericClient + ?Sized>(
+        self,
+        client: &C,
+    ) -> Result<Option<T>, Error> {
+        fetch_optional(client, self.query, &self.params(), self.decode).await
+    }
+
+    /// Exactement une ligne attendue.
+    pub async fn fetch_one<C: GenericClient + ?Sized>(self, client: &C) -> Result<T, Error> {
+        fetch_one(client, self.query, &self.params(), self.decode).await
+    }
+}
+
+impl Inline<'_, (), cardinality::NoRows> {
+    /// Nombre de lignes touchées.
+    pub async fn execute<C: GenericClient + ?Sized>(self, client: &C) -> Result<u64, Error> {
+        execute(client, self.query, &self.params()).await
+    }
+}
