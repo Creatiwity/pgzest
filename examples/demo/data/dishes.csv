@@ -1,0 +1,9 @@
+restaurant_id,name,kind,price,vegetarian
+1,Velouté de potimarron,starter,750,true
+1,Burger du chef,main,1650,false
+1,Risotto aux cèpes,main,1890,true
+1,Tarte au citron,dessert,800,true
+1,Limonade maison,drink,450,true
+2,Gyozas,starter,690,false
+2,Ramen tonkotsu,main,1450,false
+2,Mochi,dessert,550,true

@@ -1,0 +1,17 @@
+[package]
+name = "pgweave-demo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Démo pgweave : requêtes SQL nommées compilées en Rust typé, exécutées sur PostgreSQL"
+
+[dependencies]
+pgweave-runtime = { path = "../../crates/pgweave-runtime" }
+pgweave-macros = { path = "../../crates/pgweave-macros" }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true, features = ["with-time-0_3", "with-uuid-1"] }
+time = "0.3"
+uuid = "1"
+
+[build-dependencies]
+pgweave-build = { path = "../../crates/pgweave-build" }

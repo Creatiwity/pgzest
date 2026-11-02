@@ -1,0 +1,11 @@
+{
+  "files.associations": {
+    "*.sql": "sql"
+  },
+  "editor.semanticHighlighting.enabled": true,
+  "rust-analyzer.linkedProjects": [
+    "../../Cargo.toml"
+  ],
+  "rust-analyzer.cargo.buildScripts.enable": true,
+  "rust-analyzer.procMacro.enable": true
+}

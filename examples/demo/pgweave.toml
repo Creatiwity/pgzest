@@ -1,0 +1,14 @@
+# Démo pgweave : un schéma rejoué depuis ses migrations, une vue déclarée,
+# des requêtes nommées compilées en Rust (voir README.md).
+
+[postgres]
+version = 18
+
+[migrations]
+directory = "migrations"
+
+[schema]
+directory = "schema"
+
+[queries]
+directory = "queries"

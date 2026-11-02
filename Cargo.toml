@@ -21,6 +21,7 @@ members = [
     "crates/pgweave-build",
     "crates/pgweave-macros",
     "examples/rust-service",
+    "examples/demo",
     "crates/pgweave-oracle",
     "xtask",
     "bindings/wasm",

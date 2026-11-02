@@ -144,8 +144,8 @@ oracle-down: ## Arrête et supprime le PostgreSQL de l'oracle
 
 # ── Démo / smoke ─────────────────────────────────────────────────────────────
 
-.PHONY: demo
-demo: build ## Exécute la CLI sur examples/ — montre l'outil en action
+.PHONY: demo-cli
+demo-cli: build ## Exécute la CLI sur examples/ — montre l'outil en action
 	@echo
 	@echo "════ pgweave check examples/test.sql ════"
 	@echo "   (erreur attendue : table inexistante)"
@@ -164,6 +164,18 @@ demo: build ## Exécute la CLI sur examples/ — montre l'outil en action
 	@$(CLI) emit $(EXAMPLES)/test.sql || true
 	@echo
 	@echo "Démo terminée. La CLI est dans $(CLI) — voir 'make help'."
+
+.PHONY: demo
+demo: ## Ouvre la démo (examples/demo) dans VS Code, extension pgweave en mode développement
+	$(CARGO) build -p pgweave-lsp -p pgweave
+	$(MAKE) vscode
+	code --extensionDevelopmentPath=$(CURDIR)/$(VSCODE) $(CURDIR)/examples/demo
+	@echo
+	@echo "Fenêtre VS Code ouverte sur examples/demo : suivre examples/demo/README.md."
+
+.PHONY: demo-run
+demo-run: oracle-up ## Exécute le scénario Rust de la démo sur PostgreSQL 18 (Docker)
+	$(CARGO) run -p pgweave-demo
 
 .PHONY: lsp
 lsp: ## Compile le serveur LSP et rappelle comment le lancer dans VS Code
