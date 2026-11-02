@@ -1299,6 +1299,8 @@ dependencies = [
  "insta",
  "pgweave-ast",
  "pgweave-catalog",
+ "pgweave-diagnostics",
+ "pgweave-macro",
  "pgweave-parser",
  "pgweave-query",
  "pgweave-schema",

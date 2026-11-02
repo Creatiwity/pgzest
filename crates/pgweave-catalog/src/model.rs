@@ -345,6 +345,11 @@ pub struct Routine {
     /// a des effets que le rejeu ne reproduit pas.
     #[serde(default, skip_serializing)]
     pub catalog_effects: bool,
+    /// Texte du `CREATE …` tel qu'écrit, quand il est conservé
+    /// ([`crate::project::ProjectBuilder::keep_sources`]) : PostgreSQL garde
+    /// le corps d'une routine à la lettre, une migration doit le reprendre.
+    #[serde(default, skip_serializing)]
+    pub source: Option<String>,
 }
 
 impl Routine {

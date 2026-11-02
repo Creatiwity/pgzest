@@ -59,6 +59,8 @@ pub struct Project {
     pub files: Vec<SourceFile>,
     #[returns(ref)]
     pub macros: Arc<MacroSet>,
+    /// `[schema] declarative` : les migrations sont rejouées à part (D10).
+    pub declarative: bool,
 }
 
 // ── Base ──────────────────────────────────────────────────────────────────────
@@ -137,7 +139,8 @@ pub fn project_replay(db: &dyn Db, project: Project) -> Arc<ProjectCatalog> {
     db.log_execution("project_replay".into());
     let mut builder = ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
-        .with_checker(Some(pgweave_sema::check::SemaChecker::shared()));
+        .with_checker(Some(pgweave_sema::check::SemaChecker::shared()))
+        .declarative(*project.declarative(db));
     for &file in project.files(db) {
         if !defines_schema(file.role(db)) {
             continue;
@@ -222,6 +225,11 @@ pub struct Workspace {
 impl Workspace {
     /// Projet formé des fragments `chunks`, dans l'ordre d'application.
     pub fn new(chunks: &[SqlChunk], macros: Arc<MacroSet>) -> Self {
+        Self::with_mode(chunks, macros, false)
+    }
+
+    /// Comme [`Self::new`], en mode déclaratif si `declarative` (D10).
+    pub fn with_mode(chunks: &[SqlChunk], macros: Arc<MacroSet>, declarative: bool) -> Self {
         let db = Database::default();
         let mut by_path: HashMap<PathBuf, Vec<SourceFile>> = HashMap::new();
         let files: Vec<SourceFile> = chunks
@@ -238,7 +246,7 @@ impl Workspace {
                 f
             })
             .collect();
-        let project = Project::new(&db, files, macros);
+        let project = Project::new(&db, files, macros, declarative);
         Workspace {
             db,
             project,

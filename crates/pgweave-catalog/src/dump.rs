@@ -24,12 +24,12 @@ pub struct Dump {
     pub baseline: String,
 }
 
-fn is_system(schema: &str) -> bool {
+pub(crate) fn is_system(schema: &str) -> bool {
     schema == "pg_catalog" || schema == "information_schema" || schema == "pg_temp"
 }
 
 /// Nom d'objet en SQL : non qualifié dans `public`.
-fn name_sql(q: &QName) -> String {
+pub(crate) fn name_sql(q: &QName) -> String {
     if q.schema == "public" {
         quote_ident(&q.name)
     } else {
@@ -148,55 +148,13 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
         if is_system(&t.name.schema) || ext_types.contains(&t.name) {
             continue;
         }
-        let (phase, sql) = match &t.kind {
-            TypeKind::Enum { labels } => (
-                3,
-                format!(
-                    "CREATE TYPE {} AS ENUM ({});",
-                    name_sql(&t.name),
-                    labels
-                        .iter()
-                        .map(|l| format!("'{}'", l.replace('\'', "''")))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            ),
-            TypeKind::Composite { attributes } => (
-                3,
-                format!(
-                    "CREATE TYPE {} AS ({});",
-                    name_sql(&t.name),
-                    attributes
-                        .iter()
-                        .map(|a| format!("{} {}", quote_ident(&a.name), type_sql(&a.ty)))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            ),
-            TypeKind::Domain {
-                base,
-                not_null,
-                default,
-                checks,
-            } => {
-                let mut sql = format!("CREATE DOMAIN {} AS {}", name_sql(&t.name), type_sql(base));
-                if let Some(d) = default {
-                    let _ = write!(sql, " DEFAULT {d}");
-                }
-                if *not_null {
-                    sql.push_str(" NOT NULL");
-                }
-                for c in checks {
-                    if let Some(n) = &c.name {
-                        let _ = write!(sql, " CONSTRAINT {}", quote_ident(n));
-                    }
-                    let _ = write!(sql, " CHECK ({})", c.expr);
-                }
-                sql.push(';');
-                (4, sql)
-            }
-            // Types tableau : créés avec leur type.
-            _ => continue,
+        let Some(sql) = create_type(t) else {
+            continue;
+        };
+        let phase = if matches!(t.kind, TypeKind::Domain { .. }) {
+            4
+        } else {
+            3
         };
         out.push(phase, &t.name.schema, 0, sql);
     }
@@ -324,16 +282,7 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
     // Assemblage.
     let mut schemas: BTreeMap<String, String> = BTreeMap::new();
     let mut baseline = String::new();
-    let mut exts: Vec<String> = cat
-        .extensions
-        .values()
-        .map(|e| format!("{}@{}", e.name, e.version.clone().unwrap_or_default()))
-        .collect();
-    exts.sort();
-    let _ = write!(baseline, "-- pgweave: postgres={postgres}");
-    if !exts.is_empty() {
-        let _ = write!(baseline, " extensions={}", exts.join(","));
-    }
+    baseline.push_str(&header(cat, postgres));
     baseline
         .push_str("\n-- Migration de référence : état reconstruit par `pgweave schema import`.\n");
 
@@ -358,8 +307,24 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
     Dump { schemas, baseline }
 }
 
+/// En-tête de contexte d'une migration (D9) : version de PostgreSQL et
+/// extensions actives dans l'état `cat`, sans fin de ligne.
+pub fn header(cat: &Catalog, postgres: u32) -> String {
+    let mut exts: Vec<String> = cat
+        .extensions
+        .values()
+        .map(|e| format!("{}@{}", e.name, e.version.clone().unwrap_or_default()))
+        .collect();
+    exts.sort();
+    let mut out = format!("-- pgweave: postgres={postgres}");
+    if !exts.is_empty() {
+        let _ = write!(out, " extensions={}", exts.join(","));
+    }
+    out
+}
+
 /// Corps d'une contrainte : sa définition conservée, ou reconstruite.
-fn constraint_body(c: &crate::model::Constraint) -> String {
+pub(crate) fn constraint_body(c: &crate::model::Constraint) -> String {
     if let Some(d) = &c.definition {
         return d.clone();
     }
@@ -387,58 +352,12 @@ fn constraint_body(c: &crate::model::Constraint) -> String {
     }
 }
 
-fn create_table(cat: &Catalog, r: &Relation) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    for c in &r.columns {
-        // `serial` : type entier, défaut tiré de la séquence possédée.
-        let owned_seq = cat.sequences.values().find(|s| {
-            s.definition.is_none() && s.owned_by.as_ref() == Some(&(r.name.clone(), c.name.clone()))
-        });
-        let serial = match (&c.ty, owned_seq, &c.default, c.identity) {
-            (TypeRef::Named { name, .. }, Some(seq), Some(d), None)
-                if name.schema == "pg_catalog"
-                    && d.starts_with("nextval(")
-                    && d.contains(&seq.name.name) =>
-            {
-                match name.name.as_str() {
-                    "int2" => Some("smallserial"),
-                    "int4" => Some("serial"),
-                    "int8" => Some("bigserial"),
-                    _ => None,
-                }
-            }
-            _ => None,
-        };
-        let mut line = format!(
-            "  {} {}",
-            quote_ident(&c.name),
-            serial
-                .map(str::to_string)
-                .unwrap_or_else(|| type_sql(&c.ty))
-        );
-        if serial.is_none() {
-            if let Some(g) = &c.generated {
-                let _ = write!(
-                    line,
-                    " GENERATED ALWAYS AS ({}) {}",
-                    g.expr,
-                    if g.stored { "STORED" } else { "VIRTUAL" }
-                );
-            }
-            match c.identity {
-                Some(IdentityKind::Always) => line.push_str(" GENERATED ALWAYS AS IDENTITY"),
-                Some(IdentityKind::ByDefault) => line.push_str(" GENERATED BY DEFAULT AS IDENTITY"),
-                None => {}
-            }
-            if let Some(d) = &c.default {
-                let _ = write!(line, " DEFAULT {d}");
-            }
-            if c.not_null && c.identity.is_none() {
-                line.push_str(" NOT NULL");
-            }
-        }
-        lines.push(line);
-    }
+pub(crate) fn create_table(cat: &Catalog, r: &Relation) -> String {
+    let mut lines: Vec<String> = r
+        .columns
+        .iter()
+        .map(|c| format!("  {}", column_sql(cat, r, c)))
+        .collect();
     for c in &r.constraints {
         if matches!(c.kind, ConstraintKind::ForeignKey { .. }) || c.not_valid {
             continue;
@@ -460,18 +379,119 @@ fn create_table(cat: &Catalog, r: &Relation) -> String {
     )
 }
 
+/// Définition d'une colonne (`nom type …`), telle que `CREATE TABLE` ou
+/// `ADD COLUMN` l'écrit : `serial` reconnu par sa séquence possédée.
+pub(crate) fn column_sql(cat: &Catalog, r: &Relation, c: &crate::model::Column) -> String {
+    // `serial` : type entier, défaut tiré de la séquence possédée.
+    let owned_seq = cat.sequences.values().find(|s| {
+        s.definition.is_none() && s.owned_by.as_ref() == Some(&(r.name.clone(), c.name.clone()))
+    });
+    let serial = match (&c.ty, owned_seq, &c.default, c.identity) {
+        (TypeRef::Named { name, .. }, Some(seq), Some(d), None)
+            if name.schema == "pg_catalog"
+                && d.starts_with("nextval(")
+                && d.contains(&seq.name.name) =>
+        {
+            match name.name.as_str() {
+                "int2" => Some("smallserial"),
+                "int4" => Some("serial"),
+                "int8" => Some("bigserial"),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let mut line = format!(
+        "{} {}",
+        quote_ident(&c.name),
+        serial
+            .map(str::to_string)
+            .unwrap_or_else(|| type_sql(&c.ty))
+    );
+    if serial.is_none() {
+        if let Some(g) = &c.generated {
+            let _ = write!(
+                line,
+                " GENERATED ALWAYS AS ({}) {}",
+                g.expr,
+                if g.stored { "STORED" } else { "VIRTUAL" }
+            );
+        }
+        match c.identity {
+            Some(IdentityKind::Always) => line.push_str(" GENERATED ALWAYS AS IDENTITY"),
+            Some(IdentityKind::ByDefault) => line.push_str(" GENERATED BY DEFAULT AS IDENTITY"),
+            None => {}
+        }
+        if let Some(d) = &c.default {
+            let _ = write!(line, " DEFAULT {d}");
+        }
+        if c.not_null && c.identity.is_none() {
+            line.push_str(" NOT NULL");
+        }
+    }
+    line
+}
+
+/// `CREATE TYPE` ou `CREATE DOMAIN` d'un type du projet ; rien pour un type
+/// tableau, créé avec son type.
+pub(crate) fn create_type(t: &crate::model::TypeDef) -> Option<String> {
+    Some(match &t.kind {
+        TypeKind::Enum { labels } => format!(
+            "CREATE TYPE {} AS ENUM ({});",
+            name_sql(&t.name),
+            labels
+                .iter()
+                .map(|l| format!("'{}'", l.replace('\'', "''")))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeKind::Composite { attributes } => format!(
+            "CREATE TYPE {} AS ({});",
+            name_sql(&t.name),
+            attributes
+                .iter()
+                .map(|a| format!("{} {}", quote_ident(&a.name), type_sql(&a.ty)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeKind::Domain {
+            base,
+            not_null,
+            default,
+            checks,
+        } => {
+            let mut sql = format!("CREATE DOMAIN {} AS {}", name_sql(&t.name), type_sql(base));
+            if let Some(d) = default {
+                let _ = write!(sql, " DEFAULT {d}");
+            }
+            if *not_null {
+                sql.push_str(" NOT NULL");
+            }
+            for c in checks {
+                if let Some(n) = &c.name {
+                    let _ = write!(sql, " CONSTRAINT {}", quote_ident(n));
+                }
+                let _ = write!(sql, " CHECK ({})", c.expr);
+            }
+            sql.push(';');
+            sql
+        }
+        _ => return None,
+    })
+}
+
 /// Objet ordonné par ses dépendances : table, routine ou vue.
-struct Node {
-    key: String,
-    schema: String,
-    order: u64,
-    deps: Vec<String>,
-    sql: String,
+pub(crate) struct Node {
+    pub key: String,
+    pub schema: String,
+    pub order: u64,
+    pub deps: Vec<String>,
+    pub sql: String,
 }
 
 /// Tri topologique ; l'ordre de création départage, et rompt un éventuel
 /// cycle (que PostgreSQL n'aurait de toute façon pas accepté tel quel).
-fn sort_by_dependencies(mut nodes: Vec<Node>) -> Vec<Node> {
+pub(crate) fn sort_by_dependencies(mut nodes: Vec<Node>) -> Vec<Node> {
     nodes.sort_by_key(|n| n.order);
     let keys: BTreeSet<String> = nodes.iter().map(|n| n.key.clone()).collect();
     let mut done: BTreeSet<String> = BTreeSet::new();
@@ -494,7 +514,7 @@ fn sort_by_dependencies(mut nodes: Vec<Node>) -> Vec<Node> {
 /// Relations et routines du projet citées par un texte SQL (définition de
 /// vue ou de fonction SQL, expression) : noms de `FROM` et appels de
 /// fonction, résolus par le `search_path` par défaut.
-fn references(cat: &Catalog, sql: &str) -> Vec<String> {
+pub(crate) fn references(cat: &Catalog, sql: &str) -> Vec<String> {
     let Ok(stmts) = pgweave_parser::parse(sql) else {
         return Vec::new();
     };
@@ -561,7 +581,7 @@ fn collect_names(v: &serde_json::Value, out: &mut Vec<(bool, Vec<String>)>) {
 
 /// Dépendances d'une table : routines appelées par ses défauts, colonnes
 /// générées et contraintes CHECK.
-fn table_deps(cat: &Catalog, r: &Relation) -> Vec<String> {
+pub(crate) fn table_deps(cat: &Catalog, r: &Relation) -> Vec<String> {
     let mut exprs: Vec<String> = Vec::new();
     for c in &r.columns {
         exprs.extend(c.default.clone());

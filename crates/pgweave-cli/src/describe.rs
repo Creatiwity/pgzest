@@ -38,7 +38,9 @@ pub fn run(o: Options) -> i32 {
     }
 
     // Catalogue : schémas `--schema`, puis le projet, rejoués dans l'ordre.
-    let mut builder = ProjectBuilder::new().with_typer(Some(pgweave_sema::ViewTyper::shared()));
+    let mut builder = ProjectBuilder::new()
+        .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative));
     for path in o.schemas {
         let sql = match std::fs::read_to_string(path) {
             Ok(s) => s,

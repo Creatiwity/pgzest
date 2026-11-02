@@ -183,7 +183,13 @@ impl PgsqlBackend {
                 c
             })
             .collect();
-        let mut ws = Workspace::new(&chunks, self.macros().await);
+        let declarative = self
+            .config
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|c| c.schema.declarative);
+        let mut ws = Workspace::with_mode(&chunks, self.macros().await, declarative);
         for (uri, text) in self.documents.lock().await.iter() {
             if let Some(path) = uri_to_path(uri) {
                 ws.set_text(&path, text);

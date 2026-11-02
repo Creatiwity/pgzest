@@ -31,6 +31,9 @@ pub const DEFAULT_POSTGRES: u32 = 18;
 
 pub struct ProjectCatalog {
     pub catalog: Catalog,
+    /// Mode déclaratif (D10) : état atteint par les migrations seules,
+    /// rejouées à part du schéma. `catalog` est alors l'état cible.
+    pub history: Option<Catalog>,
     /// `search_path` en fin de rejeu.
     pub search_path: SearchPath,
     /// Statements écartés pendant le parse, avec leur fichier : l'état
@@ -93,8 +96,14 @@ pub trait StatementChecker: Send + Sync {
 
 /// Rejeu ordonné des fichiers d'un projet (schéma, puis migrations par
 /// séquence), chacun déjà parsé.
+///
+/// En mode déclaratif (D10), le schéma décrit seul l'état cible : les
+/// migrations sont rejouées dans un catalogue à part (leur historique), et
+/// l'écart entre les deux est signalé (`schema-drift`).
 pub struct ProjectBuilder {
     replay: Replay,
+    /// Rejeu des migrations, en mode déclaratif.
+    history: Option<History>,
     skipped: Vec<(PathBuf, SkippedStatement)>,
     diagnostics: Vec<(PathBuf, Diagnostic)>,
     /// Première migration sans en-tête, et leur nombre.
@@ -104,7 +113,19 @@ pub struct ProjectBuilder {
     /// statement, vérification complète). Complète pour un fichier de
     /// requêtes, qui s'exécute sur l'état final ; sinon, seule la partie
     /// différée (corps PL/pgSQL).
-    deferred: Vec<(PathBuf, SearchPath, Statement, bool)>,
+    deferred: Vec<Deferred>,
+    /// Premier fichier de schéma, dernière migration : où rattacher l'écart.
+    first_schema: Option<PathBuf>,
+    last_migration: Option<PathBuf>,
+    /// Texte source des routines conservé (`Routine::source`).
+    keep_sources: bool,
+}
+
+type Deferred = (PathBuf, SearchPath, Statement, bool);
+
+struct History {
+    replay: Replay,
+    deferred: Vec<Deferred>,
 }
 
 impl Default for ProjectBuilder {
@@ -117,12 +138,37 @@ impl ProjectBuilder {
     pub fn new() -> Self {
         ProjectBuilder {
             replay: base(),
+            history: None,
             skipped: Vec::new(),
             diagnostics: Vec::new(),
             without_header: None,
             checker: None,
             deferred: Vec::new(),
+            first_schema: None,
+            last_migration: None,
+            keep_sources: false,
         }
+    }
+
+    /// Conserve le texte écrit de chaque routine (génération de migrations :
+    /// PostgreSQL garde un corps à la lettre, commentaires compris).
+    pub fn keep_sources(mut self, on: bool) -> Self {
+        self.keep_sources = on;
+        self
+    }
+
+    /// Mode déclaratif (`[schema] declarative`, D10) : les migrations sont
+    /// rejouées à part, et comparées au schéma en fin de rejeu.
+    pub fn declarative(mut self, on: bool) -> Self {
+        self.history = on.then(|| {
+            let mut replay = base();
+            replay.typer = self.replay.typer.clone();
+            History {
+                replay,
+                deferred: Vec::new(),
+            }
+        });
+        self
     }
 
     /// Les statements sont vérifiés par `checker` (voir [`StatementChecker`]).
@@ -133,6 +179,9 @@ impl ProjectBuilder {
 
     /// Les colonnes des vues sont typées par `typer` (voir [`QueryTyper`]).
     pub fn with_typer(mut self, typer: Option<std::sync::Arc<dyn QueryTyper>>) -> Self {
+        if let Some(h) = &mut self.history {
+            h.replay.typer = typer.clone();
+        }
         self.replay.typer = typer;
         self
     }
@@ -161,32 +210,41 @@ impl ProjectBuilder {
                 .iter()
                 .map(|sk| (path.to_path_buf(), sk.clone())),
         );
+        match role {
+            FileRole::Schema if self.first_schema.is_none() => {
+                self.first_schema = Some(path.to_path_buf());
+            }
+            FileRole::Migration { .. } => self.last_migration = Some(path.to_path_buf()),
+            _ => {}
+        }
         let mut diags = Vec::new();
+        let (replay, deferred) = match &mut self.history {
+            Some(h) if is_migration => (&mut h.replay, &mut h.deferred),
+            _ => (&mut self.replay, &mut self.deferred),
+        };
         for s in &outcome.statements {
             // Un fichier de requêtes s'exécute sur le schéma final.
             if *role == FileRole::Query {
                 if self.checker.is_some() {
-                    self.deferred.push((
+                    deferred.push((
                         path.to_path_buf(),
-                        self.replay.search_path.clone(),
+                        replay.search_path.clone(),
                         s.clone(),
                         true,
                     ));
                 }
                 continue;
             }
-            self.replay.apply(s, &mut diags);
+            replay.apply(s, &mut diags);
+            if self.keep_sources {
+                attach_source(&mut replay.catalog, s, sql);
+            }
             if let Some(c) = &self.checker {
-                c.check_applied(
-                    &self.replay.catalog,
-                    &self.replay.search_path,
-                    s,
-                    &mut diags,
-                );
+                c.check_applied(&replay.catalog, &replay.search_path, s, &mut diags);
                 if c.is_deferred(s) {
-                    self.deferred.push((
+                    deferred.push((
                         path.to_path_buf(),
-                        self.replay.search_path.clone(),
+                        replay.search_path.clone(),
                         s.clone(),
                         false,
                     ));
@@ -194,7 +252,7 @@ impl ProjectBuilder {
             }
         }
         if is_migration {
-            check_header(sql, &self.replay.catalog, &mut diags);
+            check_header(sql, &replay.catalog, &mut diags);
         }
         self.diagnostics
             .extend(diags.into_iter().map(|d| (path.to_path_buf(), d)));
@@ -202,16 +260,21 @@ impl ProjectBuilder {
 
     pub fn finish(mut self) -> ProjectCatalog {
         if let Some(c) = &self.checker {
-            for (file, path, stmt, full) in std::mem::take(&mut self.deferred) {
-                let mut diags = Vec::new();
-                if full {
-                    c.check_applied(&self.replay.catalog, &path, &stmt, &mut diags);
-                    c.check_deferred(&self.replay.catalog, &path, &stmt, &mut diags);
-                } else if routine_in_force(&self.replay.catalog, &stmt) {
-                    c.check_deferred(&self.replay.catalog, &path, &stmt, &mut diags);
-                }
-                self.diagnostics
-                    .extend(diags.into_iter().map(|d| (file.clone(), d)));
+            let deferred = std::mem::take(&mut self.deferred);
+            run_deferred(
+                c.as_ref(),
+                &self.replay.catalog,
+                deferred,
+                &mut self.diagnostics,
+            );
+            if let Some(h) = &mut self.history {
+                let deferred = std::mem::take(&mut h.deferred);
+                run_deferred(
+                    c.as_ref(),
+                    &h.replay.catalog,
+                    deferred,
+                    &mut self.diagnostics,
+                );
             }
         }
         if let Some((first, n)) = self.without_header {
@@ -225,15 +288,115 @@ impl ProjectBuilder {
                 ),
             ));
         }
+        let history = self.history.map(|h| h.replay.catalog);
+        if let Some(h) = &history
+            && let Some(d) = drift(h, &self.replay.catalog, self.last_migration.is_some())
+        {
+            let file = self
+                .last_migration
+                .or(self.first_schema)
+                .unwrap_or_default();
+            self.diagnostics.push((file, d));
+        }
         let view = CatalogSchema::new(&self.replay.catalog, &self.replay.search_path);
         ProjectCatalog {
             catalog: self.replay.catalog,
+            history,
             search_path: self.replay.search_path,
             skipped: self.skipped,
             diagnostics: self.diagnostics,
             view,
         }
     }
+}
+
+/// Rattache à la routine créée par `stmt` son texte dans `text`, s'il se
+/// relit en ce même statement (un texte réécrit par une macro ne l'est pas,
+/// la définition émise reste alors la seule source).
+fn attach_source(cat: &mut Catalog, stmt: &Statement, text: &str) {
+    use pgweave_ast::DdlStatement;
+    let span = match stmt {
+        Statement::Ddl(DdlStatement::CreateFunction(f)) => f.span,
+        Statement::Ddl(DdlStatement::CreateProcedure(p)) => p.span,
+        _ => return,
+    };
+    let Some(slice) = text.get(span.start as usize..span.end as usize) else {
+        return;
+    };
+    let definition = pgweave_ast::emit::emit_statement(stmt);
+    let same = pgweave_parser::parse(slice)
+        .is_ok_and(|v| v.len() == 1 && pgweave_ast::emit::emit_statement(&v[0]) == definition);
+    if !same {
+        return;
+    }
+    let source = slice.trim().trim_end_matches(';').trim_end().to_string();
+    for r in cat.routines.values_mut().flatten() {
+        if r.definition.as_deref() == Some(definition.as_str()) {
+            r.source = Some(source.clone());
+        }
+    }
+}
+
+fn run_deferred(
+    c: &dyn StatementChecker,
+    cat: &Catalog,
+    deferred: Vec<Deferred>,
+    out: &mut Vec<(PathBuf, Diagnostic)>,
+) {
+    for (file, path, stmt, full) in deferred {
+        let mut diags = Vec::new();
+        if full {
+            c.check_applied(cat, &path, &stmt, &mut diags);
+            c.check_deferred(cat, &path, &stmt, &mut diags);
+        } else if routine_in_force(cat, &stmt) {
+            c.check_deferred(cat, &path, &stmt, &mut diags);
+        }
+        out.extend(diags.into_iter().map(|d| (file.clone(), d)));
+    }
+}
+
+/// Écart entre l'état des migrations et le schéma déclaratif.
+fn drift(history: &Catalog, target: &Catalog, has_migrations: bool) -> Option<Diagnostic> {
+    let m = crate::diff::diff(history, target);
+    if m.is_empty() {
+        return None;
+    }
+    let mut message = if has_migrations {
+        format!(
+            "le schéma déclaratif diffère de l'état atteint par les migrations ({} statement(s) à générer",
+            m.steps.len()
+        )
+    } else {
+        format!(
+            "aucune migration n'établit le schéma déclaratif ({} statement(s) à générer",
+            m.steps.len()
+        )
+    };
+    if !m.unsupported.is_empty() {
+        message.push_str(&format!(
+            ", {} changement(s) à écrire à la main",
+            m.unsupported.len()
+        ));
+    }
+    message.push(')');
+    let mut d = Diagnostic::info(codes::SCHEMA_DRIFT, message);
+    let first: Vec<String> = m
+        .steps
+        .iter()
+        .take(3)
+        .map(|s| s.sql.lines().next().unwrap_or_default().to_string())
+        .chain(
+            m.unsupported
+                .iter()
+                .take(3)
+                .map(|u| format!("{} : {}", u.object, u.change)),
+        )
+        .collect();
+    d = d.with_hint(format!(
+        "`pgweave migrate create <nom>` génère la migration ; d'abord : {}",
+        first.join(" · ")
+    ));
+    Some(d)
 }
 
 impl ProjectCatalog {

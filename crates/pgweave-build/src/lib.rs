@@ -180,7 +180,9 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
         }
     }
 
-    let mut builder = ProjectBuilder::new().with_typer(Some(pgweave_sema::ViewTyper::shared()));
+    let mut builder = ProjectBuilder::new()
+        .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .declarative(config.schema.declarative);
     for chunk in SchemaSource::chunks(&config.to_source(&root)) {
         if !files.contains(&chunk.origin.path) {
             files.push(chunk.origin.path.clone());

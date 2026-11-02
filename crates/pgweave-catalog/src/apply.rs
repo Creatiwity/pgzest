@@ -1911,6 +1911,7 @@ impl Applier<'_> {
                 ))),
                 catalog_effects: body_has_effects(&cf.body),
                 order,
+                source: None,
             },
             cf.or_replace,
         );
@@ -1939,6 +1940,7 @@ impl Applier<'_> {
                 ))),
                 catalog_effects: body_has_effects(&cp.body),
                 order,
+                source: None,
             },
             cp.or_replace,
         );

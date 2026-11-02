@@ -13,6 +13,9 @@
 //! Une amélioration de l'analyse le fait changer, et la revue de ce
 //! changement montre exactement ce qui a progressé — ou régressé.
 //!
+//! Le module [`schema`] confronte de même les migrations générées (P7) :
+//! migrations appliquées et schéma déclaratif doivent donner la même base.
+//!
 //! Limite actuelle : seuls les **types** sont confrontés. PostgreSQL ne
 //! renvoie pas la nullabilité d'une colonne de sortie ; un oracle partiel
 //! (colonnes issues directement d'une table, via `pg_attribute.attnotnull`)
@@ -22,6 +25,7 @@ mod case;
 mod ours;
 mod pg;
 mod report;
+pub mod schema;
 
 pub use case::{Case, load_cases};
 pub use ours::{OurDescription, describe_ours};

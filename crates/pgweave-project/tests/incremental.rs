@@ -43,6 +43,7 @@ fn fixture() -> Fixture {
         &db,
         vec![schema, q1, q2],
         Arc::new(pgweave_macro::MacroSet::builtin()),
+        false,
     );
     Fixture {
         db,

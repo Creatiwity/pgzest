@@ -17,3 +17,5 @@ tokio-postgres = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+pgweave-diagnostics = { path = "../pgweave-diagnostics" }
+pgweave-macro = { path = "../pgweave-macro" }

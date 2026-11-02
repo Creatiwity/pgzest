@@ -108,18 +108,22 @@ fn type_name(ty: &Type) -> String {
     }
 }
 
-fn db_error_message(e: &tokio_postgres::Error) -> String {
+pub(crate) fn db_error_message(e: &tokio_postgres::Error) -> String {
     e.as_db_error()
         .map(|d| d.message().to_string())
         .unwrap_or_else(|| e.to_string())
 }
 
 async fn connect(url: &str) -> Result<Client, String> {
+    connect_url(url).await
+}
+
+pub(crate) async fn connect_url(url: &str) -> Result<Client, String> {
     let config: Config = url.parse().map_err(|e| format!("URL : {e}"))?;
     connect_config(&config).await
 }
 
-async fn connect_config(config: &Config) -> Result<Client, String> {
+pub(crate) async fn connect_config(config: &Config) -> Result<Client, String> {
     let (client, connection) = config
         .connect(NoTls)
         .await

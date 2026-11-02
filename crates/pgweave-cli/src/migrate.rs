@@ -1,350 +1,415 @@
-use std::collections::HashMap;
-use std::path::Path;
+//! `pgweave migrate` : migrations générées depuis le schéma déclaratif
+//! (PLAN.md, D10 et P7).
+//!
+//! Le schéma (`[schema] declarative = true`) décrit l'état cible ; les
+//! migrations, l'historique. `create` compare l'état atteint par les
+//! migrations à la cible, écrit la migration qui les sépare, et la vérifie
+//! par rejeu avant d'écrire : la migration rejouée après les autres doit
+//! atteindre exactement la cible. `check` signale l'écart (CI).
 
-use pgweave_ast::ddl::CreateTable;
-use pgweave_ast::types::DataType;
-use pgweave_ast::{DdlStatement, Statement};
-use pgweave_codegen::{
-    DiffOp, check_migration_safety, diff_schemas, emit_create_table, emit_object_name,
-};
+use std::path::{Path, PathBuf};
 
-// ── Stable content hash (FNV-1a 64-bit) ──────────────────────────────────────
+use pgweave_catalog::ProjectCatalog;
+use pgweave_catalog::diff::{Migration, diff};
+use pgweave_catalog::project::{ProjectBuilder, parse_source};
+use pgweave_diagnostics::{Severity, codes};
+use pgweave_schema::{FileRole, ProjectConfig, SchemaSource, SourceOrigin, SqlChunk};
 
-fn fnv1a(s: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in s.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000000001b3);
-    }
-    format!("{:016x}", h)
+/// Projet déclaratif chargé : configuration, fragments, état des migrations
+/// et état cible.
+struct Loaded {
+    root: PathBuf,
+    config: ProjectConfig,
+    chunks: Vec<SqlChunk>,
+    macros: pgweave_macro::MacroSet,
+    project: ProjectCatalog,
 }
 
-// ── Canonical representation for hashing ─────────────────────────────────────
-
-fn canonical_type(dt: &DataType) -> String {
-    match dt {
-        DataType::SmallInt => "smallint".into(),
-        DataType::Integer => "integer".into(),
-        DataType::BigInt => "bigint".into(),
-        DataType::Real => "real".into(),
-        DataType::DoublePrecision => "double precision".into(),
-        DataType::Text => "text".into(),
-        DataType::Varchar(n) => n
-            .map(|n| format!("varchar({})", n))
-            .unwrap_or_else(|| "varchar".into()),
-        DataType::Char(n) => n
-            .map(|n| format!("char({})", n))
-            .unwrap_or_else(|| "char".into()),
-        DataType::Boolean => "boolean".into(),
-        DataType::Date => "date".into(),
-        DataType::Time(p) => match p {
-            Some(n) => format!("time({n})"),
-            None => "time".into(),
-        },
-        DataType::TimeTz(p) => match p {
-            Some(n) => format!("timetz({n})"),
-            None => "timetz".into(),
-        },
-        DataType::Timestamp(p) => match p {
-            Some(n) => format!("timestamp({n})"),
-            None => "timestamp".into(),
-        },
-        DataType::TimestampTz(p) => match p {
-            Some(n) => format!("timestamptz({n})"),
-            None => "timestamptz".into(),
-        },
-        DataType::Interval => "interval".into(),
-        DataType::Bytea => "bytea".into(),
-        DataType::Json => "json".into(),
-        DataType::Jsonb => "jsonb".into(),
-        DataType::Uuid => "uuid".into(),
-        DataType::Numeric { precision, scale } => match (precision, scale) {
-            (Some(p), Some(s)) => format!("numeric({},{})", p, s),
-            (Some(p), None) => format!("numeric({})", p),
-            _ => "numeric".into(),
-        },
-        DataType::Array(inner) => format!("{}[]", canonical_type(inner)),
-        // Casse déjà fixée au parse (principe 8) : `"MyType"` ≠ `mytype`.
-        DataType::Custom(s) => s.clone(),
-        DataType::Modified { name, modifiers } => format!("{name}({})", modifiers.join(",")),
+fn build(chunks: &[SqlChunk], macros: &pgweave_macro::MacroSet) -> ProjectCatalog {
+    let mut b = ProjectBuilder::new()
+        .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .with_checker(Some(pgweave_sema::check::SemaChecker::shared()))
+        .declarative(true)
+        .keep_sources(true);
+    for chunk in chunks {
+        let parsed = parse_source(&chunk.sql, chunk.origin.byte_range.start, macros);
+        b.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());
     }
+    b.finish()
 }
 
-/// Deterministic string representation of a table used for hashing.
-/// Column order is preserved (PostgreSQL column positions matter).
-fn canonical_table(ct: &CreateTable) -> String {
-    let name = emit_object_name(&ct.name).to_lowercase();
-    let cols: Vec<String> = ct
-        .columns
+/// Erreurs qui rendent un état reconstruit inexploitable : statement non lu,
+/// erreur de rejeu ou d'analyse.
+fn blocking(project: &ProjectCatalog) -> Vec<String> {
+    let mut out: Vec<String> = project
+        .skipped
         .iter()
-        .map(|col| {
-            let null = if col.nullable { "null" } else { "not null" };
-            format!(
-                "{}:{} {}",
-                col.name.value.to_lowercase(),
-                canonical_type(&col.data_type),
-                null
-            )
-        })
+        .map(|(p, s)| format!("{}: statement non lu ({:?})", p.display(), s.reason))
         .collect();
-    format!("{}({})", name, cols.join(","))
-}
-
-fn hash_table(ct: &CreateTable) -> String {
-    fnv1a(&canonical_table(ct))
-}
-
-// ── I/O helpers ───────────────────────────────────────────────────────────────
-
-/// Parse all `.sql` files in a directory (lexicographic order) into statements.
-/// Returns an empty Vec if the directory does not exist.
-fn load_and_parse_dir(dir: &Path) -> Result<Vec<Statement>, String> {
-    if !dir.exists() {
-        return Ok(vec![]);
-    }
-    let mut entries: Vec<_> = std::fs::read_dir(dir)
-        .map_err(|e| format!("cannot read {}: {}", dir.display(), e))?
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path();
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // *.external.sql files provide type information for the checker
-            // but are not owned by the migration system — skip them.
-            p.extension()
-                .and_then(|x| x.to_str())
-                .map(|ext| ext.eq_ignore_ascii_case("sql"))
-                .unwrap_or(false)
-                && !name.ends_with(".external.sql")
-        })
-        .collect();
-    entries.sort_by_key(|e| e.file_name());
-
-    let mut all = Vec::new();
-    for entry in entries {
-        let path = entry.path();
-        let sql = std::fs::read_to_string(&path)
-            .map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
-        let stmts =
-            pgweave_parser::parse(&sql).map_err(|e| format!("{}: {}", path.display(), e))?;
-        all.extend(stmts);
-    }
-    Ok(all)
-}
-
-/// Load snapshot SQL files from a directory and parse them into a flat statement list.
-fn load_snapshot_stmts(snapshots_dir: &Path) -> Result<Vec<Statement>, String> {
-    load_and_parse_dir(snapshots_dir)
-}
-
-/// Build a table_name → &CreateTable map from a statement list.
-fn index_tables(stmts: &[Statement]) -> HashMap<String, &CreateTable> {
-    let mut map = HashMap::new();
-    for stmt in stmts {
-        if let Statement::Ddl(DdlStatement::CreateTable(ct)) = stmt {
-            map.insert(emit_object_name(&ct.name).to_lowercase(), ct);
-        }
-    }
-    map
-}
-
-/// Snapshot filename for a table name (dots → double underscores to be path-safe).
-fn snapshot_filename(table_name: &str) -> String {
-    format!("{}.sql", table_name.replace('.', "__"))
-}
-
-/// Overwrite `.schema-snapshots/` with the current state.
-/// Writes one file per table, removes files for dropped tables.
-fn update_snapshots(
-    snapshots_dir: &Path,
-    current_tables: &HashMap<String, &CreateTable>,
-    dropped: &[String],
-) -> Result<(), String> {
-    std::fs::create_dir_all(snapshots_dir)
-        .map_err(|e| format!("cannot create snapshots dir: {}", e))?;
-
-    for (name, ct) in current_tables {
-        let path = snapshots_dir.join(snapshot_filename(name));
-        let sql = format!("{}\n", emit_create_table(ct));
-        std::fs::write(&path, sql)
-            .map_err(|e| format!("cannot write snapshot {}: {}", path.display(), e))?;
-    }
-    for name in dropped {
-        let path = snapshots_dir.join(snapshot_filename(name));
-        let _ = std::fs::remove_file(&path);
-    }
-    Ok(())
-}
-
-// ── Migration file generation ─────────────────────────────────────────────────
-
-fn format_now() -> String {
-    chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string()
-}
-
-fn migration_header(
-    name: &str,
-    timestamp: &str,
-    hashes: &[(String, String)], // sorted (table, hash) pairs
-) -> String {
-    let mut s = format!(
-        "-- Migration: {} ({})\n-- Generated by: pgweave migrate create\n",
-        name, timestamp
+    out.extend(
+        project
+            .diagnostics
+            .iter()
+            .filter(|(_, d)| d.severity == Severity::Error && d.code != codes::SCHEMA_DRIFT)
+            .map(|(p, d)| format!("{}: error[{}]: {}", p.display(), d.code, d.message)),
     );
-    if !hashes.is_empty() {
-        s.push_str("--\n");
-        for (table, hash) in hashes {
-            s.push_str(&format!("-- pgweave-schema-hash: {}={}\n", table, hash));
-        }
-    }
-    s.push('\n');
-    s
+    out
 }
 
-// ── Public command ────────────────────────────────────────────────────────────
-
-pub fn cmd_migrate_create(
-    name: &str,
-    schema_dir: &Path,
-    migrations_dir: &Path,
-    snapshots_dir: &Path,
-) -> i32 {
-    // 1. Load current schema from schema_dir
-    let current_stmts = match load_and_parse_dir(schema_dir) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return 1;
-        }
-    };
-    if current_stmts.is_empty() {
-        eprintln!("error: no SQL files found in {}", schema_dir.display());
-        return 1;
+fn load() -> Result<Loaded, (i32, String)> {
+    let (root, config) = crate::discover_project()
+        .map_err(|e| (2, e))?
+        .ok_or_else(|| (2, format!("pas de {} trouvé", ProjectConfig::FILENAME)))?;
+    if !config.schema.declarative {
+        return Err((
+            2,
+            "le projet n'est pas déclaratif : `pgweave migrate` génère les migrations depuis le \
+             schéma quand `[schema] declarative = true` (le schéma décrit alors l'état complet)"
+                .into(),
+        ));
     }
+    let (macros, macro_errors) = crate::load_macros(Some(&(root.clone(), config.clone())));
+    if !macro_errors.is_empty() {
+        return Err((2, macro_errors.join("\n")));
+    }
+    let chunks: Vec<SqlChunk> = config
+        .to_source(&root)
+        .chunks()
+        .into_iter()
+        .filter(|c| c.role != FileRole::Query)
+        .collect();
+    let project = build(&chunks, &macros);
+    let errors = blocking(&project);
+    if !errors.is_empty() {
+        return Err((
+            1,
+            format!(
+                "état reconstruit incomplet ou en erreur, aucune migration ne peut en être déduite :\n{}",
+                errors.join("\n")
+            ),
+        ));
+    }
+    Ok(Loaded {
+        root,
+        config,
+        chunks,
+        macros,
+        project,
+    })
+}
 
-    // 2. Load previous snapshot
-    let snapshot_stmts = match load_snapshot_stmts(snapshots_dir) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return 1;
+fn history_and_target(l: &Loaded) -> Migration {
+    let history = l
+        .project
+        .history
+        .as_ref()
+        .expect("projet déclaratif : historique rejoué");
+    diff(history, &l.project.catalog)
+}
+
+// ── Rendu ─────────────────────────────────────────────────────────────────────
+
+fn print_unsupported(m: &Migration) {
+    for u in &m.unsupported {
+        eprintln!("error: {} : {}", u.object, u.change);
+    }
+}
+
+/// Texte de la migration : en-tête de contexte, remarques, statements
+/// précédés de leurs risques.
+fn render(m: &Migration, header: &str, name: &str) -> String {
+    let mut out =
+        format!("{header}\n-- Migration « {name} », générée par `pgweave migrate create`.\n");
+    for n in &m.notes {
+        out.push_str(&format!("-- note : {n}\n"));
+    }
+    for step in &m.steps {
+        out.push('\n');
+        for r in &step.risks {
+            out.push_str(&format!("-- !! {} : {}\n", r.code, r.message));
+        }
+        out.push_str(&step.sql);
+        out.push('\n');
+    }
+    out
+}
+
+// ── Emplacement ───────────────────────────────────────────────────────────────
+
+/// Organisation du répertoire, lue sur les migrations existantes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    Flat,
+    Prisma,
+    Diesel,
+}
+
+fn layout(chunks: &[SqlChunk]) -> Layout {
+    let named = |n: &str| {
+        chunks.iter().any(|c| {
+            matches!(c.role, FileRole::Migration { .. })
+                && c.origin.path.file_name().is_some_and(|f| f == n)
+        })
+    };
+    if named("migration.sql") {
+        Layout::Prisma
+    } else if named("up.sql") {
+        Layout::Diesel
+    } else {
+        Layout::Flat
+    }
+}
+
+/// Préfixe numérique d'un nom (`0003_x` → `0003`).
+fn digits(stem: &str) -> &str {
+    let end = stem
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(stem.len());
+    &stem[..end]
+}
+
+fn migration_path(dir: &Path, chunks: &[SqlChunk], name: &str) -> PathBuf {
+    let now = chrono::Utc::now();
+    match layout(chunks) {
+        Layout::Prisma => dir
+            .join(format!("{}_{name}", now.format("%Y%m%d%H%M%S")))
+            .join("migration.sql"),
+        Layout::Diesel => dir
+            .join(format!("{}_{name}", now.format("%Y-%m-%d-%H%M%S")))
+            .join("up.sql"),
+        Layout::Flat => {
+            // Numérotation des migrations existantes : compteur court
+            // (`0007`) prolongé, horodatage sinon.
+            let prefixes: Vec<&str> = chunks
+                .iter()
+                .filter(|c| matches!(c.role, FileRole::Migration { .. }))
+                .filter_map(|c| c.origin.path.file_stem().and_then(|s| s.to_str()))
+                .map(digits)
+                .filter(|d| !d.is_empty())
+                .collect();
+            let width = prefixes.iter().map(|d| d.len()).max().unwrap_or(4);
+            let prefix = if width <= 6 {
+                let next = prefixes
+                    .iter()
+                    .filter_map(|d| d.parse::<u64>().ok())
+                    .max()
+                    .map_or(1, |n| n + 1);
+                format!("{next:0width$}")
+            } else {
+                now.format("%Y%m%d%H%M%S").to_string()
+            };
+            dir.join(format!("{prefix}_{name}.sql"))
+        }
+    }
+}
+
+// ── Commandes ─────────────────────────────────────────────────────────────────
+
+pub fn create(name: &str, allow_destructive: bool, dry_run: bool) -> i32 {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        eprintln!("error: nom de migration attendu en minuscules, chiffres et `_` : « {name} »");
+        return 2;
+    }
+    let l = match load() {
+        Ok(l) => l,
+        Err((code, e)) => {
+            eprintln!("error: {e}");
+            return code;
         }
     };
-
-    // 3. Compute diff (snapshot → current)
-    let diff = diff_schemas(&snapshot_stmts, &current_stmts);
-    if diff.operations.is_empty() {
-        println!("no schema changes detected — migration not created");
+    let m = history_and_target(&l);
+    if m.is_empty() {
+        println!("aucun changement : les migrations atteignent déjà le schéma déclaratif");
         return 0;
     }
-
-    // 4. Safety analysis
-    let safety = check_migration_safety(&diff);
-
-    // 5. Compute table hashes for tables involved in the diff
-    let current_tables = index_tables(&current_stmts);
-    let mut dropped: Vec<String> = Vec::new();
-    let mut affected_tables: Vec<String> = Vec::new();
-
-    for op in &diff.operations {
-        match op {
-            DiffOp::CreateTable(ct) => {
-                let n = emit_object_name(&ct.name).to_lowercase();
-                if !affected_tables.contains(&n) {
-                    affected_tables.push(n);
-                }
-            }
-            DiffOp::DropTable { name: n } => {
-                let n = n.to_lowercase();
-                dropped.push(n.clone());
-                if !affected_tables.contains(&n) {
-                    affected_tables.push(n);
-                }
-            }
-            DiffOp::AddColumn { table: t, .. }
-            | DiffOp::DropColumn { table: t, .. }
-            | DiffOp::AlterColumnType { table: t, .. } => {
-                let n = t.to_lowercase();
-                if !affected_tables.contains(&n) {
-                    affected_tables.push(n);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let mut hashes: Vec<(String, String)> = affected_tables
-        .iter()
-        .filter_map(|t| current_tables.get(t).map(|ct| (t.clone(), hash_table(ct))))
-        .collect();
-    hashes.sort_by(|a, b| a.0.cmp(&b.0));
-
-    // 6. Build migration file content
-    let timestamp = format_now();
-    let mut sql = migration_header(name, &timestamp, &hashes);
-
-    if !safety.is_empty() {
-        sql.push_str("-- !! Safety warnings — review carefully before running:\n");
-        for d in &safety {
-            sql.push_str(&format!("--    [{}] {}\n", d.code, d.message));
-            if let Some(h) = &d.hint {
-                sql.push_str(&format!("--    hint: {}\n", h));
-            }
-        }
-        sql.push('\n');
-    }
-
-    // Dangerous ops (DROP TABLE, DROP COLUMN) are commented out by default
-    for op in &diff.operations {
-        match op {
-            DiffOp::DropTable { name: n } => {
-                sql.push_str(&format!(
-                    "-- DROP TABLE {}; -- DANGEROUS: uncomment if intentional\n",
-                    n
-                ));
-            }
-            DiffOp::DropColumn { table, column } => {
-                sql.push_str(&format!(
-                    "-- ALTER TABLE {} DROP COLUMN {}; -- DANGEROUS: uncomment if intentional\n",
-                    table, column
-                ));
-            }
-            other => {
-                sql.push_str(&format!(
-                    "{}\n",
-                    pgweave_codegen::MigrationDiff {
-                        operations: vec![other.clone()],
-                    }
-                    .to_sql()
-                ));
-            }
-        }
-    }
-
-    // 7. Write migration file
-    let filename = format!("{}_{}.sql", timestamp, name);
-    let migration_path = migrations_dir.join(&filename);
-
-    if let Err(e) = std::fs::create_dir_all(migrations_dir) {
-        eprintln!("error: cannot create migrations dir: {}", e);
-        return 1;
-    }
-    if let Err(e) = std::fs::write(&migration_path, &sql) {
-        eprintln!("error: cannot write {}: {}", migration_path.display(), e);
-        return 1;
-    }
-
-    // 8. Update snapshots
-    if let Err(e) = update_snapshots(snapshots_dir, &current_tables, &dropped) {
-        eprintln!("warning: snapshots not updated: {}", e);
-    }
-
-    println!("created: {}", migration_path.display());
-    if !safety.is_empty() {
+    if !m.unsupported.is_empty() {
+        print_unsupported(&m);
         eprintln!(
-            "warning: {} safety issue(s) — see header comments in the migration file",
-            safety.len()
+            "error: {} changement(s) non exprimable(s) automatiquement : écrire cette migration à la main",
+            m.unsupported.len()
         );
+        return 1;
+    }
+    let destructive: Vec<_> = m
+        .steps
+        .iter()
+        .flat_map(|s| s.risks.iter().filter(|r| r.destructive))
+        .collect();
+    if !destructive.is_empty() && !allow_destructive {
+        for r in &destructive {
+            eprintln!("error[{}]: {}", r.code, r.message);
+        }
+        eprintln!(
+            "error: la migration détruit des données ; un renommage s'écrit à la main, sinon relancer avec --allow-destructive"
+        );
+        return 1;
     }
 
+    let header = pgweave_catalog::dump::header(&l.project.catalog, l.config.postgres.version);
+    let sql = render(&m, &header, name);
+    let dir = l.root.join(&l.config.migrations.directory);
+    let path = migration_path(&dir, &l.chunks, name);
+
+    // Vérification : la migration rejouée après les autres atteint la cible,
+    // sans erreur.
+    let sequence = l
+        .chunks
+        .iter()
+        .filter_map(|c| match c.role {
+            FileRole::Migration { sequence } => Some(sequence),
+            _ => None,
+        })
+        .max()
+        .map_or(1, |s| s + 1);
+    let mut chunks = l.chunks.clone();
+    let insert_at = chunks
+        .iter()
+        .position(|c| !matches!(c.role, FileRole::Migration { .. }))
+        .unwrap_or(chunks.len());
+    chunks.insert(
+        insert_at,
+        SqlChunk {
+            origin: SourceOrigin {
+                path: path.clone(),
+                byte_range: 0..sql.len(),
+            },
+            sql: sql.clone(),
+            role: FileRole::Migration { sequence },
+        },
+    );
+    let verified = build(&chunks, &l.macros);
+    let errors = blocking(&verified);
+    let rest = diff(
+        verified.history.as_ref().expect("projet déclaratif"),
+        &verified.catalog,
+    );
+    if !errors.is_empty() || !rest.is_empty() {
+        eprintln!(
+            "error: la migration générée ne passe pas sa vérification par rejeu (défaut de pgweave) :"
+        );
+        for e in &errors {
+            eprintln!("  {e}");
+        }
+        if !rest.is_empty() {
+            eprintln!("  écart restant :\n{}", rest.to_sql());
+        }
+        eprintln!("--- migration\n{sql}");
+        return 1;
+    }
+
+    for step in &m.steps {
+        for r in step.risks.iter().filter(|r| !r.destructive) {
+            eprintln!("warning[{}]: {}", r.code, r.message);
+        }
+    }
+    for n in &m.notes {
+        eprintln!("note: {n}");
+    }
+    if dry_run {
+        print!("{sql}");
+        return 0;
+    }
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|_| std::fs::write(&path, &sql));
+    if let Err(e) = written {
+        eprintln!("error: {}: {e}", path.display());
+        return 2;
+    }
+    println!(
+        "écrit : {} ({} statement(s), vérifiée par rejeu)",
+        path.strip_prefix(&l.root).unwrap_or(&path).display(),
+        m.steps.len()
+    );
     0
+}
+
+pub fn check() -> i32 {
+    let l = match load() {
+        Ok(l) => l,
+        Err((code, e)) => {
+            eprintln!("error: {e}");
+            return code;
+        }
+    };
+    let m = history_and_target(&l);
+    if m.is_empty() {
+        println!("à jour : les migrations atteignent le schéma déclaratif");
+        return 0;
+    }
+    eprintln!(
+        "error: le schéma déclaratif diffère des migrations ({} statement(s) à générer) :",
+        m.steps.len()
+    );
+    for step in &m.steps {
+        eprintln!("  {}", step.sql.lines().next().unwrap_or_default());
+    }
+    print_unsupported(&m);
+    eprintln!("hint: `pgweave migrate create <nom>` génère la migration");
+    1
+}
+
+/// Statements d'un fichier SQL, ou des `.sql` d'un répertoire (ordre des
+/// chemins), rejoués.
+fn replay_path(path: &str) -> Result<ProjectCatalog, String> {
+    let p = Path::new(path);
+    let mut files = Vec::new();
+    if p.is_dir() {
+        let mut stack = vec![p.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).map_err(|e| format!("{}: {e}", d.display()))? {
+                let e = e.map_err(|e| e.to_string())?.path();
+                if e.is_dir() {
+                    stack.push(e);
+                } else if e.extension().is_some_and(|x| x == "sql") {
+                    files.push(e);
+                }
+            }
+        }
+        files.sort();
+    } else {
+        files.push(p.to_path_buf());
+    }
+    let mut b = ProjectBuilder::new()
+        .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .keep_sources(true);
+    let macros = pgweave_macro::MacroSet::builtin();
+    for f in &files {
+        let sql = std::fs::read_to_string(f).map_err(|e| format!("{}: {e}", f.display()))?;
+        let parsed = parse_source(&sql, 0, &macros);
+        b.add_file(f, &sql, &FileRole::Schema, parsed.as_ref());
+    }
+    let project = b.finish();
+    let errors = blocking(&project);
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
+    }
+    Ok(project)
+}
+
+/// `migrate diff ancien nouveau` : migration entre deux schémas (fichiers ou
+/// répertoires), sans projet.
+pub fn diff_files(old: &str, new: &str) -> i32 {
+    let (before, after) = match (replay_path(old), replay_path(new)) {
+        (Ok(a), Ok(b)) => (a, b),
+        (Err(e), _) | (_, Err(e)) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    let m = diff(&before.catalog, &after.catalog);
+    if m.is_empty() {
+        println!("-- aucun changement");
+        return 0;
+    }
+    let header =
+        pgweave_catalog::dump::header(&after.catalog, pgweave_catalog::project::DEFAULT_POSTGRES);
+    print!("{}", render(&m, &header, "diff"));
+    print_unsupported(&m);
+    if m.unsupported.is_empty() { 0 } else { 1 }
 }

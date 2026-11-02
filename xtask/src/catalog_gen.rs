@@ -729,6 +729,7 @@ impl Snapshot {
             definition: None,
             order: 0,
             catalog_effects: false,
+            source: None,
         }
     }
 }

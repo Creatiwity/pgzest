@@ -128,6 +128,7 @@ oracle: oracle-up ## Confronte l'analyse à PostgreSQL 18 (rapport : crates/pgwe
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-sema --test oracle_sweep -- --ignored
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test precedence -- --ignored
+	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test migrations -- --ignored
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-example-rust-service -- --ignored
 
 .PHONY: bench

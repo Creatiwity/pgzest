@@ -79,6 +79,12 @@ pub struct SchemaConfig {
     /// répertoire parent commun dédié.
     #[serde(default)]
     pub include: Vec<String>,
+    /// Le schéma décrit seul l'état cible (PLAN.md, D10) : l'analyse ne
+    /// rejoue que lui, les migrations sont rejouées à part et comparées au
+    /// schéma (`schema-drift`), et `pgweave migrate create` génère la
+    /// suivante. Sinon, le schéma complète l'état atteint par les migrations.
+    #[serde(default)]
+    pub declarative: bool,
 }
 
 // ── Migrations ────────────────────────────────────────────────────────────────

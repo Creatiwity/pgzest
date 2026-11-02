@@ -176,33 +176,32 @@ enum SchemaAction {
 
 #[derive(Subcommand)]
 enum MigrateAction {
-    /// Compute a migration SQL diff between two schema files.
+    /// Migration between two schemas (SQL files or directories), without a
+    /// project: both are replayed and their catalogs compared.
     Diff {
-        /// Old schema SQL file
+        /// Old schema (file or directory)
         old: String,
-        /// New schema SQL file
+        /// New schema (file or directory)
         new: String,
     },
 
-    /// Create a migration by comparing schema/ against .schema-snapshots/.
-    ///
-    /// Reads all .sql files from --schema-dir (lexicographic order), diffs
-    /// against the last snapshot, writes a timestamped migration file, and
-    /// updates the snapshots. Dangerous ops (DROP TABLE, DROP COLUMN) are
-    /// commented out — uncomment only after review.
+    /// Generate the next migration of a declarative project
+    /// (`[schema] declarative = true`): what separates the state reached by
+    /// the migrations from the declarative schema, checked by replay
+    /// before it is written.
     Create {
-        /// Migration name (prefixed with YYYYMMDD-HHMMSS_)
+        /// Migration name (lowercase, digits, `_`)
         name: String,
-        /// Directory containing canonical CREATE TABLE files
-        #[arg(long, default_value = "schema")]
-        schema_dir: String,
-        /// Directory where migration files are written
-        #[arg(long, default_value = "migrations")]
-        migrations_dir: String,
-        /// Directory for schema snapshots
-        #[arg(long, default_value = ".schema-snapshots")]
-        snapshots_dir: String,
+        /// Accept steps that destroy data (dropped table or column)
+        #[arg(long)]
+        allow_destructive: bool,
+        /// Print the migration instead of writing it
+        #[arg(long)]
+        dry_run: bool,
     },
+
+    /// Fail if the migrations do not reach the declarative schema (CI).
+    Check,
 }
 
 fn read_file(path: &str) -> Result<String, String> {
@@ -362,7 +361,8 @@ fn cmd_check(
     };
     let mut builder = pgweave_catalog::project::ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
-        .with_checker(Some(pgweave_sema::check::SemaChecker::shared()));
+        .with_checker(Some(pgweave_sema::check::SemaChecker::shared()))
+        .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative));
     let mut replayed: std::collections::HashSet<std::path::PathBuf> =
         std::collections::HashSet::new();
     for (path, (sql, stmts)) in schemas.iter().zip(&context_files) {
@@ -613,61 +613,6 @@ fn cmd_lint(file: &str) -> i32 {
     if has_errors { 1 } else { 0 }
 }
 
-fn cmd_migrate_diff(old: &str, new: &str) -> i32 {
-    let old_sql = match read_file(old) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return 1;
-        }
-    };
-    let new_sql = match read_file(new) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return 1;
-        }
-    };
-
-    let old_stmts = match pgweave_parser::parse(&old_sql) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: failed to parse '{}': {}", old, e);
-            return 1;
-        }
-    };
-    let new_stmts = match pgweave_parser::parse(&new_sql) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: failed to parse '{}': {}", new, e);
-            return 1;
-        }
-    };
-
-    let diff = pgweave_codegen::diff_schemas(&old_stmts, &new_stmts);
-    let sql_output = diff.to_sql();
-
-    let safety_diags = pgweave_codegen::check_migration_safety(&diff);
-    if !safety_diags.is_empty() {
-        eprintln!("\nMigration safety warnings:");
-        for d in &safety_diags {
-            eprintln!("  [{}] {}", d.code, d.message);
-            if let Some(h) = &d.hint {
-                eprintln!("  hint: {}", h);
-            }
-        }
-        eprintln!();
-    }
-
-    if sql_output.is_empty() {
-        println!("-- no changes");
-    } else {
-        println!("{}", sql_output);
-    }
-
-    0
-}
-
 fn cmd_emit(file: &str) -> i32 {
     let sql = match read_file(file) {
         Ok(s) => s,
@@ -770,18 +715,13 @@ fn main() {
             ),
         },
         Command::Migrate { action } => match action {
-            MigrateAction::Diff { old, new } => cmd_migrate_diff(&old, &new),
+            MigrateAction::Diff { old, new } => migrate::diff_files(&old, &new),
             MigrateAction::Create {
                 name,
-                schema_dir,
-                migrations_dir,
-                snapshots_dir,
-            } => migrate::cmd_migrate_create(
-                &name,
-                Path::new(&schema_dir),
-                Path::new(&migrations_dir),
-                Path::new(&snapshots_dir),
-            ),
+                allow_destructive,
+                dry_run,
+            } => migrate::create(&name, allow_destructive, dry_run),
+            MigrateAction::Check => migrate::check(),
         },
         Command::Emit { file } => cmd_emit(&file),
         Command::Codegen { input, output } => cmd_codegen(&input, output.as_deref()),

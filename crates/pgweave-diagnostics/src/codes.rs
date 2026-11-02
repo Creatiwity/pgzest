@@ -86,6 +86,10 @@ pub const MIGRATION_HEADER_MISMATCH: &str = "migration-header-mismatch";
 /// Migrations sans en-tête `-- pgweave:` : analysées avec la version de la
 /// configuration (signalé une fois).
 pub const MIGRATION_WITHOUT_HEADER: &str = "migration-without-header";
+/// Schéma déclaratif que les migrations n'atteignent pas (D10) : une
+/// migration reste à générer (`pgweave migrate create`), ou un changement
+/// n'est pas exprimable automatiquement.
+pub const SCHEMA_DRIFT: &str = "schema-drift";
 
 /// Colonnes d'une vue dont l'analyse de la requête n'a pas établi les types.
 pub const VIEW_NOT_TYPED: &str = "view-not-typed";

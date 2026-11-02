@@ -11,6 +11,7 @@ pub mod apply;
 pub mod builtin;
 pub mod catalog;
 pub mod compat;
+pub mod diff;
 pub mod dump;
 pub mod model;
 pub mod names;

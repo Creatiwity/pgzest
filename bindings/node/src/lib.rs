@@ -48,9 +48,21 @@ pub fn lint(sql: String) -> Vec<JsDiagnostic> {
 
 #[napi]
 pub fn migrate_diff(old_sql: String, new_sql: String) -> String {
-    let old_stmts = pgweave_parser::parse(&old_sql).unwrap_or_default();
-    let new_stmts = pgweave_parser::parse(&new_sql).unwrap_or_default();
-    pgweave_codegen::diff_schemas(&old_stmts, &new_stmts).to_sql()
+    // Un schéma illisible ne donne pas de migration vide : l'erreur est
+    // rendue, en commentaire SQL.
+    match pgweave_catalog::diff::diff_sql(&old_sql, &new_sql) {
+        Ok(m) => {
+            let mut out = m.to_sql();
+            for u in &m.unsupported {
+                out.push_str(&format!(
+                    "\n-- non pris en charge : {} : {}",
+                    u.object, u.change
+                ));
+            }
+            out
+        }
+        Err(e) => format!("-- erreur : {e}"),
+    }
 }
 
 #[napi]
