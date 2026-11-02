@@ -353,6 +353,9 @@ impl PgsqlBackend {
         match (&role, &path) {
             (FileRole::Query, _) => {
                 diags.extend(pgweave_checker::check_statements(&stmts, &resolver));
+                diags.extend(pgweave_analysis::query_descriptor_diagnostics(
+                    text, &resolver,
+                ));
             }
             (_, Some(p)) if in_project => {
                 diags.extend(self.workspace.lock().await.replay_diagnostics(p));

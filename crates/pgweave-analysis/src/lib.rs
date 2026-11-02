@@ -110,6 +110,25 @@ pub fn query_file_diagnostics(path: &std::path::Path, sql: &str) -> Vec<Diagnost
     pgweave_query::parse_query_file(sql).diagnostics
 }
 
+/// Ce qui empêche de décrire les requêtes nommées d'un fichier (PLAN.md §4) :
+/// paramètre que rien ne type, cardinalité déclarée contredite, statement
+/// hors du périmètre du descripteur. Les erreurs d'analyse elles-mêmes sont
+/// rapportées par la vérification du fichier, pas ici.
+pub fn query_descriptor_diagnostics(sql: &str, catalog: &ProjectCatalog) -> Vec<Diagnostic> {
+    let own = [
+        codes::QUERY_PARAMETER_UNTYPED,
+        codes::QUERY_CARDINALITY_MISMATCH,
+        codes::QUERY_NOT_DESCRIBABLE,
+    ];
+    pgweave_query::parse_query_file(sql)
+        .queries
+        .iter()
+        .filter_map(|q| pgweave_query::describe_named(catalog, q).err())
+        .flatten()
+        .filter(|d| own.contains(&d.code))
+        .collect()
+}
+
 // ── Lint ──────────────────────────────────────────────────────────────────────
 
 /// Parse `sql` puis le lint, directives en commentaire appliquées.

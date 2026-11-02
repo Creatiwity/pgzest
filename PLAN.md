@@ -668,7 +668,7 @@ requêtes représentatives, dont les corps de Mesalia) ; zéro faux positif sur
 les corpus ; compatibilité de types vérifiée (`WHERE text_col = 42` →
 diagnostic).
 
-### P4 — Descripteur de requête — 🚧 en cours
+### P4 — Descripteur de requête — ✅ terminée (2026-11-02)
 
 Fait (2026-11-02) :
 - `pgweave_query::descriptor` : types (références au catalogue, OID des
@@ -687,6 +687,8 @@ Fait (2026-11-02) :
 - `pgweave describe` (fichiers de requêtes, `--sql`, `--cache`), JSON.
 - L'oracle passe désormais par le descripteur : 749/751 colonnes, 146/146
   paramètres.
+- `pgweave check` et le LSP signalent sur un fichier de requêtes ce qui
+  empêche de le décrire (paramètre non typé, cardinalité contredite).
 
 - Crate `pgweave-query` : descripteur §4, cardinalité, `depends_on`,
   fingerprint, cache disque.

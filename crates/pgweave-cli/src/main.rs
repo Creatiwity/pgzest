@@ -472,6 +472,9 @@ fn cmd_check(
         let this_file = canonical(Path::new(file));
         if is_query_file(file) {
             diagnostics.extend(pgweave_checker::check_statements(stmts, &catalog));
+            diagnostics.extend(pgweave_analysis::query_descriptor_diagnostics(
+                sql, &catalog,
+            ));
         } else {
             diagnostics.extend(
                 catalog
