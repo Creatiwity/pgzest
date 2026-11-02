@@ -126,10 +126,8 @@ fn describe_skip(s: &SkippedStatement) -> String {
 
 /// Type désigné par le nom qualifié d'un descripteur.
 fn ty(qualified: &str) -> Ty {
-    match qualified.split_once('.') {
-        Some((schema, name)) => pgweave_catalog::QName::new(schema, name),
-        None => pgweave_sema::pg(qualified),
-    }
+    pgweave_query::descriptor::parse_qualified(qualified)
+        .unwrap_or_else(|| pgweave_sema::pg(qualified))
 }
 
 /// Nom du type tel que le rapporte le `Prepare` : nom interne, `[]` pour

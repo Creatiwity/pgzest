@@ -233,3 +233,27 @@ fn copy_from_stdin() {
     let err = describe_named(&cat, &file.queries[1]).expect_err("colonne générée");
     assert_eq!(err[0].message, "column \"twice\" is a generated column");
 }
+
+#[test]
+fn index_unique_et_noms_quotes() {
+    let cat = ProjectCatalog::from_sql(
+        "CREATE TABLE \"User\" (id UUID PRIMARY KEY, email TEXT NOT NULL, \"orgId\" UUID, nick TEXT);\n\
+         CREATE UNIQUE INDEX \"User_email_key\" ON \"User\"(email);\n\
+         CREATE UNIQUE INDEX \"User_nick_key\" ON \"User\"(nick) WHERE nick IS NOT NULL;\n\
+         CREATE UNIQUE INDEX \"User_lower_key\" ON \"User\"(lower(email));",
+    )
+    .expect("schéma");
+    let file = parse_query_file(
+        "-- name: by_email\nSELECT id FROM \"User\" WHERE email = $email;\n\n\
+         -- name: by_nick\nSELECT id FROM \"User\" WHERE nick = $nick;\n",
+    );
+    let by_email = describe_named(&cat, &file.queries[0]).expect("descripteur");
+    // Index unique simple : une clé (les `@unique` de Prisma).
+    assert_eq!(by_email.cardinality, Cardinality::Optional);
+    assert_eq!(by_email.depends_on, ["public.\"User\""]);
+    // Index partiel : pas une clé pour toute égalité.
+    let by_nick = describe_named(&cat, &file.queries[1]).expect("descripteur");
+    assert_eq!(by_nick.cardinality, Cardinality::Many);
+    let q = pgweave_query::descriptor::parse_qualified("public.\"User\"").expect("nom");
+    assert_eq!((q.schema.as_str(), q.name.as_str()), ("public", "User"));
+}

@@ -16,6 +16,8 @@ pub struct Options<'a> {
     /// Écrit chaque descripteur dans le cache du projet
     /// (`.pgweave/queries/<empreinte>.json`).
     pub cache: bool,
+    /// Affiche le code Rust généré (comme `pgweave-build`) au lieu du JSON.
+    pub rust: bool,
 }
 
 pub fn run(o: Options) -> i32 {
@@ -110,6 +112,22 @@ pub fn run(o: Options) -> i32 {
         }
     }
 
+    if o.rust {
+        match pgweave_codegen::rust::generate_rust(
+            &descriptors,
+            &catalog,
+            &pgweave_codegen::rust::RustOptions::default(),
+        ) {
+            Ok(code) => print!("{code}"),
+            Err(errors) => {
+                for e in errors {
+                    eprintln!("error: {e}");
+                }
+                return 1;
+            }
+        }
+        return if failed { 1 } else { 0 };
+    }
     match serde_json::to_string_pretty(&descriptors) {
         Ok(json) => println!("{json}"),
         Err(e) => {

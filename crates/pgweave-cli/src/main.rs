@@ -90,6 +90,10 @@ enum Command {
         /// Also write each descriptor to `.pgweave/queries/<fingerprint>.json`
         #[arg(long)]
         cache: bool,
+        /// Print the generated Rust module (as `pgweave-build` writes it)
+        /// instead of the JSON descriptors
+        #[arg(long)]
+        rust: bool,
     },
 
     /// List available macros: the ones shipped with the tool, plus the
@@ -733,6 +737,7 @@ fn main() {
             schemas,
             no_project,
             cache,
+            rust,
         } => describe::run(describe::Options {
             files: &files,
             sql: sql.as_deref(),
@@ -740,6 +745,7 @@ fn main() {
             schemas: &schemas,
             no_project,
             cache,
+            rust,
         }),
         Command::Macros { verbose } => cmd_macros(verbose),
         Command::Build { files, out_dir } => cmd_build(&files, out_dir.as_deref()),

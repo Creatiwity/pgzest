@@ -640,10 +640,8 @@ impl {rt}::ToSql for {rust} {{
 }
 
 fn qname(qualified: &str) -> Ty {
-    match qualified.split_once('.') {
-        Some((s, n)) => pgweave_catalog::QName::new(s, n),
-        None => pgweave_sema::pg(qualified),
-    }
+    pgweave_query::descriptor::parse_qualified(qualified)
+        .unwrap_or_else(|| pgweave_sema::pg(qualified))
 }
 
 /// Mots d'un nom, en minuscules : séparés par tout caractère non

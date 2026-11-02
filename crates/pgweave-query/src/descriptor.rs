@@ -617,13 +617,18 @@ fn unique_key_fixed(
     let qualifier = alias.map_or(n, |a| a.value.as_str());
     let mut fixed = BTreeSet::new();
     equalities(w, qualifier, &mut fixed);
-    unique_keys(rel)
+    unique_keys(catalog, rel)
         .iter()
         .any(|key| !key.is_empty() && key.iter().all(|c| fixed.contains(c)))
 }
 
-fn unique_keys(rel: &Relation) -> Vec<Vec<String>> {
-    rel.constraints
+/// Clés uniques d'une table : clé primaire, contraintes `UNIQUE`, et index
+/// uniques sur de simples colonnes, sans prédicat (Prisma pose ainsi ses
+/// `@unique`). Un index partiel ou sur expression ne garantit rien pour une
+/// égalité sur ses colonnes.
+fn unique_keys(catalog: &ProjectCatalog, rel: &Relation) -> Vec<Vec<String>> {
+    let mut keys: Vec<Vec<String>> = rel
+        .constraints
         .iter()
         .filter(|c| !c.not_valid)
         .filter_map(|c| match &c.kind {
@@ -632,7 +637,68 @@ fn unique_keys(rel: &Relation) -> Vec<Vec<String>> {
             }
             _ => None,
         })
-        .collect()
+        .collect();
+    for index in catalog
+        .catalog
+        .indexes
+        .values()
+        .filter(|i| i.unique && i.table == rel.name)
+    {
+        let Ok(stmts) = pgweave_parser::parse(&index.definition) else {
+            continue;
+        };
+        let [Statement::Ddl(pgweave_ast::DdlStatement::CreateIndex(ci))] = stmts.as_slice() else {
+            continue;
+        };
+        if ci.where_clause.is_some() {
+            continue;
+        }
+        let columns: Option<Vec<String>> = ci
+            .elements
+            .iter()
+            .map(|e| match e {
+                pgweave_ast::ddl::IndexElement::Column(c) => Some(c.value.clone()),
+                pgweave_ast::ddl::IndexElement::Expr(_) => None,
+            })
+            .collect();
+        if let Some(columns) = columns {
+            keys.push(columns);
+        }
+    }
+    keys
+}
+
+/// Nom qualifié d'un descripteur (`schéma.nom`, identifiants quotés au
+/// besoin : `public."User"`).
+pub fn parse_qualified(s: &str) -> Option<pgweave_catalog::QName> {
+    let mut parts = Vec::new();
+    let mut chars = s.chars().peekable();
+    let mut current = String::new();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                while let Some(c) = chars.next() {
+                    if c == '"' {
+                        if chars.peek() == Some(&'"') {
+                            chars.next();
+                            current.push('"');
+                        } else {
+                            break;
+                        }
+                    } else {
+                        current.push(c);
+                    }
+                }
+            }
+            '.' => parts.push(std::mem::take(&mut current)),
+            c => current.push(c),
+        }
+    }
+    parts.push(current);
+    match parts.as_slice() {
+        [schema, name] => Some(pgweave_catalog::QName::new(schema, name)),
+        _ => None,
+    }
 }
 
 /// Colonnes de la table fixées par `col = expr` dans une conjonction de
