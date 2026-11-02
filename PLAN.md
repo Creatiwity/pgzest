@@ -699,7 +699,7 @@ Fait (2026-11-02) :
 **Sortie** : descripteurs déterministes (snapshots) ; refus explicite quand
 un type est inconnu ; oracle vert sur types de paramètres et colonnes.
 
-### P5 — Intégration Rust — 🚧 en cours
+### P5 — Intégration Rust — 🚧 sortie atteinte sauf la comparaison à sqlx
 
 Fait (2026-11-02) :
 - `pgweave-runtime` : `Query` (SQL positionnel, OID des paramètres),
@@ -751,6 +751,9 @@ Fait (2026-11-02) :
 - LSP : survol d'un en-tête `-- name:` → descripteur de la requête.
 - Rejeu du catalogue de Mesalia : 4,4 s → 76 ms en debug (filtrage avant
   jointure dans l'évaluation des conditions de blocs `DO`).
+
+- Migrations Prisma et Diesel lues telles quelles (`[migrations]
+  directory`) : un projet Prisma comme Mesalia se branche sans conversion.
 
 Reste : correspondance de types par pack (PostGIS), en-tête
 CSV vérifié (`HEADER MATCH`), comparaison à sqlx (crate indisponible hors
@@ -838,6 +841,11 @@ code écrit d'ici là **migre mécaniquement** vers le code généré :
 4. **À la livraison de P5** : la couche manuelle est remplacée requête par
    requête par le code généré ; la compilation signale chaque écart de type
    ou de nullabilité que la couche manuelle masquait.
+
+État au 2026-11-02 : la brique peut démarrer directement sur le code
+généré (`pgweave-build`, `pgweave-runtime`, guide `docs/rust.md`), son
+`pgweave.toml` pointant sur les migrations Prisma existantes ; la couche
+manuelle de l'étape 1 n'est plus nécessaire.
 
 ---
 
