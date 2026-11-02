@@ -15,6 +15,7 @@
 
 use std::fmt;
 
+pub use futures_util;
 pub use tokio;
 pub use tokio_postgres::types::{self, FromSql, ToSql, Type};
 pub use tokio_postgres::{self, GenericClient, Row};
@@ -458,4 +459,44 @@ where
             .map_err(db)?;
     }
     sink.as_mut().finish().await.map_err(db)
+}
+
+// ── Flux de lignes ────────────────────────────────────────────────────────────
+
+/// Lignes décodées au fil de leur arrivée, sans tout charger en mémoire.
+pub async fn stream<C: GenericClient + ?Sized, T>(
+    client: &C,
+    q: &'static Query,
+    params: &[Param<'_>],
+    f: Decode<T>,
+) -> Result<impl futures_util::Stream<Item = Result<T, Error>> + Send + use<T, C>, Error>
+where
+    T: Send + 'static,
+{
+    use futures_util::StreamExt;
+    let db = |source| Error::Db {
+        query: q.name,
+        source,
+    };
+    let rows = match static_types(q) {
+        Some(types) => client
+            .query_typed_raw(q.sql, params.iter().copied().zip(types))
+            .await
+            .map_err(db)?,
+        None => client
+            .query_raw(q.sql, params.iter().copied())
+            .await
+            .map_err(db)?,
+    };
+    let name = q.name;
+    Ok(rows.map(move |r| match r {
+        Ok(row) => f(&row).map_err(|source| Error::Decode {
+            query: name,
+            source,
+        }),
+        Err(source) => Err(Error::Db {
+            query: name,
+            source,
+        }),
+    }))
 }

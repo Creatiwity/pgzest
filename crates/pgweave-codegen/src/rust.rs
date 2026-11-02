@@ -257,6 +257,13 @@ impl Generator<'_> {
             o,
             "pub async fn {fn_name}<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<{ret}, {rt}::Error> {{\n    {call}.await\n}}\n"
         );
+        // Plusieurs lignes : aussi en flux, décodées à leur arrivée.
+        if let (Cardinality::Many, Some(r)) = (d.cardinality, &row_ty) {
+            let _ = writeln!(
+                o,
+                "/// Comme [`{fn_name}`], les lignes décodées au fil de leur arrivée.\npub async fn {fn_name}_stream<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<impl {rt}::futures_util::Stream<Item = Result<{r}, {rt}::Error>> + Send + use<C>, {rt}::Error> {{\n    {rt}::stream(client, &{const_name}, {bound}, {r}::from_row).await\n}}\n"
+            );
+        }
         Ok(o)
     }
 

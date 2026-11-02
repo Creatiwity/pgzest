@@ -75,6 +75,23 @@ async fn les_requetes_generees_s_executent() {
     .await
     .expect("pages_by_status");
     assert_eq!(drafts.len(), 1);
+    // Même requête en flux.
+    {
+        use pgweave_runtime::futures_util::StreamExt;
+        let mut stream = std::pin::pin!(
+            queries::pages_by_status_stream(
+                &client,
+                queries::PagesByStatusParams {
+                    status: PageStatus::Draft,
+                },
+            )
+            .await
+            .expect("pages_by_status_stream")
+        );
+        let first = stream.next().await.expect("une ligne").expect("décodée");
+        assert_eq!(first, drafts[0]);
+        assert!(stream.next().await.is_none());
+    }
 
     // Transaction : même API, client ou transaction.
     let tx = client.transaction().await.expect("transaction");

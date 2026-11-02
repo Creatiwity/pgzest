@@ -7,5 +7,5 @@ description = "Exécution des requêtes générées par pgweave sur tokio-postgr
 [dependencies]
 tokio-postgres = { workspace = true }
 bytes = "1"
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 tokio = { workspace = true }
