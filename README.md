@@ -14,13 +14,16 @@ Prérequis : [Rust](https://rustup.rs) (la version est épinglée par
 
 ```bash
 make bootstrap   # installe les dépendances Rust + npm, vérifie l'outillage
-make demo        # compile et lance la CLI sur examples/ — voir l'outil en action
+make demo        # ouvre VS Code sur examples/demo, extension pgweave chargée
+make demo-run    # exécute le programme Rust de la démo sur PostgreSQL 18 (Docker)
 make help        # liste toutes les cibles
 ```
 
-`make demo` est le point d'entrée si tu découvres le projet : il exécute
-`check`, `lint`, `codegen` et `emit` sur `examples/` et affiche les
-diagnostics réels.
+`make demo` est le point d'entrée si tu découvres le projet : une petite
+application (migrations, requêtes nommées, code Rust généré) à explorer
+dans l'éditeur, avec une visite guidée dans `examples/demo/README.md`.
+`make demo-cli` exécute `check`, `lint`, `codegen` et `emit` sur
+`examples/` et affiche les diagnostics réels.
 
 Pour tester dans VS Code :
 
