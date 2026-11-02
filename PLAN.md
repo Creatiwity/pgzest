@@ -740,8 +740,14 @@ Fait (2026-11-02) :
 - `make bench` : `page_by_id` généré face à `tokio-postgres` écrit à la
   main, 145,0 contre 145,7 µs par requête (rapport 0,995, garde-fou à 1,25).
 
+- Budget de compilation (exemple, machine de dev) : schéma modifié → 1,5 s
+  de reconstruction en debug (génération `build.rs` et `query!` comprises),
+  code seul modifié → 1,05 s.
+- Guide : [`docs/rust.md`](docs/rust.md).
+
 Reste : `query_file!`, correspondance de types par pack (PostGIS), en-tête
-CSV vérifié (`HEADER MATCH`), budget de compilation, comparaison à sqlx.
+CSV vérifié (`HEADER MATCH`), comparaison à sqlx (crate indisponible hors
+ligne), budget mesuré sur un projet de la taille de Mesalia.
 
 - `pgweave-runtime` : exécution D8, `fetch_one`/`fetch_optional`/`fetch_all`/
   `execute` alignés sur la cardinalité, flux (`RowStream`), transactions,
