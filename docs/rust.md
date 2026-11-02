@@ -208,6 +208,11 @@ let n = pgweave_macros::query!(
 - pas d'enum ni de `COPY` en ligne : ils demandent des types uniques dans
   le crate, donc une requête nommée.
 
+`query_file!("sql/live_pages.sql", pattern = p)` fait de même avec une
+requête lue dans un fichier du crate (chemin relatif à son `Cargo.toml`) :
+le fichier est inclus pour la recompilation, et une erreur est positionnée
+dedans (`sql/live_pages.sql:5:7: [column-not-found] …`).
+
 ## Erreurs
 
 `pgweave_runtime::Error` : `Db` (erreur PostgreSQL ou de connexion),

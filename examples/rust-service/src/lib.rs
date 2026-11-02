@@ -30,3 +30,15 @@ pub async fn rename_by_author<C: pgweave_runtime::GenericClient + ?Sized>(
     .execute(client)
     .await
 }
+
+/// Pages publiées dont le titre correspond : requête lue dans
+/// `sql/live_pages.sql`.
+pub async fn live_pages<C: pgweave_runtime::GenericClient + ?Sized>(
+    client: &C,
+    pattern: &str,
+) -> Result<Vec<String>, pgweave_runtime::Error> {
+    let rows = pgweave_macros::query_file!("sql/live_pages.sql", pattern = pattern)
+        .fetch(client)
+        .await?;
+    Ok(rows.into_iter().map(|r| r.title).collect())
+}

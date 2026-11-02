@@ -745,7 +745,13 @@ Fait (2026-11-02) :
   code seul modifié → 1,05 s.
 - Guide : [`docs/rust.md`](docs/rust.md).
 
-Reste : `query_file!`, correspondance de types par pack (PostGIS), en-tête
+- `query_file!` : requête lue dans un fichier du crate, erreurs
+  positionnées dans ce fichier.
+- LSP : survol d'un en-tête `-- name:` → descripteur de la requête.
+- Rejeu du catalogue de Mesalia : 4,4 s → 76 ms en debug (filtrage avant
+  jointure dans l'évaluation des conditions de blocs `DO`).
+
+Reste : correspondance de types par pack (PostGIS), en-tête
 CSV vérifié (`HEADER MATCH`), comparaison à sqlx (crate indisponible hors
 ligne), budget mesuré sur un projet de la taille de Mesalia.
 

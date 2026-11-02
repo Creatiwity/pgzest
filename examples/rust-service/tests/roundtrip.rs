@@ -119,6 +119,11 @@ async fn les_requetes_generees_s_executent() {
         .expect("rename_by_author");
     assert_eq!(renamed, 1);
 
+    let live = pgweave_example_rust_service::live_pages(&client, "Bon%")
+        .await
+        .expect("live_pages");
+    assert_eq!(live, ["Bonjour"]);
+
     let n = queries::count_pages(&client).await.expect("count_pages");
     // `count(*)` n'est jamais NULL : champ non optionnel.
     assert_eq!(n.n, 1);

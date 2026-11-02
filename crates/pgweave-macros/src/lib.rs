@@ -56,7 +56,21 @@ impl Parse for Input {
 #[proc_macro]
 pub fn query(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as Input);
-    match expand(&input) {
+    match expand(&input, false) {
+        Ok(tokens) => tokens.into(),
+        Err(message) => syn::Error::new(input.sql.span(), message)
+            .to_compile_error()
+            .into(),
+    }
+}
+
+/// `query_file!("queries/x.sql", nom = valeur, …)` : comme [`query!`], la
+/// requête lue dans un fichier du crate (chemin relatif à son
+/// `Cargo.toml`), qui est inclus pour la recompilation.
+#[proc_macro]
+pub fn query_file(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as Input);
+    match expand(&input, true) {
         Ok(tokens) => tokens.into(),
         Err(message) => syn::Error::new(input.sql.span(), message)
             .to_compile_error()
@@ -109,22 +123,39 @@ fn parse(code: &str) -> Result<Tokens, String> {
         .map_err(|e| format!("code généré invalide : {e}"))
 }
 
-fn expand(input: &Input) -> Result<Tokens, String> {
+fn expand(input: &Input, from_file: bool) -> Result<Tokens, String> {
     let root = std::env::var_os("CARGO_MANIFEST_DIR")
         .map(PathBuf::from)
         .ok_or("CARGO_MANIFEST_DIR absent")?;
-    expand_in(root, input)
+    expand_in(root, input, from_file)
 }
 
-fn expand_in(root: PathBuf, input: &Input) -> Result<Tokens, String> {
-    let project = project(root)?;
-    let sql = input.sql.value();
+fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, String> {
+    let project = project(root.clone())?;
+    let (sql, file) = if from_file {
+        let path = root.join(input.sql.value());
+        let sql = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        (sql, Some(path))
+    } else {
+        (input.sql.value(), None)
+    };
     let d = pgweave_query::describe_sql(&project.catalog, "query", &sql).map_err(|diags| {
         diags
             .iter()
-            .map(|d| match &d.hint {
-                Some(h) => format!("[{}] {} ({h})", d.code, d.message),
-                None => format!("[{}] {}", d.code, d.message),
+            .map(|d| {
+                let at = match (&file, &d.span) {
+                    (Some(f), Some(s)) => {
+                        let before = &sql[..s.start.min(sql.len())];
+                        let line = before.matches('\n').count() + 1;
+                        let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+                        format!("{}:{line}:{col}: ", f.display())
+                    }
+                    _ => String::new(),
+                };
+                match &d.hint {
+                    Some(h) => format!("{at}[{}] {} ({h})", d.code, d.message),
+                    None => format!("{at}[{}] {}", d.code, d.message),
+                }
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -179,6 +210,7 @@ fn expand_in(root: PathBuf, input: &Input) -> Result<Tokens, String> {
     let watched: Vec<String> = project
         .files
         .iter()
+        .chain(&file)
         .filter(|p| p.is_file())
         .map(|p| p.display().to_string())
         .collect();
@@ -215,7 +247,7 @@ mod tests {
 
     fn expand_str(dir: &std::path::Path, input: &str) -> Result<String, String> {
         let input: Input = syn::parse_str(input).expect("entrée");
-        expand_in(dir.to_path_buf(), &input).map(|t| t.to_string())
+        expand_in(dir.to_path_buf(), &input, false).map(|t| t.to_string())
     }
 
     #[test]
