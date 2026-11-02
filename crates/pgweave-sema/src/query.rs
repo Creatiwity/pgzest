@@ -487,17 +487,13 @@ impl<'c> Analyzer<'c> {
                 let columns = match cte {
                     Some((_, cols)) => cols.clone(),
                     None => {
-                        let rel = self
-                            .ts
-                            .catalog
-                            .resolve_relation(schema, n, &self.path)
-                            .ok_or_else(|| {
-                                SemaError::new(
-                                    "table-not-found",
-                                    format!("relation \"{n}\" does not exist"),
-                                    Span::DUMMY,
-                                )
-                            })?;
+                        let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
+                            SemaError::new(
+                                "table-not-found",
+                                format!("relation \"{n}\" does not exist"),
+                                Span::DUMMY,
+                            )
+                        })?;
                         system = !matches!(rel.kind, RelationKind::View);
                         rowtype = Some(rel.name.clone());
                         rel.columns
@@ -842,17 +838,13 @@ impl<'c> Analyzer<'c> {
         alias: Option<&Ident>,
     ) -> Result<(Source, pgweave_catalog::QName), SemaError> {
         let (schema, n) = split_name(name);
-        let rel = self
-            .ts
-            .catalog
-            .resolve_relation(schema, n, &self.path)
-            .ok_or_else(|| {
-                SemaError::new(
-                    "table-not-found",
-                    format!("relation \"{n}\" does not exist"),
-                    Span::DUMMY,
-                )
-            })?;
+        let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
+            SemaError::new(
+                "table-not-found",
+                format!("relation \"{n}\" does not exist"),
+                Span::DUMMY,
+            )
+        })?;
         let qname = rel.name.clone();
         let columns = rel
             .columns
@@ -890,6 +882,7 @@ impl<'c> Analyzer<'c> {
             return Ok(());
         }
         let t = self.expr(value, scope)?;
+        self.param_nullability(value, column.nullable);
         let Some(target) = &column.ty else {
             return Ok(());
         };

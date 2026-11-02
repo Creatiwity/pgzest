@@ -33,6 +33,9 @@ pub struct Param {
     pub name: String,
     /// `None` tant qu'aucun usage n'a fixé son type.
     pub ty: Option<Ty>,
+    /// NULL accepté ? Établi quand le paramètre est affecté à une colonne
+    /// (celle-ci est `NOT NULL` ou non) ; inconnu sinon.
+    pub nullable: Nullability,
 }
 
 /// Analyseur d'un statement : système de types, chemin de recherche,
@@ -168,6 +171,7 @@ impl<'c> Analyzer<'c> {
                 self.params.push(Param {
                     name: format!("${i}"),
                     ty: None,
+                    nullable: Nullability::Unknown,
                 });
             }
             return n - 1;
@@ -178,6 +182,7 @@ impl<'c> Analyzer<'c> {
                 self.params.push(Param {
                     name: name.to_string(),
                     ty: None,
+                    nullable: Nullability::Unknown,
                 });
                 self.params.len() - 1
             }
@@ -186,6 +191,23 @@ impl<'c> Analyzer<'c> {
 
     /// Fixe le type d'un paramètre pas encore typé (`coerce_type` d'un
     /// paramètre inconnu vers sa cible).
+    /// Le paramètre `e` (s'il en est un) est affecté à une valeur de cette
+    /// nullabilité : une colonne `NOT NULL` le refuse nul.
+    pub(crate) fn param_nullability(&mut self, e: &Expr, n: Nullability) {
+        let mut e = e;
+        while let ExprKind::Collate { expr, .. } | ExprKind::Cast { expr, .. } = &e.kind {
+            e = expr;
+        }
+        if let ExprKind::Parameter(name) = &e.kind
+            && self.routine.is_none()
+        {
+            let i = self.param_index(name);
+            if self.params[i].nullable == Nullability::Unknown {
+                self.params[i].nullable = n;
+            }
+        }
+    }
+
     pub(crate) fn coerce_to(&mut self, e: &Expr, target: &Ty) {
         let mut e = e;
         while let ExprKind::Collate { expr, .. } = &e.kind {
@@ -241,7 +263,11 @@ impl<'c> Analyzer<'c> {
                     .ts
                     .catalog
                     .resolve_type(schema, n, &self.path)
-                    .map(|t| t.name.clone())
+                    .map(|t| {
+                        self.ts
+                            .depend(crate::types::Dependency::Type(t.name.clone()));
+                        t.name.clone()
+                    })
                     .ok_or_else(|| {
                         SemaError::new(
                             "type-not-found",

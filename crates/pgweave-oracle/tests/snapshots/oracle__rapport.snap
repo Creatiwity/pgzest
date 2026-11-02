@@ -2042,6 +2042,8 @@ Paramètres — PostgreSQL : aucun · pgweave : non inféré · 0/0
 
 > pgweave — requête : `SELECT * FROM ROWS …` illisible (sql parser error: Expected: fin du statement, found: FROM at Line: 1, Column: 20)
 
+> pgweave — analyse : [unparsable-statement] statement non lu, la requête n'est pas décrite : Unparsable("sql parser error: Expected: fin du statement, found: FROM at Line: 1, Column: 20")
+
 ### `range_operators`
 
 Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0

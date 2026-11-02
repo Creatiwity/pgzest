@@ -19,11 +19,50 @@ pub fn pg(name: &str) -> Ty {
 pub(crate) const CATEGORY_STRING: char = 'S';
 pub(crate) const CATEGORY_UNKNOWN: char = 'X';
 
+/// Objet du catalogue dont dépend une analyse : ce qu'elle a résolu.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Dependency {
+    Relation(QName),
+    Type(QName),
+    /// Routine et types de ses arguments d'entrée (la surcharge).
+    Routine(QName, Vec<String>),
+    /// Opérateur et types de ses opérandes.
+    Operator(QName, Option<String>, String),
+}
+
+impl Dependency {
+    /// Objet intégré à PostgreSQL : fixé par la version, sans intérêt pour
+    /// l'invalidation d'un projet.
+    pub fn is_builtin(&self) -> bool {
+        let q = match self {
+            Dependency::Relation(q)
+            | Dependency::Type(q)
+            | Dependency::Routine(q, _)
+            | Dependency::Operator(q, _, _) => q,
+        };
+        matches!(q.schema.as_str(), "pg_catalog" | "information_schema")
+    }
+}
+
+impl std::fmt::Display for Dependency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Dependency::Relation(q) | Dependency::Type(q) => write!(f, "{q}"),
+            Dependency::Routine(q, args) => write!(f, "{q}({})", args.join(", ")),
+            Dependency::Operator(q, l, r) => {
+                write!(f, "{q}({}, {r})", l.as_deref().unwrap_or("NONE"))
+            }
+        }
+    }
+}
+
 /// Vue « système de types » d'un catalogue.
 pub struct TypeSystem<'c> {
     pub catalog: &'c Catalog,
     /// `pg_cast` indexé par (source, cible).
     casts: HashMap<(Ty, Ty), &'c Cast>,
+    /// Objets résolus par les analyses faites avec ce système.
+    pub depends: std::cell::RefCell<std::collections::BTreeSet<Dependency>>,
 }
 
 impl<'c> TypeSystem<'c> {
@@ -36,7 +75,28 @@ impl<'c> TypeSystem<'c> {
                 casts.insert((s.clone(), t.clone()), c);
             }
         }
-        TypeSystem { catalog, casts }
+        TypeSystem {
+            catalog,
+            casts,
+            depends: Default::default(),
+        }
+    }
+
+    /// Note une dépendance.
+    pub fn depend(&self, d: Dependency) {
+        self.depends.borrow_mut().insert(d);
+    }
+
+    /// Relation désignée par un nom écrit, notée comme dépendance.
+    pub fn relation(
+        &self,
+        schema: Option<&str>,
+        name: &str,
+        path: &pgweave_catalog::SearchPath,
+    ) -> Option<&'c pgweave_catalog::model::Relation> {
+        let rel = self.catalog.resolve_relation(schema, name, path)?;
+        self.depend(Dependency::Relation(rel.name.clone()));
+        Some(rel)
     }
 
     pub fn def(&self, ty: &Ty) -> Option<&'c TypeDef> {

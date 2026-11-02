@@ -19,7 +19,8 @@ use crate::line_index::LineIndex;
 ///
 /// Optionnel : à partir de P4, la cardinalité est inférée et la déclaration
 /// sert de contrat vérifié contre l'inférence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Cardinality {
     /// Exactement une ligne.
     One,

@@ -2,8 +2,19 @@
 name = "pgweave-query"
 version = "0.1.0"
 edition = "2024"
-description = "Requêtes nommées : format de fichier, paramètres, réécriture positionnelle"
+description = "Requêtes nommées : format de fichier, réécriture positionnelle, descripteur de requête"
 
 [dependencies]
+pgweave-ast = { path = "../pgweave-ast" }
+pgweave-catalog = { path = "../pgweave-catalog" }
 pgweave-diagnostics = { workspace = true }
+pgweave-parser = { path = "../pgweave-parser" }
+pgweave-sema = { path = "../pgweave-sema" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.11"
 sqlparser = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+serde_json = { workspace = true }

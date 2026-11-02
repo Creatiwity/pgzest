@@ -1,6 +1,6 @@
 use pgweave_catalog::project::ProjectBuilder;
 use pgweave_parser::{SkipReason, SkippedStatement};
-use pgweave_sema::{Analyzer, Ty, TypeSystem, ViewTyper};
+use pgweave_sema::{Ty, TypeSystem, ViewTyper};
 
 use crate::case::Case;
 
@@ -16,8 +16,8 @@ pub struct OurDescription {
     pub notes: Vec<String>,
 }
 
-/// Décrit chaque requête du cas avec l'analyse actuelle de pgweave, telle
-/// que la consommerait un générateur de code (`OutputColumn`).
+/// Décrit chaque requête du cas par son descripteur (PLAN.md §4), tel que
+/// le consomme un générateur de code.
 pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
     // Le résolveur ne dit pas ce qu'il a écarté : on reparse pour le savoir.
     // Une table absente de l'index explique des colonnes « fausses » en aval,
@@ -66,37 +66,35 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
                     .iter()
                     .map(|s| format!("requête : {}", describe_skip(s))),
             );
-            let [stmt] = outcome.statements.as_slice() else {
-                return OurDescription {
-                    params: None,
-                    columns: None,
-                    notes,
-                };
-            };
             let ts = TypeSystem::new(&schema.catalog);
-            let mut analyzer =
-                Analyzer::new(TypeSystem::new(&schema.catalog), schema.search_path.clone());
-            match analyzer.describe(stmt) {
+            match pgweave_query::describe_named(&schema, q) {
                 Ok(d) => OurDescription {
-                    // Un paramètre que rien n'a typé : pgweave ne se prononce
-                    // pas sur la liste.
-                    params: d
-                        .params
-                        .iter()
-                        .map(|p| p.ty.as_ref().map(|t| pg_name(&ts, t)))
-                        .collect(),
+                    params: Some(
+                        d.params
+                            .iter()
+                            .map(|p| pg_name(&ts, &ty(&p.ty.pg)))
+                            .collect(),
+                    ),
                     columns: Some(
                         d.columns
                             .iter()
                             // Le protocole décrit une colonne de domaine par
                             // son type de base (`printtup.c`).
-                            .map(|c| (Some(c.name.clone()), pg_name(&ts, &ts.base_type(&c.ty))))
+                            .map(|c| {
+                                (
+                                    Some(c.name.clone()),
+                                    pg_name(&ts, &ts.base_type(&ty(&c.ty.pg))),
+                                )
+                            })
                             .collect(),
                     ),
                     notes,
                 },
-                Err(e) => {
-                    notes.push(format!("analyse : [{}] {}", e.code, e.message));
+                // Refus du descripteur (type non établi, erreur d'analyse).
+                Err(diags) => {
+                    for d in diags {
+                        notes.push(format!("analyse : [{}] {}", d.code, d.message));
+                    }
                     OurDescription {
                         params: None,
                         columns: None,
@@ -124,6 +122,14 @@ fn describe_skip(s: &SkippedStatement) -> String {
         }
     };
     format!("`{head} …` {reason}")
+}
+
+/// Type désigné par le nom qualifié d'un descripteur.
+fn ty(qualified: &str) -> Ty {
+    match qualified.split_once('.') {
+        Some((schema, name)) => pgweave_catalog::QName::new(schema, name),
+        None => pgweave_sema::pg(qualified),
+    }
 }
 
 /// Nom du type tel que le rapporte le `Prepare` : nom interne, `[]` pour

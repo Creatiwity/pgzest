@@ -1087,9 +1087,11 @@ dependencies = [
  "pgweave-parser",
  "pgweave-plugin",
  "pgweave-plugin-wasm",
+ "pgweave-query",
  "pgweave-schema",
  "pgweave-sema",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1299,7 +1301,15 @@ dependencies = [
 name = "pgweave-query"
 version = "0.1.0"
 dependencies = [
+ "insta",
+ "pgweave-ast",
+ "pgweave-catalog",
  "pgweave-diagnostics",
+ "pgweave-parser",
+ "pgweave-sema",
+ "serde",
+ "serde_json",
+ "sha2",
  "sqlparser",
 ]
 

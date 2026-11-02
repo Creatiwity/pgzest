@@ -382,6 +382,7 @@ impl<'c> TypeSystem<'c> {
                     && !named
                     && let Some(target) = self.function_style_cast(schema, name, input, path)
                 {
+                    self.depend(crate::types::Dependency::Type(target.clone()));
                     return Ok(ResolvedCall {
                         target: Resolution::Coercion,
                         arg_types: vec![target.clone()],
@@ -400,6 +401,10 @@ impl<'c> TypeSystem<'c> {
         let r = chosen.target;
         let returns = r.returns.as_ref().and_then(|t| self.of_ref(t));
         let (arg_types, returns) = self.resolve_generic(inputs, &chosen.args, returns.as_ref())?;
+        self.depend(crate::types::Dependency::Routine(
+            r.name.clone(),
+            r.input_types().map(ToString::to_string).collect(),
+        ));
         Ok(ResolvedCall {
             target: Resolution::Routine(r),
             arg_types,
@@ -496,6 +501,11 @@ impl<'c> TypeSystem<'c> {
         let o = chosen.target;
         let returns = self.of_ref(&o.result);
         let (arg_types, returns) = self.resolve_generic(&inputs, &chosen.args, returns.as_ref())?;
+        self.depend(crate::types::Dependency::Operator(
+            o.name.clone(),
+            o.left.as_ref().map(ToString::to_string),
+            o.right.to_string(),
+        ));
         Ok(ResolvedCall {
             target: Resolution::Operator(o),
             arg_types,

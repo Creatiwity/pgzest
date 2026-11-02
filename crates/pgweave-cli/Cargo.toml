@@ -17,10 +17,12 @@ pgweave-diagnostics = { workspace = true }
 pgweave-schema = { path = "../pgweave-schema" }
 pgweave-parser = { path = "../pgweave-parser" }
 pgweave-checker = { path = "../pgweave-checker" }
+pgweave-query = { path = "../pgweave-query" }
 pgweave-codegen = { path = "../pgweave-codegen" }
 pgweave-lint = { path = "../pgweave-lint" }
 pgweave-plugin = { path = "../pgweave-plugin" }
 pgweave-plugin-wasm = { path = "../pgweave-plugin-wasm" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 clap = { workspace = true }
 chrono = { workspace = true }

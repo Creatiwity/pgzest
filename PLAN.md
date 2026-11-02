@@ -339,12 +339,12 @@ Contrat entre l'analyse et toutes les cibles. Format JSON stable, versionné
   "sql": "SELECT id, title, creation_date FROM pages WHERE id = $1",
   "command": "select",                   // select | insert | update | delete | call | copy_in
   "params": [
-    { "name": "id", "type": { "pg": "pg_catalog.int8", "oid": 20 }, "nullable": false }
+    { "name": "id", "type": { "pg": "pg_catalog.int8", "oid": 20 }, "nullable": "unknown" }
   ],
   "columns": [
-    { "name": "id",            "type": { "pg": "pg_catalog.int8" },        "nullable": false },
-    { "name": "title",         "type": { "pg": "pg_catalog.text" },        "nullable": false },
-    { "name": "creation_date", "type": { "pg": "pg_catalog.timestamptz" }, "nullable": true }
+    { "name": "id",            "type": { "pg": "pg_catalog.int8", "oid": 20 },          "nullable": "non_null" },
+    { "name": "title",         "type": { "pg": "pg_catalog.text", "oid": 25 },          "nullable": "non_null" },
+    { "name": "creation_date", "type": { "pg": "pg_catalog.timestamptz", "oid": 1184 }, "nullable": "nullable" }
   ],
   "cardinality": "optional",             // many | one | optional | none
   "depends_on": ["public.pages"],        // objets de catalogue, pour l'invalidation
@@ -356,6 +356,9 @@ Contrat entre l'analyse et toutes les cibles. Format JSON stable, versionné
   unique/PK → `optional` ; `INSERT … VALUES (une ligne) RETURNING` →
   `one` ; agrégat sans `GROUP BY` → `one` ; statement sans `RETURNING` →
   `none`. Sinon `many`. Surchargeable explicitement, jamais devinée au-delà.
+- Nullabilité à trois états (D5) : `non_null`, `nullable`, `unknown`. Un
+  paramètre est `non_null` ou `nullable` quand il est affecté à une colonne
+  (`INSERT … VALUES`, `SET`), `unknown` sinon : la cible décide (P5).
 - Les types sont des références au catalogue (y compris enums, domaines,
   composites, types d'extension) ; la correspondance vers un type de langage
   est faite par la cible, via la table de correspondance (D9).
@@ -650,7 +653,25 @@ requêtes représentatives, dont les corps de Mesalia) ; zéro faux positif sur
 les corpus ; compatibilité de types vérifiée (`WHERE text_col = 42` →
 diagnostic).
 
-### P4 — Descripteur de requête
+### P4 — Descripteur de requête — 🚧 en cours
+
+Fait (2026-11-02) :
+- `pgweave_query::descriptor` : types (références au catalogue, OID des
+  types intégrés), nullabilité à trois états des paramètres (établie par
+  affectation à une colonne) et des colonnes, cardinalité inférée de façon
+  conservatrice (clé primaire/unique fixée par des égalités, agrégat sans
+  `GROUP BY`, `LIMIT 1`, `INSERT … VALUES` d'une ligne, fonctions renvoyant
+  un ensemble), `depends_on` (relations, types, routines et opérateurs du
+  projet résolus par sema), empreinte SHA-256 du SQL réémis et des
+  définitions des dépendances, cache `.pgweave/queries/<empreinte>.json`.
+- Paramètres dans l'ordre de la réécriture positionnelle (première
+  apparition), pas dans l'ordre d'analyse.
+- Cardinalité déclarée (`-- name: x :one`) : restreint l'inférence (contrat
+  vérifié à l'exécution), ne la contredit pas (`none` contre des lignes
+  renvoyées, ou l'inverse : erreur).
+- `pgweave describe` (fichiers de requêtes, `--sql`, `--cache`), JSON.
+- L'oracle passe désormais par le descripteur : 749/751 colonnes, 146/146
+  paramètres.
 
 - Crate `pgweave-query` : descripteur §4, cardinalité, `depends_on`,
   fingerprint, cache disque.

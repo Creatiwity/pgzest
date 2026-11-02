@@ -371,17 +371,13 @@ impl Analyzer<'_> {
     /// colonnes existent.
     fn table_columns(&mut self, name: &ObjectName, columns: &[Ident]) -> Result<(), SemaError> {
         let (schema, n) = split_name(name);
-        let rel = self
-            .ts
-            .catalog
-            .resolve_relation(schema, n, &self.path)
-            .ok_or_else(|| {
-                SemaError::new(
-                    "table-not-found",
-                    format!("relation \"{n}\" does not exist"),
-                    Span::DUMMY,
-                )
-            })?;
+        let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
+            SemaError::new(
+                "table-not-found",
+                format!("relation \"{n}\" does not exist"),
+                Span::DUMMY,
+            )
+        })?;
         for c in columns {
             if !rel.columns.iter().any(|x| x.name == c.value) {
                 return Err(SemaError::new(
@@ -1611,17 +1607,13 @@ impl Analyzer<'_> {
         alias: Option<&Ident>,
     ) -> Result<Source, SemaError> {
         let (schema, n) = split_name(name);
-        let rel = self
-            .ts
-            .catalog
-            .resolve_relation(schema, n, &self.path)
-            .ok_or_else(|| {
-                SemaError::new(
-                    "table-not-found",
-                    format!("relation \"{n}\" does not exist"),
-                    Span::DUMMY,
-                )
-            })?;
+        let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
+            SemaError::new(
+                "table-not-found",
+                format!("relation \"{n}\" does not exist"),
+                Span::DUMMY,
+            )
+        })?;
         let columns = rel
             .columns
             .iter()

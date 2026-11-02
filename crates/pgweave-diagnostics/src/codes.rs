@@ -51,6 +51,13 @@ pub const QUERY_PARAMETER_GAP: &str = "query-parameter-gap";
 pub const QUERY_FILE_EXTENSION: &str = "query-file-extension";
 /// Paramètre mal formé (`$0`, `$pageId`).
 pub const QUERY_PARAMETER_INVALID: &str = "query-parameter-invalid";
+/// Requête que le descripteur ne couvre pas (autre que SELECT, INSERT,
+/// UPDATE, DELETE, CALL).
+pub const QUERY_NOT_DESCRIBABLE: &str = "query-not-describable";
+/// Paramètre dont aucun usage ne fixe le type.
+pub const QUERY_PARAMETER_UNTYPED: &str = "query-parameter-untyped";
+/// Cardinalité déclarée incompatible avec celle de la requête.
+pub const QUERY_CARDINALITY_MISMATCH: &str = "query-cardinality-mismatch";
 
 // ── Catalogue (rejeu des DDL) ────────────────────────────────────────────────
 

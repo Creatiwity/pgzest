@@ -5,6 +5,7 @@ use std::process;
 use clap::{Parser, Subcommand};
 use pgweave_ast::Statement;
 
+mod describe;
 mod import;
 mod migrate;
 
@@ -63,6 +64,32 @@ enum Command {
         /// `--schema` and the target files themselves.
         #[arg(long = "no-project")]
         no_project: bool,
+    },
+
+    /// Describe named queries (parameters, columns, nullability,
+    /// cardinality, dependencies) as JSON descriptors (PLAN.md §4).
+    ///
+    /// Each file is a named-query file (`-- name: …` headers). The schema is
+    /// the project's (pgweave.toml) plus any `--schema` files. Exits 1 if a
+    /// query cannot be described; nothing is ever guessed.
+    Describe {
+        /// Named-query files to describe
+        files: Vec<String>,
+        /// A single query given inline instead of (or in addition to) files
+        #[arg(long)]
+        sql: Option<String>,
+        /// Name of the `--sql` query
+        #[arg(long, default_value = "query")]
+        name: String,
+        /// Extra DDL/schema files that provide context (can be repeated)
+        #[arg(long = "schema")]
+        schemas: Vec<String>,
+        /// Ignore pgweave.toml
+        #[arg(long = "no-project")]
+        no_project: bool,
+        /// Also write each descriptor to `.pgweave/queries/<fingerprint>.json`
+        #[arg(long)]
+        cache: bool,
     },
 
     /// List available macros: the ones shipped with the tool, plus the
@@ -696,6 +723,21 @@ fn main() {
             on_unsupported.map(Into::into),
             no_project,
         ),
+        Command::Describe {
+            files,
+            sql,
+            name,
+            schemas,
+            no_project,
+            cache,
+        } => describe::run(describe::Options {
+            files: &files,
+            sql: sql.as_deref(),
+            name: &name,
+            schemas: &schemas,
+            no_project,
+            cache,
+        }),
         Command::Macros { verbose } => cmd_macros(verbose),
         Command::Build { files, out_dir } => cmd_build(&files, out_dir.as_deref()),
         Command::Lint { file } => cmd_lint(&file),
