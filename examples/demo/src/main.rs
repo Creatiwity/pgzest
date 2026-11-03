@@ -256,6 +256,26 @@ async fn main() -> Result<()> {
         alice.full_name, alice.loyalty_points
     );
 
+    // Filtre optionnel (`$status?`) : `None` ne filtre pas.
+    for status in [
+        None,
+        Some(OrderStatus::Served),
+        Some(OrderStatus::Cancelled),
+    ] {
+        let orders = queries::orders::orders_of_restaurant(
+            &client,
+            queries::orders::OrdersOfRestaurantParams {
+                restaurant: bistro.id,
+                status,
+            },
+        )
+        .await?;
+        println!(
+            "   commandes du Bistrot, statut {status:?} : {}",
+            orders.len()
+        );
+    }
+
     println!("── Chiffre d'affaires servi, par type de plat");
     for r in queries::orders::revenue_by_kind(&client).await? {
         println!(

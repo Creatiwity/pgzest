@@ -58,8 +58,12 @@ impl Cardinality {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedParam {
     pub name: String,
-    /// Plages octets de chaque `$name` dans le fichier, dans l'ordre.
+    /// Plages octets de chaque `$name` dans le fichier, dans l'ordre ; une
+    /// occurrence marquée `$name?` inclut le `?`.
     pub occurrences: Vec<Range<usize>>,
+    /// `$name?` : la valeur peut être absente (NULL, `Option` en Rust), et
+    /// la requête est écrite pour (`$name::type IS NULL OR …`).
+    pub optional: bool,
 }
 
 /// Paramètres d'une requête. Les deux notations ne se mélangent pas.
@@ -112,6 +116,21 @@ impl NamedQuery {
     /// SQL analysé : fragments insérés s'il y en a.
     pub fn text(&self) -> &str {
         self.expanded.as_ref().map_or(&self.sql, |e| &e.sql)
+    }
+
+    /// [`Self::text`], marqueurs `?` des paramètres optionnels remplacés par
+    /// une espace : SQL lisible par le parser, positions inchangées.
+    pub fn analysis_text(&self) -> String {
+        let mut bytes = self.text().as_bytes().to_vec();
+        if let Params::Named(params) = &self.params {
+            for r in params.iter().flat_map(|p| &p.occurrences) {
+                let end = r.end - self.sql_range.start;
+                if bytes.get(end.wrapping_sub(1)) == Some(&b'?') {
+                    bytes[end - 1] = b' ';
+                }
+            }
+        }
+        String::from_utf8(bytes).expect("un `?` remplacé par une espace")
     }
 
     /// Le SQL à envoyer au serveur : chaque `$name` remplacé par `$n`, `n`
@@ -468,6 +487,25 @@ impl FileParser<'_> {
                 )
             }
         };
+        // `$nom?` : paramètre optionnel ; le `?` (collé) fait partie de
+        // l'occurrence, retiré du SQL envoyé.
+        let text_of = |r: &Range<usize>| -> Option<u8> {
+            match &expanded {
+                None => self.source.as_bytes().get(r.end).copied(),
+                Some(e) => e.sql.as_bytes().get(r.end - body.start).copied(),
+            }
+        };
+        let placeholders: Vec<(String, Range<usize>, bool)> = placeholders
+            .into_iter()
+            .map(|(t, r)| {
+                if text_of(&r) == Some(b'?') {
+                    let end = r.end + 1;
+                    (t, r.start..end, true)
+                } else {
+                    (t, r, false)
+                }
+            })
+            .collect();
         let to_file = |r: Range<usize>| match &expanded {
             None => r,
             Some(e) => e
@@ -497,15 +535,27 @@ impl FileParser<'_> {
     fn params(
         &mut self,
         query: &str,
-        placeholders: &[(String, Range<usize>)],
+        placeholders: &[(String, Range<usize>, bool)],
         to_file: &dyn Fn(Range<usize>) -> Range<usize>,
     ) -> Option<Params> {
         let mut positional: Vec<(u32, Range<usize>)> = Vec::new();
         let mut named: Vec<NamedParam> = Vec::new();
         let mut valid = true;
 
-        for (text, range) in placeholders {
+        for (text, range, optional) in placeholders {
             let raw = &text[1..];
+            if *optional && raw.bytes().all(|b| b.is_ascii_digit()) {
+                valid = false;
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::QUERY_PARAMETER_INVALID,
+                        format!("paramètre positionnel optionnel : `{text}?`"),
+                    )
+                    .with_span(span(to_file(range.clone())))
+                    .with_hint("seul un paramètre nommé est optionnel (`$statut?`) ; pour l'opérateur jsonb `?`, l'entourer d'espaces"),
+                );
+                continue;
+            }
             if !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()) {
                 match raw.parse::<u32>() {
                     Ok(n) if n >= 1 => positional.push((n, range.clone())),
@@ -523,10 +573,14 @@ impl FileParser<'_> {
                 }
             } else if is_snake_ident(raw) {
                 match named.iter_mut().find(|p| p.name == raw) {
-                    Some(p) => p.occurrences.push(range.clone()),
+                    Some(p) => {
+                        p.occurrences.push(range.clone());
+                        p.optional |= *optional;
+                    }
                     None => named.push(NamedParam {
                         name: raw.to_string(),
                         occurrences: vec![range.clone()],
+                        optional: *optional,
                     }),
                 }
             } else {
@@ -616,6 +670,31 @@ fn report_duplicates(queries: &mut Vec<NamedQuery>, diagnostics: &mut Vec<Diagno
 }
 
 // ── Utilitaires ───────────────────────────────────────────────────────────────
+
+/// `sql` où chaque marqueur `$nom?` (paramètre optionnel, `?` collé) a son
+/// `?` remplacé par une espace : lisible par le parser, positions
+/// inchangées. Chaînes et commentaires ne sont pas touchés.
+pub fn blank_optional_markers(sql: &str) -> String {
+    let index = LineIndex::new(sql);
+    let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql)
+        .with_unescape(false)
+        .tokenize_with_location()
+    else {
+        return sql.to_string();
+    };
+    let mut bytes = sql.as_bytes().to_vec();
+    for pair in tokens.windows(2) {
+        if let Token::Placeholder(p) = &pair[0].token
+            && p.starts_with('$')
+            && let Some(start) = index.offset(pair[0].span.start)
+            && bytes.get(start + p.len()) == Some(&b'?')
+            && index.offset(pair[1].span.start) == Some(start + p.len())
+        {
+            bytes[start + p.len()] = b' ';
+        }
+    }
+    String::from_utf8(bytes).unwrap_or_else(|_| sql.to_string())
+}
 
 /// `$…` de `sql` (SQL après insertion des fragments), positions décalées de
 /// `base`. `None` si le tokenizer ne sait pas le lire (le parse le signalera).

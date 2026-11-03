@@ -191,6 +191,27 @@ Paramètres nommés :
 
 Paramètres positionnels : de `$1` à `$n` sans trou.
 
+### Paramètre optionnel : `$nom?`
+
+Un `?` collé au nom (ajouté le 2026-11-03) déclare que la valeur peut
+manquer : le paramètre est nullable dans le descripteur, `Option<T>` en
+Rust, quoi que déduise l'analyse. La requête est écrite pour :
+
+```sql
+-- name: orders_of_restaurant :many
+SELECT o.id, o.status FROM orders o
+WHERE o.restaurant_id = $restaurant
+  AND ($status?::order_status IS NULL OR o.status = $status);
+```
+
+- Le marqueur sur une occurrence suffit ; il est retiré du SQL envoyé
+  (`$2::order_status IS NULL OR o.status = $2`).
+- Une seule requête préparée : un filtre absent est une condition vraie.
+  Quand le plan doit dépendre des filtres présents, voir les blocs
+  conditionnels.
+- L'opérateur jsonb `?` s'écrit entouré d'espaces (`$doc ? 'clé'`) ; un
+  paramètre positionnel (`$1?`) n'est jamais optionnel.
+
 ### Réécriture
 
 Le SQL envoyé au serveur est toujours positionnel. Chaque `$name` est

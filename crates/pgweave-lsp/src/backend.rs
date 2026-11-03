@@ -373,7 +373,11 @@ impl PgsqlBackend {
         // de son extension. Les spans produits ensuite sont déjà dans le repère
         // du fichier édité — voir `PreparedSource::parse`.
         let macros = self.macros().await;
-        let prepared = pgweave_analysis::prepare_source(text, &macros);
+        let prepared = if role == FileRole::Query {
+            pgweave_analysis::prepare_query_source(text, &macros)
+        } else {
+            pgweave_analysis::prepare_source(text, &macros)
+        };
 
         // Un seul parse pour le checker, le lint et les règles de rôle.
         let outcome = match prepared.parse_with_outcome() {
@@ -810,7 +814,11 @@ impl LanguageServer for PgsqlBackend {
 
         // Un seul parse, macros et fragments désucrés : les spans sont dans le
         // repère du fichier édité.
-        let prepared = pgweave_analysis::prepare_source(&text, &macros);
+        let prepared = if role == FileRole::Query {
+            pgweave_analysis::prepare_query_source(&text, &macros)
+        } else {
+            pgweave_analysis::prepare_source(&text, &macros)
+        };
         let stmts = prepared
             .parse_with_outcome()
             .map(|o| o.statements)
@@ -1096,7 +1104,7 @@ fn hover_rust(
             macros,
         );
     }
-    let prepared = pgweave_analysis::prepare_source(&e.sql, macros);
+    let prepared = pgweave_analysis::prepare_query_source(&e.sql, macros);
     let stmts = prepared
         .parse_with_outcome()
         .map(|o| o.statements)

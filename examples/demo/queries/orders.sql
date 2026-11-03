@@ -48,3 +48,12 @@ ORDER BY d.kind;
 -- Sans RETURNING : le nombre de lignes supprimées (`u64`).
 DELETE FROM orders
 WHERE status = 'draft' AND updated_at < $before;
+
+-- name: orders_of_restaurant :many
+-- `$status?` : filtre optionnel, `Option<OrderStatus>` en Rust ; absent,
+-- toutes les commandes du restaurant.
+SELECT o.id, o.status, o.placed_at
+FROM orders o
+WHERE o.restaurant_id = $restaurant
+  AND ($status?::order_status IS NULL OR o.status = $status)
+ORDER BY o.id;

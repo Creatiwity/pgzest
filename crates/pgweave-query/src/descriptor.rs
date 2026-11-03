@@ -129,9 +129,11 @@ pub fn describe_named(
     };
     // Fragments insérés : le SQL analysé n'est pas le texte du fichier, la
     // source-map y ramène chaque position.
+    // Marqueurs `$nom?` effacés (même longueur) : le parser lit du SQL.
+    let analysis = q.analysis_text();
     let parsed = match &q.expanded {
-        Some(e) => pgweave_parser::parse_mapped_with_outcome(&e.sql, &e.map),
-        None => pgweave_parser::parse_at_with_outcome(&q.sql, q.sql_range.start),
+        Some(e) => pgweave_parser::parse_mapped_with_outcome(&analysis, &e.map),
+        None => pgweave_parser::parse_at_with_outcome(&analysis, q.sql_range.start),
     };
     let outcome = parsed.map_err(|e| {
         vec![
@@ -170,6 +172,14 @@ pub fn describe_named(
         whole,
     )?;
     d.row = q.row.as_ref().map(|(r, _)| r.clone());
+    // `$nom?` : la valeur peut manquer, quoi qu'infère l'analyse.
+    if let Params::Named(list) = &q.params {
+        for p in d.params.iter_mut() {
+            if list.iter().any(|n| n.optional && n.name == p.name) {
+                p.nullable = NullabilityDesc::Nullable;
+            }
+        }
+    }
     Ok(d)
 }
 

@@ -659,6 +659,15 @@ pub fn prepare_source(source: &str, macros: &pgweave_macro::MacroSet) -> Prepare
     }
 }
 
+/// Comme [`prepare_source`], pour un fichier de requêtes nommées : les
+/// marqueurs `$nom?` (paramètres optionnels) sont effacés après insertion
+/// des fragments.
+pub fn prepare_query_source(source: &str, macros: &pgweave_macro::MacroSet) -> PreparedSource {
+    let mut prepared = prepare_source(source, macros);
+    prepared.sql = pgweave_query::blank_optional_markers(&prepared.sql);
+    prepared
+}
+
 /// Analyse une source pouvant contenir des macros.
 ///
 /// Les positions sont dans le repère du fichier édité, portées par l'AST plutôt

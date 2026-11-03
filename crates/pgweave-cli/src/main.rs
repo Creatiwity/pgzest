@@ -328,7 +328,15 @@ fn cmd_check(
             };
             // Désucrage : les spans rendus par le parse sont déjà dans le
             // repère du fichier édité, donc rien à retraduire ensuite.
-            let prepared = pgweave_analysis::prepare_source(&sql, &macros);
+            // Fichier de requêtes : marqueurs `$nom?` effacés pour le parse.
+            let query_file = project.as_ref().is_some_and(|(root, cfg)| {
+                cfg.classify_file(Path::new(file), root) == pgweave_schema::FileRole::Query
+            });
+            let prepared = if query_file {
+                pgweave_analysis::prepare_query_source(&sql, &macros)
+            } else {
+                pgweave_analysis::prepare_source(&sql, &macros)
+            };
             match prepared.parse_with_outcome() {
                 Ok(o) => out.push((
                     file.clone(),

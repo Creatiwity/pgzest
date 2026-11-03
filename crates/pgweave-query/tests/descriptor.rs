@@ -358,3 +358,42 @@ fn ligne_de_reference_verifiee() {
     assert!(check("chained").unwrap_err().contains("désigner `card`"));
     assert!(check("missing").unwrap_err().contains("introuvable"));
 }
+
+#[test]
+fn parametre_optionnel() {
+    let src = "-- name: q :many\nSELECT id FROM pages\n\
+               WHERE ($status?::status IS NULL OR status = $status) AND site = $site;\n";
+    let file = parse_query_file(src);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let d = describe_named(&catalog(), &file.queries[0]).expect("décrite");
+    assert_eq!(
+        d.sql,
+        "SELECT id FROM pages\nWHERE ($1::status IS NULL OR status = $1) AND site = $2"
+    );
+    let status = d.params.iter().find(|p| p.name == "status").unwrap();
+    assert_eq!(status.nullable, NullabilityDesc::Nullable);
+    assert_eq!(status.ty.pg, "public.status");
+    let site = d.params.iter().find(|p| p.name == "site").unwrap();
+    assert_ne!(site.nullable, NullabilityDesc::Nullable);
+
+    // Opérateur jsonb `?` entouré d'espaces : pas un marqueur.
+    let file = parse_query_file("-- name: j\nSELECT $doc::jsonb ? 'k' AS has;\n");
+    let pgweave_query::Params::Named(p) = &file.queries[0].params else {
+        panic!()
+    };
+    assert!(!p[0].optional);
+
+    // Un paramètre positionnel n'est pas optionnel.
+    let file = parse_query_file("-- name: p\nSELECT $1?::int;\n");
+    assert!(
+        file.diagnostics
+            .iter()
+            .any(|d| d.message.contains("positionnel optionnel")),
+        "{:?}",
+        file.diagnostics
+    );
+    assert_eq!(
+        pgweave_query::blank_optional_markers("SELECT $a?, '$b?', $c ? 'k' -- $d?"),
+        "SELECT $a , '$b?', $c ? 'k' -- $d?"
+    );
+}
