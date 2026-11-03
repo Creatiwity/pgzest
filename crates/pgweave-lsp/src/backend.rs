@@ -684,7 +684,72 @@ impl LanguageServer for PgsqlBackend {
             .lock()
             .await
             .insert(uri.clone(), text.clone());
+        // Schéma ou migration absent du projet chargé (créé depuis, par
+        // `pgweave migrate create` par exemple) : sans rechargement il serait
+        // vérifié seul, hors de la chaîne des migrations qui le précèdent.
+        let unknown = !is_rust(&uri)
+            && matches!(
+                self.role_of(&uri).await,
+                FileRole::Schema | FileRole::Migration { .. }
+            )
+            && match uri_to_path(&uri) {
+                Some(p) => !self.workspace.lock().await.set_text(&p, &text),
+                None => false,
+            };
+        if unknown && self.in_project().await {
+            self.reload_workspace().await;
+            self.run_diagnostics(&uri, &text).await;
+            self.refresh_other_documents(&uri).await;
+            return;
+        }
         self.run_diagnostics(&uri, &text).await;
+    }
+
+    /// Fichiers créés, supprimés ou modifiés hors de l'éditeur : le projet
+    /// suit le disque, sauf pour les documents ouverts (l'éditeur fait foi).
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        if !self.in_project().await && self.legacy_schema_path.lock().await.is_none() {
+            return;
+        }
+        let open: std::collections::HashSet<String> =
+            self.documents.lock().await.keys().cloned().collect();
+        let (mut reload, mut changed) = (false, false);
+        for event in params.changes {
+            let uri = event.uri.to_string();
+            if event.typ == FileChangeType::CHANGED && open.contains(&uri) {
+                continue;
+            }
+            let Some(path) = uri_to_path(&uri) else {
+                continue;
+            };
+            let config_file = path
+                .file_name()
+                .is_some_and(|n| n == ProjectConfig::FILENAME);
+            let macro_file = path.extension().is_some_and(|e| e == "pgmacro");
+            let role = self.role_of(&uri).await;
+            if config_file || macro_file || role == FileRole::Fragments {
+                reload = true;
+            } else if matches!(role, FileRole::Schema | FileRole::Migration { .. }) {
+                // Fichier connu modifié : seul ce qui en dépend est recalculé.
+                // Créé ou supprimé : le projet est rechargé.
+                let known = event.typ == FileChangeType::CHANGED
+                    && match std::fs::read_to_string(&path) {
+                        Ok(text) => self.workspace.lock().await.set_text(&path, &text),
+                        Err(_) => false,
+                    };
+                reload |= !known;
+                changed = true;
+            } else if role == FileRole::Query {
+                // Une requête peut servir de référence à d'autres (`-> nom`).
+                changed = true;
+            }
+        }
+        if reload {
+            self.reload_workspace().await;
+        }
+        if reload || changed {
+            self.refresh_other_documents("").await;
+        }
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {

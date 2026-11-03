@@ -588,6 +588,80 @@ fn mode_declaratif_schema_et_migrations_rejoues_a_part() {
 }
 
 #[test]
+fn migration_creee_apres_le_demarrage() {
+    let root = scaffold(
+        "migration-nouvelle",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[migrations]\ndirectory = \"migrations\"\n\
+                 [schema]\ndirectory = \"schema\"\ndeclarative = true\n",
+            ),
+            (
+                "migrations/0001_init.sql",
+                "CREATE TABLE t (a INT PRIMARY KEY);\n",
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE t (a INT PRIMARY KEY, b INT);\n",
+            ),
+        ],
+    );
+    let has_drift = |diags: &[serde_json::Value]| {
+        diags
+            .iter()
+            .any(|d| d.get("code").and_then(|c| c.as_str()) == Some("schema-drift"))
+    };
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let init = lsp.open(&root.join("migrations/0001_init.sql"), "sql");
+    assert!(has_drift(&lsp.await_diagnostics(&init)));
+
+    // Écrite sur le disque (`pgweave migrate create`), hors de l'éditeur :
+    // le projet la prend en compte, l'écart disparaît de 0001.
+    let path = root.join("migrations/0002_b.sql");
+    std::fs::write(&path, "ALTER TABLE t ADD COLUMN b INT;\n").unwrap();
+    let uri = format!("file://{}", path.display());
+    lsp.notify(
+        "workspace/didChangeWatchedFiles",
+        serde_json::json!({ "changes": [{ "uri": uri, "type": 1 }] }),
+    );
+    let diags = lsp.await_diagnostics(&init);
+    assert!(!has_drift(&diags), "{diags:?}");
+
+    // Ouverte ensuite : rejouée après 0001, pas seule (la table existe).
+    let opened = lsp.open(&path, "sql");
+    let diags = lsp.await_diagnostics(&opened);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn migration_ouverte_avant_tout_rechargement() {
+    let root = scaffold(
+        "migration-ouverte",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[migrations]\ndirectory = \"migrations\"\n",
+            ),
+            (
+                "migrations/0001_init.sql",
+                "CREATE TABLE t (a INT PRIMARY KEY);\n",
+            ),
+        ],
+    );
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    // Créée après le démarrage, sans notification du client : l'ouverture
+    // suffit à la placer dans la chaîne.
+    let path = root.join("migrations/0002_b.sql");
+    std::fs::write(&path, "ALTER TABLE t ADD COLUMN b INT;\n").unwrap();
+    let opened = lsp.open(&path, "sql");
+    let diags = lsp.await_diagnostics(&opened);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
 fn requete_sql_dans_un_fichier_rust() {
     let root = scaffold(
         "rust",
