@@ -1211,6 +1211,7 @@ name = "pgweave-example-rust-service"
 version = "0.1.0"
 dependencies = [
  "pgweave-build",
+ "pgweave-macro",
  "pgweave-macros",
  "pgweave-runtime",
  "time",
@@ -1372,6 +1373,7 @@ dependencies = [
  "pgweave-ast",
  "pgweave-catalog",
  "pgweave-diagnostics",
+ "pgweave-macro",
  "pgweave-parser",
  "pgweave-sema",
  "serde",

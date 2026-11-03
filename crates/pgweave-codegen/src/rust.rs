@@ -84,6 +84,10 @@ pub fn generate_rust(
     let mut errors = Vec::new();
     let mut body = String::new();
     for d in descriptors {
+        if let Err(e) = pgweave_query::check_row_reference(d, descriptors) {
+            errors.push(format!("{} : {e}", d.name));
+            continue;
+        }
         match g.query(d) {
             Ok(code) => body.push_str(&code),
             Err(e) => errors.push(format!("{} : {e}", d.name)),
@@ -172,8 +176,11 @@ impl Generator<'_> {
             Some(format!("{name}{}", if lifetime { "<'_>" } else { "" }))
         };
 
-        // Ligne.
-        let row_ty = if d.columns.is_empty() {
+        // Ligne : celle d'une autre requête (`-> autre`, vérifiée), ou la
+        // sienne.
+        let row_ty = if let Some(r) = &d.row {
+            Some(format!("{}Row", self::pascal(r)))
+        } else if d.columns.is_empty() {
             None
         } else {
             let name = format!("{pascal}Row");

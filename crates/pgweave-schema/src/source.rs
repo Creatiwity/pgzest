@@ -167,6 +167,7 @@ impl SchemaSource for MultiSource {
             FileRole::Migration { sequence } => (0u8, *sequence),
             FileRole::Schema => (1, 0),
             FileRole::Query => (2, 0),
+            FileRole::Fragments => (3, 0),
         });
 
         all

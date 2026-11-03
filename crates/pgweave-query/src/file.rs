@@ -75,6 +75,14 @@ pub enum Params {
     Named(Vec<NamedParam>),
 }
 
+/// SQL d'une requête après insertion de ses fragments (P6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpandedSql {
+    pub sql: String,
+    /// Positions du SQL inséré → positions dans le fichier.
+    pub map: pgweave_ast::SourceMap,
+}
+
 /// Une requête nommée, telle qu'écrite dans le fichier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedQuery {
@@ -82,22 +90,36 @@ pub struct NamedQuery {
     /// Plage du nom dans l'en-tête.
     pub name_range: Range<usize>,
     pub cardinality: Option<Cardinality>,
+    /// `-> autre` : les lignes ont la forme de celles de la requête `autre`
+    /// (même struct générée), et sa plage dans l'en-tête.
+    pub row: Option<(String, Range<usize>)>,
     /// Lignes de commentaire entre l'en-tête et le SQL, sans le `-- `.
     pub doc: Vec<String>,
     /// Le statement, sans le `;` final.
     pub sql: String,
     /// Plage de `sql` dans le fichier.
     pub sql_range: Range<usize>,
+    /// Fragments insérés : le SQL analysé et envoyé. `None` sans fragment.
+    pub expanded: Option<ExpandedSql>,
+    /// Paramètres du SQL envoyé. Avec des fragments, leurs occurrences sont
+    /// des positions dans [`ExpandedSql::sql`] décalées de
+    /// `sql_range.start` ; sinon, des positions dans le fichier.
     pub params: Params,
 }
 
 impl NamedQuery {
+    /// SQL analysé : fragments insérés s'il y en a.
+    pub fn text(&self) -> &str {
+        self.expanded.as_ref().map_or(&self.sql, |e| &e.sql)
+    }
+
     /// Le SQL à envoyer au serveur : chaque `$name` remplacé par `$n`, `n`
     /// étant le rang de première apparition du nom. Inchangé pour une
     /// requête positionnelle ou sans paramètre.
     pub fn positional_sql(&self) -> String {
+        let text = self.text();
         let Params::Named(params) = &self.params else {
-            return self.sql.clone();
+            return text.to_string();
         };
         let mut replacements: Vec<(Range<usize>, usize)> = params
             .iter()
@@ -107,14 +129,14 @@ impl NamedQuery {
         replacements.sort_by_key(|(r, _)| r.start);
 
         let base = self.sql_range.start;
-        let mut out = String::with_capacity(self.sql.len());
+        let mut out = String::with_capacity(text.len());
         let mut cursor = 0;
         for (range, n) in replacements {
-            out.push_str(&self.sql[cursor..range.start - base]);
+            out.push_str(&text[cursor..range.start - base]);
             out.push_str(&format!("${n}"));
             cursor = range.end - base;
         }
-        out.push_str(&self.sql[cursor..]);
+        out.push_str(&text[cursor..]);
         out
     }
 }
@@ -128,8 +150,19 @@ pub struct QueryFile {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Découpe un fichier de requêtes nommées et vérifie son format.
+/// Découpe un fichier de requêtes nommées et vérifie son format. Sans
+/// fragments : un `@nom` reste tel quel (voir [`parse_query_file_with`]).
 pub fn parse_query_file(source: &str) -> QueryFile {
+    parse_query_file_impl(source, None)
+}
+
+/// Comme [`parse_query_file`], les fragments de `macros` insérés dans
+/// chaque requête (P6). Les diagnostics restent positionnés dans le fichier.
+pub fn parse_query_file_with(source: &str, macros: &pgweave_macro::MacroSet) -> QueryFile {
+    parse_query_file_impl(source, Some(macros))
+}
+
+fn parse_query_file_impl(source: &str, macros: Option<&pgweave_macro::MacroSet>) -> QueryFile {
     let mut diagnostics = Vec::new();
     let index = LineIndex::new(source);
 
@@ -165,6 +198,7 @@ pub fn parse_query_file(source: &str) -> QueryFile {
 
     let mut parser = FileParser {
         source,
+        macros,
         diagnostics,
         queries: Vec::new(),
         current: None,
@@ -194,6 +228,7 @@ pub fn parse_query_file(source: &str) -> QueryFile {
 
 struct FileParser<'a> {
     source: &'a str,
+    macros: Option<&'a pgweave_macro::MacroSet>,
     diagnostics: Vec<Diagnostic>,
     queries: Vec<NamedQuery>,
     current: Option<Builder>,
@@ -208,6 +243,7 @@ struct Builder {
     name: Option<(String, Range<usize>)>,
     header_range: Range<usize>,
     cardinality: Option<Cardinality>,
+    row: Option<(String, Range<usize>)>,
     doc: Vec<String>,
     body: Option<Range<usize>>,
     after_semicolon: bool,
@@ -281,15 +317,18 @@ impl FileParser<'_> {
 
         // Position du payload dans le fichier, pour viser le nom précisément.
         let payload_start = range.start + self.source[range.clone()].find(payload).unwrap_or(0);
-        let mut words = payload.split_whitespace();
+        let mut words = payload.split_whitespace().peekable();
         let name_word = words.next();
-        let marker = words.next();
+        let marker = words.next_if(|w| w.starts_with(':'));
+        let arrow = words.next_if(|w| *w == "->");
+        let row_word = arrow.and_then(|_| words.next());
         let extra = words.next();
 
         let mut builder = Builder {
             name: None,
             header_range: range.clone(),
             cardinality: None,
+            row: None,
             doc: Vec::new(),
             body: None,
             after_semicolon: false,
@@ -336,13 +375,35 @@ impl FileParser<'_> {
                 ),
             }
         }
+        match (arrow, row_word) {
+            (Some(_), Some(r)) if is_snake_ident(r) => {
+                let after = payload.find("->").map_or(0, |k| k + 2);
+                let start = payload_start + after + payload[after..].find(r).unwrap_or(0);
+                builder.row = Some((r.to_string(), start..start + r.len()));
+            }
+            (Some(_), r) => self.diagnostics.push(
+                Diagnostic::error(
+                    codes::QUERY_HEADER_INVALID,
+                    match r {
+                        Some(r) => format!("`-> {r}` : nom de requête invalide"),
+                        None => "`->` sans nom de requête".to_string(),
+                    },
+                )
+                .with_span(span(range.clone()))
+                .with_hint(
+                    "`-> autre_requete` : les lignes ont la forme de celles de `autre_requete`",
+                ),
+            ),
+            (None, _) => {}
+        }
         if extra.is_some() {
             self.diagnostics.push(
                 Diagnostic::error(
                     codes::QUERY_HEADER_INVALID,
-                    "texte inattendu après la cardinalité dans l'en-tête",
+                    "texte inattendu à la fin de l'en-tête",
                 )
-                .with_span(span(range)),
+                .with_span(span(range))
+                .with_hint("forme : `-- name: nom [:cardinalité] [-> requete_de_reference]`"),
             );
         }
 
@@ -379,16 +440,52 @@ impl FileParser<'_> {
             return;
         };
 
-        let Some(params) = self.params(&name, &b.placeholders) else {
+        let sql = self.source[body.clone()].to_string();
+        let expansion = self
+            .macros
+            .filter(|_| sql.contains('@'))
+            .map(|m| pgweave_macro::expand_source_at(&sql, body.start, m))
+            .filter(|e| !e.is_passthrough() || !e.diagnostics.is_empty());
+        let (expanded, placeholders) = match expansion {
+            None => (None, b.placeholders),
+            Some(e) => {
+                let failed = !e.diagnostics.is_empty();
+                self.diagnostics.extend(e.diagnostics);
+                if failed {
+                    return;
+                }
+                // Paramètres du SQL envoyé : un fragment peut en apporter.
+                let Some(placeholders) = placeholders_of(&e.sql, body.start) else {
+                    return;
+                };
+                (
+                    Some(ExpandedSql {
+                        sql: e.sql,
+                        map: e.map,
+                    }),
+                    placeholders,
+                )
+            }
+        };
+        let to_file = |r: Range<usize>| match &expanded {
+            None => r,
+            Some(e) => e
+                .map
+                .remap(r.start - body.start, r.end - body.start)
+                .map_or(body.clone(), |(s, t)| s..t),
+        };
+        let Some(params) = self.params(&name, &placeholders, &to_file) else {
             return;
         };
         self.queries.push(NamedQuery {
             name,
             name_range,
             cardinality: b.cardinality,
+            row: b.row,
             doc: b.doc,
-            sql: self.source[body.clone()].to_string(),
+            sql,
             sql_range: body,
+            expanded,
             params,
         });
     }
@@ -396,7 +493,12 @@ impl FileParser<'_> {
     /// Classe les paramètres d'une requête. `None` si leur usage est invalide
     /// (diagnostics émis) : une requête dont les paramètres ne sont pas sûrs
     /// n'est pas rendue, pour qu'aucun code ne soit généré à partir d'elle.
-    fn params(&mut self, query: &str, placeholders: &[(String, Range<usize>)]) -> Option<Params> {
+    fn params(
+        &mut self,
+        query: &str,
+        placeholders: &[(String, Range<usize>)],
+        to_file: &dyn Fn(Range<usize>) -> Range<usize>,
+    ) -> Option<Params> {
         let mut positional: Vec<(u32, Range<usize>)> = Vec::new();
         let mut named: Vec<NamedParam> = Vec::new();
         let mut valid = true;
@@ -413,7 +515,7 @@ impl FileParser<'_> {
                                 codes::QUERY_PARAMETER_INVALID,
                                 format!("paramètre positionnel invalide : `{text}`"),
                             )
-                            .with_span(span(range.clone()))
+                            .with_span(span(to_file(range.clone())))
                             .with_hint("les paramètres positionnels commencent à $1"),
                         );
                     }
@@ -433,7 +535,7 @@ impl FileParser<'_> {
                         codes::QUERY_PARAMETER_INVALID,
                         format!("nom de paramètre invalide : `{text}`"),
                     )
-                    .with_span(span(range.clone()))
+                    .with_span(span(to_file(range.clone())))
                     .with_hint("snake_case ASCII : `$page_id`, pas `$pageId`"),
                 );
             }
@@ -446,7 +548,7 @@ impl FileParser<'_> {
                     codes::QUERY_MIXED_PARAMETERS,
                     format!("la requête `{query}` mélange paramètres nommés et positionnels"),
                 )
-                .with_span(span(first_positional.clone()))
+                .with_span(span(to_file(first_positional.clone())))
                 .with_hint("utiliser uniquement `$nom` (recommandé) ou uniquement `$1 … $n`"),
             );
             return None;
@@ -476,7 +578,7 @@ impl FileParser<'_> {
                             missing.join(", ")
                         ),
                     )
-                    .with_span(span(last)),
+                    .with_span(span(to_file(last))),
                 );
                 return None;
             }
@@ -513,6 +615,28 @@ fn report_duplicates(queries: &mut Vec<NamedQuery>, diagnostics: &mut Vec<Diagno
 }
 
 // ── Utilitaires ───────────────────────────────────────────────────────────────
+
+/// `$…` de `sql` (SQL après insertion des fragments), positions décalées de
+/// `base`. `None` si le tokenizer ne sait pas le lire (le parse le signalera).
+fn placeholders_of(sql: &str, base: usize) -> Option<Vec<(String, Range<usize>)>> {
+    let index = LineIndex::new(sql);
+    let tokens = Tokenizer::new(&PostgreSqlDialect {}, sql)
+        .with_unescape(false)
+        .tokenize_with_location()
+        .ok()?;
+    Some(
+        tokens
+            .iter()
+            .filter_map(|t| match &t.token {
+                Token::Placeholder(p) if p.starts_with('$') => {
+                    let start = index.offset(t.span.start)?;
+                    Some((p.clone(), base + start..base + start + p.len()))
+                }
+                _ => None,
+            })
+            .collect(),
+    )
+}
 
 /// Contenu d'un en-tête si `comment` (texte après `--`) en est un.
 fn header_payload(comment: &str) -> Option<&str> {

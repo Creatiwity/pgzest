@@ -228,6 +228,8 @@ impl Keywords {
 #[derive(Debug, Clone, Default)]
 pub struct MacroSet {
     defs: HashMap<String, MacroDef>,
+    /// Fragments du projet (`*.sql` de `[macros] directory`), par nom.
+    fragments: HashMap<String, crate::fragment::FragmentDef>,
 }
 
 impl MacroSet {
@@ -270,22 +272,86 @@ impl MacroSet {
         self.defs.insert(def.name.clone(), def);
     }
 
-    /// Charge tous les `*.pgmacro` d'un répertoire, récursivement.
+    /// Charge tous les `*.pgmacro` et les fragments (`*.sql`) d'un
+    /// répertoire, récursivement.
     pub fn load_dir(&mut self, dir: &std::path::Path) -> Vec<String> {
+        self.load_dir_with(dir, |_| None)
+    }
+
+    /// Comme [`Self::load_dir`], le texte d'un fichier pris de `overlay`
+    /// quand il le fournit (document ouvert dans l'éditeur, non sauvegardé).
+    pub fn load_dir_with(
+        &mut self,
+        dir: &std::path::Path,
+        overlay: impl Fn(&std::path::Path) -> Option<String>,
+    ) -> Vec<String> {
         let mut errors = Vec::new();
         let mut files = Vec::new();
         collect_pgmacro(dir, &mut files);
         files.sort();
         for path in files {
-            match std::fs::read_to_string(&path) {
-                Ok(text) => match MacroDef::parse(&text, &path.display().to_string()) {
-                    Ok(def) => self.insert(def),
-                    Err(e) => errors.push(e),
+            let text = match overlay(&path) {
+                Some(t) => t,
+                None => match std::fs::read_to_string(&path) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        errors.push(format!("{}: {e}", path.display()));
+                        continue;
+                    }
                 },
-                Err(e) => errors.push(format!("{}: {e}", path.display())),
+            };
+            let origin = path.display().to_string();
+            if path.extension().is_some_and(|e| e == "sql") {
+                let (defs, errs) = crate::fragment::parse_fragment_file(&text, &origin);
+                errors.extend(errs);
+                for d in defs {
+                    if let Err(e) = self.insert_fragment(d) {
+                        errors.push(e);
+                    }
+                }
+                continue;
+            }
+            match MacroDef::parse(&text, &origin) {
+                Ok(def) => self.insert(def),
+                Err(e) => errors.push(e),
+            }
+        }
+        for name in self.fragments.keys() {
+            if self.defs.contains_key(name) {
+                errors.push(format!(
+                    "`@{name}` est à la fois une macro et un fragment : renommer l'un des deux"
+                ));
             }
         }
         errors
+    }
+
+    /// Ajoute un fragment ; un nom déjà pris est une erreur (aucun fragment
+    /// ne remplace silencieusement un autre).
+    pub fn insert_fragment(&mut self, def: crate::fragment::FragmentDef) -> Result<(), String> {
+        if let Some(prev) = self.fragments.get(&def.name) {
+            return Err(format!(
+                "{}:{}: fragment `{}` déjà défini en {}:{}",
+                def.origin, def.line, def.name, prev.origin, prev.line
+            ));
+        }
+        self.fragments.insert(def.name.clone(), def);
+        Ok(())
+    }
+
+    pub fn fragment(&self, name: &str) -> Option<&crate::fragment::FragmentDef> {
+        self.fragments.get(name)
+    }
+
+    pub(crate) fn fragments(&self) -> &HashMap<String, crate::fragment::FragmentDef> {
+        &self.fragments
+    }
+
+    /// Noms des fragments, triés.
+    pub fn fragment_names(&self) -> Vec<&str> {
+        let mut v: Vec<&str> = self.fragments.keys().map(String::as_str).collect();
+        v.sort_unstable();
+        v
     }
 
     pub fn get(&self, name: &str) -> Option<&MacroDef> {
@@ -321,7 +387,10 @@ fn collect_pgmacro(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             collect_pgmacro(&path, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("pgmacro") {
+        } else if matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("pgmacro" | "sql")
+        ) {
             out.push(path);
         }
     }

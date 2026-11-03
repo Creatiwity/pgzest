@@ -27,10 +27,13 @@
 
 pub mod def;
 pub mod expand;
+pub mod fragment;
 pub mod header;
+mod lex;
 
 pub use def::{MacroDef, MacroSet};
-pub use expand::{Expansion, expand_source};
+pub use expand::{Expansion, expand_source, expand_source_at};
+pub use fragment::{FragmentDef, fragment_file_diagnostics, parse_fragment_file};
 /// Réexport : la correspondance de positions vit dans `pgweave-ast`, aux côtés
 /// de `Span`, pour que le parser y accède sans dépendre de ce crate.
 pub use pgweave_ast::SourceMap;

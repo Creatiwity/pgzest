@@ -156,7 +156,19 @@ impl PgsqlBackend {
                 Err(_) => None,
             };
             if let Some(dir) = dir.filter(|d| d.is_dir()) {
-                for e in set.load_dir(&dir) {
+                // Un fichier ouvert fait foi sur le disque, comme pour le schéma.
+                let open: HashMap<std::path::PathBuf, String> = self
+                    .documents
+                    .lock()
+                    .await
+                    .iter()
+                    .filter_map(|(uri, text)| Some((uri_to_path(uri)?, text.clone())))
+                    .collect();
+                let errors = set.load_dir_with(&dir, |p| {
+                    let canonical = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+                    open.get(&canonical).or_else(|| open.get(p)).cloned()
+                });
+                for e in errors {
                     self.client
                         .log_message(MessageType::WARNING, format!("pgweave-lsp: {e}"))
                         .await;
@@ -166,6 +178,34 @@ impl PgsqlBackend {
         let set = Arc::new(set);
         *self.macros.lock().await = set.clone();
         self.workspace.lock().await.set_macros(set);
+    }
+
+    /// Descripteurs des requêtes nommées du projet, documents ouverts compris.
+    async fn project_descriptors(
+        &self,
+        catalog: &ProjectCatalog,
+        macros: &pgweave_macro::MacroSet,
+    ) -> Vec<pgweave_query::Descriptor> {
+        let (Some(root), Some(config)) = (
+            self.project_root.lock().await.clone(),
+            self.config.lock().await.clone(),
+        ) else {
+            return Vec::new();
+        };
+        let open: HashMap<std::path::PathBuf, String> = self
+            .documents
+            .lock()
+            .await
+            .iter()
+            .filter_map(|(uri, text)| Some((uri_to_path(uri)?, text.clone())))
+            .collect();
+        pgweave_analysis::project_descriptors(&root, &config, catalog, macros, &|p| {
+            let canonical = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+            open.get(&canonical)
+                .or_else(|| open.get(p))
+                .cloned()
+                .or_else(|| std::fs::read_to_string(p).ok())
+        })
     }
 
     /// Catalogue du projet à jour (rejeu mémorisé, clone d'Arc).
@@ -291,6 +331,13 @@ impl PgsqlBackend {
     async fn run_diagnostics(&self, uri: &str, text: &str) {
         let line_index = LineIndex::new(text);
         let role = self.role_of(uri).await;
+        // Fichier de fragments : son format seul ; chaque fragment est vérifié
+        // là où il est inséré.
+        if role == FileRole::Fragments {
+            let diags = pgweave_macro::fragment_file_diagnostics(text);
+            self.publish(uri, &diags, &line_index).await;
+            return;
+        }
         let resolver = self.resolver().await;
         let suppressions = pgweave_diagnostics::Suppressions::scan(text);
 
@@ -338,7 +385,9 @@ impl PgsqlBackend {
                 .as_ref()
                 .is_some_and(|c| c.is_query_file(&path, &root));
             if is_query_file {
-                diags.extend(pgweave_analysis::query_file_diagnostics(&path, text));
+                diags.extend(pgweave_analysis::query_file_diagnostics(
+                    &path, text, &macros,
+                ));
             }
         }
         diags.extend(pgweave_analysis::skipped_to_diagnostics(
@@ -359,8 +408,9 @@ impl PgsqlBackend {
         match (&role, &path) {
             (FileRole::Query, _) => {
                 diags.extend(pgweave_checker::check_statements(&stmts, &resolver));
+                let others = self.project_descriptors(&resolver, &macros).await;
                 diags.extend(pgweave_analysis::query_descriptor_diagnostics(
-                    text, &resolver,
+                    text, &resolver, &macros, &others,
                 ));
             }
             (_, Some(p)) if in_project => {
@@ -612,11 +662,11 @@ impl LanguageServer for PgsqlBackend {
 
             let path = uri_to_path(&uri);
             let mut schema_changed = false;
-            if path
+            let macro_file = path
                 .as_deref()
                 .and_then(Path::extension)
-                .is_some_and(|e| e == "pgmacro")
-            {
+                .is_some_and(|e| e == "pgmacro");
+            if macro_file || self.role_of(&uri).await == FileRole::Fragments {
                 // Macro du projet : tous les fichiers sont relus.
                 self.rebuild_macros().await;
                 schema_changed = true;
@@ -634,6 +684,9 @@ impl LanguageServer for PgsqlBackend {
                     self.reload_workspace().await;
                 }
                 schema_changed = true;
+            } else if self.role_of(&uri).await == FileRole::Query {
+                // Une requête peut servir de référence à d'autres (`-> nom`).
+                schema_changed = true;
             }
 
             self.run_diagnostics(&uri, &text).await;
@@ -647,7 +700,10 @@ impl LanguageServer for PgsqlBackend {
         let uri = params.text_document.uri.to_string();
         self.documents.lock().await.remove(&uri);
         // Modifications abandonnées : le disque refait foi.
-        if let Some(path) = uri_to_path(&uri)
+        if self.role_of(&uri).await == FileRole::Fragments {
+            self.rebuild_macros().await;
+            self.refresh_other_documents(&uri).await;
+        } else if let Some(path) = uri_to_path(&uri)
             && let Ok(text) = std::fs::read_to_string(&path)
             && self.workspace.lock().await.set_text(&path, &text)
         {
@@ -681,13 +737,21 @@ impl LanguageServer for PgsqlBackend {
 
         let role = self.role_of(&uri).await;
         let resolver = self.resolver().await;
+        let macros = self.macros().await;
 
-        // Parse once — needed for both PL/pgSQL var lookup and query hover.
-        let stmts = pgweave_parser::parse(&text).unwrap_or_default();
+        // Un seul parse, macros et fragments désucrés : les spans sont dans le
+        // repère du fichier édité.
+        let prepared = pgweave_analysis::prepare_source(&text, &macros);
+        let stmts = prepared
+            .parse_with_outcome()
+            .map(|o| o.statements)
+            .unwrap_or_default();
 
         let hover_text: Option<String> =
+            // Invocation d'un fragment : sa documentation et le SQL inséré.
+            hover_fragment(&prepared, &macros, offset as usize)
             // En-tête d'une requête nommée : son descripteur.
-            hover_named_query(&text, offset as usize, resolver.as_ref())
+            .or_else(|| hover_named_query(&text, offset as usize, resolver.as_ref(), &macros))
             // PL/pgSQL declared variables / parameters take priority in any file type.
             .or_else(|| hover_plpgsql_var(&stmts, offset as usize, &word))
             .or_else(|| {
@@ -808,8 +872,39 @@ fn hover_query(
 /// Survol de l'en-tête `-- name: …` d'une requête nommée : ce que décrit
 /// son descripteur (paramètres, colonnes, cardinalité), ou pourquoi il n'y
 /// en a pas.
-fn hover_named_query(text: &str, offset: usize, catalog: &ProjectCatalog) -> Option<String> {
-    let file = pgweave_query::parse_query_file(text);
+/// Survol d'un `@fragment` : d'où il vient, sa documentation, ce qu'il
+/// insère ici.
+fn hover_fragment(
+    prepared: &pgweave_analysis::PreparedSource,
+    macros: &pgweave_macro::MacroSet,
+    offset: usize,
+) -> Option<String> {
+    let (region, inserted) = prepared.region_at(offset)?;
+    let def = macros.fragment(&region.macro_name)?;
+    let inserted = inserted.trim();
+    let mut out = format!("(fragment) **@{}**", def.name);
+    if !def.params.is_empty() {
+        out.push_str(&format!("({})", def.params.join(", ")));
+    }
+    let file = std::path::Path::new(&def.origin)
+        .file_name()
+        .map_or(def.origin.clone(), |f| f.to_string_lossy().into_owned());
+    out.push_str(&format!(" — `{file}:{}`\n\n", def.line));
+    if !def.doc.is_empty() {
+        out.push_str(&def.doc.join("\n"));
+        out.push_str("\n\n");
+    }
+    out.push_str(&format!("```sql\n{inserted}\n```"));
+    Some(out)
+}
+
+fn hover_named_query(
+    text: &str,
+    offset: usize,
+    catalog: &ProjectCatalog,
+    macros: &pgweave_macro::MacroSet,
+) -> Option<String> {
+    let file = pgweave_query::parse_query_file_with(text, macros);
     let q = file.queries.iter().find(|q| {
         let line_start = text[..q.name_range.start].rfind('\n').map_or(0, |i| i + 1);
         let line_end = text[q.name_range.end..]

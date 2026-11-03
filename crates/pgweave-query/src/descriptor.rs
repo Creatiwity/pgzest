@@ -41,6 +41,10 @@ pub struct Descriptor {
     /// Format des données d'un `COPY … FROM STDIN`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy: Option<CopyDesc>,
+    /// `-> autre` : les lignes ont la forme de celles de la requête `autre`,
+    /// dont la struct est reprise (vérifié par [`check_row_reference`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,13 +127,18 @@ pub fn describe_named(
         start: q.sql_range.start,
         end: q.sql_range.end,
     };
-    let outcome =
-        pgweave_parser::parse_at_with_outcome(&q.sql, q.sql_range.start).map_err(|e| {
-            vec![
-                Diagnostic::error(codes::PARSE_ERROR, format!("parse error: {e}"))
-                    .with_span(whole.clone()),
-            ]
-        })?;
+    // Fragments insérés : le SQL analysé n'est pas le texte du fichier, la
+    // source-map y ramène chaque position.
+    let parsed = match &q.expanded {
+        Some(e) => pgweave_parser::parse_mapped_with_outcome(&e.sql, &e.map),
+        None => pgweave_parser::parse_at_with_outcome(&q.sql, q.sql_range.start),
+    };
+    let outcome = parsed.map_err(|e| {
+        vec![
+            Diagnostic::error(codes::PARSE_ERROR, format!("parse error: {e}"))
+                .with_span(whole.clone()),
+        ]
+    })?;
     if let Some(sk) = outcome.skipped.first() {
         return Err(vec![
             Diagnostic::error(
@@ -151,7 +160,7 @@ pub fn describe_named(
         Params::Named(list) => Some(list.iter().map(|p| format!("${}", p.name)).collect()),
         _ => None,
     };
-    describe(
+    let mut d = describe(
         catalog,
         &q.name,
         &outcome.statements,
@@ -159,7 +168,82 @@ pub fn describe_named(
         order,
         q.cardinality,
         whole,
-    )
+    )?;
+    d.row = q.row.as_ref().map(|(r, _)| r.clone());
+    Ok(d)
+}
+
+/// `d` peut-il reprendre la struct de ligne de la requête qu'il désigne
+/// (`-> autre`) ? Mêmes colonnes, dans le même ordre et du même type ; une
+/// colonne non nulle dans la référence doit l'être ici (la struct promet une
+/// valeur). Jamais de conversion : un écart est une erreur.
+pub fn check_row_reference(d: &Descriptor, all: &[Descriptor]) -> Result<(), String> {
+    let Some(r) = &d.row else {
+        return Ok(());
+    };
+    let Some(target) = all.iter().find(|x| &x.name == r) else {
+        return Err(format!("requête de référence `{r}` introuvable"));
+    };
+    if let Some(next) = &target.row {
+        return Err(format!(
+            "`{r}` reprend déjà les lignes de `{next}` : désigner `{next}`"
+        ));
+    }
+    if target.columns.is_empty() || target.copy.is_some() {
+        return Err(format!("`{r}` ne renvoie pas de ligne"));
+    }
+    if d.copy.is_some() || d.columns.is_empty() {
+        return Err(format!(
+            "`{}` ne renvoie pas de ligne : `-> {r}` est sans objet",
+            d.name
+        ));
+    }
+    if d.columns.len() != target.columns.len() {
+        return Err(format!(
+            "{} colonne(s), `{r}` en a {} ({})",
+            d.columns.len(),
+            target.columns.len(),
+            target
+                .columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    let mut problems = Vec::new();
+    for (i, (mine, theirs)) in d.columns.iter().zip(&target.columns).enumerate() {
+        if mine.name != theirs.name {
+            problems.push(format!(
+                "colonne {} : `{}` là où `{r}` a `{}`",
+                i + 1,
+                mine.name,
+                theirs.name
+            ));
+            continue;
+        }
+        if mine.ty.pg != theirs.ty.pg {
+            problems.push(format!(
+                "`{}` : {} là où `{r}` a {}",
+                mine.name, mine.ty.pg, theirs.ty.pg
+            ));
+        }
+        if theirs.nullable == NullabilityDesc::NonNull && mine.nullable != NullabilityDesc::NonNull
+        {
+            problems.push(format!(
+                "`{}` peut être nulle ici, pas dans `{r}`",
+                mine.name
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "lignes incompatibles avec `{r}` : {}",
+            problems.join(" ; ")
+        ))
+    }
 }
 
 /// Descripteur d'un statement SQL (`$n` ou `$name`), nommé `name`.
@@ -168,8 +252,18 @@ pub fn describe_sql(
     name: &str,
     sql: &str,
 ) -> Result<Descriptor, Vec<Diagnostic>> {
+    describe_sql_with(catalog, name, sql, &pgweave_macro::MacroSet::default())
+}
+
+/// Comme [`describe_sql`], les fragments de `macros` insérés.
+pub fn describe_sql_with(
+    catalog: &ProjectCatalog,
+    name: &str,
+    sql: &str,
+    macros: &pgweave_macro::MacroSet,
+) -> Result<Descriptor, Vec<Diagnostic>> {
     let header = format!("-- name: {name}\n");
-    let file = crate::parse_query_file(&format!("{header}{sql}"));
+    let file = crate::parse_query_file_with(&format!("{header}{sql}"), macros);
     let [q] = file.queries.as_slice() else {
         return Err(if file.diagnostics.is_empty() {
             vec![Diagnostic::error(
@@ -369,6 +463,7 @@ fn describe(
                 .unwrap_or_default();
             c
         }),
+        row: None,
     })
 }
 

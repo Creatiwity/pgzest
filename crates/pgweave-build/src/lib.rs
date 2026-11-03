@@ -94,7 +94,12 @@ impl Builder {
         for f in &project.files {
             watch(f);
         }
-        let (root, config, catalog) = (project.root, project.config, project.catalog);
+        let (root, config, catalog, macros) = (
+            project.root,
+            project.config,
+            project.catalog,
+            project.macros,
+        );
         let mut errors = Vec::new();
 
         let Some(dir) = &config.queries.directory else {
@@ -114,7 +119,7 @@ impl Builder {
             watch(file);
             let text =
                 std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
-            let parsed = pgweave_query::parse_query_file(&text);
+            let parsed = pgweave_query::parse_query_file_with(&text, &macros);
             let mut report = |d: &pgweave_diagnostics::Diagnostic| {
                 let (line, col) = d.span.as_ref().map_or((1, 1), |s| line_col(&text, s.start));
                 errors.push(format!(
@@ -152,6 +157,8 @@ pub struct Project {
     pub root: PathBuf,
     pub config: ProjectConfig,
     pub catalog: pgweave_catalog::ProjectCatalog,
+    /// Macros et fragments du projet (`[macros] directory`).
+    pub macros: pgweave_macro::MacroSet,
     pub files: Vec<PathBuf>,
 }
 
@@ -210,6 +217,7 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
         root,
         config,
         catalog,
+        macros,
         files,
     })
 }

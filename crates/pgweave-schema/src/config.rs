@@ -367,8 +367,10 @@ impl ProjectConfig {
             // les migrations — déjà indexées ci-dessus avec leur séquence — et
             // les requêtes nommées.
             None => {
-                let mut dir =
-                    DirSource::new(base_dir.to_path_buf(), FileRole::Schema).excluding(&mig_dir);
+                // Les fragments du répertoire de macros ne sont pas du schéma.
+                let mut dir = DirSource::new(base_dir.to_path_buf(), FileRole::Schema)
+                    .excluding(&mig_dir)
+                    .excluding(base_dir.join(&self.macros.directory));
                 if let Some(qdir) = &self.queries.directory {
                     dir = dir.excluding(base_dir.join(qdir));
                 }
@@ -413,6 +415,10 @@ impl ProjectConfig {
 
         if self.is_query_file(path, base_dir) {
             return FileRole::Query;
+        }
+
+        if is_within(path, &base_dir.join(&self.macros.directory)) {
+            return FileRole::Fragments;
         }
 
         let Some(ref sdir) = self.schema.directory else {

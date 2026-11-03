@@ -91,7 +91,11 @@ fn hint_for(reason: &SkipReason) -> &'static str {
 ///
 /// Partagé par la CLI et le LSP : un fichier de requêtes doit être jugé de la
 /// même façon dans l'éditeur et en CI.
-pub fn query_file_diagnostics(path: &std::path::Path, sql: &str) -> Vec<Diagnostic> {
+pub fn query_file_diagnostics(
+    path: &std::path::Path,
+    sql: &str,
+    macros: &pgweave_macro::MacroSet,
+) -> Vec<Diagnostic> {
     let is_sql = path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("sql"));
@@ -102,31 +106,111 @@ pub fn query_file_diagnostics(path: &std::path::Path, sql: &str) -> Vec<Diagnost
                 "un fichier de requêtes nommées est un `.sql`",
             )
             .with_hint(
-                "les macros (.pgsql) ne sont pas encore prises en charge dans les \
-                 requêtes nommées (PLAN.md, P6)",
+                "une requête nommée utilise les fragments du projet (`@nom`), pas \
+                 un fichier .pgsql",
             ),
         ];
     }
-    pgweave_query::parse_query_file(sql).diagnostics
+    // Les erreurs de macro sont celles du désucrage du fichier, déjà
+    // rapportées avec lui.
+    pgweave_query::parse_query_file_with(sql, macros)
+        .diagnostics
+        .into_iter()
+        .filter(|d| d.code != pgweave_macro::expand::MACRO_ERROR)
+        .collect()
 }
 
 /// Ce qui empêche de décrire les requêtes nommées d'un fichier (PLAN.md §4) :
 /// paramètre que rien ne type, cardinalité déclarée contredite, statement
 /// hors du périmètre du descripteur. Les erreurs d'analyse elles-mêmes sont
 /// rapportées par la vérification du fichier, pas ici.
-pub fn query_descriptor_diagnostics(sql: &str, catalog: &ProjectCatalog) -> Vec<Diagnostic> {
+///
+/// `others` : descripteurs des autres requêtes du projet, pour vérifier une
+/// requête qui reprend les lignes d'une autre (`-> autre`).
+pub fn query_descriptor_diagnostics(
+    sql: &str,
+    catalog: &ProjectCatalog,
+    macros: &pgweave_macro::MacroSet,
+    others: &[pgweave_query::Descriptor],
+) -> Vec<Diagnostic> {
     let own = [
         codes::QUERY_PARAMETER_UNTYPED,
         codes::QUERY_CARDINALITY_MISMATCH,
         codes::QUERY_NOT_DESCRIBABLE,
     ];
-    pgweave_query::parse_query_file(sql)
-        .queries
+    let file = pgweave_query::parse_query_file_with(sql, macros);
+    let mut out = Vec::new();
+    let mut described = Vec::new();
+    for q in &file.queries {
+        match pgweave_query::describe_named(catalog, q) {
+            Ok(d) => described.push((q, d)),
+            Err(ds) => out.extend(ds.into_iter().filter(|d| own.contains(&d.code))),
+        }
+    }
+    // Ce fichier fait foi sur la version enregistrée de ses requêtes.
+    let mut all: Vec<pgweave_query::Descriptor> =
+        described.iter().map(|(_, d)| d.clone()).collect();
+    all.extend(
+        others
+            .iter()
+            .filter(|o| !described.iter().any(|(_, d)| d.name == o.name))
+            .cloned(),
+    );
+    for (q, d) in &described {
+        if let (Err(e), Some((_, range))) = (pgweave_query::check_row_reference(d, &all), &q.row) {
+            out.push(Diagnostic::error(codes::QUERY_ROW_MISMATCH, e).with_span(
+                pgweave_diagnostics::Span {
+                    start: range.start,
+                    end: range.end,
+                },
+            ));
+        }
+    }
+    out
+}
+
+/// Descripteurs de toutes les requêtes nommées du projet (`[queries]
+/// directory`). `read` donne le texte d'un fichier (document ouvert dans
+/// l'éditeur, sinon disque). Une requête non décrite est absente : son
+/// fichier le signale.
+pub fn project_descriptors(
+    root: &std::path::Path,
+    config: &pgweave_schema::ProjectConfig,
+    catalog: &ProjectCatalog,
+    macros: &pgweave_macro::MacroSet,
+    read: &dyn Fn(&std::path::Path) -> Option<String>,
+) -> Vec<pgweave_query::Descriptor> {
+    let Some(dir) = &config.queries.directory else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    collect_sql_files(&root.join(dir), &mut files);
+    files.sort();
+    files
         .iter()
-        .filter_map(|q| pgweave_query::describe_named(catalog, q).err())
-        .flatten()
-        .filter(|d| own.contains(&d.code))
+        .filter_map(|f| read(f))
+        .flat_map(|text| {
+            pgweave_query::parse_query_file_with(&text, macros)
+                .queries
+                .iter()
+                .filter_map(|q| pgweave_query::describe_named(catalog, q).ok())
+                .collect::<Vec<_>>()
+        })
         .collect()
+}
+
+fn collect_sql_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect_sql_files(&p, out);
+        } else if p.extension().is_some_and(|x| x == "sql") {
+            out.push(p);
+        }
+    }
 }
 
 // ── Lint ──────────────────────────────────────────────────────────────────────
@@ -491,9 +575,21 @@ pub struct PreparedSource {
     pub map: Option<pgweave_ast::SourceMap>,
     /// Diagnostics du désucrage, déjà positionnés dans la source.
     pub diagnostics: Vec<Diagnostic>,
+    /// Invocations désucrées (macros et fragments), dans l'ordre du fichier.
+    pub regions: Vec<pgweave_macro::expand::ExpandedRegion>,
 }
 
 impl PreparedSource {
+    /// L'invocation contenant `offset` (position dans la source) et le SQL
+    /// qu'elle a engendré.
+    pub fn region_at(
+        &self,
+        offset: usize,
+    ) -> Option<(&pgweave_macro::expand::ExpandedRegion, &str)> {
+        let r = self.regions.iter().find(|r| r.source.contains(&offset))?;
+        Some((r, self.sql.get(r.generated.clone())?))
+    }
+
     /// Parse en ramenant les spans dans le repère de la source d'origine.
     ///
     /// C'est ici que la correspondance est consommée : le parser assigne des
@@ -540,6 +636,7 @@ pub fn prepare_source(source: &str, macros: &pgweave_macro::MacroSet) -> Prepare
             sql: source.to_string(),
             map: None,
             diagnostics: expansion.diagnostics,
+            regions: Vec::new(),
         };
     }
 
@@ -547,6 +644,7 @@ pub fn prepare_source(source: &str, macros: &pgweave_macro::MacroSet) -> Prepare
         sql: expansion.sql,
         map: Some(expansion.map),
         diagnostics: expansion.diagnostics,
+        regions: expansion.regions,
     }
 }
 

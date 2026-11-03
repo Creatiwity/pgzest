@@ -90,6 +90,9 @@ pub const MIGRATION_WITHOUT_HEADER: &str = "migration-without-header";
 /// migration reste à générer (`pgweave migrate create`), ou un changement
 /// n'est pas exprimable automatiquement.
 pub const SCHEMA_DRIFT: &str = "schema-drift";
+/// Requête déclarée renvoyer les lignes d'une autre (`-> autre`) dont les
+/// colonnes ne correspondent pas (nom, type, nullabilité) — P6.
+pub const QUERY_ROW_MISMATCH: &str = "query-row-mismatch";
 
 /// Colonnes d'une vue dont l'analyse de la requête n'a pas établi les types.
 pub const VIEW_NOT_TYPED: &str = "view-not-typed";

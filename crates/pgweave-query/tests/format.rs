@@ -203,3 +203,32 @@ fn un_fichier_illisible_est_signale() {
     let f = parse_query_file("-- name: q\nSELECT 'non terminée;\n");
     assert_eq!(codes(&f), ["parse-error"]);
 }
+
+#[test]
+fn en_tete_avec_ligne_de_reference() {
+    let src = "-- name: a :many -> card\nSELECT 1 AS x;\n-- name: b -> card\nSELECT 1 AS x;\n";
+    let f = parse_query_file(src);
+    assert!(f.diagnostics.is_empty(), "{:?}", f.diagnostics);
+    assert_eq!(f.queries[0].cardinality, Some(Cardinality::Many));
+    assert_eq!(f.queries[0].row.as_ref().unwrap().0, "card");
+    let (name, range) = f.queries[1].row.clone().unwrap();
+    assert_eq!(name, "card");
+    assert_eq!(range.start, src.rfind("card").unwrap());
+    assert_eq!(&src[range], "card");
+}
+
+#[test]
+fn ligne_de_reference_invalide() {
+    for (src, attendu) in [
+        ("-- name: a ->\nSELECT 1;\n", "sans nom"),
+        ("-- name: a -> Card\nSELECT 1;\n", "nom de requête invalide"),
+        ("-- name: a -> card en_trop\nSELECT 1;\n", "texte inattendu"),
+    ] {
+        let f = parse_query_file(src);
+        assert!(
+            f.diagnostics.iter().any(|d| d.message.contains(attendu)),
+            "{src:?} : {:?}",
+            f.diagnostics
+        );
+    }
+}

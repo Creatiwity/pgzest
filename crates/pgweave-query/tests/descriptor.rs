@@ -271,3 +271,86 @@ fn index_unique_et_noms_quotes() {
     let q = pgweave_query::descriptor::parse_qualified("public.\"User\"").expect("nom");
     assert_eq!((q.schema.as_str(), q.name.as_str()), ("public", "User"));
 }
+
+// ── Fragments et lignes de référence (P6) ─────────────────────────────────────
+
+fn fragments(defs: &str) -> pgweave_macro::MacroSet {
+    let mut set = pgweave_macro::MacroSet::builtin();
+    let (defs, errors) = pgweave_macro::parse_fragment_file(defs, "f.sql");
+    assert!(errors.is_empty(), "{errors:?}");
+    for d in defs {
+        set.insert_fragment(d).unwrap();
+    }
+    set
+}
+
+#[test]
+fn fragments_inseres_parametres_compris() {
+    let set = fragments(
+        "-- fragment: card(p)\np.id, p.title, p.status\n\
+         -- fragment: of_site(p)\np.site = $site AND p.status = $status",
+    );
+    let src = "-- name: cards :many\nSELECT @card(x) FROM pages x WHERE @of_site(x) AND x.title <> $title;\n";
+    let file = pgweave_query::parse_query_file_with(src, &set);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let d = describe_named(&catalog(), &file.queries[0]).expect("décrite");
+    assert_eq!(
+        d.sql,
+        "SELECT x.id, x.title, x.status FROM pages x WHERE (x.site = $1 AND x.status = $2) AND x.title <> $3"
+    );
+    let params: Vec<&str> = d.params.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(params, vec!["site", "status", "title"]);
+    let cols: Vec<&str> = d.columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(cols, vec!["id", "title", "status"]);
+}
+
+#[test]
+fn erreur_dans_un_fragment_rapportee_a_l_invocation() {
+    let set = fragments("-- fragment: bad(p)\np.nope");
+    let src = "-- name: q\nSELECT @bad(x) FROM pages x;\n";
+    let file = pgweave_query::parse_query_file_with(src, &set);
+    let errs = describe_named(&catalog(), &file.queries[0]).unwrap_err();
+    let span = errs[0].span.clone().expect("position");
+    assert_eq!(&src[span.start..span.end], "@bad(x)", "{errs:?}");
+}
+
+#[test]
+fn ligne_de_reference_verifiee() {
+    let file = parse_query_file(
+        "-- name: card :optional\nSELECT id, title, creation_date FROM pages WHERE id = $id;\n\
+         -- name: same :many -> card\nSELECT id, title, creation_date FROM pages;\n\
+         -- name: renamed :many -> card\nSELECT id, slug, creation_date FROM pages;\n\
+         -- name: widened :many -> card\nSELECT p.id, t.tag AS title, p.creation_date FROM pages p JOIN tags t ON t.page_id = p.id;\n\
+         -- name: nullable :many -> card\nSELECT p.id, p.title, p.creation_date FROM tags t LEFT JOIN pages p ON p.id = t.page_id;\n\
+         -- name: chained :many -> same\nSELECT id, title, creation_date FROM pages;\n\
+         -- name: missing -> nope\nSELECT 1 AS x;\n",
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.queries[1].row.as_ref().unwrap().0, "card");
+    let cat = catalog();
+    let all: Vec<Descriptor> = file
+        .queries
+        .iter()
+        .map(|q| describe_named(&cat, q).expect("décrite"))
+        .collect();
+    let check = |name: &str| {
+        let d = all.iter().find(|d| d.name == name).unwrap();
+        pgweave_query::check_row_reference(d, &all)
+    };
+    assert_eq!(check("same"), Ok(()));
+    // `creation_date` est nullable dans la référence : une valeur toujours
+    // présente s'y range ; l'inverse non.
+    assert_eq!(check("widened"), Ok(()));
+    assert!(
+        check("renamed")
+            .unwrap_err()
+            .contains("`slug` là où `card` a `title`")
+    );
+    assert!(
+        check("nullable")
+            .unwrap_err()
+            .contains("`id` peut être nulle ici")
+    );
+    assert!(check("chained").unwrap_err().contains("désigner `card`"));
+    assert!(check("missing").unwrap_err().contains("introuvable"));
+}

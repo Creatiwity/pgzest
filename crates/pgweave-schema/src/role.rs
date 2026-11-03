@@ -7,6 +7,9 @@ pub enum FileRole {
     Schema,
     /// Application query file — DDL forbidden.
     Query,
+    /// Fichier de fragments (`[macros] directory`, P6) : des morceaux de SQL
+    /// insérés ailleurs, jamais exécutés ni analysés seuls.
+    Fragments,
 }
 
 impl FileRole {

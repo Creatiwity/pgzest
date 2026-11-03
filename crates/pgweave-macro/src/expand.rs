@@ -2,7 +2,9 @@
 //!
 //! Le texte hors macro est recopié tel quel. Chaque invocation `@nom … { … }`
 //! est remplacée par le rendu de son gabarit, le corps recopié verbatim afin
-//! que la source-map reste exacte à l'octet.
+//! que la source-map reste exacte à l'octet. Les fragments (`@nom`, voir
+//! [`crate::fragment`]) sont insérés partout où du code est recopié, corps
+//! de macro compris ; leur texte est rapporté à l'invocation entière.
 
 use pgweave_diagnostics::{Diagnostic, Severity, Span};
 
@@ -68,44 +70,55 @@ impl Expansion {
 /// recopiée telle quelle et un diagnostic est émis. Le reste du fichier reste
 /// donc analysable, comme pour un statement illisible côté parser.
 pub fn expand_source(source: &str, macros: &MacroSet) -> Expansion {
-    let mut out = String::with_capacity(source.len() + source.len() / 4);
-    let mut map = SourceMap::new();
-    let mut diagnostics = Vec::new();
-    let mut expanded = 0usize;
-    let mut regions: Vec<ExpandedRegion> = Vec::new();
+    expand_source_at(source, 0, macros)
+}
+
+/// Comme [`expand_source`], `source` étant situé à `base` dans son document :
+/// source-map, diagnostics et régions sont exprimés dans le repère du
+/// document (corps d'une requête nommée dans son fichier).
+pub fn expand_source_at(source: &str, base: usize, macros: &MacroSet) -> Expansion {
+    let mut x = Out {
+        out: String::with_capacity(source.len() + source.len() / 4),
+        map: SourceMap::new(),
+        diagnostics: Vec::new(),
+        expanded: 0,
+        regions: Vec::new(),
+        base,
+        macros,
+    };
     let mut i = 0usize;
 
     while i < source.len() {
         match find_invocation(source, i) {
             None => {
-                copy(&mut out, &mut map, source, i, source.len());
+                x.copy_code(source, i, source.len());
                 break;
             }
             Some(at) => {
-                copy(&mut out, &mut map, source, i, at);
+                x.copy_code(source, i, at);
                 match parse_invocation(source, at, macros) {
                     Ok(inv) => {
-                        let gen_start = out.len();
+                        let gen_start = x.out.len();
                         let name = inv.def.name.clone();
-                        let src_range = at..inv.end;
-                        render(&inv, &mut out, &mut map);
-                        regions.push(ExpandedRegion {
+                        render(&inv, &mut x);
+                        x.regions.push(ExpandedRegion {
                             macro_name: name,
-                            source: src_range,
-                            generated: gen_start..out.len(),
+                            source: base + at..base + inv.end,
+                            generated: gen_start..x.out.len(),
                         });
-                        expanded += 1;
+                        x.expanded += 1;
                         i = inv.end;
                     }
                     Err((msg, span_end)) => {
-                        diagnostics.push(Diagnostic::error(MACRO_ERROR, msg).with_span(Span {
-                            start: at,
-                            end: span_end,
-                        }));
+                        x.diagnostics
+                            .push(Diagnostic::error(MACRO_ERROR, msg).with_span(Span {
+                                start: base + at,
+                                end: base + span_end,
+                            }));
                         // Recopier l'invocation fautive telle quelle : le parser
                         // SQL la signalera à son tour, mais le reste du fichier
                         // continue d'être analysé.
-                        copy(&mut out, &mut map, source, at, span_end);
+                        x.copy(source, at, span_end);
                         i = span_end;
                     }
                 }
@@ -114,20 +127,99 @@ pub fn expand_source(source: &str, macros: &MacroSet) -> Expansion {
     }
 
     Expansion {
-        sql: out,
-        map,
-        diagnostics,
-        expanded,
-        regions,
+        sql: x.out,
+        map: x.map,
+        diagnostics: x.diagnostics,
+        expanded: x.expanded,
+        regions: x.regions,
     }
 }
 
-fn copy(out: &mut String, map: &mut SourceMap, source: &str, from: usize, to: usize) {
-    if to <= from {
-        return;
+/// SQL engendré en cours, et ce qui le rapporte à la source.
+struct Out<'m> {
+    out: String,
+    map: SourceMap,
+    diagnostics: Vec<Diagnostic>,
+    expanded: usize,
+    regions: Vec<ExpandedRegion>,
+    /// Position de la source dans son document.
+    base: usize,
+    macros: &'m MacroSet,
+}
+
+impl Out<'_> {
+    /// Recopie verbatim `source[from..to]`.
+    fn copy(&mut self, source: &str, from: usize, to: usize) {
+        if to <= from {
+            return;
+        }
+        self.map.add(self.out.len(), self.base + from, to - from);
+        self.out.push_str(&source[from..to]);
     }
-    map.add(out.len(), from, to - from);
-    out.push_str(&source[from..to]);
+
+    /// Recopie `source[from..to]`, fragments insérés.
+    fn copy_code(&mut self, source: &str, from: usize, to: usize) {
+        let fragments = self.macros.fragments();
+        if fragments.is_empty() || !source[from..to].contains('@') {
+            self.copy(source, from, to);
+            return;
+        }
+        let text = &source[from..to];
+        let tokens = crate::lex::tokenize(text);
+        let mut chunk = 0usize;
+        let mut i = 0usize;
+        while i < tokens.len() {
+            let at = tokens[i].range.start;
+            let call = crate::fragment::call_at(text, &tokens, i, fragments);
+            let (call, next) = match call {
+                Ok(Some(c)) => c,
+                Ok(None) => {
+                    i += 1;
+                    continue;
+                }
+                Err(msg) => {
+                    let end = tokens.get(i + 1).map_or(at + 1, |t| t.range.end);
+                    self.diagnostics
+                        .push(Diagnostic::error(MACRO_ERROR, msg).with_span(Span {
+                            start: self.base + from + at,
+                            end: self.base + from + end,
+                        }));
+                    i += 2;
+                    continue;
+                }
+            };
+            let rendered = crate::fragment::render_call(
+                &call,
+                &Default::default(),
+                fragments,
+                &mut Vec::new(),
+            );
+            match rendered {
+                Ok(sql) => {
+                    self.copy(source, from + chunk, from + at);
+                    let gen_start = self.out.len();
+                    self.out.push_str(&sql);
+                    self.map
+                        .add_opaque(gen_start, sql.len(), self.base + from + at, call.end - at);
+                    self.regions.push(ExpandedRegion {
+                        macro_name: call.def.name.clone(),
+                        source: self.base + from + at..self.base + from + call.end,
+                        generated: gen_start..self.out.len(),
+                    });
+                    self.expanded += 1;
+                    chunk = call.end;
+                }
+                Err(msg) => self
+                    .diagnostics
+                    .push(Diagnostic::error(MACRO_ERROR, msg).with_span(Span {
+                        start: self.base + from + at,
+                        end: self.base + from + call.end,
+                    })),
+            }
+            i = next;
+        }
+        self.copy(source, from + chunk, to);
+    }
 }
 
 /// Une invocation reconnue.
@@ -379,7 +471,7 @@ fn body_end(source: &str, open: usize) -> Option<usize> {
 
 /// Rend une invocation. Une macro dont le trou `tables` contient plusieurs
 /// tables est rendue une fois par table.
-fn render(inv: &Invocation, out: &mut String, map: &mut SourceMap) {
+fn render(inv: &Invocation, x: &mut Out) {
     let tables: Vec<String> = match inv.caps.get("tables") {
         Some(list) => list.split(',').map(|t| t.trim().to_string()).collect(),
         None => vec![String::new()],
@@ -400,9 +492,9 @@ fn render(inv: &Invocation, out: &mut String, map: &mut SourceMap) {
         }
         let options = inv.def.render_options(&inv.keywords);
         if idx > 0 {
-            out.push('\n');
+            x.out.push('\n');
         }
-        render_template(inv, &caps, &options, out, map);
+        render_template(inv, &caps, &options, x);
     }
 }
 
@@ -410,16 +502,15 @@ fn render_template(
     inv: &Invocation,
     caps: &std::collections::HashMap<String, String>,
     options: &str,
-    out: &mut String,
-    map: &mut SourceMap,
+    x: &mut Out,
 ) {
     let tpl = &inv.def.template;
     let mut rest = tpl.as_str();
 
     while let Some(open) = rest.find('{') {
-        out.push_str(&rest[..open]);
+        x.out.push_str(&rest[..open]);
         let Some(close_rel) = rest[open..].find('}') else {
-            out.push_str(&rest[open..]);
+            x.out.push_str(&rest[open..]);
             return;
         };
         let close = open + close_rel;
@@ -432,27 +523,29 @@ fn render_template(
                 // reste exacte malgré le déplacement.
                 let mut at = inv.body.start;
                 for d in &inv.declares {
-                    copy(out, map, inv.source, at, d.line.start);
+                    x.copy_code(inv.source, at, d.line.start);
                     at = d.line.end;
                 }
-                copy(out, map, inv.source, at, inv.body.end);
+                x.copy_code(inv.source, at, inv.body.end);
             }
             "declares" => {
                 if !inv.declares.is_empty() {
-                    out.push_str("DECLARE\n");
+                    x.out.push_str("DECLARE\n");
                     for d in &inv.declares {
-                        out.push_str("    ");
-                        copy(out, map, inv.source, d.content.start, d.content.end);
-                        out.push('\n');
+                        x.out.push_str("    ");
+                        x.copy_code(inv.source, d.content.start, d.content.end);
+                        x.out.push('\n');
                     }
                 }
             }
-            "options" => out.push_str(options),
-            _ => out.push_str(caps.get(key).map(String::as_str).unwrap_or("")),
+            "options" => x.out.push_str(options),
+            _ => x
+                .out
+                .push_str(caps.get(key).map(String::as_str).unwrap_or("")),
         }
         rest = &rest[close + 1..];
     }
-    out.push_str(rest);
+    x.out.push_str(rest);
 }
 
 /// Les diagnostics d'un désucrage, filtrés sur les erreurs.
@@ -721,5 +814,64 @@ mod tests {
             e.map.nearest_source(gen_at).is_some(),
             "mais doit rester situable"
         );
+    }
+
+    // ── Fragments ─────────────────────────────────────────────────────────────
+
+    fn with_fragments(defs: &str) -> MacroSet {
+        let mut set = MacroSet::builtin();
+        let (defs, errors) = crate::fragment::parse_fragment_file(defs, "f.sql");
+        assert!(errors.is_empty(), "{errors:?}");
+        for d in defs {
+            set.insert_fragment(d).unwrap();
+        }
+        set
+    }
+
+    #[test]
+    fn un_fragment_est_rapporte_a_son_invocation() {
+        let set = with_fragments("-- fragment: v(t)\nlower(t.nom)");
+        let src = "CREATE INDEX i ON t ((@v));\nSELECT 1 FROM t e WHERE @v(e) = 'x';";
+        let e = expand_source(src, &set);
+        assert!(e.diagnostics.is_empty(), "{:?}", e.diagnostics);
+        assert_eq!(
+            e.sql,
+            "CREATE INDEX i ON t ((lower(nom)));\nSELECT 1 FROM t e WHERE lower(e.nom) = 'x';"
+        );
+        assert_eq!(e.expanded, 2);
+        // Toute position du texte inséré renvoie à l'invocation entière.
+        let inserted = e.sql.find("lower(e.nom)").unwrap();
+        let call = src.find("@v(e)").unwrap();
+        assert_eq!(e.map.to_source(inserted + 3), None);
+        assert_eq!(
+            e.map.remap(inserted + 3, inserted + 5),
+            Some((call, call + "@v(e)".len()))
+        );
+        // Le texte qui suit retrouve son antécédent exact.
+        let after = e.sql.find(" = 'x'").unwrap();
+        assert_eq!(e.map.to_source(after), Some(src.find(" = 'x'").unwrap()));
+        assert_eq!(e.regions[1].macro_name, "v");
+    }
+
+    #[test]
+    fn un_fragment_dans_le_corps_d_une_macro() {
+        let set = with_fragments("-- fragment: actif(t)\nt.status = 'actif'");
+        let sql = expand_source(
+            "@function n(): INT {\n  RETURN (SELECT count(*) FROM u WHERE @actif(u));\n}",
+            &set,
+        )
+        .sql;
+        assert!(sql.contains("WHERE (u.status = 'actif')"), "{sql}");
+    }
+
+    #[test]
+    fn decalage_de_base_et_erreur_positionnee() {
+        let set = with_fragments("-- fragment: j(a, b)\na.x = b.x");
+        let e = expand_source_at("SELECT 1 WHERE @j(p)", 100, &set);
+        let d = &e.diagnostics[0];
+        assert!(d.message.contains("attend 2"), "{}", d.message);
+        assert_eq!(d.span.as_ref().unwrap().start, 100 + 15);
+        let ok = expand_source_at("SELECT 1 WHERE @j(p, q)", 100, &set);
+        assert_eq!(ok.regions[0].source, 115..123);
     }
 }

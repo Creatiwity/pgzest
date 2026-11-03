@@ -8,6 +8,7 @@ description = "Requêtes nommées : format de fichier, réécriture positionnell
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-catalog = { path = "../pgweave-catalog" }
 pgweave-diagnostics = { workspace = true }
+pgweave-macro = { path = "../pgweave-macro" }
 pgweave-parser = { path = "../pgweave-parser" }
 pgweave-sema = { path = "../pgweave-sema" }
 serde = { workspace = true }

@@ -139,27 +139,29 @@ fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, St
     } else {
         (input.sql.value(), None)
     };
-    let d = pgweave_query::describe_sql(&project.catalog, "query", &sql).map_err(|diags| {
-        diags
-            .iter()
-            .map(|d| {
-                let at = match (&file, &d.span) {
-                    (Some(f), Some(s)) => {
-                        let before = &sql[..s.start.min(sql.len())];
-                        let line = before.matches('\n').count() + 1;
-                        let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
-                        format!("{}:{line}:{col}: ", f.display())
+    let d = pgweave_query::describe_sql_with(&project.catalog, "query", &sql, &project.macros)
+        .map_err(|diags| {
+            diags
+                .iter()
+                .map(|d| {
+                    let at = match (&file, &d.span) {
+                        (Some(f), Some(s)) => {
+                            let before = &sql[..s.start.min(sql.len())];
+                            let line = before.matches('\n').count() + 1;
+                            let col =
+                                before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+                            format!("{}:{line}:{col}: ", f.display())
+                        }
+                        _ => String::new(),
+                    };
+                    match &d.hint {
+                        Some(h) => format!("{at}[{}] {} ({h})", d.code, d.message),
+                        None => format!("{at}[{}] {}", d.code, d.message),
                     }
-                    _ => String::new(),
-                };
-                match &d.hint {
-                    Some(h) => format!("{at}[{}] {} ({h})", d.code, d.message),
-                    None => format!("{at}[{}] {}", d.code, d.message),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
 
     // Liaisons : exactement les paramètres de la requête, par leur nom.
     let mut binds = Vec::new();

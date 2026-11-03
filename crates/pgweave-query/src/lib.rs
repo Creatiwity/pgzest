@@ -10,5 +10,10 @@ pub mod descriptor;
 mod file;
 mod line_index;
 
-pub use descriptor::{Descriptor, describe_named, describe_sql};
-pub use file::{Cardinality, NamedParam, NamedQuery, Params, QueryFile, parse_query_file};
+pub use descriptor::{
+    Descriptor, check_row_reference, describe_named, describe_sql, describe_sql_with,
+};
+pub use file::{
+    Cardinality, ExpandedSql, NamedParam, NamedQuery, Params, QueryFile, parse_query_file,
+    parse_query_file_with,
+};

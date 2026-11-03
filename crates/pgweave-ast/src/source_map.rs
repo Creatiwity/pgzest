@@ -21,10 +21,15 @@ struct Segment {
     source: usize,
     /// Longueur du fragment, en octets.
     len: usize,
+    /// Segment opaque : le texte engendré n'est pas une copie, il remplace
+    /// `Some(n)` octets de la source (l'invocation d'un fragment). Aucune
+    /// position n'y a d'antécédent exact ; toute plage y est rapportée à
+    /// l'invocation entière.
+    opaque: Option<usize>,
 }
 
 /// Correspondance généré → source.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceMap {
     segments: Vec<Segment>,
 }
@@ -41,6 +46,7 @@ impl SourceMap {
         }
         // Fusionner avec le segment précédent s'il est contigu de part et d'autre.
         if let Some(last) = self.segments.last_mut()
+            && last.opaque.is_none()
             && last.generated + last.len == generated
             && last.source + last.len == source
         {
@@ -51,6 +57,21 @@ impl SourceMap {
             generated,
             source,
             len,
+            opaque: None,
+        });
+    }
+
+    /// Déclare que `len` octets à `generated` remplacent les `source_len`
+    /// octets de la source à `source` (texte engendré par une invocation).
+    pub fn add_opaque(&mut self, generated: usize, len: usize, source: usize, source_len: usize) {
+        if len == 0 {
+            return;
+        }
+        self.segments.push(Segment {
+            generated,
+            source,
+            len,
+            opaque: Some(source_len),
         });
     }
 
@@ -59,7 +80,7 @@ impl SourceMap {
     /// `None` pour du boilerplate généré, qui n'a pas d'antécédent — l'appelant
     /// se rabat alors sur [`Self::nearest_source`].
     pub fn to_source(&self, offset: usize) -> Option<usize> {
-        let seg = self.segment_at(offset)?;
+        let seg = self.segment_at(offset).filter(|s| s.opaque.is_none())?;
         Some(seg.source + (offset - seg.generated))
     }
 
@@ -68,6 +89,9 @@ impl SourceMap {
     pub fn nearest_source(&self, offset: usize) -> Option<usize> {
         if let Some(exact) = self.to_source(offset) {
             return Some(exact);
+        }
+        if let Some(seg) = self.segment_at(offset) {
+            return Some(seg.source);
         }
         self.segments
             .iter()
@@ -88,6 +112,10 @@ impl SourceMap {
         let src_start = self.nearest_source(start)?;
 
         let src_end = match self.segment_at(start) {
+            // Début dans un texte engendré par une invocation : l'invocation.
+            Some(Segment {
+                opaque: Some(n), ..
+            }) => src_start + n,
             // Début dans un fragment recopié : on ne dépasse pas sa fin.
             Some(seg) => {
                 let seg_src_end = seg.source + seg.len;

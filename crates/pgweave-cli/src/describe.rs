@@ -69,7 +69,7 @@ pub fn run(o: Options) -> i32 {
     let mut descriptors: Vec<Descriptor> = Vec::new();
     let mut failed = false;
     if let Some(sql) = o.sql {
-        match pgweave_query::describe_sql(&catalog, o.name, sql) {
+        match pgweave_query::describe_sql_with(&catalog, o.name, sql, &macros) {
             Ok(d) => descriptors.push(d),
             Err(diags) => {
                 failed = true;
@@ -85,7 +85,7 @@ pub fn run(o: Options) -> i32 {
                 return 1;
             }
         };
-        let parsed = pgweave_query::parse_query_file(&text);
+        let parsed = pgweave_query::parse_query_file_with(&text, &macros);
         if !parsed.diagnostics.is_empty() {
             failed |= parsed
                 .diagnostics
