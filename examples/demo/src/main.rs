@@ -35,18 +35,18 @@ async fn main() -> Result<()> {
     let mut client = fresh_database(&url).await?;
 
     println!("── Restaurants");
-    let bistro = queries::create_restaurant(
+    let bistro = queries::restaurants::create_restaurant(
         &client,
-        queries::CreateRestaurantParams {
+        queries::restaurants::CreateRestaurantParams {
             slug: "le-bistrot",
             name: "Le Bistrot",
             opened_on: time::Date::from_calendar_date(2021, time::Month::March, 15).ok(),
         },
     )
     .await?;
-    let ramen = queries::create_restaurant(
+    let ramen = queries::restaurants::create_restaurant(
         &client,
-        queries::CreateRestaurantParams {
+        queries::restaurants::CreateRestaurantParams {
             slug: "ramen-ya",
             name: "Ramen-ya",
             opened_on: None,
@@ -54,9 +54,9 @@ async fn main() -> Result<()> {
     )
     .await?;
     println!("   le-bistrot = {}, ramen-ya = {}", bistro.id, ramen.id);
-    let found = queries::restaurant_by_slug(
+    let found = queries::restaurants::restaurant_by_slug(
         &client,
-        queries::RestaurantBySlugParams { slug: "le-bistrot" },
+        queries::restaurants::RestaurantBySlugParams { slug: "le-bistrot" },
     )
     .await?;
     println!(
@@ -67,12 +67,12 @@ async fn main() -> Result<()> {
     println!("── Plats : COPY CSV, puis un ajout typé");
     let csv =
         tokio::fs::File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/data/dishes.csv")).await?;
-    let copied = queries::import_dishes(&client, csv).await?;
+    let copied = queries::menu::import_dishes(&client, csv).await?;
     println!("   {copied} plats importés par COPY");
     let tags = ["maison".to_string(), "saison".to_string()];
-    let dish = queries::add_dish(
+    let dish = queries::menu::add_dish(
         &client,
-        queries::AddDishParams {
+        queries::menu::AddDishParams {
             restaurant: bistro.id,
             name: "Île flottante",
             kind: DishKind::Dessert,
@@ -86,9 +86,9 @@ async fn main() -> Result<()> {
 
     println!("── Menu du Bistrot (lu en flux, depuis la vue `menu`)");
     let mut menu = std::pin::pin!(
-        queries::menu_of_stream(
+        queries::menu::menu_of_stream(
             &client,
-            queries::MenuOfParams {
+            queries::menu::MenuOfParams {
                 restaurant: "le-bistrot"
             }
         )
@@ -110,21 +110,21 @@ async fn main() -> Result<()> {
         );
     }
     // Deux requêtes, une même fiche (`-> dish_card`) : un seul type Rust.
-    let veggie = queries::vegetarian_dishes(
+    let veggie = queries::menu::vegetarian_dishes(
         &client,
-        queries::VegetarianDishesParams {
+        queries::menu::VegetarianDishesParams {
             restaurant: "le-bistrot",
         },
     )
     .await?;
-    let affordable = queries::affordable_dishes(
+    let affordable = queries::promotions::deals::affordable_dishes(
         &client,
-        queries::AffordableDishesParams {
+        queries::promotions::deals::AffordableDishesParams {
             restaurant: bistro.id,
         },
     )
     .await?;
-    let names = |cards: &[queries::DishCardRow]| {
+    let names = |cards: &[queries::menu::DishCardRow]| {
         cards
             .iter()
             .map(|c| c.name.as_str())
@@ -133,9 +133,9 @@ async fn main() -> Result<()> {
     };
     println!("   végétariens : {}", names(&veggie));
     println!("   à moins de 10 € : {}", names(&affordable));
-    let counts = queries::dish_counts(
+    let counts = queries::menu::dish_counts(
         &client,
-        queries::DishCountsParams {
+        queries::menu::DishCountsParams {
             restaurant: bistro.id,
         },
     )
@@ -153,18 +153,18 @@ async fn main() -> Result<()> {
     }
 
     println!("── Client (email citext : la casse ne compte pas)");
-    let alice = queries::upsert_customer(
+    let alice = queries::customers::upsert_customer(
         &client,
-        queries::UpsertCustomerParams {
+        queries::customers::UpsertCustomerParams {
             email: "alice@example.org",
             full_name: "Alice Martin",
             phone: None,
         },
     )
     .await?;
-    let again = queries::upsert_customer(
+    let again = queries::customers::upsert_customer(
         &client,
-        queries::UpsertCustomerParams {
+        queries::customers::UpsertCustomerParams {
             email: "ALICE@example.org",
             full_name: "Alice Martin-Durand",
             phone: Some("+33 6 12 34 56 78"),
@@ -175,18 +175,18 @@ async fn main() -> Result<()> {
 
     println!("── Commande, dans une transaction");
     let tx = client.transaction().await?;
-    let order = queries::open_order(
+    let order = queries::orders::open_order(
         &tx,
-        queries::OpenOrderParams {
+        queries::orders::OpenOrderParams {
             restaurant: bistro.id,
             customer: Some(alice.id),
         },
     )
     .await?;
     for (dish, quantity) in [(2, 2), (4, 1), (dish.id, 2)] {
-        queries::add_item(
+        queries::orders::add_item(
             &tx,
-            queries::AddItemParams {
+            queries::orders::AddItemParams {
                 order: order.id,
                 quantity,
                 dish,
@@ -198,9 +198,9 @@ async fn main() -> Result<()> {
     println!("   commande {} ({:?})", order.id, order.status);
 
     for status in [OrderStatus::Placed, OrderStatus::Served] {
-        let updated = queries::set_status(
+        let updated = queries::orders::set_status(
             &client,
-            queries::SetStatusParams {
+            queries::orders::SetStatusParams {
                 status,
                 id: order.id,
             },
@@ -210,18 +210,21 @@ async fn main() -> Result<()> {
         println!("   → {:?} à {}", updated.status, updated.updated_at.time());
     }
 
-    let summary = queries::order_summary(&client, queries::OrderSummaryParams { id: order.id })
-        .await?
-        .ok_or("commande introuvable")?;
+    let summary = queries::orders::order_summary(
+        &client,
+        queries::orders::OrderSummaryParams { id: order.id },
+    )
+    .await?
+    .ok_or("commande introuvable")?;
     println!(
         "   résumé : {} ligne(s), total {}, client {}",
         summary.lines,
         summary.total_cents.map_or_else(|| "—".into(), euros),
         summary.customer.as_deref().unwrap_or("anonyme")
     );
-    let alice = queries::customer_by_email(
+    let alice = queries::customers::customer_by_email(
         &client,
-        queries::CustomerByEmailParams {
+        queries::customers::CustomerByEmailParams {
             email: "alice@EXAMPLE.org",
         },
     )
@@ -233,7 +236,7 @@ async fn main() -> Result<()> {
     );
 
     println!("── Chiffre d'affaires servi, par type de plat");
-    for r in queries::revenue_by_kind(&client).await? {
+    for r in queries::orders::revenue_by_kind(&client).await? {
         println!(
             "   {:<8} {:>10}",
             kind(r.kind),
@@ -241,9 +244,9 @@ async fn main() -> Result<()> {
         );
     }
 
-    let purged = queries::purge_drafts(
+    let purged = queries::orders::purge_drafts(
         &client,
-        queries::PurgeDraftsParams {
+        queries::orders::PurgeDraftsParams {
             before: time::OffsetDateTime::now_utc(),
         },
     )
@@ -252,7 +255,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Recrée la base `pgweave_demo` et y applique migrations puis schéma.
+/// Recrée la base `pgweave_demo` et y applique les migrations, comme un
+/// déploiement : le schéma déclaratif est leur cible, pas un script.
 async fn fresh_database(url: &str) -> Result<tokio_postgres::Client> {
     let connect = |config: tokio_postgres::Config| async move {
         let (client, conn) = config.connect(tokio_postgres::NoTls).await?;
@@ -276,7 +280,7 @@ async fn fresh_database(url: &str) -> Result<tokio_postgres::Client> {
     let mut config = config;
     config.dbname(DB);
     let client = connect(config).await?;
-    for dir in ["migrations", "schema"] {
+    for dir in ["migrations"] {
         let mut files: Vec<_> = std::fs::read_dir(format!("{}/{dir}", env!("CARGO_MANIFEST_DIR")))?
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| p.extension().is_some_and(|e| e == "sql"))
@@ -286,6 +290,6 @@ async fn fresh_database(url: &str) -> Result<tokio_postgres::Client> {
             client.batch_execute(&std::fs::read_to_string(&f)?).await?;
         }
     }
-    println!("Base {DB} recréée, migrations et schéma appliqués.\n");
+    println!("Base {DB} recréée, migrations appliquées.\n");
     Ok(client)
 }

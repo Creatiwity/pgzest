@@ -37,13 +37,6 @@ JOIN restaurants r ON r.id = d.restaurant_id
 WHERE r.slug = $restaurant AND d.vegetarian
 ORDER BY d.price;
 
--- name: affordable_dishes :many -> dish_card
--- `@affordable(d)` est un prédicat : inséré entre parenthèses.
-SELECT @dish_card(d)
-FROM dishes d
-WHERE d.restaurant_id = $restaurant AND @affordable(d)
-ORDER BY d.price, d.name;
-
 -- name: import_dishes
 -- COPY typé : la fonction générée lit un flux CSV.
 COPY dishes (restaurant_id, name, kind, price, vegetarian) FROM STDIN (FORMAT csv, HEADER true);

@@ -807,6 +807,22 @@ Fait (2026-11-03) :
   `examples/demo` — projection « fiche de plat » écrite une fois, trois
   requêtes et une struct `DishCardRow`.
 
+Ajouts (2026-11-03, après la sortie) :
+- Un module Rust par fichier de requêtes (`queries/order/book.sql` →
+  `queries::order::book`), enums à la racine de l'arbre ; références
+  qualifiées `-> order::book::card` (chemin relatif dans le code généré) ;
+  la promesse de `docs/named-queries.md` est tenue.
+- `pgweave_macros::queries!("queries")` : l'arbre d'un répertoire, ou les
+  requêtes d'un fichier, générés à l'endroit de l'appel (un `src/queries.rs`
+  d'une ligne) ; même génération que `pgweave-build`
+  (`pgweave_build::generate_path`).
+- `[queries] include` : répertoires de requêtes près du code, chacun racine
+  de son arbre ; un fichier de requêtes hors de ces répertoires (bac à
+  sable) est rattaché à la racine principale.
+- `examples/demo` en mode déclaratif : schéma complet écrit à la main, la
+  migration de la vue générée par `migrate create`, `src/queries.rs` par la
+  macro, un sous-module `promotions::deals`.
+
 Reste :
 - Fragments dans un `CREATE FUNCTION … AS $$…$$` écrit à la main : non
   insérés (une chaîne dollar n'est pas interprétée) ; passer par `@function`.

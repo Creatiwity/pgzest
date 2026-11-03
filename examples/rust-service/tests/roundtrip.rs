@@ -39,9 +39,9 @@ async fn les_requetes_generees_s_executent() {
 
     let author = uuid::Uuid::from_u128(42);
     let tags = vec!["rust".to_string(), "sql".to_string()];
-    let inserted = queries::insert_page(
+    let inserted = queries::pages::insert_page(
         &client,
-        queries::InsertPageParams {
+        queries::pages::InsertPageParams {
             slug: "hello-world",
             title: "Hello",
             tags: &tags,
@@ -52,10 +52,11 @@ async fn les_requetes_generees_s_executent() {
     .expect("insert_page");
     assert_eq!(inserted.status, PageStatus::Draft);
 
-    let page = queries::page_by_id(&client, queries::PageByIdParams { id: inserted.id })
-        .await
-        .expect("page_by_id")
-        .expect("la page existe");
+    let page =
+        queries::pages::page_by_id(&client, queries::pages::PageByIdParams { id: inserted.id })
+            .await
+            .expect("page_by_id")
+            .expect("la page existe");
     assert_eq!(page.slug, "hello-world");
     assert_eq!(
         page.tags,
@@ -64,15 +65,15 @@ async fn les_requetes_generees_s_executent() {
     assert_eq!(page.author, Some(author));
     assert_eq!(page.published_on, None);
 
-    let missing = queries::page_by_id(&client, queries::PageByIdParams { id: -1 })
+    let missing = queries::pages::page_by_id(&client, queries::pages::PageByIdParams { id: -1 })
         .await
         .expect("page_by_id");
     assert_eq!(missing, None);
 
     // Enum en paramètre : type du projet, préparé par le serveur.
-    let drafts = queries::pages_by_status(
+    let drafts = queries::pages::pages_by_status(
         &client,
-        queries::PagesByStatusParams {
+        queries::pages::PagesByStatusParams {
             status: PageStatus::Draft,
         },
     )
@@ -83,9 +84,9 @@ async fn les_requetes_generees_s_executent() {
     {
         use pgweave_runtime::futures_util::StreamExt;
         let mut stream = std::pin::pin!(
-            queries::pages_by_status_stream(
+            queries::pages::pages_by_status_stream(
                 &client,
-                queries::PagesByStatusParams {
+                queries::pages::PagesByStatusParams {
                     status: PageStatus::Draft,
                 },
             )
@@ -100,9 +101,9 @@ async fn les_requetes_generees_s_executent() {
     // Transaction : même API, client ou transaction.
     let tx = client.transaction().await.expect("transaction");
     let day = time::Date::from_calendar_date(2026, time::Month::November, 2).expect("date");
-    let published = queries::publish(
+    let published = queries::pages::publish(
         &tx,
-        queries::PublishParams {
+        queries::pages::PublishParams {
             on: Some(day),
             slug: "hello-world",
         },
@@ -128,18 +129,20 @@ async fn les_requetes_generees_s_executent() {
         .expect("live_pages");
     assert_eq!(live, ["Bonjour"]);
 
-    let n = queries::count_pages(&client).await.expect("count_pages");
+    let n = queries::pages::count_pages(&client)
+        .await
+        .expect("count_pages");
     // `count(*)` n'est jamais NULL : champ non optionnel.
     assert_eq!(n.n, 1);
-    let deleted = queries::delete_drafts(&client)
+    let deleted = queries::pages::delete_drafts(&client)
         .await
         .expect("delete_drafts");
     assert_eq!(deleted, 0);
 
     // Le domaine refuse un slug invalide : l'erreur de PostgreSQL remonte.
-    let err = queries::insert_page(
+    let err = queries::pages::insert_page(
         &client,
-        queries::InsertPageParams {
+        queries::pages::InsertPageParams {
             slug: "Pas Valide",
             title: "x",
             tags: &[],
@@ -157,40 +160,46 @@ async fn les_requetes_generees_s_executent() {
         ("12345678900011", "Alpha", Some(3)),
         ("12345678900029", "Beta", None),
     ];
-    let copied = queries::load_staging(
+    let copied = queries::etablissements::load_staging(
         &tx,
-        records
-            .iter()
-            .map(|(siret, nom, effectif)| queries::LoadStagingRecord {
+        records.iter().map(
+            |(siret, nom, effectif)| queries::etablissements::LoadStagingRecord {
                 siret,
                 nom,
                 effectif: *effectif,
                 ouvert: Some(day),
-            }),
+            },
+        ),
     )
     .await
     .expect("load_staging");
     assert_eq!(copied, 2);
     let csv: &[u8] = b"siret,nom,effectif,ouvert\n12345678900037,Gamma,,2026-01-02\n";
-    let copied = queries::load_staging_csv(&tx, csv)
+    let copied = queries::etablissements::load_staging_csv(&tx, csv)
         .await
         .expect("load_staging_csv");
     assert_eq!(copied, 1);
-    let swapped = queries::swap_from_staging(&tx)
+    let swapped = queries::etablissements::swap_from_staging(&tx)
         .await
         .expect("swap_from_staging");
     assert_eq!(swapped, 3);
-    queries::clear_staging(&tx).await.expect("clear_staging");
+    queries::etablissements::clear_staging(&tx)
+        .await
+        .expect("clear_staging");
     tx.commit().await.expect("commit");
-    let n = queries::count_etablissements(&client).await.expect("count");
+    let n = queries::etablissements::count_etablissements(&client)
+        .await
+        .expect("count");
     assert_eq!(n.n, 3);
 
     // Recherche plein texte : l'expression de la requête et celle de l'index
     // viennent du même fragment, donc le planificateur utilise l'index.
-    let found =
-        queries::search_etablissements(&client, queries::SearchEtablissementsParams { q: "beta" })
-            .await
-            .expect("search");
+    let found = queries::etablissements::search_etablissements(
+        &client,
+        queries::etablissements::SearchEtablissementsParams { q: "beta" },
+    )
+    .await
+    .expect("search");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].nom, "Beta");
     client
@@ -201,7 +210,7 @@ async fn les_requetes_generees_s_executent() {
     let plan: Vec<String> = client
         .simple_query(&format!(
             "EXPLAIN (GENERIC_PLAN, COSTS OFF) {}",
-            queries::SEARCH_ETABLISSEMENTS.sql
+            queries::etablissements::SEARCH_ETABLISSEMENTS.sql
         ))
         .await
         .expect("explain")

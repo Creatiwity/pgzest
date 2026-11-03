@@ -1,5 +1,5 @@
--- Vue déclarative (rejouée après les migrations) : ses colonnes sont typées
--- par l'analyse, comme le ferait PostgreSQL.
+-- Le menu public. Ses colonnes sont typées par l'analyse, comme le ferait
+-- PostgreSQL.
 CREATE VIEW menu AS
 SELECT r.slug AS restaurant,
        d.id,

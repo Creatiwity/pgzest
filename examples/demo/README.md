@@ -4,19 +4,22 @@ Une petite application de commandes (restaurants, plats, clients,
 commandes), écrite comme un projet réel :
 
 ```
-pgweave.toml          où sont les migrations, le schéma, les requêtes
+pgweave.toml          où sont le schéma, les migrations, les requêtes
+schema/               l'état complet de la base, écrit à la main (déclaratif)
+migrations/           son historique, généré par `pgweave migrate create`
 macros/               fragments : du SQL écrit une fois, inséré par `@nom`
-migrations/           l'historique du schéma (enums, domaine, citext, triggers PL/pgSQL)
-schema/               une vue déclarative, rejouée après les migrations
-queries/              les requêtes nommées → fonctions Rust générées
+queries/              les requêtes nommées, un module Rust par fichier
 sandbox/              zone d'essai : erreurs volontaires, requêtes à survoler
 data/dishes.csv       importé par COPY
-build.rs, src/        le programme Rust qui utilise le code généré
+src/queries.rs        une ligne : `pgweave_macros::queries!("queries");`
+src/main.rs           le programme qui utilise le code généré
 ```
 
-Le schéma n'est **jamais lu dans une base** : pgweave rejoue les migrations
-sur un catalogue PostgreSQL 18 reconstruit (types, fonctions, opérateurs,
-extensions), et analyse chaque requête comme PostgreSQL le ferait.
+Le schéma n'est **jamais lu dans une base** : pgweave rejoue `schema/` sur
+un catalogue PostgreSQL 18 reconstruit (types, fonctions, opérateurs,
+extensions), et analyse chaque requête comme PostgreSQL le ferait. Les
+migrations sont rejouées à part : elles doivent mener exactement à ce
+schéma.
 
 ## Lancer
 
@@ -85,41 +88,65 @@ survolez `@dish_card(d)` : l'éditeur montre sa documentation et le SQL
 inséré (`d.id, d.name, …`). `@affordable(d)` est inséré entre parenthèses,
 pour que le `AND` qui l'entoure ne le découpe pas.
 
-`vegetarian_dishes` et `affordable_dishes` déclarent `-> dish_card` : leurs
-lignes ont la forme de celles de `dish_card`, vérifiée colonne par colonne,
-et le code Rust n'a qu'une struct, `DishCardRow`, pour les trois requêtes.
+`vegetarian_dishes` (même fichier) déclare `-> dish_card`, et
+`affordable_dishes` (`queries/promotions/deals.sql`, un autre module)
+`-> menu::dish_card` : leurs lignes ont la forme de celles de `dish_card`,
+vérifiée colonne par colonne, et le code Rust n'a qu'une struct,
+`queries::menu::DishCardRow`, pour les trois requêtes.
 
 Ajoutez `d.tags` au fragment, sans rien toucher d'autre : les trois
 requêtes changent ensemble, et `DishCardRow` gagne un champ.
 
-### 5. Le schéma vit avec l'éditeur
+### 5. Le schéma déclaratif, les migrations générées
 
-Ouvrez `migrations/0002_loyalty.sql` et ajoutez une colonne, **sans
-sauvegarder** :
+`schema/` décrit la base telle qu'elle doit être : les `CREATE TABLE`
+complets, les fonctions, les triggers, la vue. Ajoutez une colonne à
+`orders` dans `schema/1-commandes.sql`, **sans sauvegarder** :
 
 ```sql
-ALTER TABLE orders ADD COLUMN tip INTEGER;
+    tip        cents,
 ```
 
-Dans `sandbox/2-a-explorer.sql`, ajoutez `o.tip` à une requête : elle est
-acceptée, car le texte non sauvegardé de la migration fait foi. Annulez
-la modification, et l'erreur revient.
+- Dans `sandbox/2-a-explorer.sql`, ajoutez `o.tip` à une requête : elle est
+  acceptée, le texte non sauvegardé du schéma fait foi.
+- `migrations/0003_menu_public.sql`, la dernière migration, porte une
+  information : les migrations ne mènent plus au schéma.
 
-Les corps PL/pgSQL sont vérifiés aussi. Dans `0002_loyalty.sql`, changez
-`NEW.customer_id` en `NEW.client_id` : le trigger est attaché à `orders`,
-qui n'a pas ce champ, et l'erreur l'indique.
+Sauvegardez, puis :
+
+```sh
+../../target/debug/pgweave migrate create pourboire
+```
+
+`migrations/0004_pourboire.sql` est écrite (`ALTER TABLE orders ADD COLUMN
+tip cents`), avec son en-tête de contexte, après vérification par rejeu (une
+colonne déclarée au milieu de la table vaut une note : PostgreSQL l'ajoute
+à la fin) ;
+l'information disparaît, et `pgweave migrate check` (pour la CI) est vert.
+Une suppression de colonne serait refusée sans `--allow-destructive` ; un
+index créé sur une table existante est signalé (écritures bloquées pendant
+sa construction). `0003_menu_public.sql` a été générée ainsi : la vue
+n'existait que dans le schéma.
+
+Les corps PL/pgSQL sont vérifiés aussi. Dans `schema/2-fidelite.sql`,
+changez `NEW.customer_id` en `NEW.client_id` : le trigger est attaché à
+`orders`, qui n'a pas ce champ, et l'erreur l'indique.
 
 ### 6. Le code Rust généré
 
-`build.rs` (trois lignes) décrit chaque requête de `queries/` et génère le
-module `queries`. Pour le lire :
+`src/queries.rs` tient en une ligne : `pgweave_macros::queries!("queries");`.
+La macro décrit chaque requête de `queries/` à la compilation et génère un
+module par fichier : `queries::menu`, `queries::orders`,
+`queries::promotions::deals`… Les enums PostgreSQL sont à la racine
+(`queries::DishKind`). Pour lire le code produit :
 
 ```sh
-../../target/debug/pgweave describe --rust queries/*.sql
+../../target/debug/pgweave describe --rust queries/menu.sql
 ```
 
-Dans `src/main.rs`, faites « Go to Definition » sur `queries::add_dish`
-(rust-analyzer), ou survolez-le : `AddDishParams { kind: DishKind, price: i32, tags: &[String], … }`.
+Dans `src/main.rs`, faites « Go to Definition » sur
+`queries::menu::add_dish` (rust-analyzer), ou survolez-le :
+`AddDishParams { kind: DishKind, price: i32, tags: &[String], … }`.
 
 Cassez une requête de `queries/` (par exemple `restaurant_id` →
 `restaurant`), puis `cargo build -p pgweave-demo` : la compilation
@@ -135,8 +162,9 @@ vérifiée à la compilation de la même façon.
 make demo-run
 ```
 
-Le programme recrée une base `pgweave_demo`, y applique les migrations,
-importe les plats par `COPY` (CSV), puis déroule le scénario. On y voit :
+Le programme recrée une base `pgweave_demo`, y applique les migrations
+(comme un déploiement : le schéma est leur cible, pas un script), importe
+les plats par `COPY` (CSV), puis déroule le scénario. On y voit :
 
 - les enums Rust générés, et le domaine `cents` passé en `i32` ;
 - deux listes de plats décodées dans la même struct (`DishCardRow`) ;

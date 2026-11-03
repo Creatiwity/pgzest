@@ -48,7 +48,7 @@ requête      := en-tête doc* statement
 en-tête      := "-- name:" nom cardinalité? référence? FIN_DE_LIGNE  (en début de ligne)
 nom          := [a-z_][a-z0-9_]*
 cardinalité  := ":one" | ":optional" | ":many" | ":none"
-référence    := "->" nom                     (ajouté en P6, 2026-11-03)
+référence    := "->" (module "::")* nom     (ajouté en P6, 2026-11-03)
 doc          := "--" texte FIN_DE_LIGNE                       (avant le statement)
 statement    := un seul statement SQL, ";" final optionnel
 ```
@@ -67,8 +67,10 @@ statement    := un seul statement SQL, ";" final optionnel
 - `snake_case` ASCII : `[a-z_][a-z0-9_]*`. Utilisable tel quel comme
   identifiant Rust, convertible sans perte en `camelCase` pour TypeScript.
 - Unique dans le fichier. Le **module** est le chemin du fichier relatif à
-  `[queries] directory`, sans extension : `queries/admin/pages.sql` →
-  `admin::pages` en Rust. Deux fichiers peuvent donc définir le même nom.
+  son répertoire de requêtes, sans extension : `queries/admin/pages.sql` →
+  `admin::pages` en Rust (`queries::admin::pages::page_by_id`). Deux
+  fichiers peuvent donc définir le même nom. Chaque segment doit faire un
+  nom de module Rust (snake_case).
 
 ### Cardinalité
 
@@ -149,8 +151,10 @@ WHERE (x.status = 'live' AND x.published_on <= current_date) ORDER BY x.id DESC
 ## Lignes de référence
 
 `-> autre` déclare que la requête renvoie des lignes de la même forme que
-celles de la requête `autre` : le code généré reprend sa struct de ligne
-(`AutreRow`) au lieu d'en créer une.
+celles de la requête `autre` du même fichier ; `-> admin::pages::autre`
+désigne celle d'un autre fichier, par son module depuis la racine du
+répertoire de requêtes. Le code généré reprend sa struct de ligne
+(`AutreRow`, ou `super::admin::pages::AutreRow`) au lieu d'en créer une.
 
 ```sql
 -- name: page_card :optional
@@ -163,8 +167,8 @@ SELECT @page_card(p) FROM pages p WHERE p.author = $author;
 Vérifié, jamais forcé : mêmes colonnes dans le même ordre, du même type ;
 une colonne non nulle dans la référence doit l'être aussi ici (une colonne
 nullable dans la référence accepte une valeur toujours présente). La
-référence est une requête du projet (tous fichiers confondus) qui ne
-reprend pas elle-même les lignes d'une autre.
+référence est une requête du même répertoire de requêtes, qui ne reprend
+pas elle-même les lignes d'une autre.
 
 ## Paramètres
 

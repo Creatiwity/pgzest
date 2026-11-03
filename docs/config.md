@@ -106,6 +106,7 @@ Ne sont jamais parcourus : `node_modules/`, `target/`, `dist/`,
 | Clé | Type | Défaut | Rôle |
 |---|---|---|---|
 | `directory` | chemin | absent | Fichiers de requêtes nommées, parcourus récursivement. Format : [`docs/named-queries.md`](named-queries.md). |
+| `include` | liste de chemins | `[]` | Répertoires de requêtes supplémentaires, près du code qui les utilise (`src/order/queries`). Chacun est la racine de son propre arbre de modules (`pgweave_macros::queries!`). Ajouté le 2026-11-03. |
 
 Les fichiers de ce répertoire sont vérifiés comme des requêtes (pas de DDL)
 **et** selon le format des requêtes nommées. Ils ne sont jamais indexés comme

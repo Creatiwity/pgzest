@@ -11,8 +11,9 @@ du projet (`pgweave.toml`). L'exécution passe par `tokio-postgres`.
 
 Deux façons d'écrire une requête :
 
-- **requête nommée** dans `queries/*.sql`, compilée par `build.rs` : c'est
-  la forme principale (enums générés, `COPY`, réutilisable) ;
+- **requête nommée** dans `queries/**/*.sql`, compilée par la macro
+  `queries!` ou par `build.rs` : c'est la forme principale (enums générés,
+  `COPY`, fragments, lignes partagées), un module Rust par fichier ;
 - **`query!`**, en ligne dans le code Rust, pour une requête ponctuelle.
 
 ## Mise en place
@@ -33,25 +34,42 @@ directory = "queries"
 # Cargo.toml
 [dependencies]
 pgweave-runtime = { path = "…/crates/pgweave-runtime" }
-pgweave-macros  = { path = "…/crates/pgweave-macros" }   # pour query!
+pgweave-macros  = { path = "…/crates/pgweave-macros" }   # queries!, query!
 tokio-postgres  = { version = "0.7", features = ["with-time-0_3", "with-uuid-1"] }
 time = "0.3"      # dates (ou chrono, voir plus bas)
 uuid = "1"        # si le schéma a des uuid
-
-[build-dependencies]
-pgweave-build = { path = "…/crates/pgweave-build" }
 ```
 
 ```rust
-// build.rs
+// src/queries.rs — tout le contenu est généré à la compilation
+pgweave_macros::queries!("queries");
+```
+
+```rust
+// src/lib.rs
+pub mod queries;
+// queries/order/book.sql, requête `get` → crate::queries::order::book::get
+```
+
+`queries!` prend un répertoire (un module par fichier et par
+sous-répertoire, les enums PostgreSQL à la racine) ou un fichier (ses
+requêtes à l'endroit de l'appel). Des requêtes peuvent vivre près du code
+qui les utilise : déclarez leur répertoire dans `[queries] include`, puis
+`pgweave_macros::queries!("src/order/queries");` dans `src/order/mod.rs`.
+Chaque fichier lu est surveillé ; un fichier **ajouté** à un répertoire
+n'est vu qu'à la recompilation du module qui appelle la macro.
+
+Variante sans macro, depuis `build.rs` (le répertoire `[queries] directory`
+entier, y compris ses fichiers ajoutés, surveillés par Cargo) :
+
+```rust
+// build.rs  ([build-dependencies] pgweave-build)
 fn main() {
     pgweave_build::Builder::new()
         .generate()
         .unwrap_or_else(|e| panic!("pgweave : {e}"));
 }
-```
 
-```rust
 // src/lib.rs
 pub mod queries {
     include!(concat!(env!("OUT_DIR"), "/pgweave_queries.rs"));
@@ -72,7 +90,7 @@ directory = "packages/models/prisma/migrations"
 
 Une requête que l'analyse ne décrit pas fait **échouer la compilation**, avec
 sa position dans le fichier SQL. Modifier le schéma, une migration ou une
-requête relance la génération. `pgweave describe --rust queries/x.sql`
+requête relance la génération : rust-analyzer suit, sans watcher à lancer. `pgweave describe --rust queries/x.sql`
 affiche le code généré sans compiler ; `pgweave describe` seul affiche les
 descripteurs JSON.
 

@@ -12,6 +12,3 @@ tokio = { workspace = true }
 tokio-postgres = { workspace = true, features = ["with-time-0_3", "with-uuid-1"] }
 time = "0.3"
 uuid = "1"
-
-[build-dependencies]
-pgweave-build = { path = "../../crates/pgweave-build" }

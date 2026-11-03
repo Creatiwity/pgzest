@@ -54,7 +54,7 @@ async fn code_genere_face_a_tokio_postgres() {
         let start = Instant::now();
         for i in 0..ITERATIONS {
             let id = (i % 100) as i64 + 1;
-            let page = queries::page_by_id(&client, queries::PageByIdParams { id })
+            let page = queries::pages::page_by_id(&client, queries::pages::PageByIdParams { id })
                 .await
                 .expect("page_by_id");
             std::hint::black_box(page);
