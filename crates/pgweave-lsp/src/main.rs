@@ -2,6 +2,7 @@ use tower_lsp::{LspService, Server};
 mod backend;
 mod completion;
 mod line_index;
+mod rust_embed;
 mod semantic;
 use backend::PgsqlBackend;
 

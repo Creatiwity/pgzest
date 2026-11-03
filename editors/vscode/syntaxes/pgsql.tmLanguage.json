@@ -12,6 +12,12 @@
       "include": "#dollar_quotes"
     },
     {
+      "include": "#parameters"
+    },
+    {
+      "include": "#fragments"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -127,6 +133,14 @@
     "operators": {
       "name": "keyword.operator.sql",
       "match": "=|<>|!=|<=|>=|<|>|\\|\\||::|->>|->|@>|<@|&&|\\?\\||\\?&|\\?"
+    },
+    "parameters": {
+      "name": "variable.parameter.sql",
+      "match": "\\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+)\\b(?!\\$)"
+    },
+    "fragments": {
+      "name": "entity.name.function.macro.sql",
+      "match": "@[a-z_][a-z0-9_]*\\b"
     }
   }
 }

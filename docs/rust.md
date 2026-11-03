@@ -86,6 +86,14 @@ pgweave_macros::sql! {
   (l'entrée de la macro change) ; « aller à la définition » mène au nom
   écrit dans la macro.
 
+Dans VS Code, l'extension pgweave traite la chaîne comme un fichier de
+requêtes : coloration SQL (`$param`, `@fragment` compris), diagnostics
+positionnés dans la chaîne, survol (descripteur sur le nom, type d'une
+colonne, fragment), complétion. Elle désactive les jetons sémantiques de
+rust-analyzer sur les chaînes (`rust-analyzer.semanticHighlighting.strings.enable`),
+qui recouvriraient la coloration. Hors d'un projet pgweave (`pgweave.toml`),
+un `query!` homonyme (sqlx…) n'est pas analysé.
+
 ### Enums : `#[types]`
 
 Une requête `sql!` qui utilise un enum PostgreSQL ne peut pas le définir

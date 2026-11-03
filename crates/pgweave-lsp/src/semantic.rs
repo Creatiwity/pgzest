@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{
-    SemanticToken, SemanticTokenType, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensServerCapabilities,
+    DocumentFilter, SemanticToken, SemanticTokenType, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensRegistrationOptions,
+    SemanticTokensServerCapabilities, TextDocumentRegistrationOptions,
 };
 
 pub const N_COLORS: usize = 6;
@@ -24,13 +25,29 @@ pub fn legend() -> SemanticTokensLegend {
     }
 }
 
+/// Jetons des documents SQL seulement : le serveur sert aussi les fichiers
+/// Rust (requêtes de `sql!`), dont les jetons restent ceux de
+/// rust-analyzer.
 pub fn server_capability() -> SemanticTokensServerCapabilities {
-    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
-        legend: legend(),
-        full: Some(SemanticTokensFullOptions::Bool(true)),
-        range: Some(false),
-        work_done_progress_options: Default::default(),
-    })
+    let sql = |language: &str| DocumentFilter {
+        language: Some(language.to_string()),
+        scheme: None,
+        pattern: None,
+    };
+    SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
+        SemanticTokensRegistrationOptions {
+            text_document_registration_options: TextDocumentRegistrationOptions {
+                document_selector: Some(vec![sql("sql"), sql("pgsql")]),
+            },
+            semantic_tokens_options: SemanticTokensOptions {
+                legend: legend(),
+                full: Some(SemanticTokensFullOptions::Bool(true)),
+                range: Some(false),
+                work_done_progress_options: Default::default(),
+            },
+            static_registration_options: Default::default(),
+        },
+    )
 }
 
 // ── Tokenizer ─────────────────────────────────────────────────────────────────

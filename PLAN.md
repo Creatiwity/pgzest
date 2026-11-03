@@ -836,9 +836,11 @@ Ajouts (2026-11-03, après la sortie) :
   rust-analyzer), noms sur le nom écrit, lien vers la ligne SQL au survol.
 
 Reste :
-- Coloration SQL et assistance (survol, diagnostics, complétion) dans les
-  chaînes de `sql!`/`query!` : extension VS Code et `pgweave-lsp` sur les
-  `.rs`.
+- Fait ensuite : coloration SQL des chaînes de `sql!`/`query!` (grammaire
+  d'injection, vérifiée avec la grammaire Rust de VS Code), `pgweave-lsp`
+  sur les `.rs` (requêtes extraites par balayage lexical, positions exactes
+  échappements compris : diagnostics, survol, complétion), jetons
+  sémantiques réservés aux documents SQL.
 - Fragments dans un `CREATE FUNCTION … AS $$…$$` écrit à la main : non
   insérés (une chaîne dollar n'est pas interprétée) ; passer par `@function`.
 - `pgweave build` n'éjecte pas encore un fichier de requêtes (les

@@ -140,6 +140,11 @@ impl PgsqlBackend {
         }
     }
 
+    /// Un projet pgweave (`pgweave.toml`) est chargé.
+    async fn in_project(&self) -> bool {
+        self.config.lock().await.is_some()
+    }
+
     /// Jeu de macros courant (clone d'Arc, bon marché).
     async fn macros(&self) -> Arc<pgweave_macro::MacroSet> {
         self.macros.lock().await.clone()
@@ -336,6 +341,22 @@ impl PgsqlBackend {
     /// traduit par un fichier vert dans l'éditeur et rouge en CI.
     async fn run_diagnostics(&self, uri: &str, text: &str) {
         let line_index = LineIndex::new(text);
+        if is_rust(uri) {
+            // Requêtes `sql!` / `query!` d'un projet pgweave seulement : une
+            // macro homonyme d'un autre outil n'est pas analysée hors projet.
+            let diags = if self.in_project().await {
+                let resolver = self.resolver().await;
+                let macros = self.macros().await;
+                crate::rust_embed::find(text)
+                    .iter()
+                    .flat_map(|e| embedded_diagnostics(e, resolver.as_ref(), &macros))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            self.publish(uri, &diags, &line_index).await;
+            return;
+        }
         let role = self.role_of(uri).await;
         // Fichier de fragments : son format seul ; chaque fragment est vérifié
         // là où il est inséré.
@@ -671,6 +692,10 @@ impl LanguageServer for PgsqlBackend {
                 .await
                 .insert(uri.clone(), text.clone());
 
+            if is_rust(&uri) {
+                self.run_diagnostics(&uri, &text).await;
+                return;
+            }
             let path = uri_to_path(&uri);
             let mut schema_changed = false;
             let macro_file = path
@@ -741,6 +766,22 @@ impl LanguageServer for PgsqlBackend {
         drop(docs);
 
         let offset = position_to_offset(&text, pos.line, pos.character);
+        if is_rust(&uri) {
+            if !self.in_project().await {
+                return Ok(None);
+            }
+            let resolver = self.resolver().await;
+            let macros = self.macros().await;
+            return Ok(
+                hover_rust(&text, offset as usize, resolver.as_ref(), &macros).map(|value| Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value,
+                    }),
+                    range: None,
+                }),
+            );
+        }
         let word = match word_at_offset(&text, offset as usize) {
             Some(w) => w,
             None => return Ok(None),
@@ -795,6 +836,21 @@ impl LanguageServer for PgsqlBackend {
 
         let resolver = self.resolver().await;
         let cursor_offset = position_to_offset(&text, pos.line, pos.character) as usize;
+        // Fichier Rust : seulement dans le SQL d'un `sql!` / `query!`.
+        if is_rust(&uri) {
+            if !self.in_project().await {
+                return Ok(None);
+            }
+            let found = crate::rust_embed::find(&text)
+                .into_iter()
+                .find_map(|e| e.to_sql(cursor_offset).map(|at| (e, at)));
+            return Ok(found.map(|(e, at)| {
+                CompletionResponse::Array(build_completions(
+                    &analyze_cursor(&e.sql, at),
+                    resolver.as_ref(),
+                ))
+            }));
+        }
         let ctx = analyze_cursor(&text, cursor_offset);
         let items = build_completions(&ctx, resolver.as_ref());
 
@@ -883,6 +939,89 @@ fn hover_query(
 /// Survol de l'en-tête `-- name: …` d'une requête nommée : ce que décrit
 /// son descripteur (paramètres, colonnes, cardinalité), ou pourquoi il n'y
 /// en a pas.
+/// Document Rust (requêtes `sql!` / `query!`).
+fn is_rust(uri: &str) -> bool {
+    uri.ends_with(".rs")
+}
+
+/// En-tête de requête nommée équivalent à une requête écrite en Rust.
+fn embedded_header(e: &crate::rust_embed::Embedded) -> String {
+    let name = e.name.as_ref().map_or("query", |(n, _)| n.as_str());
+    match &e.cardinality {
+        Some(c) => format!("-- name: {name} :{c}\n"),
+        None => format!("-- name: {name}\n"),
+    }
+}
+
+/// Diagnostics d'une requête écrite en Rust, aux positions du fichier : format,
+/// fragments, analyse et ce qui empêche de la décrire, comme une requête
+/// nommée.
+fn embedded_diagnostics(
+    e: &crate::rust_embed::Embedded,
+    catalog: &ProjectCatalog,
+    macros: &pgweave_macro::MacroSet,
+) -> Vec<Diagnostic> {
+    let header = embedded_header(e);
+    let text = format!("{header}{}", e.sql);
+    let whole = e
+        .name
+        .as_ref()
+        .map_or(e.content.clone(), |(_, r)| r.clone());
+    let place = |mut d: Diagnostic| {
+        d.span = Some(match &d.span {
+            Some(s) if s.start >= header.len() => {
+                let start = e.to_file(s.start - header.len());
+                let end = e.to_file(s.end.max(s.start) - header.len()).max(start + 1);
+                pgweave_diagnostics::Span { start, end }
+            }
+            // Dans l'en-tête ajouté (nom, cardinalité) : sur le nom écrit.
+            _ => pgweave_diagnostics::Span {
+                start: whole.start,
+                end: whole.end,
+            },
+        });
+        d
+    };
+    let file = pgweave_query::parse_query_file_with(&text, macros);
+    let mut out: Vec<Diagnostic> = file.diagnostics.into_iter().map(place).collect();
+    for q in &file.queries {
+        if let Err(ds) = pgweave_query::describe_named(catalog, q) {
+            out.extend(ds.into_iter().map(place));
+        }
+    }
+    out
+}
+
+/// Survol dans un fichier Rust : le descripteur sur le nom d'un `sql!`, le
+/// type ou le fragment sous le curseur dans le SQL.
+fn hover_rust(
+    text: &str,
+    offset: usize,
+    catalog: &ProjectCatalog,
+    macros: &pgweave_macro::MacroSet,
+) -> Option<String> {
+    let found = crate::rust_embed::find(text);
+    if let Some(e) = found
+        .iter()
+        .find(|e| e.name.as_ref().is_some_and(|(_, r)| r.contains(&offset)))
+    {
+        let header = embedded_header(e);
+        return hover_named_query(&format!("{header}{}", e.sql), 9, catalog, macros);
+    }
+    let (e, at) = found
+        .iter()
+        .find_map(|e| e.to_sql(offset).map(|at| (e, at)))?;
+    let prepared = pgweave_analysis::prepare_source(&e.sql, macros);
+    let stmts = prepared
+        .parse_with_outcome()
+        .map(|o| o.statements)
+        .unwrap_or_default();
+    hover_fragment(&prepared, macros, at).or_else(|| {
+        let word = word_at_offset(&e.sql, at)?;
+        hover_query(&stmts, catalog, at, &word)
+    })
+}
+
 /// Survol d'un `@fragment` : d'où il vient, sa documentation, ce qu'il
 /// insère ici.
 fn hover_fragment(

@@ -1,0 +1,97 @@
+{
+  "scopeName": "pgweave.injection.rust-sql",
+  "injectionSelector": "L:source.rust -comment -string",
+  "patterns": [
+    { "include": "#macro-paren" },
+    { "include": "#macro-brace" },
+    { "include": "#macro-bracket" }
+  ],
+  "repository": {
+    "macro-paren": {
+      "begin": "\\b((?:pgweave_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.macro.rust" },
+        "2": { "name": "entity.name.function.macro.rust" },
+        "3": { "name": "punctuation.brackets.round.rust" }
+      },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.brackets.round.rust" } },
+      "patterns": [{ "include": "#arguments" }]
+    },
+    "macro-brace": {
+      "begin": "\\b((?:pgweave_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.macro.rust" },
+        "2": { "name": "entity.name.function.macro.rust" },
+        "3": { "name": "punctuation.brackets.curly.rust" }
+      },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.brackets.curly.rust" } },
+      "patterns": [{ "include": "#arguments" }]
+    },
+    "macro-bracket": {
+      "begin": "\\b((?:pgweave_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\[)",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.macro.rust" },
+        "2": { "name": "entity.name.function.macro.rust" },
+        "3": { "name": "punctuation.brackets.square.rust" }
+      },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.brackets.square.rust" } },
+      "patterns": [{ "include": "#arguments" }]
+    },
+    "arguments": {
+      "patterns": [
+        { "include": "#raw-sql" },
+        { "include": "#sql" },
+        { "include": "#nested-paren" },
+        { "include": "#nested-brace" },
+        { "include": "#nested-bracket" },
+        { "include": "source.rust" }
+      ]
+    },
+    "raw-sql": {
+      "name": "string.quoted.double.raw.rust",
+      "begin": "(b?r)(#*)(\")",
+      "beginCaptures": {
+        "1": { "name": "string.quoted.byte.raw.rust" },
+        "2": { "name": "punctuation.definition.string.raw.rust" },
+        "3": { "name": "punctuation.definition.string.rust" }
+      },
+      "end": "(\")(\\2)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.rust" },
+        "2": { "name": "punctuation.definition.string.raw.rust" }
+      },
+      "contentName": "meta.embedded.block.sql",
+      "patterns": [{ "include": "source.pgsql" }]
+    },
+    "sql": {
+      "name": "string.quoted.double.rust",
+      "begin": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.rust" } },
+      "end": "\"",
+      "endCaptures": { "0": { "name": "punctuation.definition.string.rust" } },
+      "contentName": "meta.embedded.block.sql",
+      "patterns": [
+        { "name": "constant.character.escape.rust", "match": "\\\\(?:[nrt0\\\\'\"]|x[0-7][0-9a-fA-F]|u\\{[0-9a-fA-F_]{1,6}\\}|\\n)" },
+        { "include": "source.pgsql" }
+      ]
+    },
+    "nested-paren": {
+      "begin": "\\(",
+      "end": "\\)",
+      "patterns": [{ "include": "#arguments" }]
+    },
+    "nested-brace": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [{ "include": "#arguments" }]
+    },
+    "nested-bracket": {
+      "begin": "\\[",
+      "end": "\\]",
+      "patterns": [{ "include": "#arguments" }]
+    }
+  }
+}

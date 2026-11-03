@@ -161,7 +161,10 @@ macro. `dishes_by_price` reprend la fiche de plat de `queries/menu.sql`
 remplacez `FROM dishes d` par `FROM restaurants r LEFT JOIN dishes d ON
 d.restaurant_id = r.id`, et `cargo build` refuse, colonne par colonne
 (« `price` peut être nulle ici… »). Modifier la chaîne est pris en compte
-par l'éditeur à la frappe. Les enums sont générés une fois, dans `crate::db`
+par l'éditeur à la frappe, et la chaîne est traitée comme un fichier SQL :
+coloration, erreurs soulignées dans la chaîne, survol (le descripteur sur
+`dishes_by_price`, le type de `d.price`, le fragment `@dish_card`),
+complétion. Les enums sont générés une fois, dans `crate::db`
 (`#[pgweave_macros::types]`, `[rust] types` dans pgweave.toml).
 
 `src/lib.rs` montre aussi `query!`, une requête ponctuelle dans une

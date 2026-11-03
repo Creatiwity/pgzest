@@ -586,3 +586,35 @@ fn mode_declaratif_schema_et_migrations_rejoues_a_part() {
         "{diags:?}"
     );
 }
+
+#[test]
+fn requete_sql_dans_un_fichier_rust() {
+    let root = scaffold(
+        "rust",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n",
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE t (id INT PRIMARY KEY, a TEXT);\n",
+            ),
+            (
+                "src/q.rs",
+                "pgweave_macros::sql! {\n    pub par_id: optional,\n    r#\"SELECT a, nope FROM t WHERE id = $id\"#\n}\n\
+                 fn f() { let _ = \"SELECT nope FROM rien\"; }\n",
+            ),
+        ],
+    );
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let uri = lsp.open(&root.join("src/q.rs"), "rust");
+    let diags = lsp.await_diagnostics(&uri);
+    // Une seule erreur : celle de la requête, sur `nope` dans le littéral ;
+    // la chaîne ordinaire hors macro n'est pas analysée.
+    assert_eq!(diags.len(), 1, "{diags:?}");
+    assert_eq!(diags[0]["code"], "column-not-found");
+    assert_eq!(diags[0]["range"]["start"]["line"], 2);
+    assert_eq!(diags[0]["range"]["start"]["character"], 17);
+}

@@ -13,7 +13,8 @@
   ],
   "activationEvents": [
     "onLanguage:pgsql",
-    "onLanguage:sql"
+    "onLanguage:sql",
+    "onLanguage:rust"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -51,6 +52,16 @@
       {
         "scopeName": "source.plpgsql",
         "path": "./syntaxes/plpgsql.tmLanguage.json"
+      },
+      {
+        "scopeName": "pgweave.injection.rust-sql",
+        "path": "./syntaxes/rust-sql.injection.tmLanguage.json",
+        "injectTo": [
+          "source.rust"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.sql": "pgsql"
+        }
       }
     ],
     "semanticTokenScopes": [
@@ -98,7 +109,8 @@
       },
       "[sql]": {
         "editor.semanticHighlighting.enabled": true
-      }
+      },
+      "rust-analyzer.semanticHighlighting.strings.enable": false
     },
     "commands": [
       {

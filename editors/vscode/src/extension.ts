@@ -43,6 +43,9 @@ export function activate(context: vscode.ExtensionContext) {
     documentSelector: [
       { scheme: 'file', language: 'pgsql' },
       { scheme: 'file', language: 'sql' },
+      // Requêtes écrites dans le code Rust (`sql!`, `query!`) : diagnostics,
+      // survol et complétion dans leur chaîne.
+      { scheme: 'file', language: 'rust' },
     ],
     initializationOptions: { schemaFile },
     synchronize: {
