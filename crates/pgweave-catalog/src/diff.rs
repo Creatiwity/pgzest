@@ -82,6 +82,17 @@ impl Risk {
             destructive: true,
         }
     }
+
+    /// To review before applying: data loss, or a likely failure on a
+    /// populated table (NOT NULL column without default, type conversion,
+    /// `SET NOT NULL`).
+    pub fn needs_review(&self) -> bool {
+        self.destructive
+            || matches!(
+                self.code,
+                M001_NOT_NULL_WITHOUT_DEFAULT | M004_COLUMN_TYPE | M005_SET_NOT_NULL
+            )
+    }
 }
 
 /// Colonne `NOT NULL` ajoutée sans défaut : échoue si la table a des lignes.
@@ -240,7 +251,10 @@ pub fn diff(old: &Catalog, new: &Catalog) -> Migration {
             let risks = match phase {
                 DROP_TABLE => vec![Risk::destructive(
                     M003_DROP_TABLE,
-                    format!("table {} supprimée, avec ses lignes", node.key_name()),
+                    format!(
+                        "table {} supprimée, avec ses lignes : renommage → ALTER TABLE … RENAME TO ; données à garder → les reprendre avant",
+                        node.key_name()
+                    ),
                 )],
                 _ => Vec::new(),
             };
@@ -1117,7 +1131,7 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
                     warnings.push(Risk::new(
                         M001_NOT_NULL_WITHOUT_DEFAULT,
                         format!(
-                            "colonne {}.{} NOT NULL sans défaut : l'ajout échoue si la table a des lignes",
+                            "colonne {}.{} NOT NULL sans défaut : échoue si la table a des lignes → ajouter un DEFAULT, ou l'ajouter nullable, la remplir, puis SET NOT NULL",
                             q, c.name
                         ),
                     ));
@@ -1180,7 +1194,10 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
                     sql: format!("ALTER TABLE {table} DROP COLUMN {};", quote_ident(&c.name)),
                     risks: vec![Risk::destructive(
                         M002_DROP_COLUMN,
-                        format!("colonne {q}.{} supprimée, avec ses valeurs", c.name),
+                        format!(
+                            "colonne {q}.{} supprimée, avec ses valeurs : renommage → RENAME COLUMN ; valeurs à garder → les reprendre avant",
+                            c.name
+                        ),
                     )],
                 },
             );
@@ -1261,7 +1278,7 @@ fn alter_column(
             warnings.push(Risk::new(
                 M005_SET_NOT_NULL,
                 format!(
-                    "colonne {table}.{} NOT NULL : parcours complet de la table, échoue sur une valeur nulle",
+                    "colonne {table}.{} NOT NULL : parcours complet de la table, échoue sur une valeur nulle → remplir les nulls avant",
                     after.name
                 ),
             ));

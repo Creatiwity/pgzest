@@ -406,11 +406,15 @@ CREATE INDEX customers_name_trgm ON customers USING gin (name gin_trgm_ops);
   types, extensions, schémas) viennent en dernier.
 - **Vérifiée avant d'être écrite** : la migration est rejouée après les
   autres, et l'état obtenu doit être exactement le schéma.
-- **Rien n'est approché** : un changement sans expression sûre (valeur
-  d'enum retirée, domaine modifié, identité ajoutée…) arrête la génération
-  et est nommé ; la migration s'écrit alors à la main.
-- **Perte de données** : une table ou une colonne supprimée exige
-  `--allow-destructive` (un renommage s'écrit à la main).
+- **Simplest migration, adapted by the developer**: the generated
+  migration reaches the schema in the simplest way, even if it loses data
+  (a rename becomes a drop and an add) or fails on a populated table (NOT
+  NULL column without default). Only the developer knows the data: the
+  header of the file (`!! À ADAPTER`) lists what to review, and `pgweave
+  migrate check` verifies the final state once it is adapted.
+- **Nothing is approximated**: a change pgweave cannot express (enum value
+  removed, domain changed, identity added…) is written as a `TODO` in the
+  migration; `migrate check` fails until it is written by hand.
 - **Risques** signalés sur chaque statement concerné : M001 colonne
   `NOT NULL` sans défaut, M002 colonne supprimée, M003 table supprimée, M004
   type de colonne changé, M005 `SET NOT NULL`, M006 index sans

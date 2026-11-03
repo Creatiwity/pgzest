@@ -617,8 +617,8 @@ fn migration_creee_apres_le_demarrage() {
     let init = lsp.open(&root.join("migrations/0001_init.sql"), "sql");
     assert!(has_drift(&lsp.await_diagnostics(&init)));
 
-    // Écrite sur le disque (`pgweave migrate create`), hors de l'éditeur :
-    // le projet la prend en compte, l'écart disparaît de 0001.
+    // Written to disk (`pgweave migrate create`), outside the editor: the
+    // project picks it up and the drift leaves 0001.
     let path = root.join("migrations/0002_b.sql");
     std::fs::write(&path, "ALTER TABLE t ADD COLUMN b INT;\n").unwrap();
     let uri = format!("file://{}", path.display());
@@ -629,7 +629,7 @@ fn migration_creee_apres_le_demarrage() {
     let diags = lsp.await_diagnostics(&init);
     assert!(!has_drift(&diags), "{diags:?}");
 
-    // Ouverte ensuite : rejouée après 0001, pas seule (la table existe).
+    // Opened afterwards: replayed after 0001, not alone (the table exists).
     let opened = lsp.open(&path, "sql");
     let diags = lsp.await_diagnostics(&opened);
     assert!(diags.is_empty(), "{diags:?}");
@@ -652,8 +652,8 @@ fn migration_ouverte_avant_tout_rechargement() {
     );
     let mut lsp = Lsp::spawn();
     lsp.init(&root);
-    // Créée après le démarrage, sans notification du client : l'ouverture
-    // suffit à la placer dans la chaîne.
+    // Created after startup, without a client notification: opening it is
+    // enough to place it in the chain.
     let path = root.join("migrations/0002_b.sql");
     std::fs::write(&path, "ALTER TABLE t ADD COLUMN b INT;\n").unwrap();
     let opened = lsp.open(&path, "sql");

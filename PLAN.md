@@ -880,8 +880,11 @@ Fait (2026-11-03) :
   remplacées, ou supprimées puis recréées si leur signature de sortie
   change. Ce qui ne s'exprime pas sans perte est rendu non pris en charge,
   jamais approché.
-- Règles de sûreté M001 à M007 portées par chaque statement ; perte de
-  données refusée sans `--allow-destructive`.
+- Safety rules M001 to M007 carried by each statement. The migration is
+  always written, as simple as possible: data loss and likely failures are
+  listed in its header for the developer to adapt (no `--allow-destructive`
+  refusal); changes pgweave cannot express are left as `TODO`, and
+  `migrate check` fails until they are written.
 - Mode déclaratif (`[schema] declarative = true`, D10) : l'analyse ne
   rejoue que le schéma, les migrations sont rejouées à part (leurs
   diagnostics et l'en-tête de contexte vérifiés sur leur propre état),
@@ -918,8 +921,8 @@ Reste :
   classe par défaut et immutabilité des expressions non vérifiées.
 - Vue reconstruite dès qu'une colonne de sa table change ou disparaît,
   même non citée (correct, plus large que PostgreSQL).
-- Renommages : non détectés (suppression + ajout, refusés sans
-  `--allow-destructive`).
+- Renames: not detected (drop + add, flagged in the header for the
+  developer to turn into `RENAME`).
 
 - Diff sur le modèle complet D2 (schémas, extensions, types, domaines, enums
   y compris `ADD VALUE`, fonctions/procédures avec ordre de dépendances,

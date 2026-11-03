@@ -188,13 +188,12 @@ enum MigrateAction {
     /// Generate the next migration of a declarative project
     /// (`[schema] declarative = true`): what separates the state reached by
     /// the migrations from the declarative schema, checked by replay
-    /// before it is written.
+    /// before it is written. It is the simplest migration that reaches the
+    /// schema: steps that lose data or may fail on a populated database are
+    /// listed in its header, for the developer to adapt.
     Create {
         /// Migration name (lowercase, digits, `_`)
         name: String,
-        /// Accept steps that destroy data (dropped table or column)
-        #[arg(long)]
-        allow_destructive: bool,
         /// Print the migration instead of writing it
         #[arg(long)]
         dry_run: bool,
@@ -745,11 +744,7 @@ fn main() {
         },
         Command::Migrate { action } => match action {
             MigrateAction::Diff { old, new } => migrate::diff_files(&old, &new),
-            MigrateAction::Create {
-                name,
-                allow_destructive,
-                dry_run,
-            } => migrate::create(&name, allow_destructive, dry_run),
+            MigrateAction::Create { name, dry_run } => migrate::create(&name, dry_run),
             MigrateAction::Check => migrate::check(),
         },
         Command::Emit { file } => cmd_emit(&file),

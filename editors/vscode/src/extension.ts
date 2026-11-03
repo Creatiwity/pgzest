@@ -49,8 +49,8 @@ export function activate(context: vscode.ExtensionContext) {
     ],
     initializationOptions: { schemaFile },
     synchronize: {
-      // Fichiers créés ou modifiés hors de l'éditeur (`pgweave migrate
-      // create`, git…) : le serveur recharge le projet.
+      // Files created or changed outside the editor (`pgweave migrate
+      // create`, git…): the server reloads the project.
       fileEvents: vscode.workspace.createFileSystemWatcher(
         '**/{*.sql,*.pgsql,*.pgmacro,pgweave.toml}',
       ),

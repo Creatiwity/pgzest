@@ -684,9 +684,9 @@ impl LanguageServer for PgsqlBackend {
             .lock()
             .await
             .insert(uri.clone(), text.clone());
-        // Schéma ou migration absent du projet chargé (créé depuis, par
-        // `pgweave migrate create` par exemple) : sans rechargement il serait
-        // vérifié seul, hors de la chaîne des migrations qui le précèdent.
+        // Schema or migration file missing from the loaded project (created
+        // since, e.g. by `pgweave migrate create`): without a reload it would
+        // be checked alone, outside the chain of migrations before it.
         let unknown = !is_rust(&uri)
             && matches!(
                 self.role_of(&uri).await,
@@ -705,8 +705,8 @@ impl LanguageServer for PgsqlBackend {
         self.run_diagnostics(&uri, &text).await;
     }
 
-    /// Fichiers créés, supprimés ou modifiés hors de l'éditeur : le projet
-    /// suit le disque, sauf pour les documents ouverts (l'éditeur fait foi).
+    /// Files created, deleted or changed outside the editor: the project
+    /// follows the disk, except for open documents (the editor wins).
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         if !self.in_project().await && self.legacy_schema_path.lock().await.is_none() {
             return;
@@ -730,8 +730,8 @@ impl LanguageServer for PgsqlBackend {
             if config_file || macro_file || role == FileRole::Fragments {
                 reload = true;
             } else if matches!(role, FileRole::Schema | FileRole::Migration { .. }) {
-                // Fichier connu modifié : seul ce qui en dépend est recalculé.
-                // Créé ou supprimé : le projet est rechargé.
+                // Known file changed: only what depends on it is recomputed.
+                // Created or deleted: the project is reloaded.
                 let known = event.typ == FileChangeType::CHANGED
                     && match std::fs::read_to_string(&path) {
                         Ok(text) => self.workspace.lock().await.set_text(&path, &text),
@@ -740,7 +740,7 @@ impl LanguageServer for PgsqlBackend {
                 reload |= !known;
                 changed = true;
             } else if role == FileRole::Query {
-                // Une requête peut servir de référence à d'autres (`-> nom`).
+                // A query can be referenced by others (`-> name`).
                 changed = true;
             }
         }

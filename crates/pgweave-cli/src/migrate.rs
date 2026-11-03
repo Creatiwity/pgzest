@@ -111,17 +111,45 @@ fn history_and_target(l: &Loaded) -> Migration {
 
 fn print_unsupported(m: &Migration) {
     for u in &m.unsupported {
-        eprintln!("error: {} : {}", u.object, u.change);
+        eprintln!("à écrire : {} : {}", u.object, u.change);
     }
 }
 
-/// Texte de la migration : en-tête de contexte, remarques, statements
-/// précédés de leurs risques.
+/// Migration text: context header, what to review or write, notes, then
+/// each statement preceded by its risks.
+///
+/// The generated migration is the simplest one that reaches the schema: it
+/// may lose data or fail on a populated database. Only the developer knows
+/// the data; the header tells them what to adapt.
 fn render(m: &Migration, header: &str, name: &str) -> String {
     let mut out =
         format!("{header}\n-- Migration « {name} », générée par `pgweave migrate create`.\n");
+    let review: Vec<_> = m
+        .steps
+        .iter()
+        .flat_map(|s| s.risks.iter().filter(|r| r.needs_review()))
+        .collect();
+    if !review.is_empty() || !m.unsupported.is_empty() {
+        out.push_str(
+            "--\n-- !! À ADAPTER avant d'appliquer : migration générée au plus simple, elle\n\
+             -- !! atteint le schéma mais peut perdre des données ou échouer sur une base\n\
+             -- !! peuplée. `pgweave migrate check` vérifie l'état final après adaptation.\n",
+        );
+        for r in &review {
+            out.push_str(&format!("-- !! - {} : {}\n", r.code, r.message));
+        }
+        for u in &m.unsupported {
+            out.push_str(&format!("-- !! - À ÉCRIRE, {} : {}\n", u.object, u.change));
+        }
+    }
     for n in &m.notes {
         out.push_str(&format!("-- note : {n}\n"));
+    }
+    if !m.unsupported.is_empty() {
+        out.push_str("\n-- À ÉCRIRE : changements que pgweave ne génère pas.\n");
+        for u in &m.unsupported {
+            out.push_str(&format!("-- TODO {} : {}\n", u.object, u.change));
+        }
     }
     for step in &m.steps {
         out.push('\n');
@@ -205,7 +233,7 @@ fn migration_path(dir: &Path, chunks: &[SqlChunk], name: &str) -> PathBuf {
 
 // ── Commandes ─────────────────────────────────────────────────────────────────
 
-pub fn create(name: &str, allow_destructive: bool, dry_run: bool) -> i32 {
+pub fn create(name: &str, dry_run: bool) -> i32 {
     if name.is_empty()
         || !name
             .chars()
@@ -225,28 +253,6 @@ pub fn create(name: &str, allow_destructive: bool, dry_run: bool) -> i32 {
     if m.is_empty() {
         println!("aucun changement : les migrations atteignent déjà le schéma déclaratif");
         return 0;
-    }
-    if !m.unsupported.is_empty() {
-        print_unsupported(&m);
-        eprintln!(
-            "error: {} changement(s) non exprimable(s) automatiquement : écrire cette migration à la main",
-            m.unsupported.len()
-        );
-        return 1;
-    }
-    let destructive: Vec<_> = m
-        .steps
-        .iter()
-        .flat_map(|s| s.risks.iter().filter(|r| r.destructive))
-        .collect();
-    if !destructive.is_empty() && !allow_destructive {
-        for r in &destructive {
-            eprintln!("error[{}]: {}", r.code, r.message);
-        }
-        eprintln!(
-            "error: la migration détruit des données ; un renommage s'écrit à la main, sinon relancer avec --allow-destructive"
-        );
-        return 1;
     }
 
     let header = pgweave_catalog::dump::header(&l.project.catalog, l.config.postgres.version);
@@ -287,7 +293,8 @@ pub fn create(name: &str, allow_destructive: bool, dry_run: bool) -> i32 {
         verified.history.as_ref().expect("projet déclaratif"),
         &verified.catalog,
     );
-    if !errors.is_empty() || !rest.is_empty() {
+    // Only the changes left to write by hand remain: everything else is reached.
+    if !errors.is_empty() || !rest.steps.is_empty() || rest.unsupported != m.unsupported {
         eprintln!(
             "error: la migration générée ne passe pas sa vérification par rejeu (défaut de pgweave) :"
         );
@@ -302,10 +309,11 @@ pub fn create(name: &str, allow_destructive: bool, dry_run: bool) -> i32 {
     }
 
     for step in &m.steps {
-        for r in step.risks.iter().filter(|r| !r.destructive) {
+        for r in &step.risks {
             eprintln!("warning[{}]: {}", r.code, r.message);
         }
     }
+    print_unsupported(&m);
     for n in &m.notes {
         eprintln!("note: {n}");
     }
@@ -321,11 +329,23 @@ pub fn create(name: &str, allow_destructive: bool, dry_run: bool) -> i32 {
         eprintln!("error: {}: {e}", path.display());
         return 2;
     }
+    let shown = path.strip_prefix(&l.root).unwrap_or(&path).display();
     println!(
-        "écrit : {} ({} statement(s), vérifiée par rejeu)",
-        path.strip_prefix(&l.root).unwrap_or(&path).display(),
+        "écrit : {shown} ({} statement(s), vérifiée par rejeu)",
         m.steps.len()
     );
+    if m.steps
+        .iter()
+        .any(|s| s.risks.iter().any(|r| r.needs_review()))
+    {
+        println!("à adapter : voir l'en-tête « À ADAPTER » de {shown} avant de l'appliquer");
+    }
+    if !m.unsupported.is_empty() {
+        println!(
+            "à compléter : {} changement(s) à écrire dans {shown} ; `pgweave migrate check` échoue d'ici là",
+            m.unsupported.len()
+        );
+    }
     0
 }
 
@@ -350,7 +370,11 @@ pub fn check() -> i32 {
         eprintln!("  {}", step.sql.lines().next().unwrap_or_default());
     }
     print_unsupported(&m);
-    eprintln!("hint: `pgweave migrate create <nom>` génère la migration");
+    if m.steps.is_empty() {
+        eprintln!("hint: ces changements s'écrivent à la main dans une migration");
+    } else {
+        eprintln!("hint: `pgweave migrate create <nom>` génère la migration");
+    }
     1
 }
 
