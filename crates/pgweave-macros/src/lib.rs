@@ -17,6 +17,11 @@
 //! - Une erreur SQL est une erreur de compilation sur la chaîne.
 //! - Les fichiers du projet sont inclus (`include_bytes!`) : modifier le
 //!   schéma recompile les requêtes qui en dépendent.
+//!
+//! `queries!("queries")` : le code des requêtes nommées d'un répertoire (un
+//! module par fichier : `queries/order/book.sql` → `order::book`) ou d'un
+//! fichier, à l'endroit de l'appel — par exemple seul contenu de
+//! `src/queries.rs`. Même génération que `pgweave-build`, sans `build.rs`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -76,6 +81,62 @@ pub fn query_file(input: TokenStream) -> TokenStream {
             .to_compile_error()
             .into(),
     }
+}
+
+/// `queries!("chemin")` : fonctions, structs et enums des requêtes nommées
+/// de `chemin` (relatif au `Cargo.toml` du crate), répertoire ou fichier.
+///
+/// ```ignore
+/// // src/queries.rs
+/// pgweave_macros::queries!("queries");
+/// // ailleurs : crate::queries::order::book::get(&client, …)
+/// ```
+///
+/// Chaque fichier lu est inclus pour la recompilation. Un fichier **ajouté**
+/// au répertoire n'est vu qu'à la prochaine compilation du module qui
+/// appelle la macro (Cargo ne surveille pas un répertoire pour une macro ;
+/// `pgweave-build` depuis `build.rs`, lui, le fait).
+#[proc_macro]
+pub fn queries(input: TokenStream) -> TokenStream {
+    let path = syn::parse_macro_input!(input as LitStr);
+    let root = match std::env::var_os("CARGO_MANIFEST_DIR") {
+        Some(r) => PathBuf::from(r),
+        None => {
+            return syn::Error::new(path.span(), "CARGO_MANIFEST_DIR absent")
+                .to_compile_error()
+                .into();
+        }
+    };
+    match expand_queries(root, &path.value()) {
+        Ok(tokens) => tokens.into(),
+        Err(message) => syn::Error::new(path.span(), message)
+            .to_compile_error()
+            .into(),
+    }
+}
+
+fn expand_queries(root: PathBuf, rel: &str) -> Result<Tokens, String> {
+    let project = project(root.clone())?;
+    let opts = pgweave_codegen::rust::RustOptions {
+        runtime: "::pgweave_runtime".into(),
+        ..Default::default()
+    };
+    let mut watched: Vec<String> = project
+        .files
+        .iter()
+        .filter(|p| p.is_file())
+        .map(|p| p.display().to_string())
+        .collect();
+    let code = pgweave_build::generate_path(&project, &root.join(rel), &opts, &mut |p| {
+        if p.is_file() {
+            watched.push(p.display().to_string());
+        }
+    })?;
+    let code = parse(&code)?;
+    Ok(quote!(
+        #( const _: &[u8] = include_bytes!(#watched); )*
+        #code
+    ))
 }
 
 /// Projet chargé, avec la date de modification de chaque fichier lu : le
@@ -285,6 +346,39 @@ mod tests {
         assert!(
             err(r#""SELECT mood FROM notes""#).contains("l'enum public.mood n'a pas de type Rust")
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn un_module_par_fichier_et_lignes_reprises() {
+        let dir = project_dir("queries");
+        std::fs::create_dir_all(dir.join("queries/notes")).unwrap();
+        std::fs::write(
+            dir.join("queries/notes/read.sql"),
+            "-- name: card :optional\nSELECT id, body FROM notes WHERE id = $id;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("queries/search.sql"),
+            "-- name: all_cards :many -> notes::read::card\nSELECT id, body FROM notes;\n",
+        )
+        .unwrap();
+        let code = expand_queries(dir.clone(), "queries")
+            .expect("expansion")
+            .to_string();
+        assert!(code.contains("pub mod notes"), "{code}");
+        assert!(code.contains("pub mod read"), "{code}");
+        assert!(code.contains("pub mod search"), "{code}");
+        assert!(
+            code.contains("Vec < super :: notes :: read :: CardRow >"),
+            "{code}"
+        );
+        let file = expand_queries(dir.clone(), "queries/notes/read.sql")
+            .expect("fichier")
+            .to_string();
+        assert!(!file.contains("pub mod"), "{file}");
+        let err = expand_queries(dir.clone(), "nope").expect_err("absent");
+        assert!(err.contains("ni fichier ni répertoire"), "{err}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

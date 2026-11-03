@@ -180,17 +180,22 @@ impl PgsqlBackend {
         self.workspace.lock().await.set_macros(set);
     }
 
-    /// Descripteurs des requêtes nommées du projet, documents ouverts compris.
-    async fn project_descriptors(
+    /// Module de `file` dans son répertoire de requêtes, et les requêtes de
+    /// ce répertoire par module, documents ouverts compris.
+    async fn query_tree(
         &self,
+        file: &Path,
         catalog: &ProjectCatalog,
         macros: &pgweave_macro::MacroSet,
-    ) -> Vec<pgweave_query::Descriptor> {
+    ) -> (Vec<String>, Vec<pgweave_query::QueryModule>) {
         let (Some(root), Some(config)) = (
             self.project_root.lock().await.clone(),
             self.config.lock().await.clone(),
         ) else {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
+        };
+        let Some((qroot, here)) = config.query_module(file, &root) else {
+            return (Vec::new(), Vec::new());
         };
         let open: HashMap<std::path::PathBuf, String> = self
             .documents
@@ -199,13 +204,14 @@ impl PgsqlBackend {
             .iter()
             .filter_map(|(uri, text)| Some((uri_to_path(uri)?, text.clone())))
             .collect();
-        pgweave_analysis::project_descriptors(&root, &config, catalog, macros, &|p| {
+        let modules = pgweave_analysis::query_modules(&qroot, catalog, macros, &|p| {
             let canonical = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
             open.get(&canonical)
                 .or_else(|| open.get(p))
                 .cloned()
                 .or_else(|| std::fs::read_to_string(p).ok())
-        })
+        });
+        (here, modules)
     }
 
     /// Catalogue du projet à jour (rejeu mémorisé, clone d'Arc).
@@ -408,9 +414,12 @@ impl PgsqlBackend {
         match (&role, &path) {
             (FileRole::Query, _) => {
                 diags.extend(pgweave_checker::check_statements(&stmts, &resolver));
-                let others = self.project_descriptors(&resolver, &macros).await;
+                let (here, others) = match &path {
+                    Some(p) => self.query_tree(p, &resolver, &macros).await,
+                    None => (Vec::new(), Vec::new()),
+                };
                 diags.extend(pgweave_analysis::query_descriptor_diagnostics(
-                    text, &resolver, &macros, &others,
+                    text, &resolver, &macros, &here, &others,
                 ));
             }
             (_, Some(p)) if in_project => {
@@ -539,6 +548,9 @@ impl LanguageServer for PgsqlBackend {
         };
         if let Some((project_root, config)) = discovered {
             *self.project_root.lock().await = Some(project_root.clone());
+            // La config d'abord : le chargement du projet en dépend (mode
+            // déclaratif).
+            *self.config.lock().await = Some(config.clone());
             // Macros du projet d'abord : le catalogue doit voir les objets
             // déclarés par les macros maison, pas seulement par celles fournies.
             self.rebuild_macros().await;
@@ -579,7 +591,6 @@ impl LanguageServer for PgsqlBackend {
             }
             *self.wasm_plugins.lock().await = loaded;
 
-            *self.config.lock().await = Some(config);
             self.client
                 .log_message(
                     MessageType::INFO,

@@ -90,8 +90,9 @@ pub struct NamedQuery {
     /// Plage du nom dans l'en-tête.
     pub name_range: Range<usize>,
     pub cardinality: Option<Cardinality>,
-    /// `-> autre` : les lignes ont la forme de celles de la requête `autre`
-    /// (même struct générée), et sa plage dans l'en-tête.
+    /// `-> autre` (même fichier) ou `-> a::b::autre` (depuis la racine du
+    /// répertoire de requêtes) : les lignes ont la forme de celles de cette
+    /// requête (même struct générée), et sa plage dans l'en-tête.
     pub row: Option<(String, Range<usize>)>,
     /// Lignes de commentaire entre l'en-tête et le SQL, sans le `-- `.
     pub doc: Vec<String>,
@@ -376,7 +377,7 @@ impl FileParser<'_> {
             }
         }
         match (arrow, row_word) {
-            (Some(_), Some(r)) if is_snake_ident(r) => {
+            (Some(_), Some(r)) if r.split("::").all(is_snake_ident) => {
                 let after = payload.find("->").map_or(0, |k| k + 2);
                 let start = payload_start + after + payload[after..].find(r).unwrap_or(0);
                 builder.row = Some((r.to_string(), start..start + r.len()));

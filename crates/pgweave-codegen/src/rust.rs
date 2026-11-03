@@ -13,6 +13,7 @@ use pgweave_catalog::ProjectCatalog;
 use pgweave_catalog::model::TypeKind;
 use pgweave_query::Descriptor;
 use pgweave_query::descriptor::NullabilityDesc;
+pub use pgweave_query::{QueryModule, resolve_row};
 use pgweave_sema::{Ty, TypeSystem};
 
 /// Crate de dates et heures du projet.
@@ -69,10 +70,52 @@ struct Generator<'c> {
     enums: BTreeMap<Ty, (String, String, Vec<String>)>,
 }
 
-/// Module Rust des requêtes `descriptors`, typées contre `catalog`. Les
-/// erreurs disent quelle requête ne se traduit pas, et pourquoi.
+/// Module Rust des requêtes `descriptors`, toutes à la racine, typées contre
+/// `catalog`. Les erreurs disent quelle requête ne se traduit pas, et
+/// pourquoi.
 pub fn generate_rust(
     descriptors: &[Descriptor],
+    catalog: &ProjectCatalog,
+    opts: &RustOptions,
+) -> Result<String, Vec<String>> {
+    generate_rust_modules(
+        &[QueryModule {
+            path: Vec::new(),
+            descriptors: descriptors.to_vec(),
+        }],
+        catalog,
+        opts,
+    )
+}
+
+/// Segment de module : snake_case, mot-clé en identifiant brut ; `self`,
+/// `super`, `crate` refusés (aucune forme brute).
+fn module_ident(segment: &str) -> Result<String, String> {
+    let snake = segment
+        .bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_lowercase() || b == b'_')
+        && segment
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+    if !snake || matches!(segment, "self" | "super" | "crate") {
+        return Err(format!(
+            "`{segment}` ne fait pas un nom de module Rust (snake_case, ni self, super, crate)"
+        ));
+    }
+    Ok(if KEYWORDS.contains(&segment) {
+        format!("r#{segment}")
+    } else {
+        segment.to_string()
+    })
+}
+
+/// Arbre de modules du code généré : un `pub mod` par répertoire et par
+/// fichier de requêtes. Les enums sont à la racine ; chaque module importe
+/// son parent (`use super::*`) pour les voir. Une ligne reprise d'un autre
+/// module (`-> a::b::nom`) est désignée par un chemin relatif.
+pub fn generate_rust_modules(
+    modules: &[QueryModule],
     catalog: &ProjectCatalog,
     opts: &RustOptions,
 ) -> Result<String, Vec<String>> {
@@ -82,20 +125,54 @@ pub fn generate_rust(
         enums: BTreeMap::new(),
     };
     let mut errors = Vec::new();
-    let mut body = String::new();
-    for d in descriptors {
-        if let Err(e) = pgweave_query::check_row_reference(d, descriptors) {
-            errors.push(format!("{} : {e}", d.name));
-            continue;
+    let mut bodies: BTreeMap<Vec<String>, String> = BTreeMap::new();
+    for m in modules {
+        let where_ = if m.path.is_empty() {
+            String::new()
+        } else {
+            format!("{}::", m.path.join("::"))
+        };
+        let mut idents = Vec::new();
+        for s in &m.path {
+            match module_ident(s) {
+                Ok(i) => idents.push(i),
+                Err(e) => errors.push(format!("{where_} : {e}")),
+            }
         }
-        match g.query(d) {
-            Ok(code) => body.push_str(&code),
-            Err(e) => errors.push(format!("{} : {e}", d.name)),
+        let body = bodies.entry(m.path.clone()).or_default();
+        for d in &m.descriptors {
+            let row = match &d.row {
+                None => None,
+                Some(r) => {
+                    let target = resolve_row(&m.path, r, modules);
+                    if let Err(e) = pgweave_query::check_row_reference(d, target.map(|(_, t)| t)) {
+                        errors.push(format!("{where_}{} : {e}", d.name));
+                        continue;
+                    }
+                    let (path, t) = target.expect("vérifiée");
+                    let mut ty = "super::".repeat(m.path.len());
+                    if path == m.path.as_slice() {
+                        ty.clear();
+                    } else {
+                        for s in path {
+                            ty.push_str(&module_ident(s).unwrap_or_default());
+                            ty.push_str("::");
+                        }
+                    }
+                    ty.push_str(&format!("{}Row", pascal(&t.name)));
+                    Some(ty)
+                }
+            };
+            match g.query(d, row) {
+                Ok(code) => body.push_str(&code),
+                Err(e) => errors.push(format!("{where_}{} : {e}", d.name)),
+            }
         }
     }
     if !errors.is_empty() {
         return Err(errors);
     }
+    let body = render_tree(&bodies, &[]);
     let mut out = String::from(
         "// Généré par pgweave à partir des descripteurs de requêtes. Ne pas modifier.\n\n",
     );
@@ -112,8 +189,30 @@ pub fn generate_rust(
     Ok(out)
 }
 
+/// Code du module `at` et de ses sous-modules.
+fn render_tree(bodies: &BTreeMap<Vec<String>, String>, at: &[String]) -> String {
+    let mut out = bodies.get(at).cloned().unwrap_or_default();
+    let children: std::collections::BTreeSet<&String> = bodies
+        .keys()
+        .filter(|p| p.len() > at.len() && p.starts_with(at))
+        .map(|p| &p[at.len()])
+        .collect();
+    for child in children {
+        let mut path = at.to_vec();
+        path.push(child.clone());
+        let inner = render_tree(bodies, &path);
+        let _ = writeln!(
+            out,
+            "pub mod {} {{\n#[allow(unused_imports)]\nuse super::*;\n\n{inner}}}\n",
+            module_ident(child).unwrap_or_default()
+        );
+    }
+    out
+}
+
 impl Generator<'_> {
-    fn query(&mut self, d: &Descriptor) -> Result<String, String> {
+    /// `row` : type de la ligne reprise d'une autre requête (`-> autre`).
+    fn query(&mut self, d: &Descriptor, row: Option<String>) -> Result<String, String> {
         if let Some(copy) = &d.copy {
             return self.copy(d, copy);
         }
@@ -178,8 +277,8 @@ impl Generator<'_> {
 
         // Ligne : celle d'une autre requête (`-> autre`, vérifiée), ou la
         // sienne.
-        let row_ty = if let Some(r) = &d.row {
-            Some(format!("{}Row", self::pascal(r)))
+        let row_ty = if let Some(r) = row {
+            Some(r)
         } else if d.columns.is_empty() {
             None
         } else {
@@ -215,7 +314,7 @@ impl Generator<'_> {
             let _ = writeln!(o, "impl {name} {{");
             let _ = writeln!(
                 o,
-                "    fn from_row(row: &{rt}::Row) -> Result<Self, {rt}::tokio_postgres::Error> {{"
+                "    pub(crate) fn from_row(row: &{rt}::Row) -> Result<Self, {rt}::tokio_postgres::Error> {{"
             );
             let _ = writeln!(o, "        Ok(Self {{");
             for (i, (f, _)) in fields.iter().enumerate() {

@@ -545,3 +545,44 @@ fn modifier_le_schema_revérifie_les_autres_documents() {
     let diags = lsp.await_diagnostics(&q);
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+#[test]
+fn mode_declaratif_schema_et_migrations_rejoues_a_part() {
+    let root = scaffold(
+        "declaratif",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[migrations]\ndirectory = \"migrations\"\n\
+                 [schema]\ndirectory = \"schema\"\ndeclarative = true\n",
+            ),
+            (
+                "migrations/0001_init.sql",
+                "CREATE TABLE t (a INT PRIMARY KEY);\n",
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE t (a INT PRIMARY KEY, b INT);\n",
+            ),
+        ],
+    );
+    let codes = |diags: &[serde_json::Value]| -> Vec<String> {
+        diags
+            .iter()
+            .filter_map(|d| d.get("code").and_then(|c| c.as_str()).map(str::to_string))
+            .collect()
+    };
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    // Le schéma n'entre pas en conflit avec la migration qui crée la même table.
+    let schema = lsp.open(&root.join("schema/t.sql"), "sql");
+    let diags = lsp.await_diagnostics(&schema);
+    assert!(codes(&diags).is_empty(), "{diags:?}");
+    // L'écart (colonne `b`) est signalé sur la dernière migration.
+    let m = lsp.open(&root.join("migrations/0001_init.sql"), "sql");
+    let diags = lsp.await_diagnostics(&m);
+    assert!(
+        codes(&diags).contains(&"schema-drift".to_string()),
+        "{diags:?}"
+    );
+}

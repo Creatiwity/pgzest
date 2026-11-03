@@ -23,7 +23,7 @@
 use std::path::{Path, PathBuf};
 
 use pgweave_catalog::project::{ProjectBuilder, parse_source};
-use pgweave_codegen::rust::{RustOptions, Temporal, generate_rust};
+use pgweave_codegen::rust::{QueryModule, RustOptions, Temporal, generate_rust_modules};
 use pgweave_diagnostics::Severity;
 use pgweave_schema::{ProjectConfig, SchemaSource};
 
@@ -94,61 +94,82 @@ impl Builder {
         for f in &project.files {
             watch(f);
         }
-        let (root, config, catalog, macros) = (
-            project.root,
-            project.config,
-            project.catalog,
-            project.macros,
-        );
-        let mut errors = Vec::new();
-
-        let Some(dir) = &config.queries.directory else {
+        let Some(dir) = &project.config.queries.directory else {
             return Err(format!(
                 "aucun répertoire de requêtes : `[queries] directory` dans {}",
                 ProjectConfig::FILENAME
             ));
         };
-        let dir = root.join(dir);
-        watch(&dir);
-        let mut files = Vec::new();
-        collect_sql(&dir, &mut files).map_err(|e| format!("{}: {e}", dir.display()))?;
-        files.sort();
-
-        let mut descriptors = Vec::new();
-        for file in &files {
-            watch(file);
-            let text =
-                std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
-            let parsed = pgweave_query::parse_query_file_with(&text, &macros);
-            let mut report = |d: &pgweave_diagnostics::Diagnostic| {
-                let (line, col) = d.span.as_ref().map_or((1, 1), |s| line_col(&text, s.start));
-                errors.push(format!(
-                    "{}:{line}:{col}: error[{}]: {}",
-                    file.display(),
-                    d.code,
-                    d.message
-                ));
-            };
-            for d in parsed
-                .diagnostics
-                .iter()
-                .filter(|d| d.severity == Severity::Error)
-            {
-                report(d);
-            }
-            for q in &parsed.queries {
-                match pgweave_query::describe_named(&catalog, q) {
-                    Ok(d) => descriptors.push(d),
-                    Err(diags) => diags.iter().for_each(&mut report),
-                }
-            }
-        }
-        if !errors.is_empty() {
-            return Err(format!("requêtes non décrites :\n{}", errors.join("\n")));
-        }
-        generate_rust(&descriptors, &catalog, &self.options)
-            .map_err(|e| format!("génération Rust :\n{}", e.join("\n")))
+        let dir = project.root.join(dir);
+        generate_path(&project, &dir, &self.options, watch)
     }
+}
+
+/// Code Rust des requêtes de `path` : un répertoire (un module par fichier,
+/// `order/book.sql` → `order::book`) ou un fichier (ses requêtes à la
+/// racine). `watch` reçoit chaque fichier et répertoire lu. Une requête non
+/// décrite est une erreur positionnée `fichier:ligne:colonne`.
+pub fn generate_path(
+    project: &Project,
+    path: &Path,
+    options: &RustOptions,
+    watch: &mut dyn FnMut(&Path),
+) -> Result<String, String> {
+    let files = if path.is_dir() {
+        watch(path);
+        let mut files = Vec::new();
+        collect_sql(path, &mut files).map_err(|e| format!("{}: {e}", path.display()))?;
+        files.sort();
+        files
+    } else if path.is_file() {
+        vec![path.to_path_buf()]
+    } else {
+        return Err(format!("{} : ni fichier ni répertoire", path.display()));
+    };
+
+    let mut errors = Vec::new();
+    let mut modules = Vec::new();
+    for file in &files {
+        watch(file);
+        let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let parsed = pgweave_query::parse_query_file_with(&text, &project.macros);
+        let mut report = |d: &pgweave_diagnostics::Diagnostic| {
+            let (line, col) = d.span.as_ref().map_or((1, 1), |s| line_col(&text, s.start));
+            errors.push(format!(
+                "{}:{line}:{col}: error[{}]: {}",
+                file.display(),
+                d.code,
+                d.message
+            ));
+        };
+        for d in parsed
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+        {
+            report(d);
+        }
+        let mut descriptors = Vec::new();
+        for q in &parsed.queries {
+            match pgweave_query::describe_named(&project.catalog, q) {
+                Ok(d) => descriptors.push(d),
+                Err(diags) => diags.iter().for_each(&mut report),
+            }
+        }
+        modules.push(QueryModule {
+            path: if path.is_dir() {
+                module_path(path, file)
+            } else {
+                Vec::new()
+            },
+            descriptors,
+        });
+    }
+    if !errors.is_empty() {
+        return Err(format!("requêtes non décrites :\n{}", errors.join("\n")));
+    }
+    generate_rust_modules(&modules, &project.catalog, options)
+        .map_err(|e| format!("génération Rust :\n{}", e.join("\n")))
 }
 
 /// Projet chargé : sa configuration, son catalogue rejoué, et les fichiers
@@ -220,6 +241,17 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
         macros,
         files,
     })
+}
+
+/// Module d'un fichier de requêtes dans l'arbre de `dir` : `order/book.sql`
+/// → `["order", "book"]`.
+pub fn module_path(dir: &Path, file: &Path) -> Vec<String> {
+    file.strip_prefix(dir)
+        .unwrap_or(file)
+        .with_extension("")
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect()
 }
 
 fn collect_sql(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {

@@ -177,11 +177,14 @@ pub fn describe_named(
 /// (`-> autre`) ? Mêmes colonnes, dans le même ordre et du même type ; une
 /// colonne non nulle dans la référence doit l'être ici (la struct promet une
 /// valeur). Jamais de conversion : un écart est une erreur.
-pub fn check_row_reference(d: &Descriptor, all: &[Descriptor]) -> Result<(), String> {
+///
+/// `target` : la requête désignée, résolue par l'appelant (`None` si
+/// introuvable).
+pub fn check_row_reference(d: &Descriptor, target: Option<&Descriptor>) -> Result<(), String> {
     let Some(r) = &d.row else {
         return Ok(());
     };
-    let Some(target) = all.iter().find(|x| &x.name == r) else {
+    let Some(target) = target else {
         return Err(format!("requête de référence `{r}` introuvable"));
     };
     if let Some(next) = &target.row {
@@ -899,4 +902,33 @@ pub fn read_cache(dir: &Path, fingerprint: &str) -> Option<Descriptor> {
     serde_json::from_str::<Descriptor>(&text)
         .ok()
         .filter(|d| d.version == VERSION)
+}
+
+// ── Modules ───────────────────────────────────────────────────────────────────
+
+/// Requêtes d'un fichier et le module qui les reçoit : chemin depuis la
+/// racine du code généré (`["order", "book"]` pour `order/book.sql`), vide
+/// pour la racine.
+#[derive(Debug, Clone)]
+pub struct QueryModule {
+    pub path: Vec<String>,
+    pub descriptors: Vec<Descriptor>,
+}
+
+/// Requête désignée par `-> r` depuis le module `from` : `nom` dans le même
+/// module, `a::b::nom` depuis la racine du code généré.
+pub fn resolve_row<'m>(
+    from: &[String],
+    r: &str,
+    modules: &'m [QueryModule],
+) -> Option<(&'m [String], &'m Descriptor)> {
+    let parts: Vec<&str> = r.split("::").collect();
+    let (path, name): (Vec<String>, &str) = match parts.split_last() {
+        Some((name, [])) => (from.to_vec(), name),
+        Some((name, path)) => (path.iter().map(|s| s.to_string()).collect(), name),
+        None => return None,
+    };
+    let m = modules.iter().find(|m| m.path == path)?;
+    let d = m.descriptors.iter().find(|d| d.name == name)?;
+    Some((&m.path, d))
 }

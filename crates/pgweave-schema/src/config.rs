@@ -119,6 +119,11 @@ pub struct QueriesConfig {
     /// Répertoire des fichiers de requêtes nommées, parcouru récursivement.
     /// Absent : le projet n'a pas de requêtes nommées.
     pub directory: Option<String>,
+    /// Répertoires de requêtes supplémentaires, près du code qui les
+    /// utilise (`src/order/queries`). Chacun est la racine de son propre
+    /// arbre de modules (`pgweave_macros::queries!`).
+    #[serde(default)]
+    pub include: Vec<String>,
 }
 
 // ── Macros ────────────────────────────────────────────────────────────────────
@@ -371,8 +376,8 @@ impl ProjectConfig {
                 let mut dir = DirSource::new(base_dir.to_path_buf(), FileRole::Schema)
                     .excluding(&mig_dir)
                     .excluding(base_dir.join(&self.macros.directory));
-                if let Some(qdir) = &self.queries.directory {
-                    dir = dir.excluding(base_dir.join(qdir));
+                for qdir in self.query_roots(base_dir) {
+                    dir = dir.excluding(qdir);
                 }
                 sources.push(Box::new(dir));
             }
@@ -388,19 +393,55 @@ impl ProjectConfig {
         MultiSource::new(sources)
     }
 
-    /// Vrai si `path` est dans `[queries] directory`.
+    /// Répertoires de requêtes : `directory` puis `include`.
+    pub fn query_roots(&self, base_dir: &Path) -> Vec<std::path::PathBuf> {
+        self.queries
+            .directory
+            .iter()
+            .chain(&self.queries.include)
+            .map(|d| base_dir.join(d))
+            .collect()
+    }
+
+    /// Vrai si `path` est dans un répertoire de requêtes.
     pub fn is_query_file(&self, path: &Path, base_dir: &Path) -> bool {
-        let Some(qdir) = &self.queries.directory else {
-            return false;
-        };
-        is_within(path, &base_dir.join(qdir))
+        self.query_roots(base_dir)
+            .iter()
+            .any(|d| is_within(path, d))
+    }
+
+    /// Répertoire de requêtes qui contient `path`, et le chemin de module du
+    /// fichier dans l'arbre de ce répertoire (`order/book.sql` →
+    /// `["order", "book"]`). Un fichier de requêtes hors de ces répertoires
+    /// (brouillon, bac à sable) est rattaché à la racine de `directory`.
+    pub fn query_module(
+        &self,
+        path: &Path,
+        base_dir: &Path,
+    ) -> Option<(std::path::PathBuf, Vec<String>)> {
+        let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let file = canon(path);
+        self.query_roots(base_dir)
+            .into_iter()
+            .find_map(|root| {
+                let rel = file.strip_prefix(canon(&root)).ok()?.with_extension("");
+                let segments = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                Some((root, segments))
+            })
+            .or_else(|| {
+                let dir = base_dir.join(self.queries.directory.as_ref()?);
+                Some((dir, Vec::new()))
+            })
     }
 
     /// Classe un fichier selon sa position dans le projet.
     ///
     /// Règles (pilotées par la config, aucune heuristique sur le nom) :
     /// 1. Dans `migrations.directory` → Migration (séquence tirée du nom)
-    /// 2. Dans `queries.directory` → Query
+    /// 2. Dans `queries.directory` ou `queries.include` → Query
     /// 3. Dans `schema.directory` ou `schema.include` → Schema
     /// 4. Sinon : Schema si `schema.directory` est absent (tout le projet est
     ///    schéma), Query s'il est présent
@@ -508,5 +549,40 @@ mod tests {
             let content = format!("[postgres]\nversion = 18\n[rules]\nL001 = \"{level}\"\n");
             assert!(ProjectConfig::parse(&content).is_err(), "{level}");
         }
+    }
+
+    #[test]
+    fn repertoires_de_requetes_et_modules() {
+        let c = ProjectConfig::parse(
+            "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+             [queries]\ndirectory = \"queries\"\ninclude = [\"src/order/queries\"]\n",
+        )
+        .unwrap();
+        let base = Path::new("/projet");
+        let m = |p: &str| {
+            c.query_module(Path::new(p), base)
+                .map(|(r, s)| (r, s.join("::")))
+        };
+        assert_eq!(
+            m("/projet/queries/order/book.sql"),
+            Some((base.join("queries"), "order::book".into()))
+        );
+        assert_eq!(
+            m("/projet/src/order/queries/book.sql"),
+            Some((base.join("src/order/queries"), "book".into()))
+        );
+        // Hors des répertoires de requêtes : rattaché à la racine principale.
+        assert_eq!(
+            m("/projet/sandbox/x.sql"),
+            Some((base.join("queries"), String::new()))
+        );
+        assert_eq!(
+            c.classify_file(Path::new("/projet/src/order/queries/book.sql"), base),
+            FileRole::Query
+        );
+        assert_eq!(
+            c.classify_file(Path::new("/projet/macros/f.sql"), base),
+            FileRole::Fragments
+        );
     }
 }

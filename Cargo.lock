@@ -1190,7 +1190,6 @@ dependencies = [
 name = "pgweave-demo"
 version = "0.1.0"
 dependencies = [
- "pgweave-build",
  "pgweave-macros",
  "pgweave-runtime",
  "time",

@@ -459,16 +459,12 @@ fn cmd_check(
         .map(|(_, c)| c.rule_overrides())
         .unwrap_or_default();
 
-    // Requêtes nommées du projet : une requête peut reprendre les lignes
-    // d'une autre, d'un autre fichier (`-> autre`).
-    let project_queries = match &project {
-        Some((root, cfg)) => {
-            pgweave_analysis::project_descriptors(root, cfg, &catalog, &macros, &|p| {
-                std::fs::read_to_string(p).ok()
-            })
-        }
-        None => Vec::new(),
-    };
+    // Requêtes de chaque répertoire de requêtes, par module : une requête
+    // peut reprendre les lignes d'une autre (`-> a::b::autre`).
+    let mut query_trees: std::collections::HashMap<
+        std::path::PathBuf,
+        Vec<pgweave_query::QueryModule>,
+    > = std::collections::HashMap::new();
     for (file, sql, stmts, skipped, macro_diags) in &parsed_targets {
         // Contexte des règles de plugins : les triggers des autres fichiers.
         let all_other_stmts: Vec<Statement> = context_stmts
@@ -488,11 +484,22 @@ fn cmd_check(
         let this_file = canonical(Path::new(file));
         if is_query_file(file) {
             diagnostics.extend(pgweave_checker::check_statements(stmts, &catalog));
+            let located = project
+                .as_ref()
+                .and_then(|(root, cfg)| cfg.query_module(Path::new(file), root));
+            let (here, others) = match located {
+                Some((qroot, here)) => {
+                    let tree = query_trees.entry(qroot.clone()).or_insert_with(|| {
+                        pgweave_analysis::query_modules(&qroot, &catalog, &macros, &|p| {
+                            std::fs::read_to_string(p).ok()
+                        })
+                    });
+                    (here, tree.clone())
+                }
+                None => (Vec::new(), Vec::new()),
+            };
             diagnostics.extend(pgweave_analysis::query_descriptor_diagnostics(
-                sql,
-                &catalog,
-                &macros,
-                &project_queries,
+                sql, &catalog, &macros, &here, &others,
             ));
         } else {
             diagnostics.extend(

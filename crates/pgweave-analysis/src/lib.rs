@@ -125,13 +125,15 @@ pub fn query_file_diagnostics(
 /// hors du périmètre du descripteur. Les erreurs d'analyse elles-mêmes sont
 /// rapportées par la vérification du fichier, pas ici.
 ///
-/// `others` : descripteurs des autres requêtes du projet, pour vérifier une
-/// requête qui reprend les lignes d'une autre (`-> autre`).
+/// `here` : module du fichier dans son répertoire de requêtes ; `others` :
+/// les requêtes de ce répertoire, pour vérifier une requête qui reprend les
+/// lignes d'une autre (`-> autre`, `-> a::b::autre`).
 pub fn query_descriptor_diagnostics(
     sql: &str,
     catalog: &ProjectCatalog,
     macros: &pgweave_macro::MacroSet,
-    others: &[pgweave_query::Descriptor],
+    here: &[String],
+    others: &[pgweave_query::QueryModule],
 ) -> Vec<Diagnostic> {
     let own = [
         codes::QUERY_PARAMETER_UNTYPED,
@@ -147,17 +149,19 @@ pub fn query_descriptor_diagnostics(
             Err(ds) => out.extend(ds.into_iter().filter(|d| own.contains(&d.code))),
         }
     }
-    // Ce fichier fait foi sur la version enregistrée de ses requêtes.
-    let mut all: Vec<pgweave_query::Descriptor> =
-        described.iter().map(|(_, d)| d.clone()).collect();
-    all.extend(
-        others
-            .iter()
-            .filter(|o| !described.iter().any(|(_, d)| d.name == o.name))
-            .cloned(),
-    );
+    // Ce fichier fait foi sur la version enregistrée de son module.
+    let mut modules: Vec<pgweave_query::QueryModule> =
+        others.iter().filter(|m| m.path != here).cloned().collect();
+    modules.push(pgweave_query::QueryModule {
+        path: here.to_vec(),
+        descriptors: described.iter().map(|(_, d)| d.clone()).collect(),
+    });
     for (q, d) in &described {
-        if let (Err(e), Some((_, range))) = (pgweave_query::check_row_reference(d, &all), &q.row) {
+        let (Some(r), Some((_, range))) = (&d.row, &q.row) else {
+            continue;
+        };
+        let target = pgweave_query::resolve_row(here, r, &modules).map(|(_, t)| t);
+        if let Err(e) = pgweave_query::check_row_reference(d, target) {
             out.push(Diagnostic::error(codes::QUERY_ROW_MISMATCH, e).with_span(
                 pgweave_diagnostics::Span {
                     start: range.start,
@@ -169,32 +173,34 @@ pub fn query_descriptor_diagnostics(
     out
 }
 
-/// Descripteurs de toutes les requêtes nommées du projet (`[queries]
-/// directory`). `read` donne le texte d'un fichier (document ouvert dans
-/// l'éditeur, sinon disque). Une requête non décrite est absente : son
-/// fichier le signale.
-pub fn project_descriptors(
-    root: &std::path::Path,
-    config: &pgweave_schema::ProjectConfig,
+/// Requêtes d'un répertoire de requêtes, par module (`order/book.sql` →
+/// `["order", "book"]`). `read` donne le texte d'un fichier (document
+/// ouvert dans l'éditeur, sinon disque). Une requête non décrite est
+/// absente : son fichier le signale.
+pub fn query_modules(
+    dir: &std::path::Path,
     catalog: &ProjectCatalog,
     macros: &pgweave_macro::MacroSet,
     read: &dyn Fn(&std::path::Path) -> Option<String>,
-) -> Vec<pgweave_query::Descriptor> {
-    let Some(dir) = &config.queries.directory else {
-        return Vec::new();
-    };
+) -> Vec<pgweave_query::QueryModule> {
     let mut files = Vec::new();
-    collect_sql_files(&root.join(dir), &mut files);
+    collect_sql_files(dir, &mut files);
     files.sort();
     files
         .iter()
-        .filter_map(|f| read(f))
-        .flat_map(|text| {
-            pgweave_query::parse_query_file_with(&text, macros)
+        .filter_map(|f| {
+            let text = read(f)?;
+            let rel = f.strip_prefix(dir).ok()?.with_extension("");
+            let path = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            let descriptors = pgweave_query::parse_query_file_with(&text, macros)
                 .queries
                 .iter()
                 .filter_map(|q| pgweave_query::describe_named(catalog, q).ok())
-                .collect::<Vec<_>>()
+                .collect();
+            Some(pgweave_query::QueryModule { path, descriptors })
         })
         .collect()
 }

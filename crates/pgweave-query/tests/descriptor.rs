@@ -335,7 +335,11 @@ fn ligne_de_reference_verifiee() {
         .collect();
     let check = |name: &str| {
         let d = all.iter().find(|d| d.name == name).unwrap();
-        pgweave_query::check_row_reference(d, &all)
+        let target = d
+            .row
+            .as_ref()
+            .and_then(|r| all.iter().find(|x| &x.name == r));
+        pgweave_query::check_row_reference(d, target)
     };
     assert_eq!(check("same"), Ok(()));
     // `creation_date` est nullable dans la référence : une valeur toujours
