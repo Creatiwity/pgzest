@@ -276,6 +276,40 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Pagination à variantes : filtres `[[ … ]]` et tri `{{ … }}`, chaque
+    // combinaison vérifiée à la compilation.
+    use queries::orders::{OrdersPageParams, OrdersPageTri};
+    for (status, since, tri) in [
+        (None, None, OrdersPageTri::Recent),
+        (Some(OrderStatus::Served), None, OrdersPageTri::Ancien),
+        (
+            None,
+            Some(time::OffsetDateTime::now_utc() + time::Duration::days(1)),
+            OrdersPageTri::Recent,
+        ),
+    ] {
+        let page = queries::orders::orders_page(
+            &client,
+            OrdersPageParams {
+                restaurant: bistro.id,
+                status,
+                since,
+                limit: 20,
+                tri,
+            },
+        )
+        .await?;
+        println!(
+            "   page (statut {status:?}, depuis {}, tri {tri:?}) : {} commande(s)",
+            if since.is_some() {
+                "demain"
+            } else {
+                "toujours"
+            },
+            page.len()
+        );
+    }
+
     println!("── Chiffre d'affaires servi, par type de plat");
     for r in queries::orders::revenue_by_kind(&client).await? {
         println!(

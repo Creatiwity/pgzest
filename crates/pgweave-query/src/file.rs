@@ -87,6 +87,15 @@ pub struct ExpandedSql {
     pub map: pgweave_ast::SourceMap,
 }
 
+/// Structure d'une requête à variantes (voir [`crate::dynamic`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dynamic {
+    /// Positions dans [`NamedQuery::text`].
+    pub structure: crate::dynamic::Structure,
+    /// Paramètre qui décide de chaque bloc, dans l'ordre des blocs.
+    pub conditions: Vec<String>,
+}
+
 /// Une requête nommée, telle qu'écrite dans le fichier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedQuery {
@@ -106,6 +115,8 @@ pub struct NamedQuery {
     pub sql_range: Range<usize>,
     /// Fragments insérés : le SQL analysé et envoyé. `None` sans fragment.
     pub expanded: Option<ExpandedSql>,
+    /// Blocs `[[ … ]]` et choix `{{ … }}` : requête à variantes.
+    pub dynamic: Option<Dynamic>,
     /// Paramètres du SQL envoyé. Avec des fragments, leurs occurrences sont
     /// des positions dans [`ExpandedSql::sql`] décalées de
     /// `sql_range.start` ; sinon, des positions dans le fichier.
@@ -119,8 +130,66 @@ impl NamedQuery {
     }
 
     /// [`Self::text`], marqueurs `?` des paramètres optionnels remplacés par
-    /// une espace : SQL lisible par le parser, positions inchangées.
+    /// une espace : SQL lisible par le parser, positions inchangées. Pour une
+    /// requête à variantes, la variante de référence (tous les blocs, la
+    /// première possibilité de chaque choix).
     pub fn analysis_text(&self) -> String {
+        match &self.dynamic {
+            None => self.unmarked_text(),
+            Some(d) => self.variant(&reference_selection(&d.structure)).0,
+        }
+    }
+
+    /// Variante `sel` : texte analysé (même longueur que [`Self::text`]),
+    /// SQL positionnel envoyé, et noms des paramètres dans l'ordre `$1…$n`.
+    pub fn variant(&self, sel: &crate::dynamic::Selection) -> (String, String, Vec<String>) {
+        let text = match &self.dynamic {
+            None => self.unmarked_text(),
+            Some(d) => crate::dynamic::render(&self.unmarked_text(), &d.structure, sel),
+        };
+        let base = self.sql_range.start;
+        let excluded = |r: &Range<usize>| {
+            self.dynamic.as_ref().is_some_and(|d| {
+                d.structure
+                    .blocks
+                    .iter()
+                    .zip(&sel.blocks)
+                    .any(|(b, keep)| !keep && b.inner.contains(&(r.start - base)))
+            })
+        };
+        let Params::Named(params) = &self.params else {
+            return (text.clone(), text, Vec::new());
+        };
+        let mut kept: Vec<(Range<usize>, usize)> = Vec::new();
+        let mut order: Vec<String> = Vec::new();
+        let mut occurrences: Vec<(&Range<usize>, &str)> = params
+            .iter()
+            .flat_map(|p| p.occurrences.iter().map(move |r| (r, p.name.as_str())))
+            .filter(|(r, _)| !excluded(r))
+            .collect();
+        occurrences.sort_by_key(|(r, _)| r.start);
+        for (r, name) in occurrences {
+            let n = match order.iter().position(|o| o == name) {
+                Some(k) => k + 1,
+                None => {
+                    order.push(name.to_string());
+                    order.len()
+                }
+            };
+            kept.push((r.clone(), n));
+        }
+        let mut sql = String::with_capacity(text.len());
+        let mut cursor = 0;
+        for (r, n) in &kept {
+            sql.push_str(&text[cursor..r.start - base]);
+            sql.push_str(&format!("${n}"));
+            cursor = r.end - base;
+        }
+        sql.push_str(&text[cursor..]);
+        (text, sql, order)
+    }
+
+    fn unmarked_text(&self) -> String {
         let mut bytes = self.text().as_bytes().to_vec();
         if let Params::Named(params) = &self.params {
             for r in params.iter().flat_map(|p| &p.occurrences) {
@@ -137,6 +206,9 @@ impl NamedQuery {
     /// étant le rang de première apparition du nom. Inchangé pour une
     /// requête positionnelle ou sans paramètre.
     pub fn positional_sql(&self) -> String {
+        if let Some(d) = &self.dynamic {
+            return self.variant(&reference_selection(&d.structure)).1;
+        }
         let text = self.text();
         let Params::Named(params) = &self.params else {
             return text.to_string();
@@ -516,6 +588,30 @@ impl FileParser<'_> {
         let Some(params) = self.params(&name, &placeholders, &to_file) else {
             return;
         };
+        let text = expanded.as_ref().map_or(sql.as_str(), |e| e.sql.as_str());
+        let dynamic = match crate::dynamic::structure(text) {
+            Ok(s) if s.is_empty() => None,
+            Ok(s) => match dynamic_conditions(&name, &s, &params, body.start) {
+                Ok(conditions) => Some(Dynamic {
+                    structure: s,
+                    conditions,
+                }),
+                Err((r, msg)) => {
+                    self.diagnostics.push(
+                        Diagnostic::error(codes::QUERY_HEADER_INVALID, msg)
+                            .with_span(span(to_file(r.start + body.start..r.end + body.start))),
+                    );
+                    return;
+                }
+            },
+            Err((r, msg)) => {
+                self.diagnostics.push(
+                    Diagnostic::error(codes::QUERY_HEADER_INVALID, msg)
+                        .with_span(span(to_file(r.start + body.start..r.end + body.start))),
+                );
+                return;
+            }
+        };
         self.queries.push(NamedQuery {
             name,
             name_range,
@@ -525,6 +621,7 @@ impl FileParser<'_> {
             sql,
             sql_range: body,
             expanded,
+            dynamic,
             params,
         });
     }
@@ -669,7 +766,102 @@ fn report_duplicates(queries: &mut Vec<NamedQuery>, diagnostics: &mut Vec<Diagno
     });
 }
 
+/// Paramètre de chaque bloc : un seul par bloc, utilisé seulement dans des
+/// blocs, sans marqueur `?` ; variantes en nombre borné.
+fn dynamic_conditions(
+    query: &str,
+    s: &crate::dynamic::Structure,
+    params: &Params,
+    base: usize,
+) -> Result<Vec<String>, (Range<usize>, String)> {
+    let named: &[NamedParam] = match params {
+        Params::Named(p) => p,
+        Params::None => &[],
+        Params::Positional { .. } => {
+            let r = s
+                .blocks
+                .first()
+                .map_or_else(|| s.choices[0].range.clone(), |b| b.range.clone());
+            return Err((
+                r,
+                "requête à variantes : paramètres nommés seulement (`$nom`)".into(),
+            ));
+        }
+    };
+    let in_block = |r: &Range<usize>| s.blocks.iter().any(|b| b.inner.contains(&(r.start - base)));
+    let mut conditions = Vec::new();
+    for b in &s.blocks {
+        let inside: Vec<&NamedParam> = named
+            .iter()
+            .filter(|p| {
+                p.occurrences
+                    .iter()
+                    .any(|r| b.inner.contains(&(r.start - base)))
+            })
+            .collect();
+        match inside.as_slice() {
+            [p] => {
+                if p.occurrences.iter().any(|r| !in_block(r)) {
+                    return Err((
+                        b.range.clone(),
+                        format!(
+                            "`${}` décide de ce bloc : il ne peut pas servir hors des blocs",
+                            p.name
+                        ),
+                    ));
+                }
+                if p.optional {
+                    return Err((
+                        b.range.clone(),
+                        format!(
+                            "`${}?` : un paramètre de bloc est déjà optionnel, sans `?`",
+                            p.name
+                        ),
+                    ));
+                }
+                conditions.push(p.name.clone());
+            }
+            [] => {
+                return Err((
+                    b.range.clone(),
+                    "bloc sans paramètre : rien ne décide de son inclusion".into(),
+                ));
+            }
+            _ => {
+                return Err((
+                    b.range.clone(),
+                    "un bloc dépend d'un seul paramètre : écrire un bloc par paramètre".into(),
+                ));
+            }
+        }
+    }
+    let n = crate::dynamic::variant_count(s);
+    if n > crate::dynamic::MAX_VARIANTS {
+        let r = s
+            .blocks
+            .first()
+            .map_or_else(|| s.choices[0].range.clone(), |b| b.range.clone());
+        return Err((
+            r,
+            format!(
+                "`{query}` : {n} variantes, au plus {} (chacune est vérifiée)",
+                crate::dynamic::MAX_VARIANTS
+            ),
+        ));
+    }
+    Ok(conditions)
+}
+
 // ── Utilitaires ───────────────────────────────────────────────────────────────
+
+/// Variante de référence : tous les blocs, la première possibilité de chaque
+/// choix.
+pub fn reference_selection(s: &crate::dynamic::Structure) -> crate::dynamic::Selection {
+    crate::dynamic::Selection {
+        blocks: vec![true; s.blocks.len()],
+        choices: vec![0; s.choices.len()],
+    }
+}
 
 /// `sql` où chaque marqueur `$nom?` (paramètre optionnel, `?` collé) a son
 /// `?` remplacé par une espace : lisible par le parser, positions
@@ -693,7 +885,12 @@ pub fn blank_optional_markers(sql: &str) -> String {
             bytes[start + p.len()] = b' ';
         }
     }
-    String::from_utf8(bytes).unwrap_or_else(|_| sql.to_string())
+    let out = String::from_utf8(bytes).unwrap_or_else(|_| sql.to_string());
+    // Blocs et choix : la variante de référence, de même longueur.
+    match crate::dynamic::structure(&out) {
+        Ok(s) if !s.is_empty() => crate::dynamic::render(&out, &s, &reference_selection(&s)),
+        _ => out,
+    }
 }
 
 /// `$…` de `sql` (SQL après insertion des fragments), positions décalées de

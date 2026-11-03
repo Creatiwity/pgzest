@@ -7,7 +7,8 @@
 //!   colonnes, nullabilité, cardinalité inférée, dépendances, empreinte.
 
 pub mod descriptor;
-mod file;
+pub mod dynamic;
+pub(crate) mod file;
 mod line_index;
 
 pub use descriptor::{
@@ -15,6 +16,6 @@ pub use descriptor::{
     describe_sql_with, resolve_row,
 };
 pub use file::{
-    Cardinality, ExpandedSql, NamedParam, NamedQuery, Params, QueryFile, blank_optional_markers,
-    parse_query_file, parse_query_file_with,
+    Cardinality, Dynamic, ExpandedSql, NamedParam, NamedQuery, Params, QueryFile,
+    blank_optional_markers, parse_query_file, parse_query_file_with,
 };

@@ -109,6 +109,36 @@ requête, reprise dans le code généré.
   du projet (`@nom`, voir plus bas) ; les macros de statement (`@function`…)
   n'y ont pas leur place.
 
+## Requêtes à variantes
+
+Quand le plan doit dépendre des filtres présents, ou que le tri varie,
+blocs conditionnels et choix (ajoutés le 2026-11-03) :
+
+```sql
+-- name: orders_page :many
+SELECT o.id, o.status, o.placed_at
+FROM orders o
+WHERE o.restaurant_id = $restaurant
+[[ AND o.status = $status ]]
+[[ AND o.placed_at >= $since ]]
+ORDER BY {{ tri: recent = o.placed_at DESC NULLS LAST, o.id DESC | ancien = o.id }}
+LIMIT $limit;
+```
+
+- `[[ … ]]` : inclus si son paramètre est fourni (`Option<T>` en Rust). Un
+  bloc dépend d'**un seul** paramètre, utilisé seulement dans des blocs,
+  sans `?` ; un filtre à deux valeurs s'écrit en deux blocs.
+- `{{ nom: a = … | b = … }}` : un choix, enum Rust (`OrdersPageTri::Recent`).
+  Une possibilité ne contient pas de paramètre.
+- Chaque combinaison est une **variante**, décrite à la compilation (au
+  plus 256) ; toutes doivent renvoyer les mêmes colonnes. Une erreur d'une
+  variante est rapportée à sa position, la variante en indice.
+- À l'exécution, la fonction générée choisit la variante par un `match`
+  exhaustif ; aucun SQL n'est composé.
+- `[[` après une expression (indice ou constructeur de tableau, `ARRAY[[`)
+  n'ouvre pas de bloc ; rien n'est reconnu dans une chaîne ou un
+  commentaire. Pas de bloc dans un bloc, ni de choix dans un bloc.
+
 ## Fragments
 
 Un morceau de SQL qui revient (liste de colonnes, expression, prédicat)
@@ -207,8 +237,8 @@ WHERE o.restaurant_id = $restaurant
 - Le marqueur sur une occurrence suffit ; il est retiré du SQL envoyé
   (`$2::order_status IS NULL OR o.status = $2`).
 - Une seule requête préparée : un filtre absent est une condition vraie.
-  Quand le plan doit dépendre des filtres présents, voir les blocs
-  conditionnels.
+  Quand le plan doit dépendre des filtres présents, voir les
+  [requêtes à variantes](#requêtes-à-variantes).
 - L'opérateur jsonb `?` s'écrit entouré d'espaces (`$doc ? 'clé'`) ; un
   paramètre positionnel (`$1?`) n'est jamais optionnel.
 

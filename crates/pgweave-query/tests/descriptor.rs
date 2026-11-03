@@ -397,3 +397,75 @@ fn parametre_optionnel() {
         "SELECT $a , '$b?', $c ? 'k' -- $d?"
     );
 }
+
+#[test]
+fn requete_a_variantes() {
+    let src = "-- name: page :many\nSELECT id, title FROM pages\nWHERE site = $site\n\
+               [[ AND status = $status ]]\n\
+               ORDER BY {{ tri: titre = title | recent = creation_date DESC }}\nLIMIT $limit;\n";
+    let file = parse_query_file(src);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let d = describe_named(&catalog(), &file.queries[0]).expect("décrite");
+    let dy = d.dynamic.as_ref().expect("variantes");
+    assert_eq!(dy.conditions, vec!["status"]);
+    assert_eq!(dy.choices[0].labels, vec!["titre", "recent"]);
+    assert_eq!(dy.variants.len(), 4);
+    let squash = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert_eq!(
+        squash(&dy.variants[0].sql),
+        "SELECT id, title FROM pages WHERE site = $1 ORDER BY title LIMIT $2"
+    );
+    assert_eq!(dy.variants[0].params, vec!["site", "limit"]);
+    assert_eq!(
+        squash(&dy.variants[3].sql),
+        "SELECT id, title FROM pages WHERE site = $1 AND status = $2 ORDER BY creation_date DESC LIMIT $3"
+    );
+    let status = d.params.iter().find(|p| p.name == "status").unwrap();
+    assert_eq!(status.nullable, NullabilityDesc::Nullable);
+    assert_eq!(d.cardinality, Cardinality::Many);
+}
+
+#[test]
+fn variantes_refusees() {
+    // Un choix qui change la projection.
+    let file = parse_query_file("-- name: q\nSELECT {{ col: a = id | b = title }} FROM pages;\n");
+    let errs = describe_named(&catalog(), &file.queries[0]).unwrap_err();
+    assert!(
+        errs[0].message.contains("pas les mêmes colonnes"),
+        "{errs:?}"
+    );
+    // Une erreur d'une variante est rapportée avec la variante en indice.
+    let file =
+        parse_query_file("-- name: q\nSELECT id FROM pages WHERE true [[ AND nope = $x ]];\n");
+    let errs = describe_named(&catalog(), &file.queries[0]).unwrap_err();
+    assert!(
+        errs[0].hint.as_deref().unwrap_or("").contains("$x fourni"),
+        "{errs:?}"
+    );
+
+    for (sql, attendu) in [
+        (
+            "SELECT id FROM pages WHERE true [[ AND site = $a AND status = $b ]]",
+            "un seul paramètre",
+        ),
+        (
+            "SELECT id FROM pages WHERE site = $a [[ AND site = $a ]]",
+            "hors des blocs",
+        ),
+        (
+            "SELECT id FROM pages WHERE true [[ AND site = $a? ]]",
+            "sans `?`",
+        ),
+        (
+            "SELECT id FROM pages WHERE true [[ AND true ]]",
+            "sans paramètre",
+        ),
+    ] {
+        let file = parse_query_file(&format!("-- name: q\n{sql};\n"));
+        assert!(
+            file.diagnostics.iter().any(|d| d.message.contains(attendu)),
+            "{sql} : {:?}",
+            file.diagnostics
+        );
+    }
+}

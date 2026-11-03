@@ -45,6 +45,34 @@ pub struct Descriptor {
     /// dont la struct est reprise (vérifié par [`check_row_reference`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row: Option<String>,
+    /// Requête à variantes : `sql` est la variante de référence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<DynamicDesc>,
+}
+
+/// Variantes d'une requête (blocs `[[ … ]]`, choix `{{ … }}`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DynamicDesc {
+    /// Paramètre qui décide de chaque bloc : bits de poids faible de
+    /// l'indice de variante, dans cet ordre (bloc 0 = bit 0).
+    pub conditions: Vec<String>,
+    /// Choix, à la suite, en base mixte.
+    pub choices: Vec<ChoiceDesc>,
+    /// SQL et paramètres (dans l'ordre `$1…$n`) de chaque variante, par
+    /// indice.
+    pub variants: Vec<VariantDesc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChoiceDesc {
+    pub name: String,
+    pub labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VariantDesc {
+    pub sql: String,
+    pub params: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,21 +147,126 @@ pub struct ColumnDesc {
 
 /// Descripteur d'une requête nommée d'un fichier. Les diagnostics sont
 /// positionnés dans le fichier.
+///
+/// Une requête à variantes (`[[ … ]]`, `{{ … }}`) est décrite variante par
+/// variante ; toutes doivent renvoyer les mêmes colonnes.
 pub fn describe_named(
     catalog: &ProjectCatalog,
     q: &NamedQuery,
+) -> Result<Descriptor, Vec<Diagnostic>> {
+    let Some(dynamic) = &q.dynamic else {
+        let order: Option<Vec<String>> = match &q.params {
+            Params::Named(list) => Some(list.iter().map(|p| format!("${}", p.name)).collect()),
+            _ => None,
+        };
+        return describe_text(catalog, q, &q.analysis_text(), q.positional_sql(), order);
+    };
+    let selections = crate::dynamic::selections(&dynamic.structure);
+    let reference = crate::file::reference_selection(&dynamic.structure);
+    let mut variants = Vec::with_capacity(selections.len());
+    let mut base: Option<Descriptor> = None;
+    let mut described = Vec::new();
+    for sel in &selections {
+        let (text, sql, order) = q.variant(sel);
+        let named_order = order.iter().map(|n| format!("${n}")).collect();
+        let d = describe_text(catalog, q, &text, sql.clone(), Some(named_order)).map_err(|ds| {
+            ds.into_iter()
+                .map(|d| d.with_hint(format!("variante : {}", describe_selection(dynamic, sel))))
+                .collect::<Vec<_>>()
+        })?;
+        if *sel == reference {
+            base = Some(d.clone());
+        }
+        variants.push(VariantDesc { sql, params: order });
+        described.push((sel, d));
+    }
+    let mut d = base.expect("la variante de référence est l'une des variantes");
+    let whole = Span {
+        start: q.sql_range.start,
+        end: q.sql_range.end,
+    };
+    for (sel, v) in &described {
+        let same = v.columns.len() == d.columns.len()
+            && v.columns
+                .iter()
+                .zip(&d.columns)
+                .all(|(a, b)| a.name == b.name && a.ty == b.ty && a.nullable == b.nullable);
+        if !same {
+            return Err(vec![
+                Diagnostic::error(
+                    codes::QUERY_NOT_DESCRIBABLE,
+                    format!(
+                        "la variante « {} » ne renvoie pas les mêmes colonnes que les autres",
+                        describe_selection(dynamic, sel)
+                    ),
+                )
+                .with_span(whole.clone())
+                .with_hint("toutes les variantes doivent renvoyer les mêmes lignes ; un bloc ou un choix change les conditions, pas la projection"),
+            ]);
+        }
+        // La plus large des cardinalités.
+        d.cardinality = match (d.cardinality, v.cardinality) {
+            (Cardinality::Many, _) | (_, Cardinality::Many) => Cardinality::Many,
+            (Cardinality::Optional, _) | (_, Cardinality::Optional) => Cardinality::Optional,
+            (c, _) => c,
+        };
+    }
+    for p in d.params.iter_mut() {
+        if dynamic.conditions.contains(&p.name) {
+            p.nullable = NullabilityDesc::Nullable;
+        }
+    }
+    d.dynamic = Some(DynamicDesc {
+        conditions: dynamic.conditions.clone(),
+        choices: dynamic
+            .structure
+            .choices
+            .iter()
+            .map(|c| ChoiceDesc {
+                name: c.name.clone(),
+                labels: c.alternatives.iter().map(|a| a.label.clone()).collect(),
+            })
+            .collect(),
+        variants,
+    });
+    Ok(d)
+}
+
+/// `status absent, tri = id` : une combinaison, pour un message.
+fn describe_selection(d: &crate::file::Dynamic, sel: &crate::dynamic::Selection) -> String {
+    let blocks = d
+        .conditions
+        .iter()
+        .zip(&sel.blocks)
+        .map(|(c, on)| format!("${c} {}", if *on { "fourni" } else { "absent" }));
+    let choices = d
+        .structure
+        .choices
+        .iter()
+        .zip(&sel.choices)
+        .map(|(c, k)| format!("{} = {}", c.name, c.alternatives[*k].label));
+    blocks.chain(choices).collect::<Vec<_>>().join(", ")
+}
+
+/// Descripteur d'un texte analysé de `q` (même longueur que son SQL) :
+/// parse aux positions du fichier, puis analyse.
+fn describe_text(
+    catalog: &ProjectCatalog,
+    q: &NamedQuery,
+    analysis: &str,
+    positional: String,
+    order: Option<Vec<String>>,
 ) -> Result<Descriptor, Vec<Diagnostic>> {
     let whole = Span {
         start: q.sql_range.start,
         end: q.sql_range.end,
     };
     // Fragments insérés : le SQL analysé n'est pas le texte du fichier, la
-    // source-map y ramène chaque position.
-    // Marqueurs `$nom?` effacés (même longueur) : le parser lit du SQL.
-    let analysis = q.analysis_text();
+    // source-map y ramène chaque position. Marqueurs effacés (même
+    // longueur) : le parser lit du SQL.
     let parsed = match &q.expanded {
-        Some(e) => pgweave_parser::parse_mapped_with_outcome(&analysis, &e.map),
-        None => pgweave_parser::parse_at_with_outcome(&analysis, q.sql_range.start),
+        Some(e) => pgweave_parser::parse_mapped_with_outcome(analysis, &e.map),
+        None => pgweave_parser::parse_at_with_outcome(analysis, q.sql_range.start),
     };
     let outcome = parsed.map_err(|e| {
         vec![
@@ -156,17 +289,11 @@ pub fn describe_named(
             }),
         ]);
     }
-    // Ordre des paramètres : celui de la réécriture positionnelle, c'est-à-
-    // dire de première apparition dans le texte (et non l'ordre d'analyse).
-    let order: Option<Vec<String>> = match &q.params {
-        Params::Named(list) => Some(list.iter().map(|p| format!("${}", p.name)).collect()),
-        _ => None,
-    };
     let mut d = describe(
         catalog,
         &q.name,
         &outcome.statements,
-        q.positional_sql(),
+        positional,
         order,
         q.cardinality,
         whole,
@@ -477,6 +604,7 @@ fn describe(
             c
         }),
         row: None,
+        dynamic: None,
     })
 }
 

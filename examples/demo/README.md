@@ -56,7 +56,13 @@ devient la fonction Rust.
   nullable, donc `Option<&str>` ; l'upsert sans condition renvoie toujours
   sa ligne (`one`) ;
 - `orders.sql`, `order_summary :optional` : l'analyse infère `many` (il y a
-  un `GROUP BY`), la déclaration restreint à `optional`.
+  un `GROUP BY`), la déclaration restreint à `optional` ;
+- `orders.sql`, `orders_of_restaurant` : `$status?` est un filtre
+  optionnel (`Option<OrderStatus>`) ;
+- `orders.sql`, `orders_page` : pagination à variantes, filtres `[[ … ]]` et
+  tri `{{ … }}` ; survolez l'en-tête, puis `$status`. Les huit variantes
+  sont vérifiées ; cassez-en une (`o.statut` dans un bloc) pour voir
+  l'erreur, la variante en indice.
 
 ### 2. Le type de ce qui est sous le curseur
 

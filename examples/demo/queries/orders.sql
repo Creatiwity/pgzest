@@ -57,3 +57,16 @@ FROM orders o
 WHERE o.restaurant_id = $restaurant
   AND ($status?::order_status IS NULL OR o.status = $status)
 ORDER BY o.id;
+
+-- name: orders_page :many
+-- Pagination filtrée : chaque filtre fourni ajoute sa condition (`[[ … ]]`,
+-- `Option` en Rust), le tri est un choix (`{{ … }}`, enum Rust). Les huit
+-- variantes sont vérifiées à la compilation ; aucune n'est composée à
+-- l'exécution.
+SELECT o.id, o.status, o.placed_at
+FROM orders o
+WHERE o.restaurant_id = $restaurant
+[[ AND o.status = $status ]]
+[[ AND o.placed_at >= $since ]]
+ORDER BY {{ tri: recent = o.placed_at DESC NULLS LAST, o.id DESC | ancien = o.id }}
+LIMIT $limit;

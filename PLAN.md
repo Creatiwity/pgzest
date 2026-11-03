@@ -834,13 +834,20 @@ Ajouts (2026-11-03, après la sortie) :
   une fois, référencés par `sql!`, `queries!` et `build.rs`.
 - Positions : tokens générés situés sur l'appel (plus de panique de
   rust-analyzer), noms sur le nom écrit, lien vers la ligne SQL au survol.
+- Coloration SQL des chaînes de `sql!`/`query!` (grammaire d'injection,
+  vérifiée avec la grammaire Rust de VS Code), `pgweave-lsp` sur les `.rs`
+  (requêtes extraites par balayage lexical, positions exactes échappements
+  compris : diagnostics, survol, complétion), jetons sémantiques réservés
+  aux documents SQL ; survol d'un `$paramètre` (type établi, pas une
+  colonne homonyme).
+- Paramètre optionnel `$nom?` (nullable, `Option` en Rust) ; requêtes à
+  variantes : blocs `[[ … ]]` (un paramètre chacun) et choix `{{ nom: a = … |
+  b = … }}` (enum Rust), chaque combinaison décrite à la compilation (≤ 256,
+  mêmes colonnes exigées), choisie à l'exécution par un `match` exhaustif.
+  Variantes obtenues par effacement à longueur égale : positions du fichier
+  conservées.
 
 Reste :
-- Fait ensuite : coloration SQL des chaînes de `sql!`/`query!` (grammaire
-  d'injection, vérifiée avec la grammaire Rust de VS Code), `pgweave-lsp`
-  sur les `.rs` (requêtes extraites par balayage lexical, positions exactes
-  échappements compris : diagnostics, survol, complétion), jetons
-  sémantiques réservés aux documents SQL.
 - Fragments dans un `CREATE FUNCTION … AS $$…$$` écrit à la main : non
   insérés (une chaîne dollar n'est pas interprétée) ; passer par `@function`.
 - `pgweave build` n'éjecte pas encore un fichier de requêtes (les

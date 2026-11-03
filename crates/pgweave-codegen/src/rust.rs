@@ -338,6 +338,34 @@ impl Generator<'_> {
             "pub const {const_name}: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};\n",
             d.name, d.sql
         );
+        if let Some(dy) = &d.dynamic {
+            for (i, v) in dy.variants.iter().enumerate() {
+                let mut oids = Some(Vec::new());
+                for name in &v.params {
+                    let p = d.params.iter().find(|p| &p.name == name).ok_or_else(|| {
+                        format!("variante {i} : paramètre ${name} inconnu du descripteur")
+                    })?;
+                    let base = self.ts.base_type(&qname(&p.ty.pg));
+                    match (self.ts.def(&base).and_then(|t| t.oid), oids.as_mut()) {
+                        (Some(oid), Some(o)) => o.push(oid),
+                        _ => oids = None,
+                    }
+                }
+                let oids = match oids {
+                    Some(v) => format!(
+                        "Some(&[{}])",
+                        v.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
+                    ),
+                    None => "None".into(),
+                };
+                let _ = writeln!(
+                    o,
+                    "#[doc(hidden)]\npub const {const_name}_V{i}: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};",
+                    d.name, v.sql
+                );
+            }
+            let _ = writeln!(o);
+        }
 
         // Paramètres.
         let mut params = Vec::new();
@@ -353,6 +381,28 @@ impl Generator<'_> {
                 NullabilityDesc::NonNull | NullabilityDesc::Unknown => t.borrowed,
             };
             params.push((field_ident(&p.name)?, ty));
+        }
+        // Requête à variantes : un enum par choix, champ de la struct.
+        let choice_types: Vec<(String, String, Vec<String>)> = d
+            .dynamic
+            .iter()
+            .flat_map(|dy| &dy.choices)
+            .map(|c| {
+                let ty = format!("{pascal}{}", self::pascal(&c.name));
+                let variants = c.labels.iter().map(|l| self::pascal(l)).collect();
+                (c.name.clone(), ty, variants)
+            })
+            .collect();
+        for (name, ty, variants) in &choice_types {
+            let _ = writeln!(
+                o,
+                "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum {ty} {{\n{}}}\n",
+                variants
+                    .iter()
+                    .map(|v| format!("    {v},\n"))
+                    .collect::<String>()
+            );
+            params.push((field_ident(name)?, ty.clone()));
         }
         let params_ty = if params.is_empty() {
             None
@@ -456,37 +506,145 @@ impl Generator<'_> {
             ),
             None => "&[]".into(),
         };
+        // Requête à variantes : la variante (vérifiée à la compilation) et
+        // ses valeurs, choisies par un `match` exhaustif sur les blocs
+        // fournis et les choix.
+        let (prelude, qref, bound) = match &d.dynamic {
+            None => (String::new(), format!("&{const_name}"), bound),
+            Some(dy) => self.variant_match(d, dy, &const_name, &choice_types)?,
+        };
         use pgweave_query::Cardinality;
         let (ret, call) = match (d.cardinality, &row_ty) {
             (Cardinality::None, _) | (_, None) => (
                 "u64".to_string(),
-                format!("{rt}::execute(client, &{const_name}, {bound})"),
+                format!("{rt}::execute(client, {qref}, {bound})"),
             ),
             (Cardinality::One, Some(r)) => (
                 r.clone(),
-                format!("{rt}::fetch_one(client, &{const_name}, {bound}, {r}::from_row)"),
+                format!("{rt}::fetch_one(client, {qref}, {bound}, {r}::from_row)"),
             ),
             (Cardinality::Optional, Some(r)) => (
                 format!("Option<{r}>"),
-                format!("{rt}::fetch_optional(client, &{const_name}, {bound}, {r}::from_row)"),
+                format!("{rt}::fetch_optional(client, {qref}, {bound}, {r}::from_row)"),
             ),
             (Cardinality::Many, Some(r)) => (
                 format!("Vec<{r}>"),
-                format!("{rt}::fetch_all(client, &{const_name}, {bound}, {r}::from_row)"),
+                format!("{rt}::fetch_all(client, {qref}, {bound}, {r}::from_row)"),
             ),
         };
         let _ = writeln!(
             o,
-            "pub async fn {fn_name}<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<{ret}, {rt}::Error> {{\n    {call}.await\n}}\n"
+            "pub async fn {fn_name}<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<{ret}, {rt}::Error> {{\n{prelude}    {call}.await\n}}\n"
         );
         // Plusieurs lignes : aussi en flux, décodées à leur arrivée.
         if let (Cardinality::Many, Some(r)) = (d.cardinality, &row_ty) {
             let _ = writeln!(
                 o,
-                "/// Comme [`{fn_name}`], les lignes décodées au fil de leur arrivée.\npub async fn {fn_name}_stream<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<impl {rt}::futures_util::Stream<Item = Result<{r}, {rt}::Error>> + Send + use<C>, {rt}::Error> {{\n    {rt}::stream(client, &{const_name}, {bound}, {r}::from_row).await\n}}\n"
+                "/// Comme [`{fn_name}`], les lignes décodées au fil de leur arrivée.\npub async fn {fn_name}_stream<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<impl {rt}::futures_util::Stream<Item = Result<{r}, {rt}::Error>> + Send + use<C>, {rt}::Error> {{\n{prelude}    {rt}::stream(client, {qref}, {bound}, {r}::from_row).await\n}}\n"
             );
         }
         Ok(o)
+    }
+
+    /// Préambule d'une fonction à variantes : `let (q, binds) = match …;`,
+    /// puis la requête et les valeurs à passer.
+    fn variant_match(
+        &self,
+        d: &Descriptor,
+        dy: &pgweave_query::descriptor::DynamicDesc,
+        const_name: &str,
+        choices: &[(String, String, Vec<String>)],
+    ) -> Result<(String, String, String), String> {
+        let rt = &self.opts.runtime;
+        let mut prelude = String::new();
+        // Domaines : valeurs préparées hors du `match` (pas de temporaire).
+        let mut value = std::collections::BTreeMap::new();
+        for p in &d.params {
+            let f = field_ident(&p.name)?;
+            let cond = dy.conditions.contains(&p.name);
+            let dom = self.is_domain(&p.ty.pg);
+            let expr = match (cond, dom) {
+                (false, false) => format!("&params.{f}"),
+                (false, true) => {
+                    let _ = writeln!(prelude, "    let __{f} = {rt}::Domain(params.{f});");
+                    format!("&__{f}")
+                }
+                // Lié par le motif `Some(__c_f)` de la branche.
+                (true, _) => format!("__c_{f}"),
+            };
+            if cond && dom {
+                let _ = writeln!(prelude, "    let __{f} = params.{f}.map({rt}::Domain);");
+            }
+            value.insert(p.name.clone(), (expr, cond, dom, f));
+        }
+        let mut distinct: Vec<&String> = Vec::new();
+        for c in &dy.conditions {
+            if !distinct.contains(&c) {
+                distinct.push(c);
+            }
+        }
+        let mut scrutinee: Vec<String> = distinct
+            .iter()
+            .map(|c| {
+                let (_, _, dom, f) = &value[*c];
+                if *dom {
+                    format!("__{f}.as_ref()")
+                } else {
+                    format!("params.{f}.as_ref()")
+                }
+            })
+            .collect();
+        for (name, _, _) in choices {
+            scrutinee.push(format!("params.{}", field_ident(name)?));
+        }
+        let n_blocks = dy.conditions.len();
+        let mut arms = String::new();
+        for (i, v) in dy.variants.iter().enumerate() {
+            // Indice → combinaison (voir `pgweave_query::dynamic::selections`).
+            let bits: Vec<bool> = (0..n_blocks).map(|k| i >> k & 1 == 1).collect();
+            let mut rest = i >> n_blocks;
+            let mut patterns = Vec::new();
+            let mut consistent = true;
+            for c in &distinct {
+                let states: Vec<bool> = dy
+                    .conditions
+                    .iter()
+                    .zip(&bits)
+                    .filter(|(n, _)| n == c)
+                    .map(|(_, b)| *b)
+                    .collect();
+                // Un même paramètre décide de plusieurs blocs : ensemble.
+                if states.iter().any(|b| *b != states[0]) {
+                    consistent = false;
+                }
+                let (_, _, _, f) = &value[*c];
+                patterns.push(if states[0] {
+                    format!("Some(__c_{f})")
+                } else {
+                    "None".into()
+                });
+            }
+            for (_, ty, variants) in choices {
+                patterns.push(format!("{ty}::{}", variants[rest % variants.len()]));
+                rest /= variants.len();
+            }
+            if !consistent {
+                continue;
+            }
+            let binds: Vec<&str> = v.params.iter().map(|n| value[n].0.as_str()).collect();
+            let _ = writeln!(
+                arms,
+                "        ({}) => (&{const_name}_V{i}, vec![{}]),",
+                patterns.join(", "),
+                binds.join(", ")
+            );
+        }
+        let _ = writeln!(
+            prelude,
+            "    let (q, binds): (&'static {rt}::Query, Vec<{rt}::Param<'_>>) = match ({}) {{\n{arms}    }};",
+            scrutinee.join(", ")
+        );
+        Ok((prelude, "q".into(), "&binds".into()))
     }
 
     /// `COPY … FROM STDIN` : enregistrements typés (binaire) ou flux
