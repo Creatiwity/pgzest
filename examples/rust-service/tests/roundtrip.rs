@@ -26,8 +26,12 @@ async fn les_requetes_generees_s_executent() {
         .await
         .expect("connexion");
     tokio::spawn(conn);
-    let schema = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/schema/schema.sql"))
-        .expect("schéma");
+    // Le schéma utilise des fragments : il est appliqué désucré, tel que
+    // pgweave l'analyse (ce que `pgweave build` écrirait).
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let project = pgweave_build::load_project(root).expect("projet");
+    let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schéma");
+    let schema = pgweave_macro::expand_source(&schema, &project.macros).sql;
     client
         .batch_execute(&schema)
         .await
@@ -180,6 +184,38 @@ async fn les_requetes_generees_s_executent() {
     tx.commit().await.expect("commit");
     let n = queries::count_etablissements(&client).await.expect("count");
     assert_eq!(n.n, 3);
+
+    // Recherche plein texte : l'expression de la requête et celle de l'index
+    // viennent du même fragment, donc le planificateur utilise l'index.
+    let found =
+        queries::search_etablissements(&client, queries::SearchEtablissementsParams { q: "beta" })
+            .await
+            .expect("search");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].nom, "Beta");
+    client
+        .batch_execute("SET enable_seqscan = off")
+        .await
+        .expect("enable_seqscan");
+    // Protocole simple : le plan générique garde `$1` sans valeur.
+    let plan: Vec<String> = client
+        .simple_query(&format!(
+            "EXPLAIN (GENERIC_PLAN, COSTS OFF) {}",
+            queries::SEARCH_ETABLISSEMENTS.sql
+        ))
+        .await
+        .expect("explain")
+        .iter()
+        .filter_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::Row(r) => r.get(0).map(str::to_string),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        plan.iter().any(|l| l.contains("etablissements_search")),
+        "l'index n'est pas utilisé :\n{}",
+        plan.join("\n")
+    );
 
     drop(client);
     admin

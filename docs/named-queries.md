@@ -45,9 +45,10 @@ RETURNING id, title;
 fichier      := préambule? requête*
 préambule    := (commentaire | ligne vide)*
 requête      := en-tête doc* statement
-en-tête      := "-- name:" nom cardinalité? FIN_DE_LIGNE      (en début de ligne)
+en-tête      := "-- name:" nom cardinalité? référence? FIN_DE_LIGNE  (en début de ligne)
 nom          := [a-z_][a-z0-9_]*
 cardinalité  := ":one" | ":optional" | ":many" | ":none"
+référence    := "->" nom                     (ajouté en P6, 2026-11-03)
 doc          := "--" texte FIN_DE_LIGNE                       (avant le statement)
 statement    := un seul statement SQL, ";" final optionnel
 ```
@@ -102,9 +103,68 @@ requête, reprise dans le code généré.
 - **Un seul** statement par requête ; le `;` final est optionnel.
 - Tout SQL hors d'une requête (avant le premier en-tête, ou un second
   statement sous un même en-tête) est une erreur.
-- Les macros (`.pgsql`) ne sont pas encore acceptées dans les requêtes
-  nommées : un fichier de requêtes est un `.sql`. Les fragments réutilisables
-  arrivent en P6.
+- Un fichier de requêtes est un `.sql`. Il peut insérer les **fragments**
+  du projet (`@nom`, voir plus bas) ; les macros de statement (`@function`…)
+  n'y ont pas leur place.
+
+## Fragments
+
+Un morceau de SQL qui revient (liste de colonnes, expression, prédicat)
+s'écrit une fois, dans un `.sql` de `[macros] directory`, et s'insère par
+`@nom` :
+
+```sql
+-- macros/pages.sql
+-- fragment: page_card(p)
+-- La fiche d'une page, telle que l'affichent les listes.
+p.id, p.title, p.status
+
+-- fragment: published(p)
+p.status = 'live' AND p.published_on <= current_date
+```
+
+```sql
+-- name: recent_pages :many
+SELECT @page_card(x) FROM pages x WHERE @published(x) ORDER BY x.id DESC;
+-- analysé et envoyé :
+SELECT x.id, x.title, x.status FROM pages x
+WHERE (x.status = 'live' AND x.published_on <= current_date) ORDER BY x.id DESC
+```
+
+- Les paramètres d'un fragment sont des **qualificatifs** : `@page_card(x)`
+  remplace `p.` par `x.`, `@page_card` le retire (`id, title, status`).
+  Rien d'autre n'est substitué.
+- Un corps qui est une expression non atomique est inséré entre
+  parenthèses (l'opérateur voisin ne peut pas le découper) ; une liste, un
+  élément aliasé ou un atome est inséré tel quel.
+- Un fragment peut contenir des paramètres (`$status`) : ils deviennent
+  ceux de la requête, dans l'ordre de première apparition **après**
+  insertion.
+- Le fragment est vérifié là où il est inséré ; une erreur qui vient de son
+  texte est rapportée à l'invocation (`@page_card(x)`).
+- Les fragments servent aussi dans le schéma (`CREATE INDEX … ((@expr))`) :
+  l'expression d'un index et celle des requêtes qui doivent l'utiliser ne
+  peuvent plus diverger.
+
+## Lignes de référence
+
+`-> autre` déclare que la requête renvoie des lignes de la même forme que
+celles de la requête `autre` : le code généré reprend sa struct de ligne
+(`AutreRow`) au lieu d'en créer une.
+
+```sql
+-- name: page_card :optional
+SELECT @page_card(p) FROM pages p WHERE p.id = $id;
+
+-- name: pages_of_author :many -> page_card
+SELECT @page_card(p) FROM pages p WHERE p.author = $author;
+```
+
+Vérifié, jamais forcé : mêmes colonnes dans le même ordre, du même type ;
+une colonne non nulle dans la référence doit l'être aussi ici (une colonne
+nullable dans la référence accepte une valeur toujours présente). La
+référence est une requête du projet (tous fichiers confondus) qui ne
+reprend pas elle-même les lignes d'une autre.
 
 ## Paramètres
 
@@ -155,6 +215,8 @@ commentaires, mise en forme).
 | `query-parameter-invalid` | `$0`, `$pageId` |
 | `query-file-extension` | fichier de requêtes qui n'est pas un `.sql` |
 | `parse-error` | fichier que le tokenizer SQL ne sait pas lire (chaîne non terminée…) |
+| `macro-error` | fragment inconnu en position de macro, arguments invalides, fragments récursifs |
+| `query-row-mismatch` | `-> autre` : référence introuvable ou lignes incompatibles |
 
 Ils s'ajoutent aux diagnostics habituels (`column-not-found`, …) et suivent
 `[rules]` et les directives `-- pgweave-disable…` comme tous les autres.

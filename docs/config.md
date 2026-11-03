@@ -115,7 +115,7 @@ schéma.
 
 | Clé | Type | Défaut | Rôle |
 |---|---|---|---|
-| `directory` | chemin | `"macros"` | Macros du projet (`*.pgmacro`). Une macro du projet portant le nom d'une macro fournie la remplace. |
+| `directory` | chemin | `"macros"` | Macros du projet (`*.pgmacro`) et fragments (`*.sql`, en-têtes `-- fragment: nom`, voir [`named-queries.md`](named-queries.md#fragments)). Une macro du projet portant le nom d'une macro fournie la remplace ; deux fragments du même nom, ou un fragment et une macro, sont une erreur. Ses `.sql` ne sont jamais des fichiers de schéma ni de requêtes. |
 
 ### `[parse]`
 

@@ -23,6 +23,27 @@ SELECT count(*) AS total,
 FROM dishes
 WHERE restaurant_id = $restaurant;
 
+-- name: dish_card :optional
+-- La fiche d'un plat. Les requêtes suivantes renvoient la même fiche
+-- (`-> dish_card`) : une seule struct Rust, `DishCardRow`, pour toutes.
+SELECT @dish_card(d)
+FROM dishes d
+WHERE d.id = $id;
+
+-- name: vegetarian_dishes :many -> dish_card
+SELECT @dish_card(d)
+FROM dishes d
+JOIN restaurants r ON r.id = d.restaurant_id
+WHERE r.slug = $restaurant AND d.vegetarian
+ORDER BY d.price;
+
+-- name: affordable_dishes :many -> dish_card
+-- `@affordable(d)` est un prédicat : inséré entre parenthèses.
+SELECT @dish_card(d)
+FROM dishes d
+WHERE d.restaurant_id = $restaurant AND @affordable(d)
+ORDER BY d.price, d.name;
+
 -- name: import_dishes
 -- COPY typé : la fonction générée lit un flux CSV.
 COPY dishes (restaurant_id, name, kind, price, vegetarian) FROM STDIN (FORMAT csv, HEADER true);

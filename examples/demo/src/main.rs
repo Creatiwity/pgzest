@@ -109,6 +109,30 @@ async fn main() -> Result<()> {
             }
         );
     }
+    // Deux requêtes, une même fiche (`-> dish_card`) : un seul type Rust.
+    let veggie = queries::vegetarian_dishes(
+        &client,
+        queries::VegetarianDishesParams {
+            restaurant: "le-bistrot",
+        },
+    )
+    .await?;
+    let affordable = queries::affordable_dishes(
+        &client,
+        queries::AffordableDishesParams {
+            restaurant: bistro.id,
+        },
+    )
+    .await?;
+    let names = |cards: &[queries::DishCardRow]| {
+        cards
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    println!("   végétariens : {}", names(&veggie));
+    println!("   à moins de 10 € : {}", names(&affordable));
     let counts = queries::dish_counts(
         &client,
         queries::DishCountsParams {

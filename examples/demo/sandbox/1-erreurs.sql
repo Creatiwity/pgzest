@@ -37,3 +37,12 @@ SELECT default FROM orders;
 -- name: ambigu
 -- `id` existe dans les deux tables : laquelle ?
 SELECT id, name FROM restaurants JOIN dishes ON dishes.restaurant_id = restaurants.id;
+
+-- name: fiche_incomplete :many -> dish_card
+-- Déclare renvoyer la fiche d'un plat (`DishCardRow`), mais il manque
+-- `vegetarian`. Ajoutez-la : le LEFT JOIN rend alors chaque colonne de `d`
+-- nullable, et la struct partagée mentirait. Écrivez `@dish_card(d)` et
+-- remplacez LEFT JOIN par JOIN.
+SELECT d.id, d.name, d.kind, d.price
+FROM restaurants r
+LEFT JOIN dishes d ON d.restaurant_id = r.id;

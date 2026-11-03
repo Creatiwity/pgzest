@@ -239,6 +239,31 @@ Les macros fournies sont écrites dans ce même format
 macros fournies ne se servent pas est un mécanisme non testé. Une macro du
 projet portant le nom d'une macro fournie la remplace.
 
+### Fragments
+
+Un morceau de SQL qui revient — liste de colonnes, expression, prédicat —
+s'écrit une fois dans un `.sql` de `[macros] directory` et s'insère par
+`@nom`, dans le schéma comme dans les requêtes :
+
+```sql
+-- macros/search.sql
+-- fragment: search_vector(t)
+-- Doit rester identique à l'expression de l'index : elle n'est écrite qu'ici.
+to_tsvector('french'::regconfig, coalesce(t.nom, ''))
+```
+
+```sql
+CREATE INDEX etab_search ON etablissements USING gin ((@search_vector));
+SELECT e.siret FROM etablissements e WHERE @search_vector(e) @@ plainto_tsquery('french', $q);
+```
+
+Les paramètres sont des qualificatifs (`@f(e)` : `t.` → `e.` ; `@f` : retiré).
+Le fragment est vérifié dans chaque statement qui l'insère ; survoler
+`@nom` montre sa documentation et le SQL inséré. Une requête peut aussi
+reprendre la struct de ligne d'une autre (`-- name: x :many -> autre`),
+après vérification des colonnes. Détails :
+[`docs/named-queries.md`](docs/named-queries.md#fragments).
+
 ## Requêtes nommées
 
 Les requêtes appelées depuis le code vivent dans `[queries] directory`, une

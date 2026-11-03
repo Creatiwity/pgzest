@@ -5,6 +5,7 @@ commandes), écrite comme un projet réel :
 
 ```
 pgweave.toml          où sont les migrations, le schéma, les requêtes
+macros/               fragments : du SQL écrit une fois, inséré par `@nom`
 migrations/           l'historique du schéma (enums, domaine, citext, triggers PL/pgSQL)
 schema/               une vue déclarative, rejouée après les migrations
 queries/              les requêtes nommées → fonctions Rust générées
@@ -63,18 +64,35 @@ type de la table qu'il désigne là où il est.
 
 ### 3. Les erreurs, comme PostgreSQL les dirait
 
-`sandbox/1-erreurs.sql` contient neuf requêtes fautives, soulignées en
+`sandbox/1-erreurs.sql` contient dix requêtes fautives, soulignées en
 rouge. Corrigez-les une à une pour voir le diagnostic disparaître :
 
 - types incompatibles (`text = integer`, enum comparé à un entier) ;
 - colonne ou table inconnue, colonne ambiguë ;
 - valeur explicite dans une colonne `GENERATED ALWAYS` ;
 - `DEFAULT` hors d'un `INSERT … VALUES` ou d'un `SET` ;
-- paramètre dont rien ne fixe le type, cardinalité déclarée contredite.
+- paramètre dont rien ne fixe le type, cardinalité déclarée contredite ;
+- requête qui prétend renvoyer la fiche d'un plat (`-> dish_card`) sans en
+  avoir les colonnes.
 
 En CLI, même verdict : `../../target/debug/pgweave check sandbox/*.sql`.
 
-### 4. Le schéma vit avec l'éditeur
+### 4. Écrire une projection une seule fois
+
+`macros/projections.sql` déclare des **fragments** : `dish_card(d)`, la
+fiche d'un plat, et `affordable(d)`, un prédicat. Dans `queries/menu.sql`,
+survolez `@dish_card(d)` : l'éditeur montre sa documentation et le SQL
+inséré (`d.id, d.name, …`). `@affordable(d)` est inséré entre parenthèses,
+pour que le `AND` qui l'entoure ne le découpe pas.
+
+`vegetarian_dishes` et `affordable_dishes` déclarent `-> dish_card` : leurs
+lignes ont la forme de celles de `dish_card`, vérifiée colonne par colonne,
+et le code Rust n'a qu'une struct, `DishCardRow`, pour les trois requêtes.
+
+Ajoutez `d.tags` au fragment, sans rien toucher d'autre : les trois
+requêtes changent ensemble, et `DishCardRow` gagne un champ.
+
+### 5. Le schéma vit avec l'éditeur
 
 Ouvrez `migrations/0002_loyalty.sql` et ajoutez une colonne, **sans
 sauvegarder** :
@@ -91,7 +109,7 @@ Les corps PL/pgSQL sont vérifiés aussi. Dans `0002_loyalty.sql`, changez
 `NEW.customer_id` en `NEW.client_id` : le trigger est attaché à `orders`,
 qui n'a pas ce champ, et l'erreur l'indique.
 
-### 5. Le code Rust généré
+### 6. Le code Rust généré
 
 `build.rs` (trois lignes) décrit chaque requête de `queries/` et génère le
 module `queries`. Pour le lire :
@@ -111,7 +129,7 @@ n'est contactée pour cela.
 `src/lib.rs` montre `query!`, une requête écrite dans le code Rust et
 vérifiée à la compilation de la même façon.
 
-### 6. L'exécution
+### 7. L'exécution
 
 ```sh
 make demo-run
@@ -121,6 +139,7 @@ Le programme recrée une base `pgweave_demo`, y applique les migrations,
 importe les plats par `COPY` (CSV), puis déroule le scénario. On y voit :
 
 - les enums Rust générés, et le domaine `cents` passé en `i32` ;
+- deux listes de plats décodées dans la même struct (`DishCardRow`) ;
 - le menu lu en flux ;
 - un client dont l'e-mail `citext` ignore la casse ;
 - une commande dans une transaction ;

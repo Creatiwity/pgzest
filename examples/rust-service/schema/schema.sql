@@ -23,3 +23,5 @@ CREATE TABLE etablissements (
 );
 
 CREATE UNLOGGED TABLE etablissements_staging (LIKE etablissements);
+
+CREATE INDEX etablissements_search ON etablissements USING gin ((@etablissement_search));

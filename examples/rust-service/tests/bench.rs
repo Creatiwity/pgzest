@@ -33,8 +33,11 @@ async fn code_genere_face_a_tokio_postgres() {
         .await
         .expect("connexion");
     tokio::spawn(conn);
-    let schema = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/schema/schema.sql"))
-        .expect("schéma");
+    // Schéma désucré (fragments), tel que pgweave l'analyse.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let project = pgweave_build::load_project(root).expect("projet");
+    let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schéma");
+    let schema = pgweave_macro::expand_source(&schema, &project.macros).sql;
     client
         .batch_execute(&schema)
         .await

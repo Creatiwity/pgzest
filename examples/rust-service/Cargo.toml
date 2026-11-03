@@ -16,5 +16,7 @@ uuid = "1"
 pgweave-build = { path = "../../crates/pgweave-build" }
 
 [dev-dependencies]
+pgweave-build = { path = "../../crates/pgweave-build" }
+pgweave-macro = { path = "../../crates/pgweave-macro" }
 pgweave-runtime = { path = "../../crates/pgweave-runtime" }
 tokio = { workspace = true }

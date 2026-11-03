@@ -774,7 +774,46 @@ ligne), budget mesuré sur un projet de la taille de Mesalia.
 budget de compilation respecté ; benchmark d'exécution comparé à
 `tokio-postgres` écrit à la main (écart cible : négligeable) et à sqlx.
 
-### P6 — Fragments et macros d'expression
+### P6 — Fragments et macros d'expression — ✅ sortie atteinte (2026-11-03)
+
+Fait (2026-11-03) :
+- Fragments : `.sql` de `[macros] directory`, en-têtes `-- fragment: nom`
+  ou `nom(t, …)`, corps en SQL ordinaire documenté par ses commentaires.
+  `@nom` les insère partout où du code est recopié (schéma, migrations,
+  requêtes nommées, `query!`, corps de macros), uniquement pour un nom de
+  fragment déclaré (`@` reste sinon la valeur absolue). Paramètres =
+  qualificatifs de relation (`@f(e)` : `t.` → `e.` ; `@f` : retiré), rien
+  d'autre n'est substitué. Corps d'expression non atomique parenthésé (nature
+  lue par le parser) ; imbrication, cycle refusé. Lexer qui distingue
+  chaînes, `$$…$$`, commentaires et identifiants quotés.
+- Source-map : segments opaques, le texte inséré est rapporté à
+  l'invocation entière ; une erreur venue d'un fragment est soulignée sur
+  `@nom(x)` ; paramètres `$nom` apportés par un fragment rattachés à la
+  requête, dans l'ordre d'apparition après insertion.
+- Requêtes nommées : fragments insérés requête par requête dans le repère
+  du fichier (`NamedQuery::expanded`), descripteur et code générés sur le
+  SQL inséré ; `-> autre` (ajout additif au format figé) : lignes de la
+  forme de la requête `autre`, vérifiées (noms, ordre, types, nullabilité
+  non relâchée), struct reprise par le code généré ; `query-row-mismatch`
+  dans `check` et l'éditeur, références entre fichiers comprises.
+- Éditeur : survol d'un `@nom` (doc, SQL inséré), fichiers de fragments
+  vérifiés (format) et pris en compte non sauvegardés, revérification des
+  autres documents à leur modification ; rôle `Fragments` (jamais schéma ni
+  requêtes).
+- **Sortie** : `examples/rust-service` (motif siren) — liste de colonnes du
+  chargement écrite une fois (COPY, `INSERT … SELECT`, `ON CONFLICT … SET
+  (…) = ROW(…)`), expression plein texte écrite une fois pour l'index et la
+  requête, l'oracle vérifiant sur PostgreSQL que le plan utilise l'index ;
+  `examples/demo` — projection « fiche de plat » écrite une fois, trois
+  requêtes et une struct `DishCardRow`.
+
+Reste :
+- Fragments dans un `CREATE FUNCTION … AS $$…$$` écrit à la main : non
+  insérés (une chaîne dollar n'est pas interprétée) ; passer par `@function`.
+- `pgweave build` n'éjecte pas encore un fichier de requêtes (les
+  descripteurs portent le SQL inséré, le code généré aussi).
+- Une projection Mesalia réelle : la brique Rust de Mesalia n'existe pas
+  encore ; le motif est montré dans la démo.
 
 - Fragments nommés réutilisables (liste de colonnes, prédicats), typés dans
   leur contexte d'utilisation, avec source maps (mécanisme existant étendu).
