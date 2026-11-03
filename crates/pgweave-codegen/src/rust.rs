@@ -32,6 +32,10 @@ pub struct RustOptions {
     /// Type Rust d'un type PostgreSQL (`"public.geometry"` →
     /// `"geo_types::Geometry"`), prioritaire sur la table intégrée.
     pub overrides: BTreeMap<String, String>,
+    /// Module des enums du projet (`[rust] types`, `crate::db`), générés à
+    /// part ([`generate_enums`]) : le code des requêtes y renvoie au lieu de
+    /// définir les siens.
+    pub types_path: Option<String>,
 }
 
 impl Default for RustOptions {
@@ -40,6 +44,7 @@ impl Default for RustOptions {
             runtime: "pgweave_runtime".into(),
             temporal: Temporal::default(),
             overrides: BTreeMap::new(),
+            types_path: None,
         }
     }
 }
@@ -227,6 +232,55 @@ fn with_source(
     out
 }
 
+/// Code d'une requête seule (`sql!`), sa ligne éventuellement reprise d'un
+/// type Rust (`row`, chemin). Un enum utilisé exige `types_path` : deux
+/// requêtes du même module ne peuvent pas chacune définir le sien.
+pub fn generate_query(
+    d: &Descriptor,
+    catalog: &ProjectCatalog,
+    opts: &RustOptions,
+    row: Option<String>,
+) -> Result<String, String> {
+    let mut g = Generator {
+        ts: TypeSystem::new(&catalog.catalog),
+        opts,
+        enums: BTreeMap::new(),
+    };
+    let code = g.query(d, row)?;
+    if let Some(ty) = g.enums.keys().next() {
+        return Err(format!(
+            "la requête utilise l'enum {ty} : déclarer où sont les enums du projet \
+             (`[rust] types = \"crate::db\"` dans pgweave.toml) et y appeler \
+             `pgweave_macros::types!();`"
+        ));
+    }
+    Ok(code)
+}
+
+/// Enums de tous les types énumérés du projet (`types!`), hors catalogue
+/// système.
+pub fn generate_enums(catalog: &ProjectCatalog, opts: &RustOptions) -> Result<String, Vec<String>> {
+    let mut out = String::new();
+    let mut names: BTreeMap<String, String> = BTreeMap::new();
+    for t in catalog.catalog.types.values() {
+        let TypeKind::Enum { labels } = &t.kind else {
+            continue;
+        };
+        if t.name.schema == "pg_catalog" || t.name.schema == "information_schema" {
+            continue;
+        }
+        let rust = pascal(&t.name.name);
+        if let Some(other) = names.insert(rust.clone(), t.name.to_string()) {
+            return Err(vec![format!(
+                "les enums {other} et {} donnent le même type Rust `{rust}`",
+                t.name
+            )]);
+        }
+        out.push_str(&enum_code(&opts.runtime, &rust, &t.name.name, labels)?);
+    }
+    Ok(out)
+}
+
 /// Code du module `at` et de ses sous-modules.
 fn render_tree(bodies: &BTreeMap<Vec<String>, String>, at: &[String]) -> String {
     let mut out = bodies.get(at).cloned().unwrap_or_default();
@@ -350,6 +404,23 @@ impl Generator<'_> {
             }
             let _ = writeln!(o, "}}\n");
             let _ = writeln!(o, "impl {name} {{");
+            // Colonnes (nom, type PostgreSQL, non nulle) : une requête qui
+            // reprend cette ligne (`-> Chemin`) y est comparée à la
+            // compilation.
+            let _ = writeln!(
+                o,
+                "    pub const PGWEAVE_COLUMNS: &'static [(&'static str, &'static str, bool)] = &[{}];",
+                d.columns
+                    .iter()
+                    .map(|c| format!(
+                        "({:?}, {:?}, {})",
+                        c.name,
+                        c.ty.pg,
+                        c.nullable == NullabilityDesc::NonNull
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
             let _ = writeln!(
                 o,
                 "    pub(crate) fn from_row(row: &{rt}::Row) -> Result<Self, {rt}::tokio_postgres::Error> {{"
@@ -534,6 +605,9 @@ impl Generator<'_> {
             }
             Some(TypeKind::Enum { labels }) => {
                 let rust = pascal(&ty.name);
+                if let Some(path) = &self.opts.types_path {
+                    return Ok(RustTy::copy(&format!("{path}::{rust}")));
+                }
                 self.enums
                     .insert(ty.clone(), (rust.clone(), ty.name.clone(), labels.clone()));
                 return Ok(RustTy::copy(&rust));

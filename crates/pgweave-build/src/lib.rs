@@ -101,7 +101,11 @@ impl Builder {
             ));
         };
         let dir = project.root.join(dir);
-        generate_path(&project, &dir, &self.options, watch)
+        let mut options = self.options.clone();
+        if options.types_path.is_none() {
+            options.types_path = project.config.rust.types.clone();
+        }
+        generate_path(&project, &dir, &options, watch)
     }
 }
 

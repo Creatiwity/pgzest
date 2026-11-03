@@ -33,7 +33,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
-use syn::{Expr, Ident, LitStr, Token};
+use syn::{Attribute, Expr, Ident, LitStr, Path, Token, Visibility};
 
 struct Input {
     sql: LitStr,
@@ -140,10 +140,7 @@ fn respan(tokens: Tokens, span: proc_macro2::Span) -> Tokens {
 
 fn expand_queries(root: PathBuf, rel: &str) -> Result<Tokens, String> {
     let project = project(root.clone())?;
-    let opts = pgweave_codegen::rust::RustOptions {
-        runtime: "::pgweave_runtime".into(),
-        ..Default::default()
-    };
+    let opts = rust_options(&project);
     let mut watched: Vec<String> = project
         .files
         .iter()
@@ -160,6 +157,353 @@ fn expand_queries(root: PathBuf, rel: &str) -> Result<Tokens, String> {
         #( const _: &[u8] = include_bytes!(#watched); )*
         #code
     ))
+}
+
+/// Options de génération du projet : runtime en chemin absolu, module des
+/// enums (`[rust] types`).
+fn rust_options(project: &pgweave_build::Project) -> pgweave_codegen::rust::RustOptions {
+    pgweave_codegen::rust::RustOptions {
+        runtime: "::pgweave_runtime".into(),
+        types_path: project.config.rust.types.clone(),
+        ..Default::default()
+    }
+}
+
+/// Fichiers du projet à inclure pour la recompilation.
+fn watched(project: &pgweave_build::Project) -> Vec<String> {
+    project
+        .files
+        .iter()
+        .filter(|p| p.is_file())
+        .map(|p| p.display().to_string())
+        .collect()
+}
+
+// ── sql! ──────────────────────────────────────────────────────────────────────
+
+/// `sql! { /// doc  pub nom: cardinalité -> Chemin, "SELECT …" }`.
+struct SqlDef {
+    attrs: Vec<Attribute>,
+    vis: Visibility,
+    name: Ident,
+    cardinality: Option<Ident>,
+    row: Option<Path>,
+    sql: LitStr,
+}
+
+impl Parse for SqlDef {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
+        let vis: Visibility = input.parse()?;
+        let name: Ident = input.parse()?;
+        let cardinality = if input.peek(Token![:]) {
+            input.parse::<Token![:]>()?;
+            let c: Ident = input.parse()?;
+            if !matches!(c.to_string().as_str(), "one" | "optional" | "many" | "none") {
+                return Err(syn::Error::new(
+                    c.span(),
+                    "cardinalité : one, optional, many ou none",
+                ));
+            }
+            Some(c)
+        } else {
+            None
+        };
+        let row = if input.peek(Token![->]) {
+            input.parse::<Token![->]>()?;
+            Some(input.parse::<Path>()?)
+        } else {
+            None
+        };
+        input.parse::<Token![,]>()?;
+        let sql: LitStr = input.parse()?;
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+        }
+        Ok(SqlDef {
+            attrs,
+            vis,
+            name,
+            cardinality,
+            row,
+            sql,
+        })
+    }
+}
+
+/// Une requête définie dans le code Rust : fonction, struct de paramètres et
+/// struct de ligne, comme une requête nommée d'un fichier.
+///
+/// ```ignore
+/// pgweave_macros::sql! {
+///     /// La fiche d'un plat.
+///     pub dish_card: optional,
+///     r#"SELECT d.id, d.name FROM dishes d WHERE d.id = $id"#
+/// }
+///
+/// pgweave_macros::sql! {
+///     pub vegetarian: many -> DishCardRow,
+///     r#"SELECT d.id, d.name FROM dishes d WHERE d.vegetarian"#
+/// }
+/// ```
+///
+/// La chaîne ne contient que la requête : nom, cardinalité (optionnelle,
+/// inférée sinon) et ligne reprise sont des paramètres de la macro.
+/// `-> Chemin` reprend la struct de ligne d'une autre requête (`sql!` ou
+/// fichier) ; la compatibilité des colonnes (noms, ordre, types, nullabilité
+/// non relâchée) est vérifiée à la compilation. Modifier la chaîne relance
+/// l'analyse, dans l'éditeur aussi.
+#[proc_macro]
+pub fn sql(input: TokenStream) -> TokenStream {
+    let def = syn::parse_macro_input!(input as SqlDef);
+    let root = match std::env::var_os("CARGO_MANIFEST_DIR") {
+        Some(r) => PathBuf::from(r),
+        None => {
+            return syn::Error::new(def.sql.span(), "CARGO_MANIFEST_DIR absent")
+                .to_compile_error()
+                .into();
+        }
+    };
+    match expand_sql(root, &def) {
+        Ok(tokens) => tokens.into(),
+        Err(message) => syn::Error::new(def.sql.span(), message)
+            .to_compile_error()
+            .into(),
+    }
+}
+
+fn expand_sql(root: PathBuf, def: &SqlDef) -> Result<Tokens, String> {
+    let project = project(root)?;
+    let opts = rust_options(&project);
+    let name = def.name.to_string();
+    let header = format!(
+        "-- name: {name}{}\n",
+        def.cardinality
+            .as_ref()
+            .map(|c| format!(" :{c}"))
+            .unwrap_or_default()
+    );
+    let sql = def.sql.value();
+    let text = format!("{header}{sql}");
+    // Positions rapportées à la chaîne (sans l'en-tête ajouté).
+    let located = |d: &pgweave_diagnostics::Diagnostic| {
+        let at = d
+            .span
+            .as_ref()
+            .map_or(0, |s| s.start.saturating_sub(header.len()));
+        let before = &sql[..at.min(sql.len())];
+        let line = before.matches('\n').count() + 1;
+        let col = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
+        format!("{line}:{col}: [{}] {}", d.code, d.message)
+    };
+    let file = pgweave_query::parse_query_file_with(&text, &project.macros);
+    let errors: Vec<String> = file
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == pgweave_diagnostics::Severity::Error)
+        .map(located)
+        .collect();
+    if !errors.is_empty() {
+        return Err(errors.join("\n"));
+    }
+    let [q] = file.queries.as_slice() else {
+        return Err("une requête par `sql!`".into());
+    };
+    let d = pgweave_query::describe_named(&project.catalog, q)
+        .map_err(|ds| ds.iter().map(located).collect::<Vec<_>>().join("\n"))?;
+
+    let row = def
+        .row
+        .as_ref()
+        .map(|p| quote!(#p).to_string().replace(' ', ""));
+    let code = pgweave_codegen::rust::generate_query(&d, &project.catalog, &opts, row.clone())?;
+    // Visibilité demandée pour les éléments générés (champs : publics).
+    let vis = {
+        let v = &def.vis;
+        quote!(#v).to_string()
+    };
+    let doc: String = def
+        .attrs
+        .iter()
+        .map(|a| quote!(#a).to_string() + "\n")
+        .collect();
+    let mut out = String::new();
+    for l in code.split_inclusive('\n') {
+        if let Some(rest) = l.strip_prefix("pub async fn ") {
+            if rest.starts_with(&format!("{name}<")) {
+                out.push_str(&doc);
+            }
+            out.push_str(&format!("{vis} async fn {rest}"));
+        } else if let Some(rest) = l.strip_prefix("pub struct ") {
+            out.push_str(&format!("{vis} struct {rest}"));
+        } else if let Some(rest) = l.strip_prefix("pub const ") {
+            out.push_str(&format!("{vis} const {rest}"));
+        } else {
+            out.push_str(l);
+        }
+    }
+    let code = parse(&out)?;
+    // Code à la position de la chaîne ; le nom de la fonction et des structs
+    // à celle du nom écrit : « aller à la définition » y mène.
+    let pascal: String = name
+        .split('_')
+        .map(|w| {
+            let mut c = w.chars();
+            c.next()
+                .map(|f| f.to_ascii_uppercase().to_string() + c.as_str())
+                .unwrap_or_default()
+        })
+        .collect();
+    let code = respan_names(
+        respan(code, def.sql.span()),
+        &name,
+        &pascal,
+        def.name.span(),
+    );
+
+    let check = match (&def.row, &row) {
+        (Some(path), Some(shown)) => row_check(path, shown, &name, &d),
+        _ => quote!(),
+    };
+    let watched = watched(&project);
+    Ok(quote!(
+        #( const _: &[u8] = include_bytes!(#watched); )*
+        #code
+        #check
+    ))
+}
+
+/// Assertions constantes : les colonnes de la requête sont celles de la
+/// ligne reprise (`Chemin::PGWEAVE_COLUMNS`), sans nullabilité relâchée.
+fn row_check(path: &Path, shown: &str, name: &str, d: &pgweave_query::Descriptor) -> Tokens {
+    use pgweave_query::descriptor::NullabilityDesc;
+    let n = d.columns.len();
+    let cols = quote!(<#path>::PGWEAVE_COLUMNS);
+    let count = format!(
+        "`{name}` -> {shown} : {n} colonne(s) ici ({}), pas le même nombre dans {shown}",
+        d.columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let mut checks = vec![quote!(
+        const _: () = assert!(#cols.len() == #n, #count);
+    )];
+    for (i, c) in d.columns.iter().enumerate() {
+        let col = &c.name;
+        let pg = &c.ty.pg;
+        let named = format!(
+            "`{name}` -> {shown} : la colonne {} s'appelle `{col}` ici, pas dans {shown}",
+            i + 1
+        );
+        let typed =
+            format!("`{name}` -> {shown} : `{col}` est {pg} ici, d'un autre type dans {shown}");
+        checks.push(quote!(
+            const _: () = assert!(
+                #cols.len() <= #i || ::pgweave_runtime::str_eq(#cols[#i].0, #col),
+                #named
+            );
+            const _: () = assert!(
+                #cols.len() <= #i || ::pgweave_runtime::str_eq(#cols[#i].1, #pg),
+                #typed
+            );
+        ));
+        if c.nullable != NullabilityDesc::NonNull {
+            let nullable =
+                format!("`{name}` -> {shown} : `{col}` peut être nulle ici, pas dans {shown}");
+            checks.push(quote!(
+                const _: () = assert!(#cols.len() <= #i || !#cols[#i].2, #nullable);
+            ));
+        }
+    }
+    quote!(#(#checks)*)
+}
+
+/// Les identifiants `name` et `Name…` (fonction, structs) à `span`.
+fn respan_names(tokens: Tokens, name: &str, pascal: &str, span: proc_macro2::Span) -> Tokens {
+    use proc_macro2::TokenTree;
+    tokens
+        .into_iter()
+        .map(|t| match t {
+            TokenTree::Group(g) => {
+                let mut out = proc_macro2::Group::new(
+                    g.delimiter(),
+                    respan_names(g.stream(), name, pascal, span),
+                );
+                out.set_span(g.span());
+                TokenTree::Group(out)
+            }
+            TokenTree::Ident(mut i) => {
+                let s = i.to_string();
+                if s == name || s == format!("{name}_stream") || s.starts_with(pascal) {
+                    i.set_span(span);
+                }
+                TokenTree::Ident(i)
+            }
+            other => other,
+        })
+        .collect()
+}
+
+// ── types! ────────────────────────────────────────────────────────────────────
+
+/// `#[types] mod db {}` : les enums de tous les types énumérés du projet,
+/// dans ce module (celui que déclare `[rust] types` de `pgweave.toml`).
+///
+/// ```ignore
+/// #[pgweave_macros::types]
+/// pub mod db {}
+/// ```
+///
+/// Un attribut plutôt qu'une macro sans argument : le code généré est situé
+/// sur le nom du module, où mène « aller à la définition ».
+#[proc_macro_attribute]
+pub fn types(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "#[types] ne prend pas d'argument",
+        )
+        .to_compile_error()
+        .into();
+    }
+    let mut module = syn::parse_macro_input!(item as syn::ItemMod);
+    let span = module.ident.span();
+    let result = (|| {
+        let root = std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .ok_or("CARGO_MANIFEST_DIR absent")?;
+        let project = project(root)?;
+        let code = pgweave_codegen::rust::generate_enums(&project.catalog, &rust_options(&project))
+            .map_err(|e| e.join("\n"))?;
+        let code = respan(parse(&code)?, span);
+        let watched = watched(&project);
+        Ok::<_, String>(quote!(
+            #( const _: &[u8] = include_bytes!(#watched); )*
+            #code
+        ))
+    })();
+    let generated = match result {
+        Ok(t) => t,
+        Err(e) => return syn::Error::new(span, e).to_compile_error().into(),
+    };
+    let items: syn::File = match syn::parse2(generated) {
+        Ok(f) => f,
+        Err(e) => return e.to_compile_error().into(),
+    };
+    match &mut module.content {
+        Some((_, content)) => content.extend(items.items),
+        None => {
+            return syn::Error::new(
+                span,
+                "#[types] s'applique à un module en ligne : `mod db {}`",
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+    quote!(#module).into()
 }
 
 /// Projet chargé, avec la date de modification de chaque fichier lu : le
@@ -406,6 +750,53 @@ mod tests {
         assert!(!file.contains("pub mod"), "{file}");
         let err = expand_queries(dir.clone(), "nope").expect_err("absent");
         assert!(err.contains("ni fichier ni répertoire"), "{err}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn expand_sql_str(dir: &std::path::Path, input: &str) -> Result<String, String> {
+        let def: SqlDef = syn::parse_str(input).expect("entrée");
+        expand_sql(dir.to_path_buf(), &def).map(|t| t.to_string())
+    }
+
+    #[test]
+    fn sql_une_requete_par_macro() {
+        let dir = project_dir("sql");
+        let code = expand_sql_str(
+            &dir,
+            r#"/// La note.
+               pub note: optional, "SELECT id, body FROM notes WHERE id = $id""#,
+        )
+        .expect("expansion");
+        assert!(code.contains("pub async fn note"), "{code}");
+        assert!(code.contains("NoteParams"), "{code}");
+        assert!(code.contains("PGWEAVE_COLUMNS"), "{code}");
+        assert!(code.contains("La note."), "{code}");
+
+        // Ligne reprise : une assertion constante par propriété comparée.
+        let code = expand_sql_str(
+            &dir,
+            r#"pub all: many -> super::NoteRow, "SELECT id, body FROM notes""#,
+        )
+        .expect("expansion");
+        assert!(
+            code.contains("< super :: NoteRow > :: PGWEAVE_COLUMNS"),
+            "{code}"
+        );
+        assert!(code.contains("str_eq"), "{code}");
+        assert!(!code.contains("pub struct AllRow"), "{code}");
+
+        // Visibilité héritée : éléments privés au module.
+        let code = expand_sql_str(&dir, r#"privee, "SELECT body FROM notes""#).expect("expansion");
+        assert!(
+            code.contains("async fn privee") && !code.contains("pub async fn privee"),
+            "{code}"
+        );
+
+        let err = expand_sql_str(&dir, r#"pub m, "SELECT mood FROM notes""#).expect_err("enum");
+        assert!(err.contains("[rust] types"), "{err}");
+        let err = expand_sql_str(&dir, r#"pub q, "SELECT nope FROM notes""#).expect_err("colonne");
+        assert!(err.starts_with("1:8: [column-not-found]"), "{err}");
+        assert!(syn::parse_str::<SqlDef>(r#"pub q: plusieurs, "SELECT 1""#).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -8,6 +8,7 @@ description = "Macro `query!` : requête SQL inline analysée à la compilation 
 proc-macro = true
 
 [dependencies]
+pgweave-diagnostics = { workspace = true }
 pgweave-build = { path = "../pgweave-build" }
 pgweave-codegen = { path = "../pgweave-codegen" }
 pgweave-query = { path = "../pgweave-query" }

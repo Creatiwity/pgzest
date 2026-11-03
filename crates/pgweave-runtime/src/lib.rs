@@ -530,3 +530,22 @@ impl<T: ToSql> ToSql for Domain<T> {
 
     types::to_sql_checked!();
 }
+
+/// Égalité de chaînes évaluée à la compilation : la vérification d'une
+/// ligne reprise (`sql!`, `-> Chemin`) compare des descriptions de colonnes
+/// dans des assertions constantes.
+#[doc(hidden)]
+pub const fn str_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}

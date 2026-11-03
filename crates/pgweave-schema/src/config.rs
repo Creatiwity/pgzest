@@ -49,6 +49,20 @@ pub struct ProjectConfig {
     pub rules: BTreeMap<String, RuleLevel>,
     #[serde(default)]
     pub plugins: PluginsConfig,
+    #[serde(default)]
+    pub rust: RustConfig,
+}
+
+// ── Rust ──────────────────────────────────────────────────────────────────────
+
+/// Code Rust généré (`pgweave-build`, `pgweave-macros`).
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RustConfig {
+    /// Module où `pgweave_macros::types!()` génère les enums du projet
+    /// (`"crate::db"`). Présent, le code des requêtes y renvoie au lieu de
+    /// définir les siens ; requis dès qu'une requête `sql!` utilise un enum.
+    pub types: Option<String>,
 }
 
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
