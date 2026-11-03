@@ -1,10 +1,10 @@
-//! Le source-mapping de bout en bout : un fragment SQL extrait d'un document
-//! hôte doit produire des spans exprimés dans le repère de ce document.
+//! End-to-end source mapping: a SQL fragment extracted from a host document
+//! must produce spans expressed in that document's coordinates.
 
 use pgweave_catalog::ProjectCatalog;
 use pgweave_schema::{FileRole, FragmentSource, SchemaSource, SqlChunk};
 
-/// Document TypeScript hôte, avec du SQL dans un littéral de template.
+/// Host TypeScript document, with SQL in a template literal.
 const TS_DOC: &str = r#"import { sql } from "pgweave";
 
 export const q = sql`
@@ -13,12 +13,12 @@ CREATE TABLE users (id UUID, email TEXT);
 "#;
 
 fn fragment_of(doc: &str, needle: &str) -> (String, usize) {
-    let start = doc.find(needle).expect("fragment introuvable");
+    let start = doc.find(needle).expect("fragment not found");
     (needle.to_string(), start)
 }
 
 #[test]
-fn le_chunk_porte_loffset_reel() {
+fn chunk_carries_the_real_offset() {
     let (sql, offset) = fragment_of(TS_DOC, "CREATE TABLE users (id UUID, email TEXT);");
     let src = FragmentSource::new("app/q.ts", &sql, offset, FileRole::Schema);
     let chunks: Vec<SqlChunk> = src.chunks();
@@ -27,17 +27,17 @@ fn le_chunk_porte_loffset_reel() {
     let origin = &chunks[0].origin;
     assert_eq!(
         origin.byte_range.start, offset,
-        "byte_range doit refléter la position dans le .ts"
+        "byte_range must reflect the position in the .ts"
     );
     assert_eq!(origin.byte_range.end, offset + sql.len());
     assert_ne!(
         origin.byte_range.start, 0,
-        "un fragment n'est pas à l'offset 0 — c'est tout l'intérêt"
+        "a fragment is not at offset 0 — that is the whole point"
     );
 }
 
 #[test]
-fn le_schema_est_indexe_depuis_un_fragment_ts() {
+fn schema_is_indexed_from_a_ts_fragment() {
     let (sql, offset) = fragment_of(TS_DOC, "CREATE TABLE users (id UUID, email TEXT);");
     let src = FragmentSource::new("app/q.ts", &sql, offset, FileRole::Schema);
     let resolver = ProjectCatalog::from_chunks(&src.chunks());
@@ -45,31 +45,31 @@ fn le_schema_est_indexe_depuis_un_fragment_ts() {
     use pgweave_schema::SchemaProvider;
     let table = resolver
         .get_table("users")
-        .expect("la table doit être indexée depuis le fragment TS");
+        .expect("the table must be indexed from the TS fragment");
     assert!(table.get_column("email").is_some());
 }
 
 #[test]
-fn les_spans_dun_fragment_indexent_le_document_hote() {
+fn fragment_spans_index_the_host_document() {
     let (sql, offset) = fragment_of(TS_DOC, "CREATE TABLE users (id UUID, email TEXT);");
 
-    // On passe par le parser avec l'offset du fragment, comme le fait le resolver.
+    // Go through the parser with the fragment offset, as the resolver does.
     let stmts = pgweave_parser::parse_at(&sql, offset).expect("parse");
     assert_eq!(stmts.len(), 1);
 
     let pgweave_ast::Statement::Ddl(pgweave_ast::DdlStatement::CreateTable(ct)) = &stmts[0] else {
-        panic!("CREATE TABLE attendu");
+        panic!("expected CREATE TABLE");
     };
 
     let slice = &TS_DOC[ct.span.start as usize..ct.span.end as usize];
     assert!(
         slice.starts_with("CREATE TABLE users"),
-        "le span doit découper le .ts au bon endroit, obtenu: {slice:?}"
+        "the span must slice the .ts at the right place, got: {slice:?}"
     );
 }
 
 #[test]
-fn un_fragment_invalide_est_signale_a_la_bonne_position() {
+fn invalid_fragment_is_reported_at_the_right_position() {
     let doc = "const q = sql`\nSELCT nope;\n`;\n";
     let (sql, offset) = fragment_of(doc, "SELCT nope;");
 
@@ -79,13 +79,13 @@ fn un_fragment_invalide_est_signale_a_la_bonne_position() {
     assert_eq!(
         &doc[sk.start..sk.end],
         "SELCT nope",
-        "l'écart doit pointer dans le document hôte"
+        "the skipped range must point into the host document"
     );
 }
 
 #[test]
-fn un_fichier_sql_reste_a_loffset_zero() {
-    // Régression : FileSource/InlineSource ne doivent pas être affectés.
+fn sql_file_stays_at_offset_zero() {
+    // Regression: FileSource/InlineSource must not be affected.
     let src = pgweave_schema::InlineSource::new(
         "schema.sql",
         "CREATE TABLE t (a INT);",
@@ -96,9 +96,9 @@ fn un_fichier_sql_reste_a_loffset_zero() {
 }
 
 #[test]
-fn les_ecarts_dindexation_sont_exposes() {
-    // Une table définie dans un statement illisible n'entre pas dans l'index :
-    // le resolver doit le dire au lieu de laisser croire à un schéma complet.
+fn indexing_gaps_are_exposed() {
+    // A table defined in an unreadable statement does not enter the index:
+    // the resolver must say so instead of implying a complete schema.
     let src = pgweave_schema::InlineSource::new(
         "schema.sql",
         "CREATE TABLE ok (a INT);\nCREATE TABL oops (b INT);",
@@ -110,6 +110,6 @@ fn les_ecarts_dindexation_sont_exposes() {
     assert!(resolver.get_table("ok").is_some());
     assert!(
         !resolver.skipped.is_empty(),
-        "l'écart d'indexation doit être exposé, pas avalé"
+        "the indexing gap must be exposed, not swallowed"
     );
 }

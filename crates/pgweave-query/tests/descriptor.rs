@@ -1,5 +1,5 @@
-//! Descripteur de requête (PLAN.md §4) : types, nullabilité, cardinalité,
-//! dépendances, empreinte.
+//! Query descriptor (PLAN.md §4): types, nullability, cardinality,
+//! dependencies, fingerprint.
 
 use pgweave_catalog::ProjectCatalog;
 use pgweave_query::descriptor::{Command, NullabilityDesc};
@@ -21,10 +21,10 @@ CREATE TABLE tags (page_id BIGINT REFERENCES pages, tag TEXT NOT NULL);
 ";
 
 fn catalog() -> ProjectCatalog {
-    ProjectCatalog::from_sql(SCHEMA).expect("schéma")
+    ProjectCatalog::from_sql(SCHEMA).expect("schema")
 }
 
-/// Descripteurs des requêtes d'un fichier, ou les messages d'erreur.
+/// Descriptors of the queries of a file, or the error messages.
 fn describe(file: &str) -> Vec<Result<Descriptor, Vec<String>>> {
     let cat = catalog();
     let parsed = parse_query_file(file);
@@ -45,7 +45,7 @@ fn describe(file: &str) -> Vec<Result<Descriptor, Vec<String>>> {
 fn one(sql: &str) -> Descriptor {
     describe(&format!("-- name: q\n{sql};\n"))
         .remove(0)
-        .unwrap_or_else(|e| panic!("{sql} : {e:?}"))
+        .unwrap_or_else(|e| panic!("{sql}: {e:?}"))
 }
 
 fn cardinality(sql: &str) -> Cardinality {
@@ -53,7 +53,7 @@ fn cardinality(sql: &str) -> Cardinality {
 }
 
 #[test]
-fn cardinalite_inferee() {
+fn inferred_cardinality() {
     use Cardinality::*;
     for (sql, expected) in [
         ("SELECT id, title FROM pages WHERE id = $id", Optional),
@@ -121,7 +121,7 @@ fn cardinalite_inferee() {
 }
 
 #[test]
-fn nullabilite_des_parametres_et_colonnes() {
+fn nullability_of_parameters_and_columns() {
     let d = one(
         "INSERT INTO pages (slug, title, site, path, creation_date) VALUES ($slug, $title, $site, '/', $at) RETURNING id, creation_date",
     );
@@ -139,14 +139,14 @@ fn nullabilite_des_parametres_et_colonnes() {
             ("at", NullabilityDesc::Nullable),
         ]
     );
-    // Hors affectation, la nullabilité d'un paramètre n'est pas établie.
+    // Outside an assignment, a parameter's nullability is not established.
     let d = one("SELECT id FROM pages WHERE site = $site");
     assert_eq!(d.params[0].nullable, NullabilityDesc::Unknown);
     assert_eq!(d.command, Command::Select);
 }
 
 #[test]
-fn dependances_du_projet_seulement() {
+fn project_dependencies_only() {
     let d = one(
         "SELECT p.id, p.status, t.tag FROM pages p JOIN tags t ON t.page_id = p.id WHERE p.slug = lower($slug)",
     );
@@ -157,24 +157,24 @@ fn dependances_du_projet_seulement() {
 }
 
 #[test]
-fn empreinte_stable_et_sensible_au_schema() {
+fn fingerprint_stable_and_schema_sensitive() {
     let a = one("SELECT id, title FROM pages WHERE id = $id");
-    // Même requête, autre mise en forme et commentaire : même empreinte.
-    let b = one("SELECT id,\n  title -- titre\nFROM pages\nWHERE id = $id");
+    // Same query, other formatting and comment: same fingerprint.
+    let b = one("SELECT id,\n  title -- title\nFROM pages\nWHERE id = $id");
     assert_eq!(a.fingerprint, b.fingerprint);
     assert_eq!(a.fingerprint.len(), 64);
-    // Le schéma d'une dépendance change : l'empreinte aussi.
+    // A dependency's schema changes: so does the fingerprint.
     let other =
         ProjectCatalog::from_sql(&SCHEMA.replace("title         TEXT NOT NULL", "title TEXT"))
-            .expect("schéma");
+            .expect("schema");
     let q =
         &parse_query_file("-- name: q\nSELECT id, title FROM pages WHERE id = $id;\n").queries[0];
-    let c = describe_named(&other, q).expect("descripteur");
+    let c = describe_named(&other, q).expect("descriptor");
     assert_ne!(a.fingerprint, c.fingerprint);
 }
 
 #[test]
-fn refus_explicites() {
+fn explicit_refusals() {
     let results = describe(
         "-- name: untyped\nSELECT $x;\n\n\
          -- name: unknown_column\nSELECT nope FROM pages;\n\n\
@@ -194,17 +194,17 @@ fn refus_explicites() {
     assert_eq!(
         errs,
         [
-            "query-parameter-untyped: le type du paramètre $x n'est pas établi par son usage",
+            "query-parameter-untyped: the type of parameter $x is not established by its usage",
             "column-not-found: column \"nope\" does not exist",
             "ok one",
-            "query-cardinality-mismatch: déclarée `none`, mais la requête renvoie des lignes (inférée : `many`)",
+            "query-cardinality-mismatch: declared `none`, but the query returns rows (inferred: `many`)",
             "ok one",
             "ok one",
             "ok many",
         ]
     );
-    // Paramètres dans l'ordre de la réécriture positionnelle (première
-    // apparition), pas dans l'ordre d'analyse (WHERE avant SELECT).
+    // Parameters in positional-rewrite order (first appearance), not in
+    // analysis order (WHERE before SELECT).
     let order = results.last().unwrap().as_ref().unwrap();
     assert_eq!(
         order.sql,
@@ -218,7 +218,7 @@ fn refus_explicites() {
 fn format_json() {
     let d = one("SELECT id, slug, status, creation_date FROM pages WHERE id = $id");
     let mut json = serde_json::to_value(&d).expect("json");
-    // L'empreinte dépend du pack PostgreSQL : vérifiée à part.
+    // The fingerprint depends on the PostgreSQL pack: checked separately.
     json["fingerprint"] = serde_json::json!("…");
     insta::assert_snapshot!(serde_json::to_string_pretty(&json).expect("json"));
 }
@@ -228,51 +228,51 @@ fn copy_from_stdin() {
     let cat = ProjectCatalog::from_sql(
         "CREATE TABLE g (id INT PRIMARY KEY, label TEXT, twice INT GENERATED ALWAYS AS (id * 2) STORED);",
     )
-    .expect("schéma");
+    .expect("schema");
     let file = parse_query_file(
         "-- name: all_columns\nCOPY g FROM STDIN (FORMAT csv, HEADER true);\n\n\
          -- name: generated\nCOPY g (id, twice) FROM STDIN;\n",
     );
-    let d = describe_named(&cat, &file.queries[0]).expect("descripteur");
+    let d = describe_named(&cat, &file.queries[0]).expect("descriptor");
     assert_eq!(d.command, Command::CopyIn);
     assert_eq!(d.cardinality, Cardinality::None);
     let cols: Vec<&str> = d.columns.iter().map(|c| c.name.as_str()).collect();
-    // Une colonne générée n'est pas alimentée par COPY.
+    // A generated column is not loaded by COPY.
     assert_eq!(cols, ["id", "label"]);
     let copy = d.copy.expect("format");
     assert_eq!(
         (copy.table.as_str(), copy.format.as_str(), copy.header),
         ("public.g", "csv", true)
     );
-    let err = describe_named(&cat, &file.queries[1]).expect_err("colonne générée");
+    let err = describe_named(&cat, &file.queries[1]).expect_err("generated column");
     assert_eq!(err[0].message, "column \"twice\" is a generated column");
 }
 
 #[test]
-fn index_unique_et_noms_quotes() {
+fn unique_index_and_quoted_names() {
     let cat = ProjectCatalog::from_sql(
         "CREATE TABLE \"User\" (id UUID PRIMARY KEY, email TEXT NOT NULL, \"orgId\" UUID, nick TEXT);\n\
          CREATE UNIQUE INDEX \"User_email_key\" ON \"User\"(email);\n\
          CREATE UNIQUE INDEX \"User_nick_key\" ON \"User\"(nick) WHERE nick IS NOT NULL;\n\
          CREATE UNIQUE INDEX \"User_lower_key\" ON \"User\"(lower(email));",
     )
-    .expect("schéma");
+    .expect("schema");
     let file = parse_query_file(
         "-- name: by_email\nSELECT id FROM \"User\" WHERE email = $email;\n\n\
          -- name: by_nick\nSELECT id FROM \"User\" WHERE nick = $nick;\n",
     );
-    let by_email = describe_named(&cat, &file.queries[0]).expect("descripteur");
-    // Index unique simple : une clé (les `@unique` de Prisma).
+    let by_email = describe_named(&cat, &file.queries[0]).expect("descriptor");
+    // Simple unique index: a key (Prisma's `@unique`).
     assert_eq!(by_email.cardinality, Cardinality::Optional);
     assert_eq!(by_email.depends_on, ["public.\"User\""]);
-    // Index partiel : pas une clé pour toute égalité.
-    let by_nick = describe_named(&cat, &file.queries[1]).expect("descripteur");
+    // Partial index: not a key for every equality.
+    let by_nick = describe_named(&cat, &file.queries[1]).expect("descriptor");
     assert_eq!(by_nick.cardinality, Cardinality::Many);
-    let q = pgweave_query::descriptor::parse_qualified("public.\"User\"").expect("nom");
+    let q = pgweave_query::descriptor::parse_qualified("public.\"User\"").expect("name");
     assert_eq!((q.schema.as_str(), q.name.as_str()), ("public", "User"));
 }
 
-// ── Fragments et lignes de référence (P6) ─────────────────────────────────────
+// ── Fragments and row references (P6) ────────────────────────────────────────
 
 fn fragments(defs: &str) -> pgweave_macro::MacroSet {
     let mut set = pgweave_macro::MacroSet::builtin();
@@ -285,7 +285,7 @@ fn fragments(defs: &str) -> pgweave_macro::MacroSet {
 }
 
 #[test]
-fn fragments_inseres_parametres_compris() {
+fn fragments_inserted_including_parameters() {
     let set = fragments(
         "-- fragment: card(p)\np.id, p.title, p.status\n\
          -- fragment: of_site(p)\np.site = $site AND p.status = $status",
@@ -293,7 +293,7 @@ fn fragments_inseres_parametres_compris() {
     let src = "-- name: cards :many\nSELECT @card(x) FROM pages x WHERE @of_site(x) AND x.title <> $title;\n";
     let file = pgweave_query::parse_query_file_with(src, &set);
     assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
-    let d = describe_named(&catalog(), &file.queries[0]).expect("décrite");
+    let d = describe_named(&catalog(), &file.queries[0]).expect("described");
     assert_eq!(
         d.sql,
         "SELECT x.id, x.title, x.status FROM pages x WHERE (x.site = $1 AND x.status = $2) AND x.title <> $3"
@@ -305,7 +305,7 @@ fn fragments_inseres_parametres_compris() {
 }
 
 #[test]
-fn erreur_dans_un_fragment_rapportee_a_l_invocation() {
+fn error_in_a_fragment_reported_at_the_invocation() {
     let set = fragments("-- fragment: bad(p)\np.nope");
     let src = "-- name: q\nSELECT @bad(x) FROM pages x;\n";
     let file = pgweave_query::parse_query_file_with(src, &set);
@@ -315,7 +315,7 @@ fn erreur_dans_un_fragment_rapportee_a_l_invocation() {
 }
 
 #[test]
-fn ligne_de_reference_verifiee() {
+fn row_reference_checked() {
     let file = parse_query_file(
         "-- name: card :optional\nSELECT id, title, creation_date FROM pages WHERE id = $id;\n\
          -- name: same :many -> card\nSELECT id, title, creation_date FROM pages;\n\
@@ -331,7 +331,7 @@ fn ligne_de_reference_verifiee() {
     let all: Vec<Descriptor> = file
         .queries
         .iter()
-        .map(|q| describe_named(&cat, q).expect("décrite"))
+        .map(|q| describe_named(&cat, q).expect("described"))
         .collect();
     let check = |name: &str| {
         let d = all.iter().find(|d| d.name == name).unwrap();
@@ -342,30 +342,30 @@ fn ligne_de_reference_verifiee() {
         pgweave_query::check_row_reference(d, target)
     };
     assert_eq!(check("same"), Ok(()));
-    // `creation_date` est nullable dans la référence : une valeur toujours
-    // présente s'y range ; l'inverse non.
+    // `creation_date` is nullable in the reference: an always-present value
+    // fits in it; not the other way around.
     assert_eq!(check("widened"), Ok(()));
     assert!(
         check("renamed")
             .unwrap_err()
-            .contains("`slug` là où `card` a `title`")
+            .contains("`slug` where `card` has `title`")
     );
     assert!(
         check("nullable")
             .unwrap_err()
-            .contains("`id` peut être nulle ici")
+            .contains("`id` may be null here")
     );
-    assert!(check("chained").unwrap_err().contains("désigner `card`"));
-    assert!(check("missing").unwrap_err().contains("introuvable"));
+    assert!(check("chained").unwrap_err().contains("designate `card`"));
+    assert!(check("missing").unwrap_err().contains("not found"));
 }
 
 #[test]
-fn parametre_optionnel() {
+fn optional_parameter() {
     let src = "-- name: q :many\nSELECT id FROM pages\n\
                WHERE ($status?::status IS NULL OR status = $status) AND site = $site;\n";
     let file = parse_query_file(src);
     assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
-    let d = describe_named(&catalog(), &file.queries[0]).expect("décrite");
+    let d = describe_named(&catalog(), &file.queries[0]).expect("described");
     assert_eq!(
         d.sql,
         "SELECT id FROM pages\nWHERE ($1::status IS NULL OR status = $1) AND site = $2"
@@ -376,19 +376,19 @@ fn parametre_optionnel() {
     let site = d.params.iter().find(|p| p.name == "site").unwrap();
     assert_ne!(site.nullable, NullabilityDesc::Nullable);
 
-    // Opérateur jsonb `?` entouré d'espaces : pas un marqueur.
+    // jsonb `?` operator surrounded by spaces: not a marker.
     let file = parse_query_file("-- name: j\nSELECT $doc::jsonb ? 'k' AS has;\n");
     let pgweave_query::Params::Named(p) = &file.queries[0].params else {
         panic!()
     };
     assert!(!p[0].optional);
 
-    // Un paramètre positionnel n'est pas optionnel.
+    // A positional parameter is not optional.
     let file = parse_query_file("-- name: p\nSELECT $1?::int;\n");
     assert!(
         file.diagnostics
             .iter()
-            .any(|d| d.message.contains("positionnel optionnel")),
+            .any(|d| d.message.contains("optional positional")),
         "{:?}",
         file.diagnostics
     );
@@ -399,16 +399,16 @@ fn parametre_optionnel() {
 }
 
 #[test]
-fn requete_a_variantes() {
+fn query_with_variants() {
     let src = "-- name: page :many\nSELECT id, title FROM pages\nWHERE site = $site\n\
                [[ AND status = $status ]]\n\
-               ORDER BY {{ tri: titre = title | recent = creation_date DESC }}\nLIMIT $limit;\n";
+               ORDER BY {{ sort: by_title = title | recent = creation_date DESC }}\nLIMIT $limit;\n";
     let file = parse_query_file(src);
     assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
-    let d = describe_named(&catalog(), &file.queries[0]).expect("décrite");
-    let dy = d.dynamic.as_ref().expect("variantes");
+    let d = describe_named(&catalog(), &file.queries[0]).expect("described");
+    let dy = d.dynamic.as_ref().expect("variants");
     assert_eq!(dy.conditions, vec!["status"]);
-    assert_eq!(dy.choices[0].labels, vec!["titre", "recent"]);
+    assert_eq!(dy.choices[0].labels, vec!["by_title", "recent"]);
     assert_eq!(dy.variants.len(), 4);
     let squash = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
     assert_eq!(
@@ -426,45 +426,51 @@ fn requete_a_variantes() {
 }
 
 #[test]
-fn variantes_refusees() {
-    // Un choix qui change la projection.
+fn rejected_variants() {
+    // A choice that changes the projection.
     let file = parse_query_file("-- name: q\nSELECT {{ col: a = id | b = title }} FROM pages;\n");
     let errs = describe_named(&catalog(), &file.queries[0]).unwrap_err();
     assert!(
-        errs[0].message.contains("pas les mêmes colonnes"),
+        errs[0].message.contains("not return the same columns"),
         "{errs:?}"
     );
-    // Une erreur d'une variante est rapportée avec la variante en indice.
+    // An error in a variant is reported with the variant as a hint.
     let file =
         parse_query_file("-- name: q\nSELECT id FROM pages WHERE true [[ AND nope = $x ]];\n");
     let errs = describe_named(&catalog(), &file.queries[0]).unwrap_err();
     assert!(
-        errs[0].hint.as_deref().unwrap_or("").contains("$x fourni"),
+        errs[0]
+            .hint
+            .as_deref()
+            .unwrap_or("")
+            .contains("$x provided"),
         "{errs:?}"
     );
 
-    for (sql, attendu) in [
+    for (sql, expected) in [
         (
             "SELECT id FROM pages WHERE true [[ AND site = $a AND status = $b ]]",
-            "un seul paramètre",
+            "a single parameter",
         ),
         (
             "SELECT id FROM pages WHERE site = $a [[ AND site = $a ]]",
-            "hors des blocs",
+            "outside blocks",
         ),
         (
             "SELECT id FROM pages WHERE true [[ AND site = $a? ]]",
-            "sans `?`",
+            "drop the `?`",
         ),
         (
             "SELECT id FROM pages WHERE true [[ AND true ]]",
-            "sans paramètre",
+            "without a parameter",
         ),
     ] {
         let file = parse_query_file(&format!("-- name: q\n{sql};\n"));
         assert!(
-            file.diagnostics.iter().any(|d| d.message.contains(attendu)),
-            "{sql} : {:?}",
+            file.diagnostics
+                .iter()
+                .any(|d| d.message.contains(expected)),
+            "{sql}: {:?}",
             file.diagnostics
         );
     }

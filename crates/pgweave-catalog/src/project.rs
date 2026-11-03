@@ -1,14 +1,14 @@
-//! Catalogue d'un projet : les fichiers de schéma et les migrations rejoués
-//! dans l'ordre des sources, sur le catalogue de la version de PostgreSQL.
+//! Catalog of a project: schema files and migrations replayed in source
+//! order, on top of the catalog of the PostgreSQL version.
 //!
-//! Remplace `SchemaResolver` et `DdlSchemaProvider` : un seul moteur
-//! d'application des DDL (D2). La vue [`SchemaProvider`] sert les
-//! consommateurs pas encore migrés.
+//! Replaces `SchemaResolver` and `DdlSchemaProvider`: a single DDL
+//! application engine (D2). The [`SchemaProvider`] view serves consumers
+//! that have not migrated yet.
 //!
-//! [`ProjectBuilder`] porte le rejeu fichier par fichier : la CLI l'alimente
-//! en parsant les fragments ([`ProjectCatalog::from_chunks_with_macros`]),
-//! la base incrémentale (`pgweave-project`) avec ses parses mémorisés. Les
-//! deux suivent donc exactement les mêmes règles.
+//! [`ProjectBuilder`] carries the file-by-file replay: the CLI feeds it by
+//! parsing fragments ([`ProjectCatalog::from_chunks_with_macros`]), the
+//! incremental database (`pgweave-project`) with its memoized parses. Both
+//! therefore follow exactly the same rules.
 
 use std::path::{Path, PathBuf};
 
@@ -25,34 +25,35 @@ use crate::apply::{QueryTyper, Replay};
 use crate::catalog::{Catalog, SearchPath};
 use crate::compat::CatalogSchema;
 
-/// Version de PostgreSQL par défaut : la seule prise en charge aujourd'hui
-/// (`[postgres] version` de `pgweave.toml`).
+/// Default PostgreSQL version: the only one supported today
+/// (`[postgres] version` in `pgweave.toml`).
 pub const DEFAULT_POSTGRES: u32 = 18;
 
 pub struct ProjectCatalog {
     pub catalog: Catalog,
-    /// Mode déclaratif (D10) : état atteint par les migrations seules,
-    /// rejouées à part du schéma. `catalog` est alors l'état cible.
+    /// Declarative mode (D10): state reached by the migrations alone,
+    /// replayed separately from the schema. `catalog` is then the target
+    /// state.
     pub history: Option<Catalog>,
-    /// `search_path` en fin de rejeu.
+    /// `search_path` at the end of the replay.
     pub search_path: SearchPath,
-    /// Statements écartés pendant le parse, avec leur fichier : l'état
-    /// reconstruit peut être incomplet.
+    /// Statements skipped during parsing, with their file: the rebuilt state
+    /// may be incomplete.
     pub skipped: Vec<(PathBuf, SkippedStatement)>,
-    /// Diagnostics du rejeu, avec leur fichier.
+    /// Replay diagnostics, with their file.
     pub diagnostics: Vec<(PathBuf, Diagnostic)>,
     view: CatalogSchema,
 }
 
 fn base() -> Replay {
     Replay::new(
-        Catalog::for_postgres(DEFAULT_POSTGRES).expect("pack postgres@18 livré avec pgweave"),
+        Catalog::for_postgres(DEFAULT_POSTGRES).expect("postgres@18 pack shipped with pgweave"),
     )
 }
 
-/// Parse d'un fragment du projet, macros désucrées. `offset` est la position
-/// du fragment dans son document : les spans sont exprimés dans le repère du
-/// document hôte.
+/// Parse of a project fragment, macros desugared. `offset` is the position of
+/// the fragment in its document: spans are expressed in the host document's
+/// coordinates.
 pub fn parse_source(
     sql: &str,
     offset: usize,
@@ -66,15 +67,15 @@ pub fn parse_source(
     }
 }
 
-/// Vérification des statements pendant le rejeu.
+/// Statement checking during the replay.
 ///
-/// Fournie par l'analyse sémantique (`pgweave-sema`), qui dépend du
-/// catalogue. Un statement est vérifié au moment où PostgreSQL le ferait :
-/// à son application, contre l'état du catalogue à ce point (une requête de
-/// migration voit les colonnes de ce moment), ou en fin de rejeu pour un
-/// corps exécuté plus tard (PL/pgSQL), s'il est encore en vigueur.
+/// Provided by semantic analysis (`pgweave-sema`), which depends on the
+/// catalog. A statement is checked when PostgreSQL would check it: when it is
+/// applied, against the catalog state at that point (a migration query sees
+/// the columns of that moment), or at the end of the replay for a body
+/// executed later (PL/pgSQL), if it is still in force.
 pub trait StatementChecker: Send + Sync {
-    /// `stmt` vient d'être appliqué au catalogue.
+    /// `stmt` was just applied to the catalog.
     fn check_applied(
         &self,
         catalog: &Catalog,
@@ -82,9 +83,9 @@ pub trait StatementChecker: Send + Sync {
         stmt: &Statement,
         out: &mut Vec<Diagnostic>,
     );
-    /// Une partie de `stmt` n'est vérifiable que sur l'état final.
+    /// Part of `stmt` can only be checked against the final state.
     fn is_deferred(&self, stmt: &Statement) -> bool;
-    /// Partie différée de `stmt`, contre le catalogue final.
+    /// Deferred part of `stmt`, against the final catalog.
     fn check_deferred(
         &self,
         catalog: &Catalog,
@@ -94,30 +95,30 @@ pub trait StatementChecker: Send + Sync {
     );
 }
 
-/// Rejeu ordonné des fichiers d'un projet (schéma, puis migrations par
-/// séquence), chacun déjà parsé.
+/// Ordered replay of a project's files (schema, then migrations by
+/// sequence), each one already parsed.
 ///
-/// En mode déclaratif (D10), le schéma décrit seul l'état cible : les
-/// migrations sont rejouées dans un catalogue à part (leur historique), et
-/// l'écart entre les deux est signalé (`schema-drift`).
+/// In declarative mode (D10), the schema alone describes the target state:
+/// migrations are replayed into a separate catalog (their history), and the
+/// gap between the two is reported (`schema-drift`).
 pub struct ProjectBuilder {
     replay: Replay,
-    /// Rejeu des migrations, en mode déclaratif.
+    /// Migration replay, in declarative mode.
     history: Option<History>,
     skipped: Vec<(PathBuf, SkippedStatement)>,
     diagnostics: Vec<(PathBuf, Diagnostic)>,
-    /// Première migration sans en-tête, et leur nombre.
+    /// First migration without a header, and how many there are.
     without_header: Option<(PathBuf, usize)>,
     checker: Option<std::sync::Arc<dyn StatementChecker>>,
-    /// Statements à vérifier en fin de rejeu : (fichier, chemin à ce point,
-    /// statement, vérification complète). Complète pour un fichier de
-    /// requêtes, qui s'exécute sur l'état final ; sinon, seule la partie
-    /// différée (corps PL/pgSQL).
+    /// Statements to check at the end of the replay: (file, path at that
+    /// point, statement, full check). Full for a query file, which runs
+    /// against the final state; otherwise, only the deferred part (PL/pgSQL
+    /// body).
     deferred: Vec<Deferred>,
-    /// Premier fichier de schéma, dernière migration : où rattacher l'écart.
+    /// First schema file, last migration: where to attach the drift.
     first_schema: Option<PathBuf>,
     last_migration: Option<PathBuf>,
-    /// Texte source des routines conservé (`Routine::source`).
+    /// Keep the source text of routines (`Routine::source`).
     keep_sources: bool,
 }
 
@@ -150,15 +151,15 @@ impl ProjectBuilder {
         }
     }
 
-    /// Conserve le texte écrit de chaque routine (génération de migrations :
-    /// PostgreSQL garde un corps à la lettre, commentaires compris).
+    /// Keeps the written text of each routine (migration generation:
+    /// PostgreSQL keeps a body verbatim, comments included).
     pub fn keep_sources(mut self, on: bool) -> Self {
         self.keep_sources = on;
         self
     }
 
-    /// Mode déclaratif (`[schema] declarative`, D10) : les migrations sont
-    /// rejouées à part, et comparées au schéma en fin de rejeu.
+    /// Declarative mode (`[schema] declarative`, D10): migrations are
+    /// replayed separately, and compared to the schema at the end.
     pub fn declarative(mut self, on: bool) -> Self {
         self.history = on.then(|| {
             let mut replay = base();
@@ -171,13 +172,13 @@ impl ProjectBuilder {
         self
     }
 
-    /// Les statements sont vérifiés par `checker` (voir [`StatementChecker`]).
+    /// Statements are checked by `checker` (see [`StatementChecker`]).
     pub fn with_checker(mut self, checker: Option<std::sync::Arc<dyn StatementChecker>>) -> Self {
         self.checker = checker;
         self
     }
 
-    /// Les colonnes des vues sont typées par `typer` (voir [`QueryTyper`]).
+    /// View columns are typed by `typer` (see [`QueryTyper`]).
     pub fn with_typer(mut self, typer: Option<std::sync::Arc<dyn QueryTyper>>) -> Self {
         if let Some(h) = &mut self.history {
             h.replay.typer = typer.clone();
@@ -186,9 +187,9 @@ impl ProjectBuilder {
         self
     }
 
-    /// Applique un fichier : `sql` est son texte (en-tête de migration),
-    /// `parsed` son parse. Un fichier illisible n'apporte rien au catalogue ;
-    /// l'erreur de parse est signalée par la vérification du fichier.
+    /// Applies a file: `sql` is its text (migration header), `parsed` its
+    /// parse. An unreadable file brings nothing to the catalog; the parse
+    /// error is reported by the file's check.
     pub fn add_file(
         &mut self,
         path: &Path,
@@ -223,7 +224,7 @@ impl ProjectBuilder {
             _ => (&mut self.replay, &mut self.deferred),
         };
         for s in &outcome.statements {
-            // Un fichier de requêtes s'exécute sur le schéma final.
+            // A query file runs against the final schema.
             if *role == FileRole::Query {
                 if self.checker.is_some() {
                     deferred.push((
@@ -283,7 +284,7 @@ impl ProjectBuilder {
                 Diagnostic::info(
                     codes::MIGRATION_WITHOUT_HEADER,
                     format!(
-                        "{n} migration(s) sans en-tête `-- pgweave:` : analysées avec postgres@{DEFAULT_POSTGRES}"
+                        "{n} migration(s) without a `-- pgweave:` header: analyzed with postgres@{DEFAULT_POSTGRES}"
                     ),
                 ),
             ));
@@ -310,9 +311,9 @@ impl ProjectBuilder {
     }
 }
 
-/// Rattache à la routine créée par `stmt` son texte dans `text`, s'il se
-/// relit en ce même statement (un texte réécrit par une macro ne l'est pas,
-/// la définition émise reste alors la seule source).
+/// Attaches to the routine created by `stmt` its text in `text`, if it reads
+/// back as that same statement (a text rewritten by a macro does not, the
+/// emitted definition then remains the only source).
 pub fn attach_source(cat: &mut Catalog, stmt: &Statement, text: &str) {
     use pgweave_ast::DdlStatement;
     let span = match stmt {
@@ -355,7 +356,7 @@ fn run_deferred(
     }
 }
 
-/// Écart entre l'état des migrations et le schéma déclaratif.
+/// Gap between the migrations' state and the declarative schema.
 fn drift(history: &Catalog, target: &Catalog, has_migrations: bool) -> Option<Diagnostic> {
     let m = crate::diff::diff(history, target);
     if m.is_empty() {
@@ -363,18 +364,18 @@ fn drift(history: &Catalog, target: &Catalog, has_migrations: bool) -> Option<Di
     }
     let mut message = if has_migrations {
         format!(
-            "le schéma déclaratif diffère de l'état atteint par les migrations ({} statement(s) à générer",
+            "the declarative schema differs from the state reached by the migrations ({} statement(s) to generate",
             m.steps.len()
         )
     } else {
         format!(
-            "aucune migration n'établit le schéma déclaratif ({} statement(s) à générer",
+            "no migration establishes the declarative schema ({} statement(s) to generate",
             m.steps.len()
         )
     };
     if !m.unsupported.is_empty() {
         message.push_str(&format!(
-            ", {} changement(s) à écrire à la main",
+            ", {} change(s) to write by hand",
             m.unsupported.len()
         ));
     }
@@ -389,23 +390,23 @@ fn drift(history: &Catalog, target: &Catalog, has_migrations: bool) -> Option<Di
             m.unsupported
                 .iter()
                 .take(3)
-                .map(|u| format!("{} : {}", u.object, u.change)),
+                .map(|u| format!("{}: {}", u.object, u.change)),
         )
         .collect();
     d = d.with_hint(format!(
-        "`pgweave migrate create <nom>` génère la migration ; d'abord : {}",
+        "`pgweave migrate create <name>` generates the migration; first: {}",
         first.join(" · ")
     ));
     Some(d)
 }
 
 impl ProjectCatalog {
-    /// Catalogue de base, sans objet du projet.
+    /// Base catalog, with no project object.
     pub fn empty() -> Self {
         ProjectBuilder::new().finish()
     }
 
-    /// Rejeu de statements déjà parsés, dans l'ordre.
+    /// Replay of already parsed statements, in order.
     pub fn from_statements(stmts: &[Statement]) -> Self {
         let mut b = ProjectBuilder::new();
         let outcome = ParseOutcome {
@@ -416,7 +417,7 @@ impl ProjectCatalog {
         b.finish()
     }
 
-    /// Rejeu d'un texte SQL (tests, fichier isolé).
+    /// Replay of a SQL text (tests, standalone file).
     pub fn from_sql(sql: &str) -> Result<Self, String> {
         let stmts = pgweave_parser::parse(sql).map_err(|e| e.to_string())?;
         Ok(Self::from_statements(&stmts))
@@ -426,15 +427,15 @@ impl ProjectCatalog {
         Self::from_chunks_with_macros(chunks, &pgweave_macro::MacroSet::builtin())
     }
 
-    /// Rejeu des fragments du projet, dans l'ordre où la source les donne
-    /// (fichiers de schéma, puis migrations par séquence). Les macros sont
-    /// désucrées d'abord : une table déclarée par une macro existe.
+    /// Replay of the project fragments, in the order the source gives them
+    /// (schema files, then migrations by sequence). Macros are desugared
+    /// first: a table declared by a macro exists.
     pub fn from_chunks_with_macros(chunks: &[SqlChunk], macros: &pgweave_macro::MacroSet) -> Self {
         Self::from_chunks_typed(chunks, macros, None)
     }
 
-    /// Comme [`Self::from_chunks_with_macros`], les colonnes des vues typées
-    /// par `typer`.
+    /// Like [`Self::from_chunks_with_macros`], with view columns typed by
+    /// `typer`.
     pub fn from_chunks_typed(
         chunks: &[SqlChunk],
         macros: &pgweave_macro::MacroSet,
@@ -443,8 +444,8 @@ impl ProjectCatalog {
         Self::from_chunks_checked(chunks, macros, typer, None)
     }
 
-    /// Comme [`Self::from_chunks_typed`], les statements vérifiés par
-    /// `checker` (diagnostics rattachés à leur fichier).
+    /// Like [`Self::from_chunks_typed`], with statements checked by
+    /// `checker` (diagnostics attached to their file).
     pub fn from_chunks_checked(
         chunks: &[SqlChunk],
         macros: &pgweave_macro::MacroSet,
@@ -462,9 +463,9 @@ impl ProjectCatalog {
     }
 }
 
-/// La routine créée par `stmt` est-elle encore celle du catalogue (ni
-/// remplacée, ni supprimée) ? Son corps n'est vérifié que dans ce cas : un
-/// corps remplacé ne s'exécutera jamais.
+/// Is the routine created by `stmt` still the catalog's one (neither
+/// replaced nor dropped)? Its body is only checked in that case: a replaced
+/// body will never run.
 pub fn routine_in_force(cat: &Catalog, stmt: &Statement) -> bool {
     let definition = pgweave_ast::emit::emit_statement(stmt);
     cat.routines
@@ -473,7 +474,7 @@ pub fn routine_in_force(cat: &Catalog, stmt: &Statement) -> bool {
         .any(|r| r.definition.as_deref() == Some(definition.as_str()))
 }
 
-/// Confronte l'en-tête d'une migration à l'état rejoué après elle (D9).
+/// Checks a migration header against the state replayed after it (D9).
 fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
     let Some(Ok(h)) = pgweave_schema::MigrationHeader::find(sql) else {
         return;
@@ -482,7 +483,7 @@ fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
         out.push(Diagnostic::info(
             codes::MIGRATION_HEADER_MISMATCH,
             format!(
-                "migration écrite pour postgres@{}, analysée avec postgres@{DEFAULT_POSTGRES} (seule version prise en charge)",
+                "migration written for postgres@{}, analyzed with postgres@{DEFAULT_POSTGRES} (the only supported version)",
                 h.postgres
             ),
         ));
@@ -492,7 +493,7 @@ fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
             None => out.push(Diagnostic::error(
                 codes::MIGRATION_HEADER_MISMATCH,
                 format!(
-                    "l'en-tête annonce l'extension {}@{}, qui n'est pas créée à ce point des migrations",
+                    "the header declares extension {}@{}, which is not created at this point of the migrations",
                     e.name, e.version
                 ),
             )),
@@ -500,7 +501,7 @@ fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
                 out.push(Diagnostic::error(
                     codes::MIGRATION_HEADER_MISMATCH,
                     format!(
-                        "l'en-tête annonce {}@{}, l'extension active est en version {}",
+                        "the header declares {}@{}, the active extension is at version {}",
                         e.name,
                         e.version,
                         active.version.as_deref().unwrap_or("?")
@@ -514,7 +515,7 @@ fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
         if !h.extensions.iter().any(|e| &e.name == name) {
             out.push(Diagnostic::warning(
                 codes::MIGRATION_HEADER_MISMATCH,
-                format!("l'extension {name} est active mais absente de l'en-tête"),
+                format!("extension {name} is active but missing from the header"),
             ));
         }
     }

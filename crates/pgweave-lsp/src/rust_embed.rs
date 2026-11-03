@@ -1,41 +1,40 @@
-//! Requêtes écrites dans un fichier Rust (`sql!`, `query!`) : extraites pour
-//! être analysées comme une requête nommée, avec les positions du fichier.
+//! Queries written in a Rust file (`sql!`, `query!`): extracted to be
+//! analyzed like a named query, with the file's positions.
 //!
-//! Un balayage lexical, pas un parse Rust : un fichier en cours de frappe
-//! reste exploitable. Commentaires, chaînes, chaînes brutes et caractères
-//! sont sautés ; dans une invocation, les attributs, la visibilité, le nom,
-//! la cardinalité et la ligne reprise sont lus, puis le littéral de la
-//! requête, décodé (échappements compris) avec la correspondance exacte de
-//! chaque octet vers le fichier.
+//! A lexical scan, not a Rust parse: a file being typed stays usable.
+//! Comments, strings, raw strings and chars are skipped; in an invocation,
+//! the attributes, visibility, name, cardinality and reused row are read,
+//! then the query literal, decoded (escapes included) with the exact mapping
+//! of each byte to the file.
 
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// `sql! { pub nom: cardinalité -> Chemin, "…" }`.
+    /// `sql! { pub name: cardinality -> Path, "…" }`.
     Sql,
-    /// `query!("…", liaisons)`.
+    /// `query!("…", bindings)`.
     Query,
 }
 
-/// Une requête trouvée dans le fichier.
+/// A query found in the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Embedded {
     pub kind: Kind,
-    /// Nom écrit (`sql!`) et sa plage.
+    /// Written name (`sql!`) and its range.
     pub name: Option<(String, Range<usize>)>,
     pub cardinality: Option<String>,
-    /// SQL décodé.
+    /// Decoded SQL.
     pub sql: String,
-    /// Plage du contenu du littéral dans le fichier.
+    /// Range of the literal's content in the file.
     pub content: Range<usize>,
-    /// Segments (position dans `sql`, position dans le fichier, longueur) :
-    /// le texte recopié tel quel. Un échappement n'en fait pas partie.
+    /// Segments (position in `sql`, position in the file, length): the text
+    /// copied verbatim. An escape is not part of it.
     segments: Vec<(usize, usize, usize)>,
 }
 
 impl Embedded {
-    /// Position dans le fichier d'une position du SQL.
+    /// File position of a SQL position.
     pub fn to_file(&self, sql_offset: usize) -> usize {
         for &(s, f, len) in self.segments.iter().rev() {
             if sql_offset >= s {
@@ -45,8 +44,7 @@ impl Embedded {
         self.content.start
     }
 
-    /// Position dans le SQL d'une position du fichier, si elle est dans le
-    /// littéral.
+    /// SQL position of a file position, if it is inside the literal.
     pub fn to_sql(&self, file_offset: usize) -> Option<usize> {
         if !(self.content.start..=self.content.end).contains(&file_offset) {
             return None;
@@ -60,8 +58,7 @@ impl Embedded {
     }
 }
 
-/// Fin du commentaire, de la chaîne ou du caractère qui commence à `i`, s'il
-/// y en a un.
+/// End of the comment, string or char starting at `i`, if any.
 fn skip_trivia(b: &[u8], i: usize) -> Option<usize> {
     let at = |k: usize| b.get(k).copied();
     match (at(i), at(i + 1)) {
@@ -95,7 +92,7 @@ fn skip_trivia(b: &[u8], i: usize) -> Option<usize> {
     }
 }
 
-/// Littéral `'x'`, `'\n'`, `'\u{…}'` ; `None` pour une durée de vie (`'a`).
+/// Literal `'x'`, `'\n'`, `'\u{…}'`; `None` for a lifetime (`'a`).
 fn char_at(b: &[u8], i: usize) -> Option<usize> {
     if b.get(i) != Some(&b'\'') {
         return None;
@@ -113,8 +110,8 @@ fn char_at(b: &[u8], i: usize) -> Option<usize> {
     (b.get(after) == Some(&b'\'')).then_some(after + 1)
 }
 
-/// Littéral chaîne qui commence à `i` (`"…"`, `r#"…"#`, `b"…"`, `br"…"`) :
-/// (plage du contenu, fin).
+/// String literal starting at `i` (`"…"`, `r#"…"#`, `b"…"`, `br"…"`):
+/// (content range, end).
 fn string_at(b: &[u8], i: usize) -> Option<(Range<usize>, usize)> {
     let mut k = i;
     if b.get(k) == Some(&b'b') {
@@ -140,8 +137,8 @@ fn string_at(b: &[u8], i: usize) -> Option<(Range<usize>, usize)> {
     if b.get(k) != Some(&b'"') {
         return None;
     }
-    // Un `b` ou `r` isolé n'ouvre une chaîne que s'il n'est pas la fin d'un
-    // identifiant ; l'appelant ne l'appelle qu'en début de token.
+    // A lone `b` or `r` only opens a string if it does not end an
+    // identifier; the caller only calls this at the start of a token.
     let start = k + 1;
     let mut j = start;
     while j < b.len() {
@@ -154,7 +151,7 @@ fn string_at(b: &[u8], i: usize) -> Option<(Range<usize>, usize)> {
     Some((start..b.len(), b.len()))
 }
 
-/// Contenu d'un littéral décodé, et ses segments recopiés.
+/// Decoded content of a literal, and its copied segments.
 fn decode(src: &str, content: Range<usize>, raw: bool) -> (String, Vec<(usize, usize, usize)>) {
     if raw {
         return (
@@ -191,8 +188,8 @@ fn decode(src: &str, content: Range<usize>, raw: bool) -> (String, Vec<(usize, u
             '0' => out.push('\0'),
             '\\' | '\'' | '"' => out.push(e),
             '\n' => {
-                // Continuation de ligne : le saut et l'indentation suivante
-                // disparaissent.
+                // Line continuation: the newline and the following
+                // indentation disappear.
                 while let Some(&(k, w)) = chars.peek() {
                     if !w.is_whitespace() {
                         break;
@@ -237,7 +234,7 @@ fn is_ident_byte(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_'
 }
 
-/// Requêtes `sql!` et `query!` de `src`.
+/// `sql!` and `query!` queries of `src`.
 pub fn find(src: &str) -> Vec<Embedded> {
     let b = src.as_bytes();
     let mut out = Vec::new();
@@ -267,8 +264,8 @@ pub fn find(src: &str) -> Vec<Embedded> {
     out
 }
 
-/// `! (` après le nom de la macro : plage des arguments (après le délimiteur
-/// ouvrant, jusqu'au fermant, ou la fin du fichier en cours de frappe).
+/// `! (` after the macro name: range of the arguments (after the opening
+/// delimiter, up to the closing one, or the end of a file being typed).
 fn invocation_args(b: &[u8], mut k: usize) -> Option<(usize, usize)> {
     while b.get(k).is_some_and(|c| c.is_ascii_whitespace()) {
         k += 1;
@@ -318,7 +315,7 @@ fn skip_ws_and_attrs(src: &str, mut k: usize, end: usize) -> usize {
             continue;
         }
         if b.get(k) == Some(&b'#') {
-            // `#[…]` : jusqu'au crochet fermant équilibré.
+            // `#[…]`: up to the balanced closing bracket.
             let mut depth = 0usize;
             let mut j = k + 1;
             while j < end {
@@ -352,7 +349,7 @@ fn parse_args(src: &str, word: &str, open: usize, close: usize) -> Option<Embedd
     let b = src.as_bytes();
     let mut k = skip_ws_and_attrs(src, open, close);
     let (kind, name, cardinality) = if word == "sql" {
-        // Visibilité.
+        // Visibility.
         if src[k..close].starts_with("pub") && !b.get(k + 3).is_some_and(|c| is_ident_byte(*c)) {
             k += 3;
             while k < close && b[k].is_ascii_whitespace() {
@@ -374,7 +371,7 @@ fn parse_args(src: &str, word: &str, open: usize, close: usize) -> Option<Embedd
                 k = r.end;
             }
         }
-        // `-> Chemin` puis la virgule.
+        // `-> Path` then the comma.
         let comma = b[k..close].iter().position(|&c| c == b',')?;
         k = skip_ws_and_attrs(src, k + comma + 1, close);
         (Kind::Sql, Some(name), cardinality)
@@ -399,16 +396,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn requetes_sql_et_query_trouvees() {
+    fn sql_and_query_queries_found() {
         let src = r##"
-// sql!("pas une requête")
+// sql!("not a query")
 fn f() {
-    let _ = "query!(\"non plus\")";
+    let _ = "query!(\"neither\")";
     let c = 'x';
     pgweave_macros::sql! {
-        /// La fiche.
+        /// The record.
         #[allow(dead_code)]
-        pub(crate) fiche: optional -> crate::q::FicheRow,
+        pub(crate) record: optional -> crate::q::RecordRow,
         r#"SELECT id
            FROM t WHERE id = $id"#
     }
@@ -419,8 +416,8 @@ fn f() {
         assert_eq!(found.len(), 2, "{found:?}");
         let s = &found[0];
         assert_eq!(s.kind, Kind::Sql);
-        assert_eq!(s.name.as_ref().unwrap().0, "fiche");
-        assert_eq!(&src[s.name.clone().unwrap().1], "fiche");
+        assert_eq!(s.name.as_ref().unwrap().0, "record");
+        assert_eq!(&src[s.name.clone().unwrap().1], "record");
         assert_eq!(s.cardinality.as_deref(), Some("optional"));
         assert!(s.sql.starts_with("SELECT id\n"));
         let at = s.sql.find("$id").unwrap();
@@ -430,17 +427,17 @@ fn f() {
         let q = &found[1];
         assert_eq!(q.kind, Kind::Query);
         assert_eq!(q.sql, "SELECT \"x\" FROM t WHERE a = $a");
-        // Après l'échappement, les positions restent exactes.
+        // After the escape, positions stay exact.
         let at = q.sql.find("FROM").unwrap();
         assert_eq!(&src[q.to_file(at)..q.to_file(at) + 4], "FROM");
         assert_eq!(q.to_sql(q.to_file(at)), Some(at));
     }
 
     #[test]
-    fn fichier_en_cours_de_frappe() {
-        let found = find("sql! { pub x, \"SELECT nom FROM t");
+    fn file_being_typed() {
+        let found = find("sql! { pub x, \"SELECT name FROM t");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].sql, "SELECT nom FROM t");
+        assert_eq!(found[0].sql, "SELECT name FROM t");
         assert!(find("let sql = 1; query(x);").is_empty());
     }
 }

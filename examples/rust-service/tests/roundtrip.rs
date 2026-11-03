@@ -1,22 +1,22 @@
-//! Le service d'exemple contre un vrai PostgreSQL : chaque fonction générée
-//! s'exécute, types et cardinalités tiennent à l'exécution.
+//! The example service against a real PostgreSQL: every generated function
+//! runs, and types and cardinalities hold at run time.
 
 use pgweave_example_rust_service::queries::{self, PageStatus};
 
 #[tokio::test]
-#[ignore = "nécessite PostgreSQL 18 : `make oracle` (variable PGWEAVE_ORACLE_URL)"]
-async fn les_requetes_generees_s_executent() {
+#[ignore = "requires PostgreSQL 18: `make oracle` (PGWEAVE_ORACLE_URL variable)"]
+async fn generated_queries_run() {
     let url = std::env::var("PGWEAVE_ORACLE_URL").expect("PGWEAVE_ORACLE_URL");
     let (admin, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .expect("connexion");
+        .expect("connection");
     tokio::spawn(conn);
     let db = format!("pgweave_example_{}", std::process::id());
     for sql in [
         format!("DROP DATABASE IF EXISTS {db}"),
         format!("CREATE DATABASE {db}"),
     ] {
-        admin.batch_execute(&sql).await.expect("base");
+        admin.batch_execute(&sql).await.expect("database");
     }
 
     let mut config: tokio_postgres::Config = url.parse().expect("url");
@@ -24,18 +24,15 @@ async fn les_requetes_generees_s_executent() {
     let (mut client, conn) = config
         .connect(tokio_postgres::NoTls)
         .await
-        .expect("connexion");
+        .expect("connection");
     tokio::spawn(conn);
-    // Le schéma utilise des fragments : il est appliqué désucré, tel que
-    // pgweave l'analyse (ce que `pgweave build` écrirait).
+    // The schema uses fragments: it is applied desugared, as pgweave
+    // analyzes it (what `pgweave build` would write).
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let project = pgweave_build::load_project(root).expect("projet");
-    let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schéma");
+    let project = pgweave_build::load_project(root).expect("project");
+    let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schema");
     let schema = pgweave_macro::expand_source(&schema, &project.macros).sql;
-    client
-        .batch_execute(&schema)
-        .await
-        .expect("schéma appliqué");
+    client.batch_execute(&schema).await.expect("schema applied");
 
     let author = uuid::Uuid::from_u128(42);
     let tags = vec!["rust".to_string(), "sql".to_string()];
@@ -56,7 +53,7 @@ async fn les_requetes_generees_s_executent() {
         queries::pages::page_by_id(&client, queries::pages::PageByIdParams { id: inserted.id })
             .await
             .expect("page_by_id")
-            .expect("la page existe");
+            .expect("the page exists");
     assert_eq!(page.slug, "hello-world");
     assert_eq!(
         page.tags,
@@ -70,7 +67,7 @@ async fn les_requetes_generees_s_executent() {
         .expect("page_by_id");
     assert_eq!(missing, None);
 
-    // Enum en paramètre : type du projet, préparé par le serveur.
+    // Enum as a parameter: project type, prepared by the server.
     let drafts = queries::pages::pages_by_status(
         &client,
         queries::pages::PagesByStatusParams {
@@ -80,7 +77,7 @@ async fn les_requetes_generees_s_executent() {
     .await
     .expect("pages_by_status");
     assert_eq!(drafts.len(), 1);
-    // Même requête en flux.
+    // Same query as a stream.
     {
         use pgweave_runtime::futures_util::StreamExt;
         let mut stream = std::pin::pin!(
@@ -93,12 +90,12 @@ async fn les_requetes_generees_s_executent() {
             .await
             .expect("pages_by_status_stream")
         );
-        let first = stream.next().await.expect("une ligne").expect("décodée");
+        let first = stream.next().await.expect("one row").expect("decoded");
         assert_eq!(first, drafts[0]);
         assert!(stream.next().await.is_none());
     }
 
-    // Transaction : même API, client ou transaction.
+    // Transaction: same API, client or transaction.
     let tx = client.transaction().await.expect("transaction");
     let day = time::Date::from_calendar_date(2026, time::Month::November, 2).expect("date");
     let published = queries::pages::publish(
@@ -110,51 +107,51 @@ async fn les_requetes_generees_s_executent() {
     )
     .await
     .expect("publish")
-    .expect("page publiée");
+    .expect("page published");
     assert_eq!(published.published_on, Some(day));
     tx.commit().await.expect("commit");
 
-    // Requêtes inline (`query!`).
+    // Inline queries (`query!`).
     let title = pgweave_example_rust_service::page_title(&client, inserted.id)
         .await
         .expect("page_title");
     assert_eq!(title.as_deref(), Some("Hello"));
-    let renamed = pgweave_example_rust_service::rename_by_author(&client, author, "Bonjour")
+    let renamed = pgweave_example_rust_service::rename_by_author(&client, author, "Howdy")
         .await
         .expect("rename_by_author");
     assert_eq!(renamed, 1);
 
-    let live = pgweave_example_rust_service::live_pages(&client, "Bon%")
+    let live = pgweave_example_rust_service::live_pages(&client, "How%")
         .await
         .expect("live_pages");
-    assert_eq!(live, ["Bonjour"]);
+    assert_eq!(live, ["Howdy"]);
 
     let n = queries::pages::count_pages(&client)
         .await
         .expect("count_pages");
-    // `count(*)` n'est jamais NULL : champ non optionnel.
+    // `count(*)` is never NULL: non-optional field.
     assert_eq!(n.n, 1);
     let deleted = queries::pages::delete_drafts(&client)
         .await
         .expect("delete_drafts");
     assert_eq!(deleted, 0);
 
-    // Le domaine refuse un slug invalide : l'erreur de PostgreSQL remonte.
+    // The domain rejects an invalid slug: the PostgreSQL error is surfaced.
     let err = queries::pages::insert_page(
         &client,
         queries::pages::InsertPageParams {
-            slug: "Pas Valide",
+            slug: "Not Valid",
             title: "x",
             tags: &[],
             author: None,
         },
     )
     .await
-    .expect_err("CHECK du domaine");
+    .expect_err("domain CHECK");
     assert!(matches!(err, pgweave_runtime::Error::Db { .. }), "{err}");
 
-    // Chargement par lots : COPY binaire et CSV dans la staging, bascule,
-    // le tout dans une transaction.
+    // Batch loading: binary and CSV COPY into staging, swap, all inside a
+    // transaction.
     let tx = client.transaction().await.expect("transaction");
     let records = [
         ("12345678900011", "Alpha", Some(3)),
@@ -192,8 +189,8 @@ async fn les_requetes_generees_s_executent() {
         .expect("count");
     assert_eq!(n.n, 3);
 
-    // Recherche plein texte : l'expression de la requête et celle de l'index
-    // viennent du même fragment, donc le planificateur utilise l'index.
+    // Full-text search: the query's expression and the index's come from
+    // the same fragment, so the planner uses the index.
     let found = queries::etablissements::search_etablissements(
         &client,
         queries::etablissements::SearchEtablissementsParams { q: "beta" },
@@ -206,7 +203,7 @@ async fn les_requetes_generees_s_executent() {
         .batch_execute("SET enable_seqscan = off")
         .await
         .expect("enable_seqscan");
-    // Protocole simple : le plan générique garde `$1` sans valeur.
+    // Simple protocol: the generic plan keeps `$1` without a value.
     let plan: Vec<String> = client
         .simple_query(&format!(
             "EXPLAIN (GENERIC_PLAN, COSTS OFF) {}",
@@ -222,7 +219,7 @@ async fn les_requetes_generees_s_executent() {
         .collect();
     assert!(
         plan.iter().any(|l| l.contains("etablissements_search")),
-        "l'index n'est pas utilisé :\n{}",
+        "the index is not used:\n{}",
         plan.join("\n")
     );
 
@@ -230,5 +227,5 @@ async fn les_requetes_generees_s_executent() {
     admin
         .batch_execute(&format!("DROP DATABASE {db} WITH (FORCE)"))
         .await
-        .expect("nettoyage");
+        .expect("cleanup");
 }

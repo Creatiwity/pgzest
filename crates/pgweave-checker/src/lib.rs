@@ -1,10 +1,10 @@
-//! Vérification des statements : l'analyse sémantique (`pgweave-sema`),
-//! plus les règles des plugins.
+//! Statement checking: semantic analysis (`pgweave-sema`),
+//! plus plugin rules.
 //!
-//! Les vérifications intégrées (tables, colonnes, types, corps de routines)
-//! sont celles de `pgweave-sema` ; ce crate en est la façade, et l'hôte des
-//! règles apportées par les plugins ([`rule::CheckRule`]), qui voient le
-//! schéma par `SchemaProvider`.
+//! The built-in checks (tables, columns, types, routine bodies) are those
+//! of `pgweave-sema`; this crate is their facade, and the host of the
+//! rules contributed by plugins ([`rule::CheckRule`]), which see the
+//! schema through `SchemaProvider`.
 
 pub mod check;
 pub mod checker;

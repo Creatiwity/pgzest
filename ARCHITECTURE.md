@@ -1,38 +1,38 @@
-# pgsql-tools — Architecture globale
+# pgsql-tools — Overall architecture
 
-> Document de référence. Sources : analyse d'OXC, datafusion-sqlparser-rs, audit du codebase (juin 2026).
+> Reference document. Sources: analysis of OXC, datafusion-sqlparser-rs, codebase audit (June 2026).
 
 ---
 
-## Principe fondateur
+## Founding principle
 
-Inspiré d'OXC : **parse → normalize → semantic → tools**, dans cet ordre strict, sans aller-retour.
-Chaque passe reçoit le résultat de la précédente en lecture seule.
+Inspired by OXC: **parse → normalize → semantic → tools**, in this strict order, with no back-and-forth.
+Each pass receives the result of the previous one as read-only.
 
 ```
-Source SQL
-  ↓ parse          → AST syntaxique + NodeId + Span (positions exactes)
-  ↓ normalize      → AST logique (FROM→JOIN→WHERE→SELECT, desugar syntaxique)
-  ↓ semantic       → SemanticResult (symbol table, scope tree, types résolus)
-  ↓ [tools — lecture seule sur SemanticResult]
-      ├── checker  → diagnostics de correction  (E001, E003, E005…)
-      ├── linter   → diagnostics de style/perf  (L001, L003, L004…)
-      ├── codegen  → SQL formaté, migrations diff, types TypeScript
+SQL source
+  ↓ parse          → syntactic AST + NodeId + Span (exact positions)
+  ↓ normalize      → logical AST (FROM→JOIN→WHERE→SELECT, syntactic desugar)
+  ↓ semantic       → SemanticResult (symbol table, scope tree, resolved types)
+  ↓ [tools — read-only over SemanticResult]
+      ├── checker  → correctness diagnostics  (E001, E003, E005…)
+      ├── linter   → style/perf diagnostics   (L001, L003, L004…)
+      ├── codegen  → formatted SQL, migration diffs, TypeScript types
       └── LSP      → hover, completion, go-to-definition
 ```
 
-**Règle absolue** : aucun outil ne modifie l'AST. Seul `normalize` (VisitMut) est autorisé à
-transformer l'arbre. Checker, linter, LSP : lecture seule + émission de diagnostics.
+**Absolute rule**: no tool modifies the AST. Only `normalize` (VisitMut) may
+transform the tree. Checker, linter, LSP: read-only + diagnostic emission.
 
 ---
 
-## Les 3 pièces fondamentales manquantes
+## The 3 missing foundational pieces
 
-### 1. `NodeId` + `Span` sur chaque nœud AST
+### 1. `NodeId` + `Span` on every AST node
 
-Chaque nœud AST reçoit un `NodeId(u32)` stable assigné pendant le parse, et un `Span { start: u32, end: u32 }` en bytes depuis la source.
+Each AST node gets a stable `NodeId(u32)` assigned during parsing, and a `Span { start: u32, end: u32 }` in bytes from the source.
 
-**Pourquoi** : sans `NodeId`, la symbol table ne peut pas faire de références croisées (col → table d'origine, call → définition). Sans `Span`, le LSP ne peut pas répondre à "quel nœud est sous le curseur ?".
+**Why**: without `NodeId`, the symbol table cannot cross-reference (col → originating table, call → definition). Without `Span`, the LSP cannot answer "which node is under the cursor?".
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -41,7 +41,7 @@ pub struct NodeId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span { pub start: u32, pub end: u32 }
 
-// Exemple sur SelectStmt
+// Example on SelectStmt
 pub struct SelectStmt {
     pub id: NodeId,
     pub span: Span,
@@ -51,35 +51,35 @@ pub struct SelectStmt {
 }
 ```
 
-### 2. La passe `pgsql-semantic` (crate nouvelle)
+### 2. The `pgsql-semantic` pass (new crate)
 
-Le cœur manquant. Une seule passe sur l'AST logique produit :
+The missing core. A single pass over the logical AST produces:
 
 ```rust
 pub struct SemanticResult {
-    /// name (lower) → Symbol (table / colonne / fonction / CTE / var PL/pgSQL)
+    /// name (lower) → Symbol (table / column / function / CTE / PL/pgSQL var)
     pub symbols: SymbolTable,
-    /// hiérarchie des scopes (SELECT, sous-requête, CTE, bloc PL/pgSQL)
+    /// scope hierarchy (SELECT, subquery, CTE, PL/pgSQL block)
     pub scopes: ScopeTree,
-    /// type inféré de chaque expression  (NodeId → DataType)
+    /// inferred type of each expression  (NodeId → DataType)
     pub expr_types: HashMap<NodeId, DataType>,
-    /// colonnes de sortie de chaque SELECT  (NodeId → Vec<OutputColumn>)
+    /// output columns of each SELECT  (NodeId → Vec<OutputColumn>)
     pub select_columns: HashMap<NodeId, Vec<OutputColumn>>,
 }
 
 pub struct OutputColumn {
-    pub name: Option<String>,   // alias si présent
+    pub name: Option<String>,   // alias if present
     pub data_type: DataType,
-    pub node_id: NodeId,        // nœud Expr source
+    pub node_id: NodeId,        // source Expr node
 }
 ```
 
-Ce `SemanticResult` est passé en lecture seule à checker, linter, LSP, codegen.
+This `SemanticResult` is passed read-only to the checker, linter, LSP, codegen.
 
 ### 3. `Visit` / `VisitMut` traits + walker
 
-Remplace les pattern-match ad hoc dispersés dans les règles. Toutes les règles implémentent
-`Visit` (lecture seule) ; `normalize` implémente `VisitMut`.
+Replaces the ad hoc pattern matches scattered across rules. All rules implement
+`Visit` (read-only); `normalize` implements `VisitMut`.
 
 ```rust
 pub trait Visit<'a> {
@@ -87,118 +87,118 @@ pub trait Visit<'a> {
     fn visit_expr(&mut self, node: &'a Expr, ctx: &SemanticCtx<'a>) {}
     fn visit_function_call(&mut self, node: &'a FunctionCall, ctx: &SemanticCtx<'a>) {}
     fn visit_create_table(&mut self, node: &'a CreateTable, ctx: &SemanticCtx<'a>) {}
-    // ~40 méthodes, toutes default no-op
+    // ~40 methods, all default no-op
 }
 
 pub trait VisitMut {
     fn enter_select(&mut self, node: &mut SelectStmt) {}
     fn exit_select(&mut self, node: &mut SelectStmt) {}
-    // enter_* / exit_* pour chaque type de nœud
+    // enter_* / exit_* for each node type
 }
 ```
 
 ---
 
-## Ce que `pgsql-semantic` débloque
+## What `pgsql-semantic` unlocks
 
-| Feature | Sans semantic | Avec semantic |
+| Feature | Without semantic | With semantic |
 |---------|:---:|:---:|
-| E001 colonne inconnue | ✅ existence | ✅ + type du contexte |
-| Type de retour d'une SELECT | ❌ | ✅ `Vec<OutputColumn>` |
-| Génération types TypeScript | ❌ | ✅ `{id: string, name: string}` |
-| Hover LSP | ❌ | ✅ type de la colonne survolée |
-| Completion LSP | partiel | ✅ colonnes disponibles dans le scope |
-| Go-to-definition | ❌ | ✅ NodeId → position déclaration |
-| Expansion SELECT * | ❌ | ✅ liste réelle des colonnes |
-| Résolution CTE | ❌ | ✅ CTE → type nommé dans scope |
-| Compat. types WHERE | ❌ | ✅ `WHERE text_col = 42` → E005 |
-| Overload résolution fonctions | ❌ | ✅ |
+| E001 unknown column | ✅ existence | ✅ + context type |
+| Return type of a SELECT | ❌ | ✅ `Vec<OutputColumn>` |
+| TypeScript type generation | ❌ | ✅ `{id: string, name: string}` |
+| LSP hover | ❌ | ✅ type of the hovered column |
+| LSP completion | partial | ✅ columns available in scope |
+| Go-to-definition | ❌ | ✅ NodeId → declaration position |
+| SELECT * expansion | ❌ | ✅ actual column list |
+| CTE resolution | ❌ | ✅ CTE → named type in scope |
+| WHERE type compat. | ❌ | ✅ `WHERE text_col = 42` → E005 |
+| Function overload resolution | ❌ | ✅ |
 
 ---
 
-## Structure cible du monorepo
+## Target monorepo structure
 
 ```
 pgsql-tools/
 ├── crates/
-│   ├── pgsql-ast/          # Types AST + NodeId + Span + Visit traits       [à étendre]
-│   ├── pgsql-parser/       # sqlparser-rs + dialecte PL/pgSQL               [existe]
+│   ├── pgsql-ast/          # AST types + NodeId + Span + Visit traits       [to extend]
+│   ├── pgsql-parser/       # sqlparser-rs + PL/pgSQL dialect                [exists]
 │   ├── pgsql-semantic/     # SymbolTable + ScopeTree + type inference        [NEW — Phase B]
-│   ├── pgsql-checker/      # Règles de correction (sur SemanticResult)       [existe, à migrer]
-│   ├── pgsql-lint/         # Règles de style/perf (sur SemanticResult)       [existe, à étendre]
-│   ├── pgsql-codegen/      # emit SQL + diff migrations + génération TS      [existe, à étendre]
-│   ├── pgsql-lsp/          # Serveur LSP (tower-lsp)                        [squelette]
-│   ├── pgsql-plugin/       # Plugin trait + PluginRegistry                  [existe]
-│   ├── pgsql-plugin-wasm/  # Host WASM plugins (wasmi)                      [existe]
-│   └── pgsql-cli/          # CLI pgsql                                      [existe]
+│   ├── pgsql-checker/      # Correctness rules (over SemanticResult)         [exists, to migrate]
+│   ├── pgsql-lint/         # Style/perf rules (over SemanticResult)          [exists, to extend]
+│   ├── pgsql-codegen/      # emit SQL + migration diffs + TS generation      [exists, to extend]
+│   ├── pgsql-lsp/          # LSP server (tower-lsp)                         [skeleton]
+│   ├── pgsql-plugin/       # Plugin trait + PluginRegistry                  [exists]
+│   ├── pgsql-plugin-wasm/  # WASM plugin host (wasmi)                       [exists]
+│   └── pgsql-cli/          # pgsql CLI                                      [exists]
 │
 ├── bindings/
-│   ├── wasm/               # wasm-bindgen : check + semantic + lint + migrate
-│   └── node/               # napi-rs : idem, API sync + async
+│   ├── wasm/               # wasm-bindgen: check + semantic + lint + migrate
+│   └── node/               # napi-rs: same, sync + async API
 │
 ├── npm/
-│   └── pgsql-tools/        # Framework DX TypeScript                        [NEW — Phase E]
+│   └── pgsql-tools/        # TypeScript DX framework                        [NEW — Phase E]
 │       ├── src/
-│       │   ├── db.ts        # db.query<T>(), connexion, transactions
+│       │   ├── db.ts        # db.query<T>(), connection, transactions
 │       │   ├── migrate.ts   # diff + deploy migrations
-│       │   ├── policy.ts    # DSL RLS policies
-│       │   └── codegen.ts   # appelle WASM pour générer les types
-│       └── types/           # types générés à la build
+│       │   ├── policy.ts    # RLS policies DSL
+│       │   └── codegen.ts   # calls WASM to generate types
+│       └── types/           # types generated at build time
 │
 ├── plugins/
-│   ├── prisma/              # PrismaPlugin (dans pgsql-plugin aujourd'hui)
-│   └── postgis/             # PostGIS types + fonctions spatiales            [NEW — Phase F]
+│   ├── prisma/              # PrismaPlugin (in pgsql-plugin today)
+│   └── postgis/             # PostGIS types + spatial functions             [NEW — Phase F]
 │
 ├── editors/
-│   ├── vscode/              # Extension VS Code                              [NEW — Phase C]
-│   │   ├── syntaxes/        # Grammar TextMate SQL + PL/pgSQL
-│   │   └── src/extension.ts # Client LSP
-│   └── jetbrains/           # Plugin JetBrains                              [futur]
+│   ├── vscode/              # VS Code extension                              [NEW — Phase C]
+│   │   ├── syntaxes/        # TextMate grammar SQL + PL/pgSQL
+│   │   └── src/extension.ts # LSP client
+│   └── jetbrains/           # JetBrains plugin                              [future]
 │
 ├── examples/
-│   ├── schema.sql           # Schéma d'exemple multi-tenant
-│   └── wasm-plugin/         # Plugin WASM exemple
+│   ├── schema.sql           # Multi-tenant example schema
+│   └── wasm-plugin/         # Example WASM plugin
 │
-├── ARCHITECTURE.md          # Ce fichier
+├── ARCHITECTURE.md          # This file
 ├── ROADMAP.md               # Roadmap phases A–F
-├── SPECS.md                 # Spécifications fonctionnelles
-└── pgsql.toml               # Config exemple
+├── SPECS.md                 # Functional specifications
+└── pgsql.toml               # Example config
 ```
 
 ---
 
-## Pipeline de données détaillé
+## Detailed data pipeline
 
 ### Parse
 
 `pgsql_parser::parse(sql) → Result<Vec<Statement>>`
 
-- sqlparser-rs 0.54 avec PostgreSqlDialect custom
-- Préprocessing : neutralise SECURITY DEFINER, COST n, ROWS n
-- Postprocessing : réinjecte les flags extraits sur les nœuds
-- Corps PL/pgSQL `$$...$$` : lexer + parser custom → `FunctionBody::Parsed(PlpgsqlBody)`
-- **À ajouter (Phase A)** : assignation `NodeId` + extraction `Span` depuis token positions
+- sqlparser-rs 0.54 with a custom PostgreSqlDialect
+- Preprocessing: neutralizes SECURITY DEFINER, COST n, ROWS n
+- Postprocessing: re-injects the extracted flags onto the nodes
+- PL/pgSQL bodies `$$...$$`: custom lexer + parser → `FunctionBody::Parsed(PlpgsqlBody)`
+- **To add (Phase A)**: `NodeId` assignment + `Span` extraction from token positions
 
 ### Normalize
 
-`pgsql_parser::normalize(stmts) → Vec<Statement>` *(partiellement implémenté)*
+`pgsql_parser::normalize(stmts) → Vec<Statement>` *(partially implemented)*
 
-- Réordonne SELECT en ordre logique : FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY
-- Résout les alias de colonnes dans ORDER BY (déjà fait dans `NormalizedSelect`)
-- Desugar : syntaxe simplifiée → SQL standard
-- **Implémentation** : `VisitMut` sur l'AST, en place
+- Reorders SELECT into logical order: FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY
+- Resolves column aliases in ORDER BY (already done in `NormalizedSelect`)
+- Desugar: simplified syntax → standard SQL
+- **Implementation**: `VisitMut` over the AST, in place
 
 ### Semantic
 
 `pgsql_semantic::analyze(stmts, schema) → SemanticResult` *(Phase B)*
 
-- Collecte toutes les déclarations : tables (depuis `SchemaProvider`), colonnes, fonctions, CTEs, variables PL/pgSQL
-- Construit le `ScopeTree` : un scope par SELECT, sous-requête, CTE, bloc PL/pgSQL
-- Résout chaque référence de colonne vers son `NodeId` de déclaration
-- Infère le type de chaque `Expr` : `NodeId → DataType`
-- Calcule `OutputColumn` pour chaque `SelectStmt`
+- Collects all declarations: tables (from `SchemaProvider`), columns, functions, CTEs, PL/pgSQL variables
+- Builds the `ScopeTree`: one scope per SELECT, subquery, CTE, PL/pgSQL block
+- Resolves each column reference to its declaration `NodeId`
+- Infers the type of each `Expr`: `NodeId → DataType`
+- Computes `OutputColumn` for each `SelectStmt`
 
-### Checker / Linter (après semantic)
+### Checker / Linter (after semantic)
 
 ```rust
 // Checker
@@ -213,46 +213,46 @@ let lint_diags = Linter::with_config(&config).run_with_ctx(&stmts, &ctx);
 ### Codegen
 
 ```rust
-// SQL formaté
+// Formatted SQL
 let sql = pgsql_codegen::emit_statement(&stmt);
 
 // Migration diff
 let diff = pgsql_codegen::diff_schemas(&old_stmts, &new_stmts);
 
-// Types TypeScript (nécessite semantic)
+// TypeScript types (requires semantic)
 let ts = pgsql_codegen::generate_ts_types(&stmts, &semantic);
 ```
 
 ### LSP
 
 ```rust
-// hover — type de l'expression sous le curseur
+// hover — type of the expression under the cursor
 let node = ast.node_at_offset(cursor_offset)?;
 let ty = semantic.expr_types[&node.id];
 hover_text = format!("{}: {}", node.name, ty);
 
-// completion — colonnes disponibles dans le scope courant
+// completion — columns available in the current scope
 let scope = semantic.scopes.scope_at_offset(cursor_offset);
 completions = scope.available_columns();
 ```
 
 ---
 
-## Gestion des extensions PostgreSQL
+## Handling PostgreSQL extensions
 
-Via le `CheckRule` trait + `PluginRegistry` :
+Via the `CheckRule` trait + `PluginRegistry`:
 
-- **Built-in** : règles dans `pgsql-checker` et `pgsql-lint`
-- **Rust plugins** : crate qui implémente `Plugin` + enregistrement dans le registry
-- **WASM plugins** : `.wasm` via `pgsql-plugin-wasm`, ABI JSON-over-linear-memory
-- **PostGIS** : types géométriques (GEOMETRY, GEOGRAPHY), fonctions spatiales → plugin dédié
+- **Built-in**: rules in `pgsql-checker` and `pgsql-lint`
+- **Rust plugins**: a crate that implements `Plugin` + registration in the registry
+- **WASM plugins**: `.wasm` via `pgsql-plugin-wasm`, JSON-over-linear-memory ABI
+- **PostGIS**: geometric types (GEOMETRY, GEOGRAPHY), spatial functions → dedicated plugin
 
 ---
 
-## Références
+## References
 
-- [OXC Architecture](https://github.com/oxc-project/oxc) — inspiration visitor pattern, semantic pass, arena alloc
-- [datafusion-sqlparser-rs](https://github.com/apache/datafusion-sqlparser-rs) — parser base + Dialect trait
+- [OXC Architecture](https://github.com/oxc-project/oxc) — inspiration for the visitor pattern, semantic pass, arena alloc
+- [datafusion-sqlparser-rs](https://github.com/apache/datafusion-sqlparser-rs) — base parser + Dialect trait
 - [DataFusion SQL Planner](https://github.com/apache/datafusion/tree/main/datafusion/sql) — ContextProvider pattern, SqlToRel
 - [tower-lsp](https://github.com/ebkalderon/tower-lsp) — LSP server framework
-- [Squawk](https://github.com/sbdchd/squawk) — linter SQL PostgreSQL, architecture de référence pour les règles
+- [Squawk](https://github.com/sbdchd/squawk) — PostgreSQL SQL linter, reference architecture for rules

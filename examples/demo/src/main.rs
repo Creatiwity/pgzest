@@ -1,15 +1,15 @@
-//! Scénario de démonstration, sur une base neuve :
+//! Demo scenario, on a fresh database:
 //!
 //! ```text
-//! make oracle-up                 # PostgreSQL 18 dans Docker (port 54318)
+//! make oracle-up                 # PostgreSQL 18 in Docker (port 54318)
 //! cargo run -p pgweave-demo
 //! ```
 //!
-//! `DATABASE_URL` désigne un autre serveur (la base `pgweave_demo` y est
-//! recréée).
+//! `DATABASE_URL` points to another server (the `pgweave_demo` database is
+//! recreated there).
 
 use pgweave_demo::db::{DishKind, OrderStatus};
-use pgweave_demo::{carte, queries};
+use pgweave_demo::{inline, queries};
 use pgweave_runtime::futures_util::StreamExt;
 
 const DEFAULT_URL: &str = "postgres://postgres:pgweave@localhost:54318/postgres";
@@ -19,15 +19,15 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn kind(k: DishKind) -> &'static str {
     match k {
-        DishKind::Starter => "entrée",
-        DishKind::Main => "plat",
+        DishKind::Starter => "starter",
+        DishKind::Main => "main",
         DishKind::Dessert => "dessert",
-        DishKind::Drink => "boisson",
+        DishKind::Drink => "drink",
     }
 }
 
 fn euros(cents: i64) -> String {
-    format!("{},{:02} €", cents / 100, cents % 100)
+    format!("€{}.{:02}", cents / 100, cents % 100)
 }
 
 #[tokio::main]
@@ -66,9 +66,9 @@ async fn main() -> Result<()> {
     );
 
     let since = time::Date::from_calendar_date(2020, time::Month::January, 1)?;
-    let recent = carte::opened_since(&client, carte::OpenedSinceParams { since }).await?;
+    let recent = inline::opened_since(&client, inline::OpenedSinceParams { since }).await?;
     println!(
-        "   ouverts depuis 2020 (sql!) : {}",
+        "   open since 2020 (sql!): {}",
         recent
             .iter()
             .map(|r| r.name.as_str())
@@ -76,17 +76,17 @@ async fn main() -> Result<()> {
             .join(", ")
     );
 
-    println!("── Plats : COPY CSV, puis un ajout typé");
+    println!("── Dishes: CSV COPY, then a typed insert");
     let csv =
         tokio::fs::File::open(concat!(env!("CARGO_MANIFEST_DIR"), "/data/dishes.csv")).await?;
     let copied = queries::menu::import_dishes(&client, csv).await?;
-    println!("   {copied} plats importés par COPY");
-    let tags = ["maison".to_string(), "saison".to_string()];
+    println!("   {copied} dishes imported by COPY");
+    let tags = ["homemade".to_string(), "seasonal".to_string()];
     let dish = queries::menu::add_dish(
         &client,
         queries::menu::AddDishParams {
             restaurant: bistro.id,
-            name: "Île flottante",
+            name: "Floating island",
             kind: DishKind::Dessert,
             price: 700,
             vegetarian: true,
@@ -94,9 +94,9 @@ async fn main() -> Result<()> {
         },
     )
     .await?;
-    println!("   « Île flottante » ajouté (id {})", dish.id);
+    println!("   \"Floating island\" added (id {})", dish.id);
 
-    println!("── Menu du Bistrot (lu en flux, depuis la vue `menu`)");
+    println!("── Le Bistrot's menu (read as a stream, from the `menu` view)");
     let mut menu = std::pin::pin!(
         queries::menu::menu_of_stream(
             &client,
@@ -108,20 +108,20 @@ async fn main() -> Result<()> {
     );
     while let Some(item) = menu.next().await {
         let item = item?;
-        // Colonnes d'une vue : PostgreSQL n'y garde pas NOT NULL → Option.
+        // Columns of a view: PostgreSQL does not keep NOT NULL there → Option.
         println!(
             "   {:<24} {:<8} {:>9}{}",
             item.name.unwrap_or_default(),
             item.kind.map_or("?", kind),
             item.price.map_or_else(String::new, |p| euros(p.into())),
             if item.vegetarian == Some(true) {
-                "  (végé)"
+                "  (veggie)"
             } else {
                 ""
             }
         );
     }
-    // Deux requêtes, une même fiche (`-> dish_card`) : un seul type Rust.
+    // Two queries, one shared card (`-> dish_card`): a single Rust type.
     let veggie = queries::menu::vegetarian_dishes(
         &client,
         queries::menu::VegetarianDishesParams {
@@ -143,17 +143,17 @@ async fn main() -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ")
     };
-    println!("   végétariens : {}", names(&veggie));
-    println!("   à moins de 10 € : {}", names(&affordable));
-    // Requête écrite dans le code (`sql!`), même struct de ligne.
-    let by_price = carte::dishes_by_price(
+    println!("   vegetarian: {}", names(&veggie));
+    println!("   under €10: {}", names(&affordable));
+    // Query written in the code (`sql!`), same row struct.
+    let by_price = inline::dishes_by_price(
         &client,
-        carte::DishesByPriceParams {
+        inline::DishesByPriceParams {
             restaurant: bistro.id,
         },
     )
     .await?;
-    println!("   par prix (sql!) : {}", names(&by_price));
+    println!("   by price (sql!): {}", names(&by_price));
     let counts = queries::menu::dish_counts(
         &client,
         queries::menu::DishCountsParams {
@@ -162,7 +162,7 @@ async fn main() -> Result<()> {
     )
     .await?;
     println!(
-        "   {} plats, dont {} végétariens, le moins cher à {}",
+        "   {} dishes, {} of them vegetarian, cheapest at {}",
         counts.total,
         counts.vegetarian,
         counts
@@ -170,10 +170,13 @@ async fn main() -> Result<()> {
             .map_or_else(|| "—".into(), |c| euros(c.into()))
     );
     if let Some((name, price)) = pgweave_demo::priciest_dish(&client, bistro.id).await? {
-        println!("   le plus cher (query!) : {name}, {}", euros(price.into()));
+        println!(
+            "   most expensive (query!): {name}, {}",
+            euros(price.into())
+        );
     }
 
-    println!("── Client (email citext : la casse ne compte pas)");
+    println!("── Customer (citext email: case does not matter)");
     let alice = queries::customers::upsert_customer(
         &client,
         queries::customers::UpsertCustomerParams {
@@ -192,9 +195,9 @@ async fn main() -> Result<()> {
         },
     )
     .await?;
-    println!("   même client : {}", alice.id == again.id);
+    println!("   same customer: {}", alice.id == again.id);
 
-    println!("── Commande, dans une transaction");
+    println!("── Order, in a transaction");
     let tx = client.transaction().await?;
     let order = queries::orders::open_order(
         &tx,
@@ -216,7 +219,7 @@ async fn main() -> Result<()> {
         .await?;
     }
     tx.commit().await?;
-    println!("   commande {} ({:?})", order.id, order.status);
+    println!("   order {} ({:?})", order.id, order.status);
 
     for status in [OrderStatus::Placed, OrderStatus::Served] {
         let updated = queries::orders::set_status(
@@ -227,8 +230,8 @@ async fn main() -> Result<()> {
             },
         )
         .await?
-        .ok_or("commande introuvable")?;
-        println!("   → {:?} à {}", updated.status, updated.updated_at.time());
+        .ok_or("order not found")?;
+        println!("   → {:?} at {}", updated.status, updated.updated_at.time());
     }
 
     let summary = queries::orders::order_summary(
@@ -236,12 +239,12 @@ async fn main() -> Result<()> {
         queries::orders::OrderSummaryParams { id: order.id },
     )
     .await?
-    .ok_or("commande introuvable")?;
+    .ok_or("order not found")?;
     println!(
-        "   résumé : {} ligne(s), total {}, client {}",
+        "   summary: {} line(s), total {}, customer {}",
         summary.lines,
         summary.total_cents.map_or_else(|| "—".into(), euros),
-        summary.customer.as_deref().unwrap_or("anonyme")
+        summary.customer.as_deref().unwrap_or("anonymous")
     );
     let alice = queries::customers::customer_by_email(
         &client,
@@ -250,13 +253,13 @@ async fn main() -> Result<()> {
         },
     )
     .await?
-    .ok_or("cliente introuvable")?;
+    .ok_or("customer not found")?;
     println!(
-        "   {} a {} point(s) de fidélité (crédités par le trigger)",
+        "   {} has {} loyalty point(s) (credited by the trigger)",
         alice.full_name, alice.loyalty_points
     );
 
-    // Filtre optionnel (`$status?`) : `None` ne filtre pas.
+    // Optional filter (`$status?`): `None` does not filter.
     for status in [
         None,
         Some(OrderStatus::Served),
@@ -271,21 +274,21 @@ async fn main() -> Result<()> {
         )
         .await?;
         println!(
-            "   commandes du Bistrot, statut {status:?} : {}",
+            "   Le Bistrot's orders, status {status:?}: {}",
             orders.len()
         );
     }
 
-    // Pagination à variantes : filtres `[[ … ]]` et tri `{{ … }}`, chaque
-    // combinaison vérifiée à la compilation.
-    use queries::orders::{OrdersPageParams, OrdersPageTri};
-    for (status, since, tri) in [
-        (None, None, OrdersPageTri::Recent),
-        (Some(OrderStatus::Served), None, OrdersPageTri::Ancien),
+    // Pagination with variants: `[[ … ]]` filters and `{{ … }}` sort order,
+    // each combination checked at compile time.
+    use queries::orders::{OrdersPageParams, OrdersPageSort};
+    for (status, since, sort) in [
+        (None, None, OrdersPageSort::Recent),
+        (Some(OrderStatus::Served), None, OrdersPageSort::Oldest),
         (
             None,
             Some(time::OffsetDateTime::now_utc() + time::Duration::days(1)),
-            OrdersPageTri::Recent,
+            OrdersPageSort::Recent,
         ),
     ] {
         let page = queries::orders::orders_page(
@@ -295,22 +298,22 @@ async fn main() -> Result<()> {
                 status,
                 since,
                 limit: 20,
-                tri,
+                sort,
             },
         )
         .await?;
         println!(
-            "   page (statut {status:?}, depuis {}, tri {tri:?}) : {} commande(s)",
+            "   page (status {status:?}, since {}, sort {sort:?}): {} order(s)",
             if since.is_some() {
-                "demain"
+                "tomorrow"
             } else {
-                "toujours"
+                "forever"
             },
             page.len()
         );
     }
 
-    println!("── Chiffre d'affaires servi, par type de plat");
+    println!("── Served revenue, by dish kind");
     for r in queries::orders::revenue_by_kind(&client).await? {
         println!(
             "   {:<8} {:>10}",
@@ -326,26 +329,26 @@ async fn main() -> Result<()> {
         },
     )
     .await?;
-    println!("── {purged} brouillon(s) supprimé(s)");
+    println!("── {purged} draft(s) deleted");
     Ok(())
 }
 
-/// Recrée la base `pgweave_demo` et y applique les migrations, comme un
-/// déploiement : le schéma déclaratif est leur cible, pas un script.
+/// Recreates the `pgweave_demo` database and applies the migrations to it,
+/// like a deployment: the declarative schema is their target, not a script.
 async fn fresh_database(url: &str) -> Result<tokio_postgres::Client> {
     let connect = |config: tokio_postgres::Config| async move {
         let (client, conn) = config.connect(tokio_postgres::NoTls).await?;
         tokio::spawn(async move {
             if let Err(e) = conn.await {
-                eprintln!("connexion : {e}");
+                eprintln!("connection: {e}");
             }
         });
         Ok::<_, tokio_postgres::Error>(client)
     };
     let config: tokio_postgres::Config = url.parse()?;
-    let admin = connect(config.clone()).await.map_err(|e| {
-        format!("{e} — PostgreSQL est-il lancé ? (`make oracle-up`, ou DATABASE_URL)")
-    })?;
+    let admin = connect(config.clone())
+        .await
+        .map_err(|e| format!("{e} — is PostgreSQL running? (`make oracle-up`, or DATABASE_URL)"))?;
     admin
         .batch_execute(&format!("DROP DATABASE IF EXISTS {DB} WITH (FORCE)"))
         .await?;
@@ -365,6 +368,6 @@ async fn fresh_database(url: &str) -> Result<tokio_postgres::Client> {
             client.batch_execute(&std::fs::read_to_string(&f)?).await?;
         }
     }
-    println!("Base {DB} recréée, migrations appliquées.\n");
+    println!("Database {DB} recreated, migrations applied.\n");
     Ok(client)
 }

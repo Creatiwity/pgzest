@@ -1,14 +1,14 @@
-//! Balayage différentiel de la résolution : des combinaisons d'opérateurs et
-//! de fonctions courants sur un échantillon de types, préparées par
-//! PostgreSQL 18 (sans exécution) et résolues par pgweave. Le type du
-//! résultat, ou le refus (introuvable, ambigu), doit être le même.
+//! Differential sweep of resolution: combinations of common operators and
+//! functions over a sample of types, prepared by PostgreSQL 18 (without
+//! execution) and resolved by pgweave. The result type, or the refusal
+//! (not found, ambiguous), must be the same.
 //!
-//! `make oracle` (variable `PGWEAVE_ORACLE_URL`).
+//! `make oracle` (`PGWEAVE_ORACLE_URL` variable).
 
 use pgweave_catalog::{Catalog, SearchPath};
 use pgweave_sema::{ResolveError, Ty, TypeSystem, pg};
 
-/// Types échantillonnés ; `unknown` est le littéral `NULL`.
+/// Sampled types; `unknown` is the `NULL` literal.
 const SAMPLES: &[&str] = &[
     "unknown",
     "int2",
@@ -91,7 +91,7 @@ fn literal(sample: &str) -> String {
     }
 }
 
-/// Ce que dit PostgreSQL : type du résultat, ou SQLSTATE du refus.
+/// What PostgreSQL says: result type, or SQLSTATE of the refusal.
 #[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     Type(String),
@@ -104,7 +104,7 @@ impl Outcome {
     fn ours(r: Result<Option<Ty>, ResolveError>) -> Self {
         match r {
             Ok(Some(t)) => Outcome::Type(t.name),
-            Ok(None) => Outcome::Other("sans résultat".into()),
+            Ok(None) => Outcome::Other("no result".into()),
             Err(ResolveError::NotFound) => Outcome::NotFound,
             Err(ResolveError::Ambiguous) => Outcome::Ambiguous,
             Err(ResolveError::Polymorphic(m)) => Outcome::Other(m),
@@ -125,12 +125,12 @@ async fn prepare(client: &tokio_postgres::Client, sql: &str) -> Outcome {
 }
 
 #[tokio::test]
-#[ignore = "nécessite PostgreSQL 18 : `make oracle` (variable PGWEAVE_ORACLE_URL)"]
-async fn resolution_confrontee_a_postgresql() {
+#[ignore = "requires PostgreSQL 18: `make oracle` (PGWEAVE_ORACLE_URL variable)"]
+async fn resolution_matches_postgresql() {
     let url = std::env::var("PGWEAVE_ORACLE_URL").expect("PGWEAVE_ORACLE_URL");
     let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .expect("connexion");
+        .expect("connection");
     tokio::spawn(conn);
 
     let catalog = Catalog::for_postgres(18).expect("pack");
@@ -177,8 +177,8 @@ async fn resolution_confrontee_a_postgresql() {
     for (sql, ours) in cases {
         let theirs = prepare(&client, &sql).await;
         let same = match (&theirs, &ours) {
-            // Un refus pour une autre raison (incohérence polymorphe…) :
-            // les deux refusent, le message n'est pas comparé.
+            // A refusal for another reason (polymorphic inconsistency…):
+            // both refuse, the message is not compared.
             (Outcome::Other(_), Outcome::Other(_)) => true,
             (a, b) => a == b,
         };
@@ -186,14 +186,14 @@ async fn resolution_confrontee_a_postgresql() {
             agree += 1;
         } else {
             diffs.push(format!(
-                "{sql}\n    PostgreSQL : {theirs:?}\n    pgweave    : {ours:?}"
+                "{sql}\n    PostgreSQL: {theirs:?}\n    pgweave   : {ours:?}"
             ));
         }
     }
     let total = agree + diffs.len();
     assert!(
         diffs.is_empty(),
-        "{} écart(s) sur {total} :\n{}",
+        "{} discrepancy(ies) out of {total}:\n{}",
         diffs.len(),
         diffs
             .iter()
@@ -202,5 +202,5 @@ async fn resolution_confrontee_a_postgresql() {
             .collect::<Vec<_>>()
             .join("\n")
     );
-    eprintln!("{agree}/{total} résolutions identiques à PostgreSQL");
+    eprintln!("{agree}/{total} resolutions identical to PostgreSQL");
 }

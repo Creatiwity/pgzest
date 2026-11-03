@@ -1,11 +1,11 @@
-//! `cargo xtask migrate-oracle <projet>` : oracle des migrations sur un
-//! projet déclaratif réel (PLAN.md P7).
+//! `cargo xtask migrate-oracle <project>`: migration oracle on a real
+//! declarative project (PLAN.md P7).
 //!
-//! Les migrations du projet sont appliquées dans l'ordre sur une base
-//! vierge, le schéma déclaratif d'un bloc sur une autre ; les deux bases
-//! sont comparées par ce que PostgreSQL dit de leurs objets
-//! (`pgweave_oracle::schema`). Le rapport ne contient que des agrégats ; les
-//! écarts, noms compris, ne sont affichés qu'avec `--details`.
+//! The project migrations are applied in order to an empty database, the
+//! declarative schema at once to another; both databases are compared
+//! through what PostgreSQL says about their objects
+//! (`pgweave_oracle::schema`). The report only contains aggregates; gaps,
+//! names included, are only printed with `--details`.
 
 use std::path::{Path, PathBuf};
 
@@ -16,21 +16,15 @@ pub fn run(project: &Path, pg_url: Option<String>, details: bool) -> Result<(), 
         .or_else(|| std::env::var(pgweave_oracle::URL_ENV).ok())
         .ok_or_else(|| {
             format!(
-                "serveur PostgreSQL attendu : --pg-url ou {}",
+                "PostgreSQL server expected: --pg-url or {}",
                 pgweave_oracle::URL_ENV
             )
         })?;
     let (root, config) = ProjectConfig::find_and_load(project)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| {
-            format!(
-                "pas de {} sous {}",
-                ProjectConfig::FILENAME,
-                project.display()
-            )
-        })?;
+        .ok_or_else(|| format!("no {} under {}", ProjectConfig::FILENAME, project.display()))?;
     if !config.schema.declarative {
-        return Err("projet non déclaratif (`[schema] declarative = true` attendu)".into());
+        return Err("project is not declarative (`[schema] declarative = true` expected)".into());
     }
     let chunks = config.to_source(&root).chunks();
     let rel = |p: &PathBuf| p.strip_prefix(&root).unwrap_or(p).display().to_string();
@@ -57,14 +51,14 @@ pub fn run(project: &Path, pg_url: Option<String>, details: bool) -> Result<(), 
         &schema,
     ))?;
     println!(
-        "{} migration(s) appliquée(s), {} ligne(s) de description comparée(s) : {}",
+        "{} migration(s) applied, {} description line(s) compared: {}",
         migrations.len(),
         cmp.objects,
         if cmp.is_identical() {
-            "bases identiques".to_string()
+            "identical databases".to_string()
         } else {
             format!(
-                "{} propre(s) aux migrations, {} propre(s) au schéma",
+                "{} only in migrations, {} only in schema",
                 cmp.only_migrations.len(),
                 cmp.only_schema.len()
             )
@@ -72,15 +66,15 @@ pub fn run(project: &Path, pg_url: Option<String>, details: bool) -> Result<(), 
     );
     if details {
         for l in &cmp.only_migrations {
-            eprintln!("- migrations : {l}");
+            eprintln!("- migrations: {l}");
         }
         for l in &cmp.only_schema {
-            eprintln!("+ schéma : {l}");
+            eprintln!("+ schema: {l}");
         }
     }
     if cmp.is_identical() {
         Ok(())
     } else {
-        Err("les migrations n'atteignent pas le schéma déclaratif".into())
+        Err("the migrations do not reach the declarative schema".into())
     }
 }

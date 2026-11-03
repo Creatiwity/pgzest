@@ -1,192 +1,192 @@
 # pgsql-tools — Roadmap
 
-> **Archivé le 2026-10-31 — remplacé par [PLAN.md](PLAN.md).**
-> Les statuts « ✅ Livrée » ci-dessous surestiment l'état réel (ex. : pas de
-> nullabilité, pas de compatibilité de types, génération TS heuristique,
-> `db.query<T>` réduit à un cast). Conservé pour l'historique.
+> **Archived on 2026-10-31 — superseded by [PLAN.md](PLAN.md).**
+> The "✅ Delivered" statuses below overstate the actual state (e.g. no
+> nullability, no type compatibility, heuristic TS generation,
+> `db.query<T>` reduced to a cast). Kept for the record.
 
-> Mise à jour : juin 2026. Basée sur l'audit complet du codebase et l'analyse architecturale OXC/datafusion.
+> Updated: June 2026. Based on the full codebase audit and the OXC/datafusion architectural analysis.
 
 ---
 
-## État actuel (baseline)
+## Current state (baseline)
 
-| Composant | État | Notes |
+| Component | State | Notes |
 |-----------|:----:|-------|
-| Parser SQL + PL/pgSQL | ✅ | sqlparser-rs + dialecte PL/pgSQL custom, 55 tests |
-| AST pgsql-ast | ✅ | DDL, DML, PL/pgSQL — sans NodeId/Span |
-| Normalisation SELECT | ✅ | Ordre logique FROM→WHERE→SELECT |
-| Type-checker (existence) | ✅ | E001/E003/W001/W003/W005 — pas d'inférence de type |
-| Architecture plugins | ✅ | CheckRule + Checker walker + WASM host (wasmi) + Prisma skeleton |
-| Codegen SQL (emit + diff + inject) | ✅ | Utilisable, à étendre |
-| WASM bindings | ✅ | 4 fonctions exposées via wasm-bindgen |
-| Node.js bindings | ✅ | 4 fonctions via napi-rs |
-| CLI `pgsql check/lint/emit` | ✅ | Fonctionnel |
-| LSP (diagnostics) | ⚠️ | Pipeline branché, hover/completion sont des stubs |
-| Lint (4 règles) | ⚠️ | L001–L004, pas de règles avancées |
-| pgsql-semantic | ❌ | Absent — bloque types TS, LSP avancé, type compat |
-| NodeId / Span sur AST | ❌ | Absent — bloque références croisées et LSP |
-| Framework npm | ❌ | Absent |
-| Extension VS Code | ❌ | Absente |
-| Génération types TypeScript | ❌ | Absente |
+| SQL + PL/pgSQL parser | ✅ | sqlparser-rs + custom PL/pgSQL dialect, 55 tests |
+| pgsql-ast AST | ✅ | DDL, DML, PL/pgSQL — no NodeId/Span |
+| SELECT normalization | ✅ | Logical order FROM→WHERE→SELECT |
+| Type-checker (existence) | ✅ | E001/E003/W001/W003/W005 — no type inference |
+| Plugin architecture | ✅ | CheckRule + Checker walker + WASM host (wasmi) + Prisma skeleton |
+| SQL codegen (emit + diff + inject) | ✅ | Usable, to be extended |
+| WASM bindings | ✅ | 4 functions exposed via wasm-bindgen |
+| Node.js bindings | ✅ | 4 functions via napi-rs |
+| CLI `pgsql check/lint/emit` | ✅ | Working |
+| LSP (diagnostics) | ⚠️ | Pipeline wired, hover/completion are stubs |
+| Lint (4 rules) | ⚠️ | L001–L004, no advanced rules |
+| pgsql-semantic | ❌ | Missing — blocks TS types, advanced LSP, type compat |
+| NodeId / Span on AST | ❌ | Missing — blocks cross-references and LSP |
+| npm framework | ❌ | Missing |
+| VS Code extension | ❌ | Missing |
+| TypeScript type generation | ❌ | Missing |
 
 ---
 
-## Phase A — Fondation AST : NodeId + Span + Visit traits
+## Phase A — AST foundation: NodeId + Span + Visit traits
 
-**Durée estimée** : 1–2 semaines  
-**Statut** : ✅ Livrée  
-**Dépendances** : aucune  
-**Débloque** : Phase B (semantic), LSP hover/completion
+**Estimated duration**: 1–2 weeks  
+**Status**: ✅ Delivered  
+**Dependencies**: none  
+**Unlocks**: Phase B (semantic), LSP hover/completion
 
-### Livrables
+### Deliverables
 
-- `NodeId(u32)` sur tous les nœuds AST principaux : `Statement`, `SelectStmt`, `Expr` et ses variants, `CreateTable`, `CreateFunction`, `CreateProcedure`, `CreatePolicy`, `PlStatement`
-- `Span { start: u32, end: u32 }` (byte offsets depuis la source) sur les mêmes nœuds
-- Parser assigne les `NodeId` via un compteur atomique ; `Span` extrait des positions sqlparser-rs
-- `pgsql_ast::visit::Visit<'a>` trait : ~40 méthodes default no-op, une par type de nœud
-- `pgsql_ast::visit::VisitMut` trait : `enter_*` / `exit_*` pour les transformations
-- `AstWalker` : implémentation du parcours qui appelle les méthodes du visitor
-- Migration des règles checker/linter existantes vers le Visit trait
+- `NodeId(u32)` on all main AST nodes: `Statement`, `SelectStmt`, `Expr` and its variants, `CreateTable`, `CreateFunction`, `CreateProcedure`, `CreatePolicy`, `PlStatement`
+- `Span { start: u32, end: u32 }` (byte offsets from the source) on the same nodes
+- The parser assigns `NodeId`s via an atomic counter; `Span` extracted from sqlparser-rs positions
+- `pgsql_ast::visit::Visit<'a>` trait: ~40 default no-op methods, one per node type
+- `pgsql_ast::visit::VisitMut` trait: `enter_*` / `exit_*` for transformations
+- `AstWalker`: traversal implementation that calls the visitor methods
+- Migration of the existing checker/linter rules to the Visit trait
 
 ---
 
-## Phase B — `pgsql-semantic` : symbol table + inférence de types
+## Phase B — `pgsql-semantic`: symbol table + type inference
 
-**Durée estimée** : 3–4 semaines  
-**Statut** : ✅ Livrée  
-**Dépendances** : Phase A  
-**Débloque** : Phase C (LSP), Phase D (types TS), checker type-compat
+**Estimated duration**: 3–4 weeks  
+**Status**: ✅ Delivered  
+**Dependencies**: Phase A  
+**Unlocks**: Phase C (LSP), Phase D (TS types), checker type-compat
 
-### Livrables
+### Deliverables
 
-- Nouveau crate `crates/pgsql-semantic/`
-- `SymbolTable` : `name → Symbol { kind, node_id, data_type, span }`
-  - Kinds : Table, Column, Function, Cte, PlVar, PlParam
-- `ScopeTree` : hiérarchie de scopes, un par SELECT / sous-requête / CTE / bloc PL/pgSQL
-  - `scope_at_offset(pos) → ScopeId` pour le LSP
-  - `available_columns(scope_id) → Vec<Symbol>` pour la completion
-- Type inference : `infer_expr_type(expr, scope, symbols) → Option<DataType>`
-  - Expressions scalaires : littéraux, colonnes, opérateurs binaires, CASE, CAST, fonctions
-- `OutputColumn { name, data_type, node_id }` par colonne de sortie d'un SELECT
+- New crate `crates/pgsql-semantic/`
+- `SymbolTable`: `name → Symbol { kind, node_id, data_type, span }`
+  - Kinds: Table, Column, Function, Cte, PlVar, PlParam
+- `ScopeTree`: scope hierarchy, one per SELECT / subquery / CTE / PL/pgSQL block
+  - `scope_at_offset(pos) → ScopeId` for the LSP
+  - `available_columns(scope_id) → Vec<Symbol>` for completion
+- Type inference: `infer_expr_type(expr, scope, symbols) → Option<DataType>`
+  - Scalar expressions: literals, columns, binary operators, CASE, CAST, functions
+- `OutputColumn { name, data_type, node_id }` per output column of a SELECT
 - `SemanticResult { symbols, scopes, expr_types, select_columns }`
-- `SemanticCtx<'a>` passé aux règles checker/linter
-- Intégration dans `check_sql_self_contained` : parse → semantic → check
+- `SemanticCtx<'a>` passed to checker/linter rules
+- Integration into `check_sql_self_contained`: parse → semantic → check
 
 ---
 
-## Phase C — LSP complet + Extension VS Code
+## Phase C — Full LSP + VS Code extension
 
-**Durée estimée** : 2 semaines  
-**Statut** : ✅ Livrée  
-**Dépendances** : Phase B  
-**Débloque** : expérience IDE complète
+**Estimated duration**: 2 weeks  
+**Status**: ✅ Delivered  
+**Dependencies**: Phase B  
+**Unlocks**: full IDE experience
 
-### Livrables
+### Deliverables
 
-- **Hover** : `node_at_offset` → `semantic.expr_types[node.id]` → affichage type
-- **Completion** : `scope.available_columns()` → liste de suggestions avec types
-- **Go-to-definition** : `symbols.declaration_span(symbol)` → position dans le fichier
-- **Grammar TextMate** : `editors/vscode/syntaxes/pgsql.tmLanguage.json`
-  - Tokens : keywords SQL, identifiants, strings, dollar-quotes, commentaires
-  - PL/pgSQL : DECLARE, BEGIN/END, types de control flow
-- **Extension VS Code** : `editors/vscode/`
-  - `package.json` avec contribution point LSP + grammar
-  - `src/extension.ts` : lance le serveur LSP local
-  - Publish sur VS Code Marketplace
+- **Hover**: `node_at_offset` → `semantic.expr_types[node.id]` → type display
+- **Completion**: `scope.available_columns()` → list of suggestions with types
+- **Go-to-definition**: `symbols.declaration_span(symbol)` → position in the file
+- **TextMate grammar**: `editors/vscode/syntaxes/pgsql.tmLanguage.json`
+  - Tokens: SQL keywords, identifiers, strings, dollar-quotes, comments
+  - PL/pgSQL: DECLARE, BEGIN/END, control flow types
+- **VS Code extension**: `editors/vscode/`
+  - `package.json` with LSP + grammar contribution points
+  - `src/extension.ts`: launches the local LSP server
+  - Publish on the VS Code Marketplace
 
 ---
 
-## Phase D — Génération de types TypeScript
+## Phase D — TypeScript type generation
 
-**Durée estimée** : 1–2 semaines  
-**Statut** : ✅ Livrée  
-**Dépendances** : Phase B  
-**Débloque** : Framework npm (Phase E)
+**Estimated duration**: 1–2 weeks  
+**Status**: ✅ Delivered  
+**Dependencies**: Phase B  
+**Unlocks**: npm framework (Phase E)
 
-### Livrables
+### Deliverables
 
 - `pgsql_codegen::generate_ts_types(stmts, semantic) → String`
-  - Chaque SELECT nommé → interface TypeScript `{ col: type, ... }`
-  - Mapping `DataType → TypeScript type` : `Text → string`, `Integer → number`, `Boolean → boolean`, `Jsonb → unknown`, `Uuid → string`, etc.
-  - Types nullable : `col: string | null`
-- Hook dans bindings WASM/node : `generate_types(sql, schema_sql) → string`
-- CLI : `pgsql codegen types --input schema.sql --output types/`
-- Tests sur `examples/schema.sql` → vérification des interfaces générées
+  - Each named SELECT → TypeScript interface `{ col: type, ... }`
+  - `DataType → TypeScript type` mapping: `Text → string`, `Integer → number`, `Boolean → boolean`, `Jsonb → unknown`, `Uuid → string`, etc.
+  - Nullable types: `col: string | null`
+- Hook in WASM/node bindings: `generate_types(sql, schema_sql) → string`
+- CLI: `pgsql codegen types --input schema.sql --output types/`
+- Tests on `examples/schema.sql` → verification of the generated interfaces
 
 ---
 
-## Phase E — Framework npm `pgsql-tools`
+## Phase E — `pgsql-tools` npm framework
 
-**Durée estimée** : 3–4 semaines  
-**Statut** : ✅ Livrée (TypeScript, nécessite pg pour la DB)  
-**Dépendances** : Phase D  
-**Débloque** : livrable principal côté TypeScript
+**Estimated duration**: 3–4 weeks  
+**Status**: ✅ Delivered (TypeScript, requires pg for the DB)  
+**Dependencies**: Phase D  
+**Unlocks**: main TypeScript-side deliverable
 
-### Livrables
+### Deliverables
 
-- `npm/pgsql-tools/` — package npm
-- `db.query<T>(sql, params)` → résultat typé avec le type généré en Phase D
-- Connexion pool (wrapping `pg` ou `postgres`)
-- `db.migrate({ from, to })` → diff + déploiement migrations
-- DSL déclaratif pour RLS policies
-- DSL pour triggers et procédures stockées
-- Plugin Prisma : `pgsql-tools/plugins/prisma` — import du schéma Prisma
-- Documentation + exemples complets
-
----
-
-## Phase F — Extensions et polish
-
-**Durée estimée** : continue  
-**Statut** : 🟡 Partiellement livrée  
-**Dépendances** : Phases C + E  
-
-### Livrables
-
-- **Plugin PostGIS** : types GEOMETRY/GEOGRAPHY, fonctions spatiales ST_*
-- **Lint rules avancées** : index manquant sur FK, unused JOINs, LIKE '%...', agrégats sans GROUP BY, NOT NULL sans DEFAULT sur migration
-- **Syntaxe simplifiée** : ❌ non commencée — desugar vers SQL standard (patterns upsert, soft delete déclaratif, etc.)
-- **Extension JetBrains** : ❌ squelette seulement (2 fichiers Kotlin, non compilé en CI)
-- **Règles de migration sécurisée** (inspiré Squawk) : ADD COLUMN NOT NULL, DROP COLUMN, RENAME sans lock, etc.
-- **Introspection live** : ❌ non commencée — connexion à une DB PostgreSQL pour enrichir le SchemaProvider
+- `npm/pgsql-tools/` — npm package
+- `db.query<T>(sql, params)` → result typed with the type generated in Phase D
+- Connection pool (wrapping `pg` or `postgres`)
+- `db.migrate({ from, to })` → diff + migration deployment
+- Declarative DSL for RLS policies
+- DSL for triggers and stored procedures
+- Prisma plugin: `pgsql-tools/plugins/prisma` — Prisma schema import
+- Documentation + complete examples
 
 ---
 
-## Dépendances entre phases
+## Phase F — Extensions and polish
+
+**Estimated duration**: ongoing  
+**Status**: 🟡 Partially delivered  
+**Dependencies**: Phases C + E  
+
+### Deliverables
+
+- **PostGIS plugin**: GEOMETRY/GEOGRAPHY types, ST_* spatial functions
+- **Advanced lint rules**: missing index on FK, unused JOINs, LIKE '%...', aggregates without GROUP BY, NOT NULL without DEFAULT in a migration
+- **Simplified syntax**: ❌ not started — desugar to standard SQL (upsert patterns, declarative soft delete, etc.)
+- **JetBrains extension**: ❌ skeleton only (2 Kotlin files, not compiled in CI)
+- **Safe migration rules** (inspired by Squawk): ADD COLUMN NOT NULL, DROP COLUMN, RENAME without lock, etc.
+- **Live introspection**: ❌ not started — connection to a PostgreSQL DB to enrich the SchemaProvider
+
+---
+
+## Dependencies between phases
 
 ```
 A (NodeId + Visit)
 └── B (pgsql-semantic)
     ├── C (LSP + VS Code)
-    └── D (Types TS)
-        └── E (Framework npm)
+    └── D (TS types)
+        └── E (npm framework)
 
-F (Extensions) ← dépend de C + E, continu
+F (Extensions) ← depends on C + E, ongoing
 ```
 
 ---
 
-## Historique des livraisons
+## Delivery history
 
-| Phase | Date de livraison | Notes |
+| Phase | Delivery date | Notes |
 |-------|:-----------------:|-------|
-| A — Fondation AST (NodeId + Span + Visit) | juin 2026 | NodeId/Span sur nœuds principaux, traits Visit/VisitMut |
-| B — pgsql-semantic (symbol table + types) | juin 2026 | SymbolTable, ScopeTree, inférence d'expressions |
-| C — LSP + Extension VS Code | juin 2026 | Hover, completion, go-to-definition, grammar TextMate |
-| D — Génération types TypeScript | juin 2026 | codegen SELECT → interfaces TS, CLI `pgsql codegen` |
-| E — Framework npm pgsql-tools | juin 2026 | db.ts, migrate.ts, policy.ts, backends/, plugin Prisma |
-| F — Extensions et polish | juin 2026 (partiel) | Lint L005-L009, migration safety M001-M003, PostGIS plugin. Reste : JetBrains, introspection live, syntaxe simplifiée |
+| A — AST foundation (NodeId + Span + Visit) | June 2026 | NodeId/Span on main nodes, Visit/VisitMut traits |
+| B — pgsql-semantic (symbol table + types) | June 2026 | SymbolTable, ScopeTree, expression inference |
+| C — LSP + VS Code extension | June 2026 | Hover, completion, go-to-definition, TextMate grammar |
+| D — TypeScript type generation | June 2026 | codegen SELECT → TS interfaces, CLI `pgsql codegen` |
+| E — pgsql-tools npm framework | June 2026 | db.ts, migrate.ts, policy.ts, backends/, Prisma plugin |
+| F — Extensions and polish | June 2026 (partial) | Lint L005-L009, migration safety M001-M003, PostGIS plugin. Remaining: JetBrains, live introspection, simplified syntax |
 
 ---
 
-## Métriques de succès
+## Success metrics
 
-| Phase | Métrique |
+| Phase | Metric |
 |-------|----------|
-| A | Tous les nœuds AST principaux ont `id` + `span` ; 0 tests cassés |
-| B | `infer_expr_type` couvre 80% des expressions SQL courantes ; `OutputColumn` correct sur `examples/schema.sql` |
-| C | Hover affiche le type dans VS Code sur `examples/schema.sql` ; completion liste les colonnes disponibles |
-| D | `project_summary()` génère `{ total_tasks: number, completion_rate: number, ... }` |
-| E | `db.query<ProjectSummary>(...)` typé end-to-end sans cast manuel |
-| F | 0 faux positif sur un vrai schéma de production de 50+ tables |
+| A | All main AST nodes have `id` + `span`; 0 broken tests |
+| B | `infer_expr_type` covers 80% of common SQL expressions; correct `OutputColumn` on `examples/schema.sql` |
+| C | Hover shows the type in VS Code on `examples/schema.sql`; completion lists available columns |
+| D | `project_summary()` generates `{ total_tasks: number, completion_rate: number, ... }` |
+| E | `db.query<ProjectSummary>(...)` typed end-to-end without a manual cast |
+| F | 0 false positives on a real 50+ table production schema |

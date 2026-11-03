@@ -1,4 +1,4 @@
--- Colonnes, alias, littéraux, expressions scalaires, agrégats.
+-- Columns, aliases, literals, scalar expressions, aggregates.
 
 -- name: all_columns
 SELECT * FROM pages;

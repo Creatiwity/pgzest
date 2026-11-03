@@ -1,11 +1,11 @@
-//! Motif d'en-tête : ce qui suit `@nom` jusqu'à l'accolade ouvrante.
+//! Header pattern: what follows `@name` up to the opening brace.
 //!
-//! Le jeu de types de trou est **fermé** et volontairement petit. C'est ce qui
-//! distingue ce format d'un langage de gabarits : on ne peut pas exprimer une
-//! grammaire arbitraire, seulement assembler quelques formes qui couvrent le
-//! boilerplate SQL réel.
+//! The set of slot kinds is **closed** and deliberately small. That is what
+//! sets this format apart from a template language: an arbitrary grammar
+//! cannot be expressed, only a few forms assembled that cover real SQL
+//! boilerplate.
 //!
-//! Motif : littéraux, trous `{nom:type}`, groupes optionnels entre `[ ]`.
+//! Pattern: literals, slots `{name:kind}`, optional groups between `[ ]`.
 //!
 //! ```text
 //! {name:ident}({params:parens})[: {ret:type}]
@@ -14,26 +14,26 @@
 
 use std::collections::HashMap;
 
-/// Ce qu'un trou sait consommer.
+/// What a slot can consume.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlotKind {
-    /// Un identifiant, éventuellement qualifié : `users`, `public.users`.
+    /// An identifier, possibly qualified: `users`, `public.users`.
     Ident,
-    /// Un mot unique : `before`, `row`.
+    /// A single word: `before`, `row`.
     Word,
-    /// Plusieurs mots séparés par des espaces ou `or` : `insert or update`.
+    /// Several words separated by spaces or `or`: `insert or update`.
     Words,
-    /// Le contenu jusqu'à la parenthèse fermante correspondante, recopié
-    /// verbatim, imbrication et chaînes respectées : `a INT, b NUMERIC(10,2)`.
+    /// The content up to the matching closing parenthesis, copied verbatim,
+    /// honoring nesting and strings: `a INT, b NUMERIC(10,2)`.
     ///
-    /// Le trou prend le **contenu**, le motif porte les délimiteurs :
-    /// `({params:parens})`. Le contenu peut être vide.
+    /// The slot takes the **content**, the pattern carries the delimiters:
+    /// `({params:parens})`. The content may be empty.
     Parens,
-    /// Un type SQL, y compris `SETOF x` et `TABLE (...)`.
+    /// A SQL type, including `SETOF x` and `TABLE (...)`.
     Type,
-    /// Un identifiant, ou une liste entre parenthèses : `users` / `(a, b, c)`.
+    /// An identifier, or a parenthesized list: `users` / `(a, b, c)`.
     List,
-    /// Tout le reste jusqu'à l'accolade — suite de mots-clés.
+    /// Everything else up to the brace — a sequence of keywords.
     Keywords,
 }
 
@@ -71,11 +71,11 @@ enum Piece {
         name: String,
         kind: SlotKind,
     },
-    /// Groupe facultatif : consommé s'il correspond, ignoré sinon.
+    /// Optional group: consumed if it matches, ignored otherwise.
     Optional(Vec<Piece>),
 }
 
-/// Motif d'en-tête compilé.
+/// Compiled header pattern.
 #[derive(Debug, Clone)]
 pub struct HeaderPattern {
     pieces: Vec<Piece>,
@@ -85,31 +85,28 @@ impl HeaderPattern {
     pub fn parse(pattern: &str) -> Result<Self, String> {
         let (pieces, rest) = parse_pieces(pattern, false)?;
         if !rest.is_empty() {
-            return Err(format!("`]` sans `[` près de {rest:?}"));
+            return Err(format!("`]` without `[` near {rest:?}"));
         }
         Ok(Self { pieces })
     }
 
-    /// Les trous déclarés, dans l'ordre.
+    /// The declared slots, in order.
     pub fn slots(&self) -> Vec<(&str, SlotKind)> {
         let mut out = Vec::new();
         collect_slots(&self.pieces, &mut out);
         out
     }
 
-    /// Applique le motif à `input`, qui est l'en-tête brut de l'invocation.
+    /// Applies the pattern to `input`, the raw header of the invocation.
     ///
-    /// Renvoie les captures. Le motif doit consommer tout `input` : un reste
-    /// non consommé est une erreur de syntaxe côté utilisateur, pas un succès
-    /// partiel silencieux.
+    /// Returns the captures. The pattern must consume all of `input`: an
+    /// unconsumed remainder is a user-side syntax error, not a silent partial
+    /// success.
     pub fn match_header(&self, input: &str) -> Result<HashMap<String, String>, String> {
         let mut caps = HashMap::new();
         let rest = match_pieces(&self.pieces, input.trim(), &mut caps)?;
         if !rest.trim().is_empty() {
-            return Err(format!(
-                "texte inattendu dans l'en-tête : {:?}",
-                rest.trim()
-            ));
+            return Err(format!("unexpected text in header: {:?}", rest.trim()));
         }
         Ok(caps)
     }
@@ -144,14 +141,14 @@ fn parse_pieces(s: &str, inside_optional: bool) -> Result<(Vec<Piece>, &str), St
                 flush!();
                 let end = rest
                     .find('}')
-                    .ok_or_else(|| format!("`{{` sans `}}` près de {rest:?}"))?;
+                    .ok_or_else(|| format!("`{{` without `}}` near {rest:?}"))?;
                 let inner = &rest[1..end];
                 let (name, kind_str) = inner
                     .split_once(':')
-                    .ok_or_else(|| format!("trou {inner:?} : attendu `{{nom:type}}`"))?;
+                    .ok_or_else(|| format!("slot {inner:?}: expected `{{name:kind}}`"))?;
                 let kind = SlotKind::parse(kind_str.trim()).ok_or_else(|| {
                     format!(
-                        "type de trou inconnu {:?} ; disponibles : ident, word, words, parens, type, list, keywords",
+                        "unknown slot kind {:?}; available: ident, word, words, parens, type, list, keywords",
                         kind_str.trim()
                     )
                 })?;
@@ -178,13 +175,13 @@ fn parse_pieces(s: &str, inside_optional: bool) -> Result<(Vec<Piece>, &str), St
         }
     }
     if inside_optional {
-        return Err("`[` sans `]`".to_string());
+        return Err("`[` without `]`".to_string());
     }
     flush!();
     Ok((pieces, rest))
 }
 
-/// Applique une suite de pièces, renvoie le reste non consommé.
+/// Applies a sequence of pieces, returns the unconsumed remainder.
 fn match_pieces<'a>(
     pieces: &[Piece],
     input: &'a str,
@@ -203,32 +200,32 @@ fn match_pieces<'a>(
                 let lower_r = r.to_lowercase();
                 let lower_w = want.to_lowercase();
                 if !lower_r.starts_with(&lower_w) {
-                    return Err(format!("attendu {want:?}, trouvé {:?}", head(r)));
+                    return Err(format!("expected {want:?}, found {:?}", head(r)));
                 }
                 rest = &r[want.len()..];
             }
             Piece::Slot { name, kind } => {
                 let (value, r) = consume_slot(*kind, rest.trim_start())
-                    .map_err(|e| format!("trou `{name}` : {e}"))?;
+                    .map_err(|e| format!("slot `{name}`: {e}"))?;
                 caps.insert(name.clone(), value);
                 rest = r;
             }
             Piece::Optional(inner) => {
-                // Tentative : si le groupe ne correspond pas, on l'ignore sans
-                // consommer. On travaille sur une copie des captures pour ne
-                // pas laisser de trace d'un essai raté.
+                // Attempt: if the group does not match, it is skipped without
+                // consuming. Work on a copy of the captures so that a failed
+                // attempt leaves no trace.
                 let mut trial = caps.clone();
                 match match_pieces(inner, rest, &mut trial) {
                     Ok(r) => {
-                        // Un groupe optionnel qui réussit en ne consommant rien
-                        // boucherait la suite : on l'accepte quand même, il est
-                        // simplement sans effet.
+                        // An optional group that succeeds while consuming
+                        // nothing would block what follows: accept it anyway,
+                        // it simply has no effect.
                         *caps = trial;
                         rest = r;
                     }
                     Err(_) => {
-                        // Groupe absent : si des pièces obligatoires suivent,
-                        // elles diront elles-mêmes ce qui manque.
+                        // Group absent: if mandatory pieces follow, they will
+                        // report what is missing themselves.
                         let _ = i;
                     }
                 }
@@ -249,20 +246,20 @@ fn consume_slot(kind: SlotKind, s: &str) -> Result<(String, &str), String> {
                 .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.' || c == '"'))
                 .unwrap_or(s.len());
             if end == 0 {
-                return Err(format!("identifiant attendu, trouvé {:?}", head(s)));
+                return Err(format!("expected identifier, found {:?}", head(s)));
             }
             Ok((s[..end].to_string(), &s[end..]))
         }
         SlotKind::Word => {
             let end = s.find(char::is_whitespace).unwrap_or(s.len());
             if end == 0 {
-                return Err("mot attendu".to_string());
+                return Err("expected a word".to_string());
             }
             Ok((s[..end].to_string(), &s[end..]))
         }
         SlotKind::Words => {
-            // Mots et `or`, jusqu'à un mot-clé qui n'en fait plus partie.
-            // On s'arrête devant `on`, qui suit toujours la liste d'événements.
+            // Words and `or`, up to a keyword that is no longer part of them.
+            // Stop before `on`, which always follows the event list.
             let mut taken = 0usize;
             let mut words = Vec::new();
             for w in s.split_inclusive(char::is_whitespace) {
@@ -278,13 +275,13 @@ fn consume_slot(kind: SlotKind, s: &str) -> Result<(String, &str), String> {
                 taken += w.len();
             }
             if words.is_empty() {
-                return Err("au moins un mot attendu".to_string());
+                return Err("expected at least one word".to_string());
             }
             Ok((words.join(" "), &s[taken..]))
         }
         SlotKind::Parens => {
-            // On est déjà passé la parenthèse ouvrante (littéral du motif) :
-            // on consomme jusqu'à la fermante correspondante, exclue.
+            // The opening parenthesis (pattern literal) is already consumed:
+            // consume up to the matching closing one, excluded.
             let end = until_unbalanced_close(s)?;
             Ok((s[..end].trim().to_string(), &s[end..]))
         }
@@ -302,12 +299,12 @@ fn consume_slot(kind: SlotKind, s: &str) -> Result<(String, &str), String> {
                 let (id, r) = consume_slot(SlotKind::Ident, after.trim_start())?;
                 return Ok((format!("SETOF {id}"), r));
             }
-            // Type simple, éventuellement paramétré ou en tableau.
+            // Simple type, possibly parameterized or an array.
             let end = s
                 .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
                 .unwrap_or(s.len());
             if end == 0 {
-                return Err(format!("type attendu, trouvé {:?}", head(s)));
+                return Err(format!("expected type, found {:?}", head(s)));
             }
             let mut ty = s[..end].to_string();
             let mut rest = &s[end..];
@@ -332,7 +329,7 @@ fn consume_slot(kind: SlotKind, s: &str) -> Result<(String, &str), String> {
                     .filter(|x| !x.is_empty())
                     .collect();
                 if items.is_empty() {
-                    return Err("liste vide".to_string());
+                    return Err("empty list".to_string());
                 }
                 return Ok((items.join(", "), &s[consumed..]));
             }
@@ -342,11 +339,11 @@ fn consume_slot(kind: SlotKind, s: &str) -> Result<(String, &str), String> {
     }
 }
 
-/// Offset de la parenthèse fermante non appariée qui termine le groupe courant.
+/// Offset of the unmatched closing parenthesis that ends the current group.
 ///
-/// `s` commence juste après une parenthèse ouvrante déjà consommée. On avance
-/// en suivant l'imbrication et en ignorant le contenu des chaînes, jusqu'au `)`
-/// qui referme le groupe.
+/// `s` starts right after an already consumed opening parenthesis. Advance
+/// following nesting and skipping string contents, up to the `)` that closes
+/// the group.
 fn until_unbalanced_close(s: &str) -> Result<usize, String> {
     let mut depth = 0usize;
     let mut in_str = false;
@@ -369,16 +366,16 @@ fn until_unbalanced_close(s: &str) -> Result<usize, String> {
             _ => {}
         }
     }
-    Err("`)` manquant".to_string())
+    Err("missing `)`".to_string())
 }
 
-/// Contenu entre `open` et son `close` correspondant, chaînes et imbrication
-/// respectées. `s` doit commencer par `open`.
+/// Content between `open` and its matching `close`, honoring strings and
+/// nesting. `s` must start with `open`.
 fn balanced(s: &str, open: char, close: char) -> Result<String, String> {
     let mut chars = s.char_indices();
     match chars.next() {
         Some((_, c)) if c == open => {}
-        _ => return Err(format!("`{open}` attendu, trouvé {:?}", head(s))),
+        _ => return Err(format!("expected `{open}`, found {:?}", head(s))),
     }
     let mut depth = 1usize;
     let mut in_str = false;
@@ -401,7 +398,7 @@ fn balanced(s: &str, open: char, close: char) -> Result<String, String> {
             _ => {}
         }
     }
-    Err(format!("`{close}` manquant"))
+    Err(format!("missing `{close}`"))
 }
 
 #[cfg(test)]
@@ -410,13 +407,13 @@ mod tests {
 
     fn caps(pattern: &str, input: &str) -> HashMap<String, String> {
         HeaderPattern::parse(pattern)
-            .expect("motif")
+            .expect("pattern")
             .match_header(input)
-            .expect("correspondance")
+            .expect("match")
     }
 
     #[test]
-    fn nom_et_parametres() {
+    fn name_and_parameters() {
         let c = caps(
             "{name:ident}({params:parens})",
             "user_count(target_org UUID)",
@@ -426,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn parentheses_imbriquees_dans_les_parametres() {
+    fn nested_parentheses_in_parameters() {
         let c = caps(
             "{name:ident}({params:parens})",
             "f(a NUMERIC(10,2), b TEXT[])",
@@ -435,18 +432,18 @@ mod tests {
     }
 
     #[test]
-    fn groupe_optionnel_present_et_absent() {
+    fn optional_group_present_and_absent() {
         let p = HeaderPattern::parse("{name:ident}({params:parens})[: {ret:type}]").unwrap();
 
         let with = p.match_header("f(): INTEGER").unwrap();
         assert_eq!(with["ret"], "INTEGER");
 
         let without = p.match_header("f()").unwrap();
-        assert!(!without.contains_key("ret"), "le trou doit rester absent");
+        assert!(!without.contains_key("ret"), "the slot must stay absent");
     }
 
     #[test]
-    fn type_setof_et_table() {
+    fn setof_and_table_type() {
         let p = HeaderPattern::parse("{n:ident}({a:parens}): {ret:type}").unwrap();
         assert_eq!(
             p.match_header("f(): SETOF users").unwrap()["ret"],
@@ -459,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn type_parametre_et_tableau() {
+    fn parameterized_and_array_type() {
         let p = HeaderPattern::parse("{n:ident}: {ret:type}").unwrap();
         assert_eq!(
             p.match_header("f: NUMERIC(10,2)").unwrap()["ret"],
@@ -469,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn liste_simple_ou_parenthesee() {
+    fn simple_or_parenthesized_list() {
         let p = HeaderPattern::parse("on {tables:list}").unwrap();
         assert_eq!(p.match_header("on users").unwrap()["tables"], "users");
         assert_eq!(
@@ -480,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn les_mots_sarretent_devant_on() {
+    fn words_stop_before_on() {
         let p = HeaderPattern::parse("{events:words} on {tables:list}").unwrap();
         let c = p.match_header("insert or update on users").unwrap();
         assert_eq!(c["events"], "insert or update");
@@ -488,47 +485,47 @@ mod tests {
     }
 
     #[test]
-    fn les_litteraux_sont_insensibles_a_la_casse() {
+    fn literals_are_case_insensitive() {
         let p = HeaderPattern::parse("on {t:list}").unwrap();
         assert_eq!(p.match_header("ON users").unwrap()["t"], "users");
     }
 
     #[test]
-    fn un_reste_non_consomme_est_une_erreur() {
+    fn unconsumed_remainder_is_an_error() {
         let p = HeaderPattern::parse("{n:ident}").unwrap();
         let e = p.match_header("f trailing junk").unwrap_err();
-        assert!(e.contains("inattendu"), "obtenu: {e}");
+        assert!(e.contains("unexpected"), "got: {e}");
     }
 
     #[test]
-    fn un_litteral_manquant_est_signale() {
+    fn missing_literal_is_reported() {
         let p = HeaderPattern::parse("{n:ident} on {t:list}").unwrap();
         let e = p.match_header("f users").unwrap_err();
-        assert!(e.contains("attendu"), "obtenu: {e}");
+        assert!(e.contains("expected"), "got: {e}");
     }
 
     #[test]
-    fn un_type_de_trou_inconnu_est_refuse() {
+    fn unknown_slot_kind_is_rejected() {
         let e = HeaderPattern::parse("{n:machin}").unwrap_err();
-        assert!(e.contains("type de trou inconnu"), "obtenu: {e}");
-        assert!(e.contains("ident"), "doit lister les types: {e}");
+        assert!(e.contains("unknown slot kind"), "got: {e}");
+        assert!(e.contains("ident"), "must list the kinds: {e}");
     }
 
     #[test]
-    fn une_parenthese_non_fermee_est_signalee() {
+    fn unclosed_parenthesis_is_reported() {
         let p = HeaderPattern::parse("{n:ident}({a:parens})").unwrap();
-        assert!(p.match_header("f(a INT").unwrap_err().contains("manquant"));
+        assert!(p.match_header("f(a INT").unwrap_err().contains("missing"));
     }
 
     #[test]
-    fn une_parenthese_dans_une_chaine_ne_compte_pas() {
+    fn parenthesis_inside_string_does_not_count() {
         let p = HeaderPattern::parse("{n:ident}({a:parens})").unwrap();
         let c = p.match_header("f(sep TEXT = ')')").unwrap();
         assert_eq!(c["a"], "sep TEXT = ')'");
     }
 
     #[test]
-    fn slots_enumere_les_trous_y_compris_optionnels() {
+    fn slots_lists_slots_including_optional_ones() {
         let p = HeaderPattern::parse("{name:ident}({params:parens})[: {ret:type}]").unwrap();
         let slots = p.slots();
         assert_eq!(

@@ -1,9 +1,9 @@
-//! Pont transitoire : le catalogue vu comme un [`SchemaProvider`], pour les
-//! consommateurs qui n'ont pas encore migré (checker, LSP, CLI). Disparaît
-//! avec `SchemaProvider` (PLAN.md, P2).
+//! Transitional bridge: the catalog seen as a [`SchemaProvider`], for
+//! consumers that have not migrated yet (checker, LSP, CLI). Goes away with
+//! `SchemaProvider` (PLAN.md, P2).
 //!
-//! Les noms sont exacts (principe 8) : un nom qualifié désigne `schéma.nom`,
-//! un nom simple l'objet visible par le `search_path`.
+//! Names are exact (principle 8): a qualified name designates `schema.name`,
+//! a simple name the object visible through the `search_path`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -16,25 +16,25 @@ use crate::catalog::{Catalog, SearchPath};
 use crate::model::{QName, TypeRef};
 
 pub struct CatalogSchema {
-    /// Objets du projet (hors `pg_catalog` et `information_schema`), par nom
-    /// qualifié.
+    /// Project objects (excluding `pg_catalog` and `information_schema`), by
+    /// qualified name.
     tables: HashMap<String, TableSchema>,
     functions: HashMap<String, FunctionSignature>,
-    /// Noms simples du projet : tables temporaires (consultées avant
-    /// `pg_catalog`), puis objets visibles par le reste du chemin.
+    /// Simple project names: temporary tables (looked up before
+    /// `pg_catalog`), then objects visible through the rest of the path.
     temp_tables: HashMap<String, TableSchema>,
     path_tables: HashMap<String, TableSchema>,
     path_functions: HashMap<String, FunctionSignature>,
     rls: HashSet<String>,
-    /// Vue du catalogue intégré, calculée une fois par processus.
+    /// View of the built-in catalog, computed once per process.
     base: &'static BaseView,
 }
 
-/// Objets intégrés (`pg_catalog`, `information_schema`).
+/// Built-in objects (`pg_catalog`, `information_schema`).
 struct BaseView {
     qualified_tables: HashMap<String, TableSchema>,
     qualified_functions: HashMap<String, FunctionSignature>,
-    /// `pg_catalog`, consulté pour un nom simple.
+    /// `pg_catalog`, looked up for a simple name.
     tables: HashMap<String, TableSchema>,
     functions: HashMap<String, FunctionSignature>,
 }
@@ -46,7 +46,7 @@ fn is_builtin_schema(s: &str) -> bool {
 fn base_view() -> &'static BaseView {
     static BASE: std::sync::OnceLock<BaseView> = std::sync::OnceLock::new();
     BASE.get_or_init(|| {
-        let cat = Catalog::for_postgres(18).expect("pack postgres@18 livré avec pgweave");
+        let cat = Catalog::for_postgres(18).expect("postgres@18 pack shipped with pgweave");
         let mut v = BaseView {
             qualified_tables: HashMap::new(),
             qualified_functions: HashMap::new(),
@@ -168,7 +168,7 @@ impl CatalogSchema {
             .into_iter()
             .filter(|s| !is_builtin_schema(s))
             .collect();
-        // Rang d'un schéma dans le chemin : plus petit = prioritaire.
+        // Rank of a schema in the path: smaller = higher priority.
         let rank = |s: &str| schemas.iter().position(|x| *x == s);
         let mut best_table: HashMap<String, usize> = HashMap::new();
         for r in cat
@@ -229,8 +229,8 @@ fn signature(q: &QName, r: &crate::model::Routine) -> FunctionSignature {
 }
 
 impl SchemaProvider for CatalogSchema {
-    /// Nom qualifié : exact. Nom simple : table temporaire, puis
-    /// `pg_catalog`, puis le reste du `search_path` — l'ordre de PostgreSQL.
+    /// Qualified name: exact. Simple name: temporary table, then
+    /// `pg_catalog`, then the rest of the `search_path` — PostgreSQL's order.
     fn get_table(&self, name: &str) -> Option<&TableSchema> {
         if name.contains('.') {
             return self

@@ -1,4 +1,4 @@
--- Jointures, sous-requêtes, CTE, opérations ensemblistes.
+-- Joins, subqueries, CTEs, set operations.
 
 -- name: inner_join
 SELECT p.id, p.title, a.name FROM pages p JOIN authors a ON a.id = p.author_id;

@@ -1,4 +1,4 @@
--- Fonctions SQL et PL/pgSQL appelées depuis une requête, procédure.
+-- SQL and PL/pgSQL functions called from a query, procedure.
 
 -- name: table_function
 SELECT * FROM page_stats($min_views);

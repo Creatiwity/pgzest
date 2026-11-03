@@ -1,16 +1,16 @@
 /**
- * Commande « Voir l'expansion de la macro ».
+ * "Show Macro Expansion" command.
  *
- * Même mécanique que « Expand macro recursively » de Rust Analyzer : une
- * requête LSP custom rend le SQL désucré, affiché dans un onglet en lecture
- * seule via un TextDocumentContentProvider sur un schéma d'URI dédié. En
- * lecture seule parce que ce contenu est engendré : l'éditer n'aurait aucun
- * effet sur le `.pgsql`, et laisser croire le contraire serait un piège.
+ * Same mechanism as Rust Analyzer's "Expand macro recursively": a custom LSP
+ * request returns the desugared SQL, shown in a read-only tab through a
+ * TextDocumentContentProvider on a dedicated URI scheme. Read-only because
+ * this content is generated: editing it would have no effect on the
+ * `.pgsql`, and suggesting otherwise would be a trap.
  */
 import * as vscode from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 
-/** Schéma d'URI des documents d'expansion. */
+/** URI scheme of expansion documents. */
 export const EXPANDED_SCHEME = 'pgweave-expanded';
 
 interface ExpandMacroResult {
@@ -20,10 +20,10 @@ interface ExpandMacroResult {
 }
 
 /**
- * Fournit le contenu des onglets d'expansion.
+ * Provides the content of expansion tabs.
  *
- * Le contenu est mémorisé par URI : VS Code peut redemander le document
- * (changement de thème, split, rechargement) et doit retrouver la même chose.
+ * Content is kept per URI: VS Code may request the document again (theme
+ * change, split, reload) and must get the same thing back.
  */
 class ExpansionProvider implements vscode.TextDocumentContentProvider {
   private readonly contents = new Map<string, string>();
@@ -32,7 +32,7 @@ class ExpansionProvider implements vscode.TextDocumentContentProvider {
 
   set(uri: vscode.Uri, text: string): void {
     this.contents.set(uri.toString(), text);
-    // Prévenir VS Code, sinon un onglet déjà ouvert garde l'ancien contenu.
+    // Notify VS Code, otherwise an already open tab keeps the old content.
     this.emitter.fire(uri);
   }
 
@@ -47,10 +47,10 @@ class ExpansionProvider implements vscode.TextDocumentContentProvider {
 }
 
 /**
- * Signale les macros d'un `.pgsql` par un lien « Voir l'expansion ».
+ * Marks the macros of a `.pgsql` file with a "Show expansion" link.
  *
- * Complète le raccourci clavier : sans le CodeLens, la fonctionnalité n'est
- * découvrable qu'en connaissant déjà son existence.
+ * Complements the keyboard shortcut: without the CodeLens, the feature can
+ * only be discovered by already knowing it exists.
  */
 class ExpandCodeLensProvider implements vscode.CodeLensProvider {
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
@@ -61,7 +61,7 @@ class ExpandCodeLensProvider implements vscode.CodeLensProvider {
       if (!match) continue;
       lenses.push(
         new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
-          title: `Voir l'expansion de @${match[1]}`,
+          title: `Show expansion of @${match[1]}`,
           command: 'pgweave.expandMacro',
           arguments: [new vscode.Position(line, match[0].length)],
         }),
@@ -71,7 +71,7 @@ class ExpandCodeLensProvider implements vscode.CodeLensProvider {
   }
 }
 
-/** Enregistre la commande, le fournisseur de contenu et le CodeLens. */
+/** Registers the command, the content provider and the CodeLens. */
 export function registerExpandMacro(
   context: vscode.ExtensionContext,
   getClient: () => LanguageClient | undefined,
@@ -94,11 +94,11 @@ export function registerExpandMacro(
         const client = getClient();
         const editor = vscode.window.activeTextEditor;
         if (!client || !editor) {
-          vscode.window.showWarningMessage('pgweave : aucun éditeur actif.');
+          vscode.window.showWarningMessage('pgweave: no active editor.');
           return;
         }
 
-        // Position venant du CodeLens, sinon celle du curseur.
+        // Position coming from the CodeLens, otherwise the cursor's.
         const at = position ?? editor.selection.active;
 
         let result: ExpandMacroResult;
@@ -108,19 +108,19 @@ export function registerExpandMacro(
             position: { line: at.line, character: at.character },
           });
         } catch (err) {
-          vscode.window.showErrorMessage(`pgweave : expansion impossible — ${err}`);
+          vscode.window.showErrorMessage(`pgweave: expansion failed — ${err}`);
           return;
         }
 
         if (!result.sql) {
           vscode.window.showInformationMessage(
-            `pgweave : ${result.note ?? 'rien à développer ici.'}`,
+            `pgweave: ${result.note ?? 'nothing to expand here.'}`,
           );
           return;
         }
 
-        // Une URI par document source : réutiliser le même onglet plutôt que
-        // d'en empiler un par invocation de la commande.
+        // One URI per source document: reuse the same tab rather than
+        // stacking one per invocation of the command.
         const name = editor.document.uri.path.split('/').pop() ?? 'macro';
         const uri = vscode.Uri.parse(
           `${EXPANDED_SCHEME}:/${name}.expanded.sql?${encodeURIComponent(
@@ -129,8 +129,8 @@ export function registerExpandMacro(
         );
 
         const header =
-          `-- Expansion engendrée par pgweave — lecture seule.\n` +
-          `-- Source : ${name}\n` +
+          `-- Expansion generated by pgweave — read-only.\n` +
+          `-- Source: ${name}\n` +
           (result.note ? `-- ${result.note}\n` : '') +
           `\n`;
         provider.set(uri, header + result.sql);

@@ -2,145 +2,145 @@
 
 PostgreSQL language toolchain in Rust. Parser, type-checker, linter, migration engine, LSP server, and VS Code extension — all sharing the same AST.
 
-> **État : v0.1, utilisable mais l'analyse n'est pas complète.** Les briques
-> ci-dessous compilent et sont testées, mais le type-checker fait de la
-> vérification d'existence et de l'inférence partielle — pas encore de
-> vérification de compatibilité de types complète. Faux positifs attendus.
+> **Status: v0.1, usable but the analysis is not complete.** The components
+> below compile and are tested, but the type-checker does existence checks
+> and partial inference — no full type-compatibility checking yet. Expect
+> false positives.
 
-## Démarrage rapide
+## Quick start
 
-Prérequis : [Rust](https://rustup.rs) (la version est épinglée par
-`rust-toolchain.toml`) et Node.js ≥ 18.
-
-```bash
-make bootstrap   # installe les dépendances Rust + npm, vérifie l'outillage
-make demo        # ouvre VS Code sur examples/demo, extension pgweave chargée
-make demo-run    # exécute le programme Rust de la démo sur PostgreSQL 18 (Docker)
-make help        # liste toutes les cibles
-```
-
-`make demo` est le point d'entrée si tu découvres le projet : une petite
-application (migrations, requêtes nommées, code Rust généré) à explorer
-dans l'éditeur, avec une visite guidée dans `examples/demo/README.md`.
-`make demo-cli` exécute `check`, `lint`, `codegen` et `emit` sur
-`examples/` et affiche les diagnostics réels.
-
-Pour tester dans VS Code :
+Prerequisites: [Rust](https://rustup.rs) (the version is pinned by
+`rust-toolchain.toml`) and Node.js ≥ 18.
 
 ```bash
-make vscode-dev      # compile le LSP + l'extension, puis explique la suite
-code editors/vscode  # puis F5 → « Run Extension (playground) »
+make bootstrap   # installs Rust + npm dependencies, checks the tooling
+make demo        # opens VS Code on examples/demo with the pgweave extension loaded
+make demo-run    # runs the demo's Rust program against PostgreSQL 18 (Docker)
+make help        # lists all targets
 ```
 
-F5 ouvre une fenêtre sur `examples/playground/` — un vrai projet avec
-`schema/`, `migrations/` et `pgweave.toml`, dont chaque fichier
-illustre une capacité (erreurs, directives, tolérance du parser, lint).
-Voir `examples/playground/README.md`.
+`make demo` is the entry point if you are discovering the project: a small
+application (migrations, named queries, generated Rust code) to explore
+in the editor, with a guided tour in `examples/demo/README.md`.
+`make demo-cli` runs `check`, `lint`, `codegen` and `emit` on
+`examples/` and prints the actual diagnostics.
 
-`make playground` fait la même démonstration en CLI.
+To try it in VS Code:
 
-## État par composant
+```bash
+make vscode-dev      # builds the LSP + the extension, then explains what's next
+code editors/vscode  # then F5 → "Run Extension (playground)"
+```
 
-| Composant | État | Détail |
+F5 opens a window on `examples/playground/` — a real project with
+`schema/`, `migrations/` and `pgweave.toml`, where each file
+illustrates one capability (errors, directives, parser tolerance, lint).
+See `examples/playground/README.md`.
+
+`make playground` gives the same demonstration from the CLI.
+
+## Status by component
+
+| Component | Status | Detail |
 |---|:---:|---|
-| Parser SQL + PL/pgSQL | ✅ | sqlparser-rs (dialecte PostgreSQL, non forké) + lexer/parser PL/pgSQL dédié |
-| AST + NodeId/Span | ✅ | Spans en byte offsets, traits `Visit`/`VisitMut` |
-| Normalisation ordre logique | ✅ | FROM → JOIN → WHERE → GROUP BY → SELECT |
-| Type-checker | 🟡 | Existence des tables/colonnes OK ; inférence partielle, pas de compat de types complète |
-| Linter (L001–L009, M001–M003) | ✅ | Règles de style + sûreté de migration |
-| Moteur de diff / migrations | ✅ | Diff + snapshots + génération de fichiers |
-| Codegen TypeScript | 🟡 | Fonctionne sur les SELECT nommés ; couverture des types à étendre |
-| Serveur LSP | 🟡 | Diagnostics + hover + complétion + semantic tokens ; peu testé en usage réel |
-| Extension VS Code | ✅ | Grammaire TextMate + client LSP, lancement F5 |
-| Bindings WASM | 🟡 | Compilent (nécessite `wasm-pack`), vérifiés en CI, pas de tests |
-| Bindings Node (napi-rs) | 🟡 | Compilent ; pas de tests, pas de paquet publié |
-| Paquet npm `pgweave` | 🟡 | ~1000 lignes ; seuls `policy` et `prisma` ont des tests |
-| Plugin PostGIS | 🟡 | Types + signatures spatiales, couverture partielle |
-| Plugins WASM (wasmi) | 🟡 | Hôte fonctionnel, un exemple dans `examples/wasm-plugin` |
-| Extension JetBrains | ❌ | Squelette (2 fichiers Kotlin), non compilé en CI |
+| SQL + PL/pgSQL parser | ✅ | sqlparser-rs (PostgreSQL dialect, not forked) + dedicated PL/pgSQL lexer/parser |
+| AST + NodeId/Span | ✅ | Spans as byte offsets, `Visit`/`VisitMut` traits |
+| Logical-order normalization | ✅ | FROM → JOIN → WHERE → GROUP BY → SELECT |
+| Type-checker | 🟡 | Table/column existence OK; partial inference, no full type compatibility |
+| Linter (L001–L009, M001–M003) | ✅ | Style + migration-safety rules |
+| Diff / migration engine | ✅ | Diff + snapshots + file generation |
+| TypeScript codegen | 🟡 | Works on named SELECTs; type coverage to be extended |
+| LSP server | 🟡 | Diagnostics + hover + completion + semantic tokens; little real-world testing |
+| VS Code extension | ✅ | TextMate grammar + LSP client, F5 launch |
+| WASM bindings | 🟡 | Compile (requires `wasm-pack`), checked in CI, no tests |
+| Node bindings (napi-rs) | 🟡 | Compile; no tests, no published package |
+| `pgweave` npm package | 🟡 | ~1000 lines; only `policy` and `prisma` have tests |
+| PostGIS plugin | 🟡 | Spatial types + signatures, partial coverage |
+| WASM plugins (wasmi) | 🟡 | Working host, one example in `examples/wasm-plugin` |
+| JetBrains extension | ❌ | Skeleton (2 Kotlin files), not built in CI |
 
-Légende : ✅ fonctionne et testé · 🟡 fonctionne, couverture ou périmètre partiel · ❌ non livré
+Legend: ✅ works and tested · 🟡 works, partial coverage or scope · ❌ not delivered
 
-Tests : 71 tests Rust, 8 tests TypeScript. `make ci` reproduit ce que vérifie
-la CI GitHub Actions.
+Tests: 71 Rust tests, 8 TypeScript tests. `make ci` reproduces what the
+GitHub Actions CI checks.
 
-## Tolérance du parser et suppressions
+## Parser tolerance and suppressions
 
-Un statement que l'analyse n'a pas pu traiter n'est plus avalé
-silencieusement — il est signalé, à un niveau que tu contrôles.
+A statement the analysis could not process is no longer silently
+swallowed — it is reported, at a level you control.
 
-Deux catégories, distinguées :
+Distinct categories:
 
-| Catégorie | Signification | Défaut |
+| Category | Meaning | Default |
 |---|---|---|
-| `unparsable-statement` | sqlparser-rs n'a pas su lire le statement. Peut être du PostgreSQL valide hors périmètre **ou** une faute de syntaxe — indiscernables à ce niveau. | `warn` |
-| `unsupported-statement` | Statement valide, volontairement pas modélisé dans l'AST (`GRANT`, `CREATE VIEW`, …). | `warn` |
-| `unparsed-function-body` | Le statement est analysé, mais le **corps** d'une fonction PL/pgSQL n'a pas pu être parsé. Il retombe alors sur un repli textuel presque aveugle : variables, types, `RETURN` et contexte trigger ne sont plus vérifiés. Une seule construction non gérée suffit. | `warn` (suit `unparsable`) |
+| `unparsable-statement` | sqlparser-rs could not read the statement. May be valid PostgreSQL out of scope **or** a syntax error — indistinguishable at this level. | `warn` |
+| `unsupported-statement` | Valid statement, deliberately not modeled in the AST (`GRANT`, `CREATE VIEW`, …). | `warn` |
+| `unparsed-function-body` | The statement is analyzed, but the **body** of a PL/pgSQL function could not be parsed. It then falls back to a nearly blind textual fallback: variables, types, `RETURN` and trigger context are no longer checked. A single unhandled construct is enough. | `warn` (follows `unparsable`) |
 
-**Le silence est traité comme un bug.** Aucune de ces trois situations ne
-disparaît sans le dire — c'est ce qui distingue un outil *incomplet* d'un outil
-*trompeur*. `unsupported` valait `ignore` par défaut : un `CREATE VIEW` jeté
-signifiait que la vue n'existait pour aucun autre fichier, sans un mot.
+**Silence is treated as a bug.** None of these three situations goes
+away without saying so — that is what separates an *incomplete* tool from a
+*misleading* one. `unsupported` used to default to `ignore`: a dropped
+`CREATE VIEW` meant the view did not exist for any other file, without a word.
 
-Le défaut `warn` sur `unparsable` rend le problème visible sans casser le
-build (`check` sort 0 sur un warning), ce qui permet d'adopter l'outil sur une
-base existante puis de durcir.
+The `warn` default on `unparsable` makes the problem visible without breaking
+the build (`check` exits 0 on a warning), which lets you adopt the tool on an
+existing codebase and then tighten it.
 
-### Config projet
+### Project config
 
 ```toml
-# pgweave.toml — format complet : docs/config.md
+# pgweave.toml — full format: docs/config.md
 [postgres]
-version = 18            # obligatoire
+version = 18            # required
 
 [parse]
 unparsable  = "warn"    # "error" | "warn" | "ignore"
 unsupported = "ignore"  # "error" | "warn" | "ignore"
 ```
 
-Surcharge ponctuelle en ligne de commande :
+One-off override on the command line:
 
 ```bash
-pgweave check q.sql --on-unparsable error     # durcir en CI
-pgweave check q.sql --on-unparsable ignore    # le temps d'une migration
+pgweave check q.sql --on-unparsable error     # tighten in CI
+pgweave check q.sql --on-unparsable ignore    # for the duration of a migration
 ```
 
-### Directives en commentaire
+### Comment directives
 
-À la ESLint, en commentaire ligne (`--`) ou bloc (`/* */`) :
+ESLint-style, in a line (`--`) or block (`/* */`) comment:
 
 ```sql
--- pgweave-disable-next-line                          -- toutes les règles
--- pgweave-disable-next-line column-not-found         -- une seule
--- pgweave-disable-next-line column-not-found, L001   -- plusieurs
--- pgweave-enable-next-line L001                      -- réactive ponctuellement
--- pgweave-disable                                    -- début de bloc
--- pgweave-enable                                     -- fin de bloc
--- pgweave-disable-file                               -- tout le fichier
+-- pgweave-disable-next-line                          -- all rules
+-- pgweave-disable-next-line column-not-found         -- just one
+-- pgweave-disable-next-line column-not-found, L001   -- several
+-- pgweave-enable-next-line L001                      -- re-enables locally
+-- pgweave-disable                                    -- start of block
+-- pgweave-enable                                     -- end of block
+-- pgweave-disable-file                               -- whole file
 ```
 
-Un `-- pgweave-disable` non refermé porte jusqu'à la fin du fichier. Une
-justification peut suivre un second `--` et est ignorée :
+An unclosed `-- pgweave-disable` extends to the end of the file. A
+justification may follow a second `--` and is ignored:
 
 ```sql
--- pgweave-disable-next-line unparsable-statement -- syntaxe PG 18, cf. #214
+-- pgweave-disable-next-line unparsable-statement -- PG 18 syntax, see #214
 CREATE TABLE … ;
 ```
 
-La suppression est positionnelle : elle s'appuie sur le `span` du diagnostic.
-Type-checker et linter en produisent tous les deux, à la granularité du
-statement — la même que celle du type-checker. Un diagnostic qui n'en aurait
-pas (aucun aujourd'hui) ne serait couvert que par `pgweave-disable-file`.
+Suppression is positional: it relies on the diagnostic's `span`.
+Type-checker and linter both produce one, at statement granularity — the
+same as the type-checker's. A diagnostic without one (none today) would only
+be covered by `pgweave-disable-file`.
 
-Précision : le **type-checker vise l'expression fautive** (`SELECT id, nope`
-souligne `nope`, pas le `SELECT`), y compris dans une sous-expression. Les
-règles de **lint** visent le statement — leurs nœuds d'intérêt ne sont pas
-toujours des expressions.
+Note: the **type-checker targets the faulty expression** (`SELECT id, nope`
+underlines `nope`, not the `SELECT`), including inside a sub-expression.
+**Lint** rules target the statement — their nodes of interest are not
+always expressions.
 
 ## Macros
 
-Une syntaxe compacte qui se désucre en SQL standard. Rien n'est deviné : toute
-l'information est portée par la syntaxe.
+A compact syntax that desugars into standard SQL. Nothing is guessed: all
+the information is carried by the syntax.
 
 ```sql
 @function user_count(target_org UUID): INTEGER {
@@ -150,41 +150,41 @@ l'information est portée par la syntaxe.
 }
 ```
 
-11 lignes → 5. Les `DECLARE` s'écrivent près de leur usage et sont remontés en
-section avant `BEGIN` à la compilation.
+11 lines → 5. `DECLARE`s are written close to where they are used and are
+hoisted into the section before `BEGIN` at compile time.
 
-Les macros vivent dans des `.pgsql` ; `pgweave build` produit du `.sql` standard,
-lisible par psql et pg_dump — aucun verrouillage.
+Macros live in `.pgsql` files; `pgweave build` produces standard `.sql`,
+readable by psql and pg_dump — no lock-in.
 
 ```bash
-pgweave check q.pgsql                # analyse directement, sans compiler
-pgweave macros                       # les macros disponibles
-pgweave macros --verbose             # trous, drapeaux et options de chacune
-pgweave build q.pgsql                # affiche le SQL généré
-pgweave build q.pgsql --out-dir gen  # écrit gen/q.sql
+pgweave check q.pgsql                # analyzes directly, without compiling
+pgweave macros                       # the available macros
+pgweave macros --verbose             # holes, flags and options of each one
+pgweave build q.pgsql                # prints the generated SQL
+pgweave build q.pgsql --out-dir gen  # writes gen/q.sql
 ```
 
-`check` et le serveur LSP désucrent d'eux-mêmes : **`build` n'est nécessaire
-que pour produire un `.sql` destiné à psql ou à un déploiement**. Les
-diagnostics pointent la bonne ligne du `.pgsql`, pas du SQL engendré.
+`check` and the LSP server desugar on their own: **`build` is only needed
+to produce a `.sql` meant for psql or a deployment**. Diagnostics point to
+the right line of the `.pgsql`, not of the generated SQL.
 
-### Fournies
+### Provided
 
-| Macro | Rôle |
+| Macro | Role |
 |---|---|
-| `@function name(params)[: TYPE] [attributs] { … }` | fonction PL/pgSQL ou SQL |
-| `@procedure name(params) [attributs] { … }` | procédure |
-| `@trigger name timing events on table(s) for each row\|statement [when (…)] { … }` | la fonction **et** le `CREATE TRIGGER` |
+| `@function name(params)[: TYPE] [attributes] { … }` | PL/pgSQL or SQL function |
+| `@procedure name(params) [attributes] { … }` | procedure |
+| `@trigger name timing events on table(s) for each row\|statement [when (…)] { … }` | the function **and** the `CREATE TRIGGER` |
 
-Attributs de `@function` : `immutable`, `stable`, `volatile`,
+`@function` attributes: `immutable`, `stable`, `volatile`,
 `security_definer`, `strict`, `leakproof`, `language <lang>`, `cost N`,
 `rows N`.
 
-Le `RETURN` reste explicite : un `AFTER` ou un `FOR EACH STATEMENT` n'a pas les
-mêmes conventions qu'un `BEFORE … FOR EACH ROW`, et une règle implicite
-variable selon le timing serait un piège.
+`RETURN` stays explicit: an `AFTER` or a `FOR EACH STATEMENT` trigger does not
+follow the same conventions as a `BEFORE … FOR EACH ROW`, and an implicit rule
+varying with timing would be a trap.
 
-### Le trigger multi-tables
+### The multi-table trigger
 
 ```sql
 @trigger touch before update on (users, organizations) for each row {
@@ -193,28 +193,27 @@ variable selon le timing serait un piège.
 }
 ```
 
-Une fonction est générée **par table**, ce qui donne à chacune un nom et un
-`CREATE TRIGGER` propres. Le checker vérifie la colonne sur chaque table et
-signale celle qui manque sur l'une d'elles — comme il le fait aussi pour une
-fonction partagée écrite à la main (`set_updated_at` attaché à plusieurs
-tables) : le corps est vérifié une fois par table qui la déclenche.
+One function is generated **per table**, giving each its own name and
+`CREATE TRIGGER`. The checker verifies the column on each table and
+reports the one missing on any of them — as it also does for a
+hand-written shared function (`set_updated_at` attached to several
+tables): the body is checked once per table that fires it.
 
-### Voir l'expansion dans VS Code
+### Viewing the expansion in VS Code
 
-Le curseur dans une macro, puis **⌘⌥E** (`Ctrl+Alt+E` ailleurs) — ou le lien
-« Voir l'expansion » affiché au-dessus de chaque macro, ou le menu contextuel.
-Le SQL engendré s'ouvre dans un onglet **en lecture seule** à côté : le
-modifier n'aurait aucun effet sur le `.pgsql`, laisser croire le contraire
-serait un piège.
+Cursor inside a macro, then **⌘⌥E** (`Ctrl+Alt+E` elsewhere) — or the
+"Show expansion" link displayed above each macro, or the context menu.
+The generated SQL opens in a **read-only** tab alongside: editing it would
+have no effect on the `.pgsql`, and suggesting otherwise would be a trap.
 
-Curseur hors macro : tout le fichier est désucré.
+Cursor outside any macro: the whole file is desugared.
 
-Sous le capot, une requête LSP custom `pgweave/expandMacro` — même mécanique que
-« Expand macro recursively » de Rust Analyzer.
+Under the hood, a custom LSP request `pgweave/expandMacro` — the same mechanism
+as Rust Analyzer's "Expand macro recursively".
 
-### En déclarer une
+### Declaring one
 
-Un `*.pgmacro` dans le répertoire `[macros] directory` (défaut : `macros/`) :
+A `*.pgmacro` file in the `[macros] directory` (default: `macros/`):
 
 ```
 macro audited
@@ -229,26 +228,26 @@ CREATE TABLE {name} (
 end
 ```
 
-Directives : `macro`, `header`, `default`, `flag`, `option`, `template`…`end`.
-Types de trou : `ident`, `word`, `words`, `parens`, `type`, `list`, `keywords`
-— un jeu **fermé**, ce qui empêche le format de dériver vers un langage de
-gabarits.
+Directives: `macro`, `header`, `default`, `flag`, `option`, `template`…`end`.
+Hole types: `ident`, `word`, `words`, `parens`, `type`, `list`, `keywords`
+— a **closed** set, which keeps the format from drifting into a templating
+language.
 
-Les macros fournies sont écrites dans ce même format
-(`crates/pgweave-macro/src/builtins/`) : un mécanisme d'extension dont les
-macros fournies ne se servent pas est un mécanisme non testé. Une macro du
-projet portant le nom d'une macro fournie la remplace.
+The provided macros are written in this same format
+(`crates/pgweave-macro/src/builtins/`): an extension mechanism that the
+provided macros do not use is an untested mechanism. A project macro with
+the name of a provided macro replaces it.
 
 ### Fragments
 
-Un morceau de SQL qui revient — liste de colonnes, expression, prédicat —
-s'écrit une fois dans un `.sql` de `[macros] directory` et s'insère par
-`@nom`, dans le schéma comme dans les requêtes :
+A recurring piece of SQL — column list, expression, predicate — is
+written once in a `.sql` file of the `[macros] directory` and inserted with
+`@name`, in the schema as in queries:
 
 ```sql
 -- macros/search.sql
 -- fragment: search_vector(t)
--- Doit rester identique à l'expression de l'index : elle n'est écrite qu'ici.
+-- Must stay identical to the index expression: it is written only here.
 to_tsvector('french'::regconfig, coalesce(t.nom, ''))
 ```
 
@@ -257,74 +256,74 @@ CREATE INDEX etab_search ON etablissements USING gin ((@search_vector));
 SELECT e.siret FROM etablissements e WHERE @search_vector(e) @@ plainto_tsquery('french', $q);
 ```
 
-Les paramètres sont des qualificatifs (`@f(e)` : `t.` → `e.` ; `@f` : retiré).
-Le fragment est vérifié dans chaque statement qui l'insère ; survoler
-`@nom` montre sa documentation et le SQL inséré. Une requête peut aussi
-reprendre la struct de ligne d'une autre (`-- name: x :many -> autre`),
-après vérification des colonnes. Détails :
+Parameters are qualifiers (`@f(e)`: `t.` → `e.`; `@f`: removed).
+The fragment is checked in every statement that inserts it; hovering
+`@name` shows its documentation and the inserted SQL. A query can also
+reuse another query's row struct (`-- name: x :many -> other`),
+after its columns are checked. Details:
 [`docs/named-queries.md`](docs/named-queries.md#fragments).
 
-## Requêtes nommées
+## Named queries
 
-Les requêtes appelées depuis le code vivent dans `[queries] directory`, une
-par en-tête `-- name:` :
+Queries called from code live in `[queries] directory`, one
+per `-- name:` header:
 
 ```sql
 -- name: page_by_id :optional
 SELECT id, title FROM pages WHERE id = $id;
 ```
 
-`pgweave check` vérifie leur format (nom, paramètres `$name`, un statement
-par requête) et chaque requête contre le schéma. Elles serviront de source à
-la génération d'appels typés (Rust, puis TypeScript). Format complet :
+`pgweave check` verifies their format (name, `$name` parameters, one statement
+per query) and each query against the schema. They will be the source for
+generating typed calls (Rust, then TypeScript). Full format:
 [`docs/named-queries.md`](docs/named-queries.md).
 
-## Scope du projet
+## Project scope
 
-`pgweave check` et le serveur LSP partagent le même modèle : les fichiers du
-scope sont **indexés sans être checkés** (tables, fonctions, RLS), puis seul
-le fichier courant est analysé contre cet index.
+`pgweave check` and the LSP server share the same model: the files in
+scope are **indexed without being checked** (tables, functions, RLS), then only
+the current file is analyzed against this index.
 
-Le scope est découvert en remontant jusqu'à `pgweave.toml` :
+The scope is discovered by walking up to `pgweave.toml`:
 
 ```toml
 [postgres]
 version = 18
 
 [migrations]
-directory = "migrations"     # indexé, chaque fichier avec sa séquence
+directory = "migrations"     # indexed, each file with its sequence
 
 [schema]
-directory = "schema"         # indexé récursivement
-include = ["db/functions"]   # répertoires supplémentaires
+directory = "schema"         # indexed recursively
+include = ["db/functions"]   # extra directories
 ```
 
-Si `[schema] directory` est absent, **tout le projet** est le scope — cohérent
-avec la classification, qui traite alors tout fichier non-migration comme
-Schema. `node_modules/`, `target/`, `dist/`, `.schema-snapshots/` et les
-répertoires cachés ne sont jamais parcourus.
+If `[schema] directory` is absent, **the whole project** is the scope —
+consistent with the classification, which then treats every non-migration
+file as Schema. `node_modules/`, `target/`, `dist/`, `.schema-snapshots/` and
+hidden directories are never walked.
 
-Priorité de résolution, premier trouvé gagne : `--schema` explicite → DDL du
-fichier analysé → index du projet → plugins.
+Resolution priority, first found wins: explicit `--schema` → DDL of the
+analyzed file → project index → plugins.
 
 ```bash
-pgweave check queries/q.sql              # utilise l'index du projet
-pgweave check queries/q.sql --no-project # ignore la config, mode isolé
-pgweave check q.sql --schema other.sql   # ajoute une source explicite
+pgweave check queries/q.sql              # uses the project index
+pgweave check queries/q.sql --no-project # ignores the config, isolated mode
+pgweave check q.sql --schema other.sql   # adds an explicit source
 ```
 
-Si un fichier du scope contient un statement illisible, les objets qu'il
-définit sont absents de l'index — donc des `table-not-found` en cascade qui
-sont des faux positifs. La CLI le signale au lieu de laisser croire à un index
-complet.
+If a file in scope contains an unreadable statement, the objects it
+defines are missing from the index — hence cascading `table-not-found`
+false positives. The CLI reports it instead of implying a complete
+index.
 
-## Limites connues
+## Known limitations
 
-Par ordre d'importance :
+In order of importance:
 
-1. Pas de vérification de compatibilité de types entre opérandes.
+1. No type-compatibility checking between operands.
 
-2. Pas d'introspection d'une base live : le schéma vient de fichiers DDL.
+2. No introspection of a live database: the schema comes from DDL files.
 
 ---
 
@@ -359,8 +358,8 @@ Rules: `L001` (SELECT *), `L002` (implicit JOIN), `L003` (missing WHERE on DELET
 
 ### migrate create, migrate check, migrate diff
 
-Le schéma déclaratif décrit l'état cible, les migrations l'historique
-(PLAN.md, D10). Dans `pgweave.toml` :
+The declarative schema describes the target state, migrations the history
+(PLAN.md, D10). In `pgweave.toml`:
 
 ```toml
 [schema]
@@ -368,63 +367,63 @@ directory = "schema"
 declarative = true
 ```
 
-L'analyse (CLI, éditeur, `build.rs`) ne rejoue alors que le schéma ; les
-migrations sont rejouées à part et comparées à lui. Un écart est signalé
-(`schema-drift`, sur la dernière migration) jusqu'à la génération de la
-suivante :
+The analysis (CLI, editor, `build.rs`) then replays only the schema; the
+migrations are replayed separately and compared with it. A gap is reported
+(`schema-drift`, on the last migration) until the next one is
+generated:
 
 ```bash
-pgweave migrate create ajout_fidelite   # écrit la migration, vérifiée par rejeu
-pgweave migrate check                   # CI : échoue si le schéma a avancé seul
-pgweave migrate diff ancien.sql nouveau.sql   # entre deux schémas, sans projet
+pgweave migrate create add_loyalty      # writes the migration, verified by replay
+pgweave migrate check                   # CI: fails if the schema moved on alone
+pgweave migrate diff old.sql new.sql    # between two schemas, no project
 ```
 
-`migrate create` compare l'état atteint par les migrations au schéma, objet
-par objet (schémas, extensions, enums, types, domaines, séquences, tables,
-colonnes, contraintes, vues, routines, index, triggers, policies, sécurité
-par ligne, commentaires), et écrit la migration au format du répertoire
-(fichiers numérotés, Prisma `<horodatage>_<nom>/migration.sql`, Diesel
-`<horodatage>_<nom>/up.sql`) :
+`migrate create` compares the state reached by the migrations with the schema,
+object by object (schemas, extensions, enums, types, domains, sequences, tables,
+columns, constraints, views, routines, indexes, triggers, policies, row-level
+security, comments), and writes the migration in the directory's format
+(numbered files, Prisma `<timestamp>_<name>/migration.sql`, Diesel
+`<timestamp>_<name>/up.sql`):
 
 ```sql
 -- pgweave: postgres=18 extensions=citext@1.8,pg_trgm@1.6
--- Migration « recherche », générée par `pgweave migrate create`.
+-- Migration "search", generated by `pgweave migrate create`.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public VERSION '1.6';
 
 ALTER TABLE customers
   ADD COLUMN loyalty integer DEFAULT 0 NOT NULL;
 
--- !! M006 : index public.customers_name_trgm construit sans CONCURRENTLY : écritures sur public.customers bloquées pendant la construction
+-- !! M006: index public.customers_name_trgm built without CONCURRENTLY: writes to public.customers blocked during the build
 CREATE INDEX customers_name_trgm ON customers USING gin (name gin_trgm_ops);
 ```
 
-- **Ordre** : ce qui bloquerait les modifications disparaît d'abord
-  (policies, triggers, vues à reconstruire, index et contraintes modifiés),
-  puis les créations, tables, routines et vues triées ensemble par
-  dépendances ; les suppressions définitives (colonnes, tables, routines,
-  types, extensions, schémas) viennent en dernier.
-- **Vérifiée avant d'être écrite** : la migration est rejouée après les
-  autres, et l'état obtenu doit être exactement le schéma.
+- **Order**: what would block the changes goes first
+  (policies, triggers, views to rebuild, modified indexes and constraints),
+  then the creations, with tables, routines and views sorted together by
+  dependencies; definitive drops (columns, tables, routines,
+  types, extensions, schemas) come last.
+- **Verified before being written**: the migration is replayed after the
+  others, and the resulting state must be exactly the schema.
 - **Simplest migration, adapted by the developer**: the generated
   migration reaches the schema in the simplest way, even if it loses data
   (a rename becomes a drop and an add) or fails on a populated table (NOT
   NULL column without default). Only the developer knows the data: the
-  header of the file (`!! À ADAPTER`) lists what to review, and `pgweave
+  header of the file (`!! TO ADAPT`) lists what to review, and `pgweave
   migrate check` verifies the final state once it is adapted.
 - **Nothing is approximated**: a change pgweave cannot express (enum value
   removed, domain changed, identity added…) is written as a `TODO` in the
   migration; `migrate check` fails until it is written by hand.
-- **Risques** signalés sur chaque statement concerné : M001 colonne
-  `NOT NULL` sans défaut, M002 colonne supprimée, M003 table supprimée, M004
-  type de colonne changé, M005 `SET NOT NULL`, M006 index sans
-  `CONCURRENTLY` sur une table existante, M007 contrainte vérifiée sur
-  toutes les lignes.
+- **Risks** reported on each affected statement: M001 `NOT NULL` column
+  without default, M002 dropped column, M003 dropped table, M004
+  column type changed, M005 `SET NOT NULL`, M006 index without
+  `CONCURRENTLY` on an existing table, M007 constraint validated against
+  all rows.
 
-L'oracle (`make oracle`) applique les migrations générées et le schéma
-déclaratif à deux bases PostgreSQL 18, et compare ce que PostgreSQL dit de
-leurs objets ; `cargo xtask migrate-oracle <projet>` fait de même sur un
-projet réel.
+The oracle (`make oracle`) applies the generated migrations and the declarative
+schema to two PostgreSQL 18 databases, and compares what PostgreSQL says about
+their objects; `cargo xtask migrate-oracle <project>` does the same on a
+real project.
 
 ### emit
 
@@ -492,20 +491,20 @@ cargo build --release -p pgweave-lsp # release
 
 ```
 crates/
-  pgweave-ast/         Types AST (Statement, Expr, nœuds DDL, Span, NodeId)
-  pgweave-diagnostics/ Diagnostic, Severity, Span, codes — socle sans dépendance
-  pgweave-parser/      sqlparser-rs + extension PL/pgSQL → pgweave-ast
-  pgweave-schema/      SchemaProvider + types de schéma, resolver, index, config
-  pgweave-catalog/     Catalogue PostgreSQL (packs générés), rejeu des DDL
-  pgweave-sema/        Analyse sémantique : types, surcharges, requêtes, routines
-  pgweave-checker/     Vérification (façade de pgweave-sema) + règles de plugins
-  pgweave-lint/        Règles de lint, LintConfig
-  pgweave-codegen/     Émetteur SQL, moteur de diff, codegen TypeScript
-  pgweave-analysis/    Façade d'orchestration : parse → check → lint
-  pgweave-plugin/      Système de plugins + plugin PostGIS
-  pgweave-plugin-wasm/ Hôte de plugins WASM (wasmi)
-  pgweave-lsp/         Serveur tower-lsp (diagnostics, hover, complétion)
-  pgweave-cli/         binaire pgweave (check, lint, migrate, emit, codegen)
+  pgweave-ast/         AST types (Statement, Expr, DDL nodes, Span, NodeId)
+  pgweave-diagnostics/ Diagnostic, Severity, Span, codes — dependency-free base
+  pgweave-parser/      sqlparser-rs + PL/pgSQL extension → pgweave-ast
+  pgweave-schema/      SchemaProvider + schema types, resolver, index, config
+  pgweave-catalog/     PostgreSQL catalog (generated packs), DDL replay
+  pgweave-sema/        Semantic analysis: types, overloads, queries, routines
+  pgweave-checker/     Checking (facade over pgweave-sema) + plugin rules
+  pgweave-lint/        Lint rules, LintConfig
+  pgweave-codegen/     SQL emitter, diff engine, TypeScript codegen
+  pgweave-analysis/    Orchestration facade: parse → check → lint
+  pgweave-plugin/      Plugin system + PostGIS plugin
+  pgweave-plugin-wasm/ WASM plugin host (wasmi)
+  pgweave-lsp/         tower-lsp server (diagnostics, hover, completion)
+  pgweave-cli/         pgweave binary (check, lint, migrate, emit, codegen)
 
 bindings/
   wasm/            wasm-bindgen bindings
@@ -523,32 +522,32 @@ The AST is reordered to **logical evaluation order** (`FROM → JOIN → WHERE �
 
 The `SchemaProvider` trait is the single entry point for schema information. Plugins implement it to add types and functions (e.g. PostGIS spatial operators). The `CompositeSchemaProvider` merges multiple providers — first match wins.
 
-### Règle de couches
+### Layering rule
 
-Les dépendances internes forment un DAG strict, du bas vers le haut :
+Internal dependencies form a strict DAG, from bottom to top:
 
 ```
-pgweave-ast · pgweave-diagnostics        (aucune dépendance interne)
+pgweave-ast · pgweave-diagnostics        (no internal dependency)
   └── pgweave-parser
-       └── pgweave-schema              (SchemaProvider vit ici)
-            └── pgweave-catalog        (catalogue, rejeu)
-                 └── pgweave-sema      (analyse sémantique)
-                      ├── pgweave-checker  ┐ passes indépendantes,
-                      ├── pgweave-lint     │ qui ne se connaissent pas
-                      └── pgweave-codegen  ┘
-                           └── pgweave-analysis  (façade : enchaîne les passes)
+       └── pgweave-schema              (SchemaProvider lives here)
+            └── pgweave-catalog        (catalog, replay)
+                 └── pgweave-sema      (semantic analysis)
+                      ├── pgweave-checker  ┐ independent passes
+                      ├── pgweave-lint     │ that don't know
+                      └── pgweave-codegen  ┘ each other
+                           └── pgweave-analysis  (facade: chains the passes)
                                 └── pgweave-cli · pgweave-lsp · bindings/*
 ```
 
-Deux invariants à ne pas casser :
+Two invariants not to break:
 
-1. **`pgweave-diagnostics` et `pgweave-schema` ne dépendent de personne d'utile.**
-   `Diagnostic` et `SchemaProvider` sont des contrats partagés ; ils vivaient
-   dans `pgweave-checker`, ce qui obligeait le linter à compiler le
-   type-checker et inversait la dépendance de `pgweave-schema`.
-2. **Une passe n'appelle jamais une autre passe.** `pgweave-lint` ne connaît
-   pas le checker, ni le checker le linter. Tout enchaînement vit dans
-   `pgweave-analysis`, au-dessus.
+1. **`pgweave-diagnostics` and `pgweave-schema` depend on nothing of substance.**
+   `Diagnostic` and `SchemaProvider` are shared contracts; they used to live
+   in `pgweave-checker`, which forced the linter to compile the
+   type-checker and inverted `pgweave-schema`'s dependency.
+2. **A pass never calls another pass.** `pgweave-lint` does not know
+   the checker, nor the checker the linter. All chaining lives in
+   `pgweave-analysis`, above.
 
 See `SPECS.md` for full design decisions, `ARCHITECTURE.md` for internals, and `ROADMAP.md` for what's planned.
 
@@ -556,19 +555,19 @@ See `SPECS.md` for full design decisions, `ARCHITECTURE.md` for internals, and `
 
 ## Building everything
 
-Tout passe par le `Makefile` :
+Everything goes through the `Makefile`:
 
 ```bash
-make bootstrap   # dépendances Rust + npm (à faire une fois)
-make all         # Rust + TypeScript + extension VS Code
-make test        # tests Rust + TypeScript
-make ci          # build + test + clippy + typecheck (ce que vérifie la CI)
-make clean       # supprime les artefacts
+make bootstrap   # Rust + npm dependencies (do it once)
+make all         # Rust + TypeScript + VS Code extension
+make test        # Rust + TypeScript tests
+make ci          # build + test + clippy + typecheck (what the CI checks)
+make clean       # removes build artifacts
 ```
 
-Cibles Rust seules : `make build`, `make release`, `make test-rust`,
-`make clippy`, `make fmt`. `make wasm` nécessite `cargo install wasm-pack`.
+Rust-only targets: `make build`, `make release`, `make test-rust`,
+`make clippy`, `make fmt`. `make wasm` requires `cargo install wasm-pack`.
 
-Le code est formaté avec `rustfmt` et sans aucun warning clippy. La CI
-bloque sur les deux (`cargo fmt --all --check` et `clippy -- -D warnings`),
-donc `make ci` avant de pousser.
+The code is formatted with `rustfmt` and has no clippy warnings. The CI
+blocks on both (`cargo fmt --all --check` and `clippy -- -D warnings`),
+so run `make ci` before pushing.

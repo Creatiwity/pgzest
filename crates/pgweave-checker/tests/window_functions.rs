@@ -1,6 +1,6 @@
-//! Fenêtres et modificateurs d'agrégat : leurs expressions sont vérifiées
-//! comme le reste de la requête. Elles étaient auparavant jetées à la
-//! conversion — une colonne inexistante dans un `PARTITION BY` passait.
+//! Windows and aggregate modifiers: their expressions are checked like
+//! the rest of the query. They used to be dropped during conversion — a
+//! nonexistent column in a `PARTITION BY` passed.
 
 use pgweave_checker::check_sql_self_contained;
 use pgweave_diagnostics::{Diagnostic, codes};
@@ -15,7 +15,7 @@ fn columns_not_found(sql: &str) -> Vec<Diagnostic> {
 }
 
 #[test]
-fn les_expressions_de_fenetre_sont_verifiees() {
+fn window_expressions_are_checked() {
     for sql in [
         "SELECT row_number() OVER (PARTITION BY nope) FROM t;",
         "SELECT row_number() OVER (ORDER BY nope) FROM t;",
@@ -29,7 +29,7 @@ fn les_expressions_de_fenetre_sont_verifiees() {
 }
 
 #[test]
-fn des_fenetres_correctes_ne_produisent_rien() {
+fn correct_windows_produce_nothing() {
     let d = columns_not_found(
         "SELECT a, sum(c) OVER (PARTITION BY b ORDER BY a ROWS BETWEEN 1 PRECEDING AND CURRENT ROW),\n\
          string_agg(b, ',' ORDER BY a) OVER w\n\

@@ -1,5 +1,5 @@
--- Le menu public. Ses colonnes sont typées par l'analyse, comme le ferait
--- PostgreSQL.
+-- The public menu. Its columns are typed by the analysis, as PostgreSQL
+-- would type them.
 CREATE VIEW menu AS
 SELECT r.slug AS restaurant,
        d.id,

@@ -1,49 +1,49 @@
-//! Fragments nommés (PLAN.md, P6) : un morceau de SQL écrit une fois —
-//! liste de colonnes, expression, prédicat — et inséré partout où il sert.
+//! Named fragments (PLAN.md, P6): a piece of SQL written once — column list,
+//! expression, predicate — and inserted wherever it is needed.
 //!
 //! ```sql
 //! -- fragment: search_vector(t)
-//! -- Doit rester identique à l'expression de l'index GIN.
-//! to_tsvector('french'::regconfig, coalesce(t.nom, '') || ' ' || coalesce(t.enseigne, ''))
+//! -- Must stay identical to the GIN index expression.
+//! to_tsvector('english'::regconfig, coalesce(t.name, '') || ' ' || coalesce(t.brand, ''))
 //! ```
 //!
-//! - Un fichier `.sql` de `[macros] directory` en déclare un ou plusieurs,
-//!   chacun sous un en-tête `-- fragment: nom` ou `-- fragment: nom(t, …)`.
-//!   Le corps est du SQL ordinaire ; les commentaires qui suivent l'en-tête
-//!   le documentent.
-//! - `@nom` l'insère, n'importe où dans un statement. Seul un nom de fragment
-//!   déclaré est une invocation : ailleurs, `@` reste l'opérateur valeur
-//!   absolue de PostgreSQL.
-//! - Les paramètres sont des **qualificatifs** de relation : `@nom(e)`
-//!   remplace chaque `t.` du corps par `e.`, `@nom` sans argument le retire
-//!   (`t.col` → `col`). Rien d'autre n'est substitué : le format reste du
-//!   SQL, pas un langage de gabarits.
-//! - Un corps qui est une expression unique non atomique (opérateur, `IS`,
-//!   `IN`, `BETWEEN`…) est inséré entre parenthèses, pour que l'opérateur qui
-//!   l'entoure ne le découpe pas ; une liste, un élément aliasé ou un atome
-//!   (colonne, appel, littéral) est inséré tel quel. La décision vient du
-//!   parser, pas d'une heuristique textuelle.
-//! - Un fragment peut en utiliser un autre ; un cycle est une erreur.
-//! - Le fragment n'est pas analysé seul : il l'est dans chaque statement qui
-//!   l'utilise, après insertion, et une erreur y est rapportée à l'invocation.
+//! - A `.sql` file of `[macros] directory` declares one or more of them, each
+//!   under a `-- fragment: name` or `-- fragment: name(t, …)` header. The body
+//!   is ordinary SQL; the comments following the header document it.
+//! - `@name` inserts it, anywhere in a statement. Only a declared fragment
+//!   name is an invocation: elsewhere, `@` remains PostgreSQL's absolute value
+//!   operator.
+//! - Parameters are relation **qualifiers**: `@name(e)` replaces each `t.` of
+//!   the body with `e.`, `@name` without argument removes it (`t.col` →
+//!   `col`). Nothing else is substituted: the format stays SQL, not a template
+//!   language.
+//! - A body that is a single non-atomic expression (operator, `IS`, `IN`,
+//!   `BETWEEN`…) is inserted between parentheses, so that the surrounding
+//!   operator does not split it; a list, an aliased item or an atom (column,
+//!   call, literal) is inserted as is. The decision comes from the parser, not
+//!   from a textual heuristic.
+//! - A fragment may use another one; a cycle is an error.
+//! - A fragment is not analyzed on its own: it is analyzed in each statement
+//!   that uses it, after insertion, and an error there is reported at the
+//!   invocation.
 
 use std::collections::HashMap;
 
 use crate::lex::{Kind, Token, tokenize};
 
-/// Un fragment déclaré.
+/// A declared fragment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FragmentDef {
     pub name: String,
-    /// Qualificatifs, dans l'ordre des arguments.
+    /// Qualifiers, in argument order.
     pub params: Vec<String>,
-    /// SQL du corps, sans la documentation ni les blancs de bord.
+    /// Body SQL, without the documentation or surrounding whitespace.
     pub body: String,
-    /// Commentaires entre l'en-tête et le corps, sans `-- `.
+    /// Comments between the header and the body, without `-- `.
     pub doc: Vec<String>,
-    /// Fichier de définition.
+    /// Definition file.
     pub origin: String,
-    /// Ligne de l'en-tête (1-based).
+    /// Header line (1-based).
     pub line: usize,
 }
 
@@ -53,10 +53,10 @@ fn is_snake(s: &str) -> bool {
         && b.all(|c| matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'_'))
 }
 
-/// En-tête lu : nom et qualificatifs.
+/// Parsed header: name and qualifiers.
 type Header = (String, Vec<String>);
 
-/// `nom` ou `nom(a, b)`.
+/// `name` or `name(a, b)`.
 fn parse_header(payload: &str) -> Result<Header, String> {
     let payload = payload.trim();
     let (name, params) = match payload.split_once('(') {
@@ -65,29 +65,29 @@ fn parse_header(payload: &str) -> Result<Header, String> {
             let inner = rest
                 .trim_end()
                 .strip_suffix(')')
-                .ok_or("`)` manquante après les qualificatifs")?;
+                .ok_or("missing `)` after the qualifiers")?;
             let params: Vec<String> = inner
                 .split(',')
                 .map(|p| p.trim().to_string())
                 .filter(|p| !p.is_empty())
                 .collect();
             if params.is_empty() {
-                return Err("`()` sans qualificatif : écrire `-- fragment: nom`".into());
+                return Err("`()` without qualifier: write `-- fragment: name`".into());
             }
             (n.trim(), params)
         }
     };
     if !is_snake(name) {
         return Err(format!(
-            "nom de fragment invalide : `{name}` (snake_case ASCII attendu)"
+            "invalid fragment name: `{name}` (ASCII snake_case expected)"
         ));
     }
     for (i, p) in params.iter().enumerate() {
         if !is_snake(p) {
-            return Err(format!("qualificatif invalide : `{p}`"));
+            return Err(format!("invalid qualifier: `{p}`"));
         }
         if params[..i].contains(p) {
-            return Err(format!("qualificatif `{p}` déclaré deux fois"));
+            return Err(format!("qualifier `{p}` declared twice"));
         }
     }
     Ok((name.to_string(), params))
@@ -100,8 +100,7 @@ fn header_payload<'a>(src: &'a str, t: &Token) -> Option<&'a str> {
         .strip_prefix("fragment:")
 }
 
-/// Fragments d'un fichier, et les erreurs de format (positionnées
-/// `fichier:ligne`).
+/// Fragments of a file, and the format errors (located as `file:line`).
 pub fn parse_fragment_file(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<String>) {
     let line_of = |offset: usize| text[..offset].matches('\n').count() + 1;
     let (defs, errors) = parse_fragments(text, origin);
@@ -112,8 +111,7 @@ pub fn parse_fragment_file(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<S
     (defs, errors)
 }
 
-/// Erreurs de format d'un fichier de fragments, positionnées dans le texte
-/// (éditeur).
+/// Format errors of a fragment file, located in the text (editor).
 pub fn fragment_file_diagnostics(text: &str) -> Vec<pgweave_diagnostics::Diagnostic> {
     parse_fragments(text, "")
         .1
@@ -138,7 +136,7 @@ fn parse_fragments(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<(usize, S
 
     let mut defs = Vec::new();
     let mut errors = Vec::new();
-    // En-têtes : (index du token, nom, qualificatifs).
+    // Headers: (token index, name, qualifiers).
     let mut headers: Vec<(usize, Result<Header, String>)> = Vec::new();
     for (i, t) in tokens.iter().enumerate() {
         if t.kind == Kind::LineComment
@@ -149,12 +147,12 @@ fn parse_fragments(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<(usize, S
             } else {
                 errors.push((
                     t.range.start,
-                    "un en-tête `-- fragment:` doit commencer la ligne".to_string(),
+                    "a `-- fragment:` header must start the line".to_string(),
                 ));
             }
         }
     }
-    // Du SQL avant le premier en-tête n'appartient à aucun fragment.
+    // SQL before the first header belongs to no fragment.
     let first = headers.first().map_or(tokens.len(), |(i, _)| *i);
     if let Some(t) = tokens[..first].iter().find(|t| {
         !matches!(
@@ -164,7 +162,7 @@ fn parse_fragments(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<(usize, S
     }) {
         errors.push((
             t.range.start,
-            "SQL hors d'un fragment (chaque fragment commence par `-- fragment: nom`)".to_string(),
+            "SQL outside a fragment (each fragment starts with `-- fragment: name`)".to_string(),
         ));
     }
 
@@ -180,7 +178,7 @@ fn parse_fragments(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<(usize, S
         };
         let end = headers.get(k + 1).map_or(tokens.len(), |(i, _)| *i);
         let span = &tokens[hi + 1..end];
-        // Documentation : commentaires de ligne avant le premier token de code.
+        // Documentation: line comments before the first code token.
         let code: Vec<&Token> = span
             .iter()
             .filter(|t| {
@@ -191,7 +189,7 @@ fn parse_fragments(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<(usize, S
             })
             .collect();
         let (Some(first), Some(last)) = (code.first(), code.last()) else {
-            errors.push((at, format!("le fragment `{name}` est vide")));
+            errors.push((at, format!("fragment `{name}` is empty")));
             continue;
         };
         let doc = span
@@ -206,7 +204,7 @@ fn parse_fragments(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<(usize, S
         if &text[last.range.clone()] == ";" {
             errors.push((
                 last.range.start,
-                "un fragment n'est pas un statement : retirer le `;`".to_string(),
+                "a fragment is not a statement: remove the `;`".to_string(),
             ));
             continue;
         }
@@ -222,20 +220,20 @@ fn parse_fragments(text: &str, origin: &str) -> (Vec<FragmentDef>, Vec<(usize, S
     (defs, errors)
 }
 
-/// Qualificatif lié pendant un rendu : relation donnée, ou retirée.
+/// Qualifier bound during rendering: given relation, or removed.
 type Env = HashMap<String, Option<String>>;
 
-/// Une invocation reconnue dans un texte.
+/// An invocation recognized in a text.
 pub(crate) struct Call<'a> {
     pub def: &'a FragmentDef,
-    /// Arguments écrits (identifiants), vide sans parenthèses.
+    /// Written arguments (identifiers), empty without parentheses.
     pub args: Vec<String>,
-    /// Fin de l'invocation (après `)` ou le nom).
+    /// End of the invocation (after `)` or the name).
     pub end: usize,
 }
 
-/// Invocation de fragment qui commence au token `i` (un `@`), s'il y en a
-/// une : `Ok(None)` si ce n'est pas un nom de fragment.
+/// Fragment invocation starting at token `i` (an `@`), if any: `Ok(None)` if
+/// it is not a fragment name.
 pub(crate) fn call_at<'a>(
     src: &str,
     tokens: &[Token],
@@ -264,7 +262,7 @@ pub(crate) fn call_at<'a>(
         let mut expect_arg = true;
         loop {
             let Some(t) = tokens.get(next) else {
-                return Err(format!("@{} : `)` manquante", def.name));
+                return Err(format!("@{}: missing `)`", def.name));
             };
             next += 1;
             let text = &src[t.range.clone()];
@@ -278,7 +276,7 @@ pub(crate) fn call_at<'a>(
                 Kind::Punct if text == ")" && (!expect_arg || args.is_empty()) => break,
                 _ => {
                     return Err(format!(
-                        "@{} : un argument est un nom de relation (alias, table), pas `{text}`",
+                        "@{}: an argument is a relation name (alias, table), not `{text}`",
                         def.name
                     ));
                 }
@@ -288,7 +286,7 @@ pub(crate) fn call_at<'a>(
     let end = tokens[next - 1].range.end;
     if !args.is_empty() && args.len() != def.params.len() {
         return Err(format!(
-            "@{} attend {} qualificatif(s) ({}) ou aucun, {} donné(s)",
+            "@{} expects {} qualifier(s) ({}) or none, {} given",
             def.name,
             def.params.len(),
             def.params.join(", "),
@@ -298,16 +296,16 @@ pub(crate) fn call_at<'a>(
     Ok(Some((Call { def, args, end }, next)))
 }
 
-/// SQL inséré pour `call` : corps qualifié, fragments imbriqués rendus,
-/// parenthésé s'il le faut.
+/// SQL inserted for `call`: qualified body, nested fragments rendered,
+/// parenthesized if needed.
 pub(crate) fn render_call(
     call: &Call,
     env: &Env,
     fragments: &HashMap<String, FragmentDef>,
     stack: &mut Vec<String>,
 ) -> Result<String, String> {
-    // Un argument qui est lui-même un qualificatif du fragment englobant
-    // prend sa valeur.
+    // An argument that is itself a qualifier of the enclosing fragment takes
+    // its value.
     let mut bound: Env = HashMap::new();
     for (i, p) in call.def.params.iter().enumerate() {
         let v = match call.args.get(i) {
@@ -322,13 +320,13 @@ pub(crate) fn render_call(
     let given = bound.values().filter(|v| v.is_some()).count();
     if given != 0 && given != call.def.params.len() {
         return Err(format!(
-            "@{} : qualificatifs en partie retirés, en partie donnés",
+            "@{}: qualifiers partly removed, partly given",
             call.def.name
         ));
     }
     if stack.contains(&call.def.name) {
         return Err(format!(
-            "fragments récursifs : {} → {}",
+            "recursive fragments: {} → {}",
             stack.join(" → "),
             call.def.name
         ));
@@ -361,8 +359,8 @@ fn render_body(
             i = next;
             continue;
         }
-        // `t.` → `e.` ou rien, `t` étant un qualificatif ; jamais après un
-        // `.` (`s.t.col` désigne une table `t` du schéma `s`).
+        // `t.` → `e.` or nothing, `t` being a qualifier; never after a `.`
+        // (`s.t.col` denotes a table `t` of schema `s`).
         let qualifies = t.kind == Kind::Word
             && tokens
                 .get(i + 1)
@@ -382,9 +380,9 @@ fn render_body(
     Ok(out)
 }
 
-/// Le corps est-il une expression unique dont un opérateur voisin pourrait
-/// changer le sens ? Lu par le parser : `SELECT <corps>` à un seul élément
-/// non aliasé, d'une autre nature qu'un atome.
+/// Is the body a single expression whose meaning a neighboring operator could
+/// change? Read by the parser: `SELECT <body>` with a single non-aliased item
+/// that is not an atom.
 fn needs_parens(body: &str) -> bool {
     use pgweave_ast::expr::ExprKind as K;
     let Ok(stmts) = pgweave_parser::parse(&format!("SELECT {body}")) else {
@@ -429,43 +427,43 @@ mod tests {
     }
 
     #[test]
-    fn en_tetes_documentation_et_corps() {
+    fn headers_documentation_and_body() {
         let (defs, errors) = parse_fragment_file(
-            "-- Préambule libre.\n\n\
-             -- fragment: cols(t)\n-- Les colonnes.\nt.a, t.b -- fin\n\n\
-             -- fragment: actif\nstatus = 'actif'\n",
+            "-- Free preamble.\n\n\
+             -- fragment: cols(t)\n-- The columns.\nt.a, t.b -- end\n\n\
+             -- fragment: active\nstatus = 'active'\n",
             "f.sql",
         );
         assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(defs.len(), 2);
         assert_eq!(defs[0].name, "cols");
         assert_eq!(defs[0].params, vec!["t"]);
-        assert_eq!(defs[0].doc, vec!["Les colonnes."]);
+        assert_eq!(defs[0].doc, vec!["The columns."]);
         assert_eq!(defs[0].body, "t.a, t.b");
         assert_eq!(defs[0].line, 3);
-        assert_eq!(defs[1].body, "status = 'actif'");
+        assert_eq!(defs[1].body, "status = 'active'");
     }
 
     #[test]
-    fn erreurs_de_format() {
-        for (src, attendu) in [
-            ("SELECT 1;\n-- fragment: x\na", "hors d'un fragment"),
-            ("-- fragment: X\na", "nom de fragment invalide"),
-            ("-- fragment: x(t, t)\na", "deux fois"),
-            ("-- fragment: x\n", "vide"),
-            ("-- fragment: x\nSELECT 1;", "retirer le `;`"),
-            ("SELECT 1 -- fragment: x\n", "commencer la ligne"),
+    fn format_errors() {
+        for (src, expected) in [
+            ("SELECT 1;\n-- fragment: x\na", "outside a fragment"),
+            ("-- fragment: X\na", "invalid fragment name"),
+            ("-- fragment: x(t, t)\na", "twice"),
+            ("-- fragment: x\n", "empty"),
+            ("-- fragment: x\nSELECT 1;", "remove the `;`"),
+            ("SELECT 1 -- fragment: x\n", "start the line"),
         ] {
             let (_, errors) = parse_fragment_file(src, "f.sql");
             assert!(
-                errors.iter().any(|e| e.contains(attendu)),
-                "{src:?} : {errors:?}"
+                errors.iter().any(|e| e.contains(expected)),
+                "{src:?}: {errors:?}"
             );
         }
     }
 
     #[test]
-    fn qualificatifs_substitues_ou_retires() {
+    fn qualifiers_substituted_or_removed() {
         let f = set("-- fragment: cols(t)\nt.a, t.\"B\", s.t.c, t");
         assert_eq!(
             expand("SELECT @cols(e)", &f).unwrap(),
@@ -476,62 +474,62 @@ mod tests {
             "SELECT a, \"B\", s.t.c, t"
         );
         assert_eq!(
-            expand("SELECT @cols(\"Ma table\")", &f).unwrap(),
-            "SELECT \"Ma table\".a, \"Ma table\".\"B\", s.t.c, t"
+            expand("SELECT @cols(\"My table\")", &f).unwrap(),
+            "SELECT \"My table\".a, \"My table\".\"B\", s.t.c, t"
         );
     }
 
     #[test]
-    fn expression_parenthesee_atome_et_liste_inseres_tels_quels() {
+    fn expression_parenthesized_atom_and_list_inserted_as_is() {
         let f = set("-- fragment: p\na = 1 OR b = 2\n\
-             -- fragment: f(t)\nlower(t.nom)\n\
+             -- fragment: f(t)\nlower(t.name)\n\
              -- fragment: l\na, b\n\
-             -- fragment: alias\nlower(nom) AS n\n\
-             -- fragment: ordre\ncreated_at DESC");
+             -- fragment: alias\nlower(name) AS n\n\
+             -- fragment: ordering\ncreated_at DESC");
         assert_eq!(
             expand("WHERE @p AND c", &f).unwrap(),
             "WHERE (a = 1 OR b = 2) AND c"
         );
-        assert_eq!(expand("@f(x) = 'a'", &f).unwrap(), "lower(x.nom) = 'a'");
+        assert_eq!(expand("@f(x) = 'a'", &f).unwrap(), "lower(x.name) = 'a'");
         assert_eq!(expand("SELECT @l", &f).unwrap(), "SELECT a, b");
         assert_eq!(
             expand("SELECT @alias", &f).unwrap(),
-            "SELECT lower(nom) AS n"
+            "SELECT lower(name) AS n"
         );
         assert_eq!(
-            expand("ORDER BY @ordre", &f).unwrap(),
+            expand("ORDER BY @ordering", &f).unwrap(),
             "ORDER BY created_at DESC"
         );
     }
 
     #[test]
-    fn imbrication_et_cycle() {
+    fn nesting_and_cycle() {
         let f = set("-- fragment: inner(u)\nu.a\n\
              -- fragment: outer(t)\n@inner(t), t.b\n\
              -- fragment: x\n@y\n-- fragment: y\n@x");
         assert_eq!(expand("SELECT @outer(e)", &f).unwrap(), "SELECT e.a, e.b");
         assert_eq!(expand("SELECT @outer", &f).unwrap(), "SELECT a, b");
         let e = expand("SELECT @x", &f).unwrap_err();
-        assert!(e.contains("récursifs"), "{e}");
+        assert!(e.contains("recursive"), "{e}");
     }
 
     #[test]
-    fn arobase_hors_fragment_inchange() {
+    fn at_sign_outside_fragment_unchanged() {
         let f = set("-- fragment: cols\na");
-        // Valeur absolue, nom inconnu, chaîne, identifiant quoté.
+        // Absolute value, unknown name, string, quoted identifier.
         let src = "SELECT @ -5, @x, '@cols', \"@cols\"";
         assert_eq!(expand(src, &f).unwrap(), src);
     }
 
     #[test]
-    fn arguments_verifies() {
+    fn arguments_checked() {
         let f = set("-- fragment: j(a, b)\na.x = b.x");
-        assert!(expand("@j(e)", &f).unwrap_err().contains("attend 2"));
+        assert!(expand("@j(e)", &f).unwrap_err().contains("expects 2"));
         assert!(
             expand("@j(e, 1)", &f)
                 .unwrap_err()
-                .contains("nom de relation")
+                .contains("relation name")
         );
-        assert!(expand("@j(e", &f).unwrap_err().contains("manquante"));
+        assert!(expand("@j(e", &f).unwrap_err().contains("missing"));
     }
 }

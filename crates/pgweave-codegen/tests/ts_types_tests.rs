@@ -19,15 +19,15 @@ fn generates_interface_for_returns_table() {
         "expected ProjectSummaryRow interface, got:\n{}",
         ts
     );
-    // Une colonne de résultat de fonction peut être nulle ; `numeric` est
-    // rendu en chaîne par node-postgres.
+    // A function result column may be null; `numeric` is rendered as a
+    // string by node-postgres.
     for field in [
         "project_id: string | null;",
         "project_name: string | null;",
         "total_tasks: number | null;",
         "completion_rate: string | null;",
     ] {
-        assert!(ts.contains(field), "{field} attendu :\n{ts}");
+        assert!(ts.contains(field), "{field} expected:\n{ts}");
     }
 }
 
@@ -46,14 +46,14 @@ fn generates_interface_for_named_query() {
         "expected UserRecord interface, got:\n{}",
         ts
     );
-    // Nullabilité de la colonne : NOT NULL (et clé primaire) ou non.
+    // Column nullability: NOT NULL (and primary key) or not.
     for field in ["id: string;", "email: string;", "active: boolean | null;"] {
-        assert!(ts.contains(field), "{field} attendu :\n{ts}");
+        assert!(ts.contains(field), "{field} expected:\n{ts}");
     }
 }
 
 #[test]
-fn une_requete_invalide_n_est_pas_devinee() {
+fn an_invalid_query_is_not_guessed() {
     let sql = "
         CREATE TABLE users (id UUID PRIMARY KEY);
 
@@ -62,14 +62,14 @@ fn une_requete_invalide_n_est_pas_devinee() {
     ";
     let ts = generate_ts_types_from_sql(sql);
     assert!(
-        ts.contains("// Broken: non typée (column \"nope\" does not exist)"),
+        ts.contains("// Broken: untyped (column \"nope\" does not exist)"),
         "{ts}"
     );
     assert!(!ts.contains("export interface Broken"), "{ts}");
 }
 
 #[test]
-fn enums_et_tableaux() {
+fn enums_and_arrays() {
     let sql = "
         CREATE TYPE mood AS ENUM ('sad', 'ok');
         CREATE TABLE t (m mood NOT NULL, tags text[] NOT NULL, n bigint NOT NULL);
@@ -79,7 +79,7 @@ fn enums_et_tableaux() {
     ";
     let ts = generate_ts_types_from_sql(sql);
     for field in ["m: 'sad' | 'ok';", "tags: (string | null)[];", "n: string;"] {
-        assert!(ts.contains(field), "{field} attendu :\n{ts}");
+        assert!(ts.contains(field), "{field} expected:\n{ts}");
     }
 }
 

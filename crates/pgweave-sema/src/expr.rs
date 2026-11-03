@@ -1,6 +1,6 @@
-//! Typage des expressions (`parse_expr.c`) : chaque expression reçoit un type
-//! et une nullabilité ; les paramètres reçoivent le type que leur premier
-//! usage leur impose, comme dans PostgreSQL.
+//! Expression typing (`parse_expr.c`): each expression gets a type and a
+//! nullability; parameters get the type their first use imposes on them,
+//! as in PostgreSQL.
 
 use pgweave_ast::expr::{BinaryOp, Expr, ExprKind, Literal, ObjectName, UnaryOp};
 use pgweave_ast::types::DataType;
@@ -14,7 +14,7 @@ use crate::routine::{Language, Routine, VarRef, VarTy};
 use crate::scope::{Nullability, Scope, SemaError};
 use crate::types::{Ty, TypeSystem, pg};
 
-/// Type et nullabilité d'une expression.
+/// Type and nullability of an expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Typed {
     pub ty: Ty,
@@ -27,37 +27,37 @@ impl Typed {
     }
 }
 
-/// Paramètre de la requête : `$1`… ou `$nom` (D6), dans l'ordre.
+/// Query parameter: `$1`… or `$name` (D6), in order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: String,
-    /// `None` tant qu'aucun usage n'a fixé son type.
+    /// `None` as long as no use has fixed its type.
     pub ty: Option<Ty>,
-    /// NULL accepté ? Établi quand le paramètre est affecté à une colonne
-    /// (celle-ci est `NOT NULL` ou non) ; inconnu sinon.
+    /// NULL accepted? Established when the parameter is assigned to a column
+    /// (which is `NOT NULL` or not); unknown otherwise.
     pub nullable: Nullability,
 }
 
-/// Analyseur d'un statement : système de types, chemin de recherche,
-/// paramètres rencontrés, CTE visibles.
+/// Analyzer of a statement: type system, search path, parameters
+/// encountered, visible CTEs.
 pub struct Analyzer<'c> {
     pub ts: TypeSystem<'c>,
     pub path: SearchPath,
     pub params: Vec<Param>,
-    /// CTE visibles, la plus récente en dernier.
+    /// Visible CTEs, the most recent last.
     pub(crate) ctes: Vec<(String, Vec<crate::scope::Column>)>,
-    /// Routine dont le corps est analysé : ses paramètres et variables.
+    /// Routine whose body is being analyzed: its parameters and variables.
     pub routine: Option<Routine>,
-    /// Références résolues vers une variable de la routine : position de
-    /// l'expression et type de la valeur (ce que PostgreSQL passe en
-    /// paramètre à la requête).
+    /// References resolved to a routine variable: position of the
+    /// expression and type of the value (what PostgreSQL passes as a
+    /// parameter to the query).
     pub var_refs: Vec<(Span, Ty)>,
-    /// Références de colonne (ou de variable) résolues, avec leur type et
-    /// leur nullabilité : ce que désigne chaque nom de la requête.
+    /// Resolved column (or variable) references, with their type and
+    /// nullability: what each name of the query designates.
     pub column_refs: Vec<(Span, Typed)>,
 }
 
-/// Nom d'opérateur PostgreSQL d'un opérateur binaire de l'AST.
+/// PostgreSQL operator name of an AST binary operator.
 fn operator_name(op: &BinaryOp) -> Option<&str> {
     Some(match op {
         BinaryOp::Eq => "=",
@@ -80,14 +80,14 @@ fn operator_name(op: &BinaryOp) -> Option<&str> {
     })
 }
 
-/// Ce qu'on cherchait à résoudre, pour le message d'erreur.
+/// What we were trying to resolve, for the error message.
 enum Subject<'a> {
     Operator(&'a str, Option<&'a Ty>, &'a Ty),
     Function(&'a str, &'a [Ty]),
     Other(String),
 }
 
-/// Nom d'un type comme `format_type` l'affiche (`integer`, `text[]`…).
+/// Name of a type as `format_type` displays it (`integer`, `text[]`…).
 pub(crate) fn format_type(ty: &Ty) -> String {
     if ty.schema != "pg_catalog" {
         return ty.name.clone();
@@ -114,7 +114,7 @@ pub(crate) fn format_type(ty: &Ty) -> String {
     .to_string()
 }
 
-/// Erreur de résolution, avec les messages de PostgreSQL (`parse_oper.c`,
+/// Resolution error, with PostgreSQL's messages (`parse_oper.c`,
 /// `parse_func.c`).
 fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
     const CAST: &str = "You might need to add explicit type casts.";
@@ -175,8 +175,8 @@ fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
     }
 }
 
-/// Colonne désignée par `c` dans la portée de requête, ou ligne entière
-/// d'une source nommée `c`.
+/// Column designated by `c` in the query scope, or whole row of a
+/// source named `c`.
 fn column_ref(
     c: &pgweave_ast::expr::ColumnRef,
     scope: &Scope,
@@ -184,7 +184,7 @@ fn column_ref(
 ) -> Result<Typed, SemaError> {
     let col = match scope.lookup_ref(c, span) {
         Ok(col) => col,
-        // Nom d'une source : la ligne entière, de son type ligne.
+        // Name of a source: the whole row, of its row type.
         Err(e) if e.code == "column-not-found" && c.table.is_none() => {
             return match scope.whole_row(&c.column.value) {
                 Some(ty) => Ok(Typed::new(ty, Nullability::Unknown)),
@@ -193,9 +193,10 @@ fn column_ref(
         }
         Err(e) => return Err(e),
     };
-    let ty = col.ty.clone().ok_or_else(|| {
-        SemaError::not_analyzed(format!("type de la colonne « {} »", col.name), span)
-    })?;
+    let ty = col
+        .ty
+        .clone()
+        .ok_or_else(|| SemaError::not_analyzed(format!("type of column \"{}\"", col.name), span))?;
     Ok(Typed::new(ty, col.nullable))
 }
 
@@ -208,8 +209,8 @@ fn emit_column_ref(c: &pgweave_ast::expr::ColumnRef) -> String {
         .join(".")
 }
 
-/// Type d'un littéral numérique (`make_const`) : entier sur 4 puis 8
-/// octets, sinon `numeric`.
+/// Type of a numeric literal (`make_const`): integer on 4 then 8
+/// bytes, otherwise `numeric`.
 fn number_type(n: &str) -> Ty {
     if n.contains(['.', 'e', 'E']) {
         return pg("numeric");
@@ -237,7 +238,7 @@ impl<'c> Analyzer<'c> {
         }
     }
 
-    /// Indice du paramètre `$n` ou `$nom`.
+    /// Index of the parameter `$n` or `$name`.
     fn param_index(&mut self, name: &str) -> usize {
         if let Some(n) = name.strip_prefix('$').and_then(|d| d.parse::<usize>().ok())
             && n >= 1
@@ -265,10 +266,10 @@ impl<'c> Analyzer<'c> {
         }
     }
 
-    /// Fixe le type d'un paramètre pas encore typé (`coerce_type` d'un
-    /// paramètre inconnu vers sa cible).
-    /// Le paramètre `e` (s'il en est un) est affecté à une valeur de cette
-    /// nullabilité : une colonne `NOT NULL` le refuse nul.
+    /// Fixes the type of a not-yet-typed parameter (`coerce_type` of an
+    /// unknown parameter towards its target).
+    /// The parameter `e` (if it is one) is assigned a value of this
+    /// nullability: a `NOT NULL` column refuses it as null.
     pub(crate) fn param_nullability(&mut self, e: &Expr, n: Nullability) {
         let mut e = e;
         while let ExprKind::Collate { expr, .. } | ExprKind::Cast { expr, .. } = &e.kind {
@@ -297,7 +298,7 @@ impl<'c> Analyzer<'c> {
         }
     }
 
-    /// Type écrit (`CAST`, `::`).
+    /// Written type (`CAST`, `::`).
     pub fn data_type(&self, dt: &DataType, span: Span) -> Result<Ty, SemaError> {
         let builtin = match dt {
             DataType::SmallInt => "int2",
@@ -356,7 +357,7 @@ impl<'c> Analyzer<'c> {
         Ok(pg(builtin))
     }
 
-    /// Expression attendue booléenne (`WHERE`, `AND`…).
+    /// Expression expected to be boolean (`WHERE`, `AND`…).
     pub(crate) fn boolean(&mut self, e: &Expr, scope: &Scope) -> Result<Typed, SemaError> {
         let t = self.expr(e, scope)?;
         self.coerce_to(e, &pg("bool"));
@@ -380,8 +381,8 @@ impl<'c> Analyzer<'c> {
         Ok(Typed::new(pg("bool"), t.nullable))
     }
 
-    /// Type d'une entrée de résolution : un paramètre non typé compte comme
-    /// littéral `unknown`.
+    /// Type of a resolution input: an untyped parameter counts as an
+    /// `unknown` literal.
     pub fn expr(&mut self, e: &Expr, scope: &Scope) -> Result<Typed, SemaError> {
         let span = e.span;
         match &e.kind {
@@ -453,7 +454,7 @@ impl<'c> Analyzer<'c> {
             }
             ExprKind::InSubquery { expr, subquery, .. } => {
                 let cols = self.subquery(subquery, scope)?;
-                // `(a, b) IN (SELECT x, y …)` : comparaison ligne à ligne
+                // `(a, b) IN (SELECT x, y …)`: row-by-row comparison
                 // (`make_row_comparison_op`).
                 if let ExprKind::Tuple(items) = &expr.kind {
                     if items.len() != cols.len() {
@@ -523,7 +524,7 @@ impl<'c> Analyzer<'c> {
                 self.coerce_to(time_zone, &call.arg_types[0]);
                 self.coerce_to(timestamp, &call.arg_types[1]);
                 Ok(Typed::new(
-                    call.returns.expect("timezone renvoie une valeur"),
+                    call.returns.expect("timezone returns a value"),
                     Nullability::strict([z.nullable, t.nullable]),
                 ))
             }
@@ -535,15 +536,15 @@ impl<'c> Analyzer<'c> {
             }
             ExprKind::FieldAccess { root, path } => self.field_access(root, path, scope, span),
             ExprKind::NamedArgument { .. } => Err(SemaError::not_analyzed(
-                "argument nommé hors d'un appel",
+                "named argument outside a call",
                 span,
             )),
             ExprKind::Wildcard | ExprKind::QualifiedWildcard(_) => {
-                Err(SemaError::not_analyzed("`*` dans une expression", span))
+                Err(SemaError::not_analyzed("`*` in an expression", span))
             }
             ExprKind::GroupingSets { .. } => Err(SemaError::new(
                 "type-mismatch",
-                "ROLLUP, CUBE et GROUPING SETS ne s'écrivent que dans GROUP BY",
+                "ROLLUP, CUBE and GROUPING SETS are only allowed in GROUP BY",
                 span,
             )),
             ExprKind::Unsupported(what) => Err(SemaError::not_analyzed(what, span)),
@@ -558,7 +559,7 @@ impl<'c> Analyzer<'c> {
         span: Span,
     ) -> Result<Typed, SemaError> {
         let target = self.data_type(dt, span)?;
-        // `ARRAY[]::int[]` : le tableau vide prend le type de la cible.
+        // `ARRAY[]::int[]`: the empty array takes the type of the target.
         if is_array_constructor(inner).is_some_and(|args| args.is_empty()) {
             return Ok(Typed::new(target, Nullability::NonNull));
         }
@@ -581,7 +582,7 @@ impl<'c> Analyzer<'c> {
         Ok(Typed::new(target, t.nullable))
     }
 
-    /// `left op right`, ou `op right` sans `left`.
+    /// `left op right`, or `op right` without `left`.
     pub(crate) fn operator(
         &mut self,
         name: &str,
@@ -605,10 +606,10 @@ impl<'c> Analyzer<'c> {
         if let Some(le) = left {
             self.coerce_to(le, &call.arg_types[0]);
         }
-        self.coerce_to(right, call.arg_types.last().expect("un opérande"));
+        self.coerce_to(right, call.arg_types.last().expect("one operand"));
         let inputs = l.iter().chain(Some(&r)).map(|t| t.nullable);
         Ok(Typed::new(
-            call.returns.expect("un opérateur a un résultat"),
+            call.returns.expect("an operator has a result"),
             Nullability::strict(inputs),
         ))
     }
@@ -621,7 +622,7 @@ impl<'c> Analyzer<'c> {
         scope: &Scope,
         span: Span,
     ) -> Result<Typed, SemaError> {
-        // Comparaison de lignes : opérateur résolu paire par paire
+        // Row comparison: operator resolved pair by pair
         // (`make_row_comparison_op`).
         if let (ExprKind::Tuple(ls), ExprKind::Tuple(rs)) = (&left.kind, &right.kind)
             && let Some(name) =
@@ -666,14 +667,14 @@ impl<'c> Analyzer<'c> {
                 Ok(Typed::new(pg("bool"), t.nullable))
             }
             other => {
-                let name = operator_name(other).expect("opérateur nommé");
+                let name = operator_name(other).expect("named operator");
                 self.operator(name, Some(left), right, scope, span)
             }
         }
     }
 
-    /// `x IN (a, b…)` (`transformAExprIn`) : type commun de `x` et de la
-    /// liste, sinon une égalité par élément.
+    /// `x IN (a, b…)` (`transformAExprIn`): common type of `x` and of the
+    /// list, otherwise one equality per element.
     fn in_list(&mut self, expr: &Expr, list: &[Expr], scope: &Scope) -> Result<Typed, SemaError> {
         let l = self.expr(expr, scope)?;
         let mut types = vec![l.ty.clone()];
@@ -704,7 +705,7 @@ impl<'c> Analyzer<'c> {
         Ok(Typed::new(pg("bool"), Nullability::strict(nulls)))
     }
 
-    /// `left op ANY (tableau)` (`make_scalar_array_op`).
+    /// `left op ANY (array)` (`make_scalar_array_op`).
     fn quantified(
         &mut self,
         left: &Expr,
@@ -714,7 +715,7 @@ impl<'c> Analyzer<'c> {
         span: Span,
     ) -> Result<Typed, SemaError> {
         let name = operator_name(op)
-            .ok_or_else(|| SemaError::not_analyzed("opérateur quantifié", span))?;
+            .ok_or_else(|| SemaError::not_analyzed("quantified operator", span))?;
         let l = self.expr(left, scope)?;
         let (elem, from_subquery) = match &right.kind {
             ExprKind::Subquery(q) => {
@@ -756,8 +757,8 @@ impl<'c> Analyzer<'c> {
         Ok(Typed::new(pg("bool"), Nullability::Unknown))
     }
 
-    /// `CASE` : type commun des résultats, `ELSE` en tête comme dans
-    /// PostgreSQL (`ELSE NULL` implicite).
+    /// `CASE`: common type of the results, `ELSE` first as in
+    /// PostgreSQL (implicit `ELSE NULL`).
     fn case(
         &mut self,
         operand: Option<&Expr>,
@@ -847,23 +848,23 @@ impl<'c> Analyzer<'c> {
                     ));
                 }
             } else {
-                return Err(SemaError::not_analyzed(format!("accès « {step} »"), span));
+                return Err(SemaError::not_analyzed(format!("access \"{step}\""), span));
             }
         }
         Ok(t)
     }
 
-    /// Type d'un attribut de type composite (type ligne d'une table compris).
-    /// Colonne de la portée de requête ou, dans un corps de routine,
-    /// variable désignée par `c` (voir [`crate::routine`]).
+    /// Type of an attribute of a composite type (row type of a table included).
+    /// Column of the query scope or, in a routine body, variable
+    /// designated by `c` (see [`crate::routine`]).
     fn column(
         &mut self,
         c: &pgweave_ast::expr::ColumnRef,
         scope: &Scope,
         span: Span,
     ) -> Result<Typed, SemaError> {
-        // `DEFAULT` n'est une valeur qu'affectée à une colonne (`VALUES` d'un
-        // INSERT, `SET`), traitée avant d'arriver ici (`SetToDefault`).
+        // `DEFAULT` is only a value when assigned to a column (`VALUES` of an
+        // INSERT, `SET`), handled before reaching here (`SetToDefault`).
         if c.schema.is_none()
             && c.table.is_none()
             && !c.column.quoted
@@ -898,8 +899,8 @@ impl<'c> Analyzer<'c> {
                     self.var_refs.push((span, t.ty.clone()));
                     Ok(t)
                 }
-                // Expression PL/pgSQL sans `FROM` : le nom ne peut
-                // désigner qu'une variable.
+                // PL/pgSQL expression without `FROM`: the name can only
+                // designate a variable.
                 None if routine.language == Language::Plpgsql
                     && e.code == "column-not-found"
                     && c.table.is_none()
@@ -933,8 +934,8 @@ impl<'c> Analyzer<'c> {
         }
     }
 
-    /// Valeur d'une variable de routine ou d'un de ses champs. Une
-    /// variable n'est jamais affirmée non nulle.
+    /// Value of a routine variable or of one of its fields. A
+    /// variable is never asserted non-null.
     pub(crate) fn variable(&self, v: VarRef, span: Span) -> Result<Typed, SemaError> {
         let unknown = |why: &str| SemaError::not_analyzed(why.to_string(), span);
         let ty = match v {
@@ -943,7 +944,7 @@ impl<'c> Analyzer<'c> {
                 VarTy::Record(Some(_)) => pg("record"),
                 VarTy::Record(None) => {
                     return Err(unknown(&format!(
-                        "structure du record « {} », non affecté à ce point",
+                        "structure of record \"{}\", not assigned at this point",
                         var.name
                     )));
                 }
@@ -957,13 +958,13 @@ impl<'c> Analyzer<'c> {
                     }
                     VarTy::Record(Some(cols)) => match cols.iter().find(|c| c.name == field) {
                         Some(c) => Some(c.ty.clone().ok_or_else(|| {
-                            unknown(&format!("type du champ « {}.{field} »", var.name))
+                            unknown(&format!("type of field \"{}.{field}\"", var.name))
                         })?),
                         None => None,
                     },
                     VarTy::Record(None) => {
                         return Err(unknown(&format!(
-                            "structure du record « {} », non affecté à ce point",
+                            "structure of record \"{}\", not assigned at this point",
                             var.name
                         )));
                     }
@@ -971,8 +972,8 @@ impl<'c> Analyzer<'c> {
                     VarTy::Scalar(_) => None,
                 };
                 found.ok_or_else(|| {
-                    // Le type de la ligne est nommé : pour NEW et OLD, c'est
-                    // la table du trigger.
+                    // The row type is named: for NEW and OLD, it is
+                    // the trigger's table.
                     let of = match &var.ty {
                         VarTy::Row(t) => format!(" (type {})", t.name),
                         _ => String::new(),
@@ -988,7 +989,7 @@ impl<'c> Analyzer<'c> {
         Ok(Typed::new(ty, Nullability::Unknown))
     }
 
-    /// `$n` dans un corps de routine : le n-ième paramètre.
+    /// `$n` in a routine body: the n-th parameter.
     fn routine_parameter(&mut self, name: &str, span: Span) -> Result<Typed, SemaError> {
         let n = name
             .strip_prefix('$')
@@ -1040,7 +1041,7 @@ impl<'c> Analyzer<'c> {
             ..
         } = &e.kind
         else {
-            unreachable!("appel de fonction attendu")
+            unreachable!("function call expected")
         };
         let span = e.span;
         for o in order_by.iter().chain(within_group) {
@@ -1056,7 +1057,7 @@ impl<'c> Analyzer<'c> {
                 self.expr(x, scope)?;
             }
         }
-        // `ROW(a, b)` : constructeur de ligne, comme `(a, b)`.
+        // `ROW(a, b)`: row constructor, like `(a, b)`.
         if name.0.len() == 1 && name.0[0].value == "row" && !name.0[0].quoted {
             for a in args {
                 self.expr(a, scope)?;
@@ -1080,8 +1081,8 @@ impl<'c> Analyzer<'c> {
                             span,
                         ));
                     };
-                    // Résultat : le type du premier argument après résolution
-                    // de `=` (`transformNullIfExpr`).
+                    // Result: the type of the first argument after resolving
+                    // `=` (`transformNullIfExpr`).
                     self.operator("=", Some(a), b, scope, span)?;
                     let l = self.expr(a, scope)?;
                     let ty = if l.ty == pg("unknown") {
@@ -1093,23 +1094,23 @@ impl<'c> Analyzer<'c> {
                 }
                 _ => {}
             }
-            // `grouping(a, b)` : construction de la grammaire (`GroupingFunc`),
-            // masque de bits `int4`.
+            // `grouping(a, b)`: a grammar construct (`GroupingFunc`),
+            // `int4` bit mask.
             if fname == "grouping" {
                 for a in args {
                     self.expr(a, scope)?;
                 }
                 return Ok(Typed::new(pg("int4"), Nullability::NonNull));
             }
-            // Fonctions SQL sans parenthèses (`SQLValueFunction`), de type fixe.
+            // SQL functions without parentheses (`SQLValueFunction`), of fixed type.
             if args.is_empty()
                 && let Some((ty, nullable)) = sql_value_function(fname)
             {
                 return Ok(Typed::new(pg(ty), nullable));
             }
         }
-        // `count(*)` : appel sans argument. Agrégat d'ensemble ordonné : les
-        // expressions de `WITHIN GROUP` suivent les arguments directs.
+        // `count(*)`: call without arguments. Ordered-set aggregate: the
+        // `WITHIN GROUP` expressions follow the direct arguments.
         let args: Vec<&Expr> = match args.as_slice() {
             [a] if matches!(a.kind, ExprKind::Wildcard) => Vec::new(),
             _ => args
@@ -1117,7 +1118,7 @@ impl<'c> Analyzer<'c> {
                 .chain(within_group.iter().map(|o| &o.expr))
                 .collect(),
         };
-        // Arguments nommés (`nom => valeur`) : la valeur, et son nom.
+        // Named arguments (`name => value`): the value, and its name.
         let mut names: Vec<Option<String>> = Vec::with_capacity(args.len());
         let args: Vec<&Expr> = args
             .into_iter()
@@ -1160,7 +1161,7 @@ impl<'c> Analyzer<'c> {
         Ok(Typed::new(ty, nullable))
     }
 
-    /// `COALESCE`, `GREATEST`, `LEAST` : type commun des arguments.
+    /// `COALESCE`, `GREATEST`, `LEAST`: common type of the arguments.
     fn common_of(
         &mut self,
         args: &[Expr],
@@ -1197,8 +1198,8 @@ impl<'c> Analyzer<'c> {
         Ok(Typed::new(common, nullable))
     }
 
-    /// `ARRAY[…]` : tableau du type commun des éléments ; des éléments
-    /// tableaux donnent un tableau à plusieurs dimensions du même type.
+    /// `ARRAY[…]`: array of the common type of the elements; array
+    /// elements give a multidimensional array of the same type.
     fn array_constructor(
         &mut self,
         elems: &[Expr],
@@ -1249,7 +1250,7 @@ impl<'c> Analyzer<'c> {
     }
 }
 
-/// Type et nullabilité des fonctions SQL sans parenthèses (`SQLValueFunction`).
+/// Type and nullability of SQL functions without parentheses (`SQLValueFunction`).
 fn sql_value_function(name: &str) -> Option<(&'static str, Nullability)> {
     Some(match name {
         "current_date" => ("date", Nullability::NonNull),
@@ -1260,13 +1261,13 @@ fn sql_value_function(name: &str) -> Option<(&'static str, Nullability)> {
         "current_role" | "current_user" | "user" | "session_user" | "current_catalog" => {
             ("name", Nullability::NonNull)
         }
-        // NULL si aucun schéma du chemin n'existe.
+        // NULL if no schema of the path exists.
         "current_schema" => ("name", Nullability::Nullable),
         _ => return None,
     })
 }
 
-/// Éléments d'un constructeur `ARRAY[…]` (appel non quoté à `array`).
+/// Elements of an `ARRAY[…]` constructor (unquoted call to `array`).
 fn is_array_constructor(e: &Expr) -> Option<&[Expr]> {
     match &e.kind {
         ExprKind::FunctionCall { name, args, .. }
@@ -1286,7 +1287,7 @@ pub(crate) fn split_name(name: &ObjectName) -> (Option<&str>, &str) {
     }
 }
 
-/// `[a:b]` : tranche, à distinguer de `['a:b']`.
+/// `[a:b]`: slice, as opposed to `['a:b']`.
 fn has_top_level_colon(step: &str) -> bool {
     let mut quoted = false;
     for c in step.chars() {

@@ -1,5 +1,5 @@
--- Objets du schéma : domaines, composites, enums, vues, schémas, colonnes
--- générées et identity, fonctions du projet, extension citext.
+-- Schema objects: domains, composites, enums, views, schemas, generated
+-- and identity columns, project functions, citext extension.
 
 -- name: domain_columns
 SELECT login, balance, balance + 1, login || '!', upper(login) FROM accounts;

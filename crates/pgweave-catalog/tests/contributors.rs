@@ -1,6 +1,6 @@
-//! Contributeurs du contexte global (PLAN.md, D9) vus depuis un projet :
-//! extension manquante suggérée, en-têtes de migration confrontés à l'état
-//! rejoué, migrations sans en-tête signalées une fois.
+//! Global context contributors (PLAN.md, D9) seen from a project: missing
+//! extension suggested, migration headers checked against the replayed
+//! state, migrations without a header reported once.
 
 use std::path::PathBuf;
 
@@ -27,7 +27,7 @@ fn codes_of(p: &ProjectCatalog) -> Vec<(&str, &'static str)> {
 }
 
 #[test]
-fn un_type_d_extension_non_activee_est_suggere() {
+fn type_of_non_enabled_extension_is_suggested() {
     let p = ProjectCatalog::from_chunks(&[migration(1, "CREATE TABLE t (email citext);")]);
     let d = p
         .diagnostics
@@ -45,13 +45,13 @@ fn un_type_d_extension_non_activee_est_suggere() {
 }
 
 #[test]
-fn en_tetes_confrontes_a_l_etat_rejoue() {
+fn headers_checked_against_replayed_state() {
     let p = ProjectCatalog::from_chunks(&[
         migration(
             1,
             "-- pgweave: postgres=18 extensions=citext@1.8\nCREATE EXTENSION citext;",
         ),
-        // Annonce une extension jamais créée, et oublie citext.
+        // Declares an extension never created, and forgets citext.
         migration(
             2,
             "-- pgweave: postgres=18 extensions=btree_gist@1.8\nSELECT 1;",
@@ -75,7 +75,7 @@ fn en_tetes_confrontes_a_l_etat_rejoue() {
 }
 
 #[test]
-fn migrations_sans_en_tete_signalees_une_fois() {
+fn migrations_without_header_reported_once() {
     let p = ProjectCatalog::from_chunks(&[
         migration(1, "CREATE TABLE a (id INT);"),
         migration(2, "CREATE TABLE b (id INT);"),

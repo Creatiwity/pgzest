@@ -1,30 +1,30 @@
-//! En-tête de migration (PLAN.md, D9) : le contexte global contre lequel une
-//! migration a été générée et vérifiée.
+//! Migration header (PLAN.md, D9): the global context against which a
+//! migration was generated and checked.
 //!
 //! ```sql
 //! -- pgweave: postgres=18 extensions=btree_gist@1.7,citext@1.6
 //! ```
 //!
-//! Il se place parmi les lignes de tête du fichier (commentaires et lignes
-//! vides), avant le premier statement. `postgres` est obligatoire,
-//! `extensions` facultatif ; chaque extension porte sa version. Toute autre
-//! forme est une erreur : un en-tête mal lu ferait analyser la migration
-//! contre un autre contexte que celui annoncé.
+//! It goes among the leading lines of the file (comments and blank lines),
+//! before the first statement. `postgres` is required, `extensions` optional;
+//! each extension carries its version. Any other form is an error: a misread
+//! header would analyze the migration against a context other than the
+//! announced one.
 
 use std::fmt;
 use std::ops::Range;
 
-/// Préfixe d'une ligne d'en-tête. Distinct des directives
-/// (`-- pgweave-disable…`), qui n'ont pas de `:`.
+/// Prefix of a header line. Distinct from directives (`-- pgweave-disable…`),
+/// which have no `:`.
 const PREFIX: &str = "-- pgweave:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationHeader {
-    /// Version majeure de PostgreSQL.
+    /// PostgreSQL major version.
     pub postgres: u32,
-    /// Extensions actives, dans l'ordre écrit.
+    /// Active extensions, in written order.
     pub extensions: Vec<ExtensionRef>,
-    /// Position de la ligne dans le fichier (octets, sans le saut de ligne).
+    /// Position of the line in the file (bytes, without the line break).
     pub span: Range<usize>,
 }
 
@@ -41,8 +41,8 @@ pub struct HeaderError {
 }
 
 impl MigrationHeader {
-    /// En-tête d'un fichier : `None` s'il n'en a pas, une erreur s'il est
-    /// mal formé, dupliqué ou placé après le premier statement.
+    /// Header of a file: `None` if it has none, an error if it is malformed,
+    /// duplicated or placed after the first statement.
     pub fn find(text: &str) -> Option<Result<MigrationHeader, HeaderError>> {
         let mut found: Option<MigrationHeader> = None;
         let mut in_head = true;
@@ -61,13 +61,13 @@ impl MigrationHeader {
             }
             if !in_head {
                 return Some(Err(HeaderError {
-                    message: "l'en-tête `-- pgweave:` doit précéder le premier statement".into(),
+                    message: "the `-- pgweave:` header must precede the first statement".into(),
                     span,
                 }));
             }
             if found.is_some() {
                 return Some(Err(HeaderError {
-                    message: "en-tête `-- pgweave:` en double".into(),
+                    message: "duplicate `-- pgweave:` header".into(),
                     span,
                 }));
             }
@@ -91,27 +91,27 @@ fn parse_fields(fields: &str) -> Result<(u32, Vec<ExtensionRef>), String> {
     let mut extensions: Option<Vec<ExtensionRef>> = None;
     for field in fields.split_whitespace() {
         let Some((key, value)) = field.split_once('=') else {
-            return Err(format!("champ `{field}` : `clé=valeur` attendu"));
+            return Err(format!("field `{field}`: expected `key=value`"));
         };
         match key {
             "postgres" => {
                 if postgres.is_some() {
-                    return Err("`postgres` en double".into());
+                    return Err("duplicate `postgres`".into());
                 }
                 postgres = Some(value.parse::<u32>().map_err(|_| {
-                    format!("`postgres={value}` : version majeure attendue (ex. `postgres=18`)")
+                    format!("`postgres={value}`: expected a major version (e.g. `postgres=18`)")
                 })?);
             }
             "extensions" => {
                 if extensions.is_some() {
-                    return Err("`extensions` en double".into());
+                    return Err("duplicate `extensions`".into());
                 }
                 extensions = Some(parse_extensions(value)?);
             }
-            other => return Err(format!("champ inconnu `{other}`")),
+            other => return Err(format!("unknown field `{other}`")),
         }
     }
-    let postgres = postgres.ok_or("champ `postgres` manquant")?;
+    let postgres = postgres.ok_or("missing `postgres` field")?;
     Ok((postgres, extensions.unwrap_or_default()))
 }
 
@@ -119,13 +119,13 @@ fn parse_extensions(value: &str) -> Result<Vec<ExtensionRef>, String> {
     let mut out: Vec<ExtensionRef> = Vec::new();
     for item in value.split(',') {
         let Some((name, version)) = item.split_once('@') else {
-            return Err(format!("extension `{item}` : `nom@version` attendu"));
+            return Err(format!("extension `{item}`: expected `name@version`"));
         };
         if name.is_empty() || version.is_empty() {
-            return Err(format!("extension `{item}` : `nom@version` attendu"));
+            return Err(format!("extension `{item}`: expected `name@version`"));
         }
         if out.iter().any(|e| e.name == name) {
-            return Err(format!("extension `{name}` en double"));
+            return Err(format!("duplicate extension `{name}`"));
         }
         out.push(ExtensionRef {
             name: name.to_string(),
@@ -135,8 +135,8 @@ fn parse_extensions(value: &str) -> Result<Vec<ExtensionRef>, String> {
     Ok(out)
 }
 
-/// Ligne d'en-tête, extensions triées par nom : la même entrée donne
-/// toujours le même texte.
+/// Header line, extensions sorted by name: the same input always yields the
+/// same text.
 impl fmt::Display for MigrationHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{PREFIX} postgres={}", self.postgres)?;
@@ -158,20 +158,18 @@ mod tests {
     use super::*;
 
     fn ok(text: &str) -> MigrationHeader {
-        MigrationHeader::find(text)
-            .expect("en-tête")
-            .expect("valide")
+        MigrationHeader::find(text).expect("header").expect("valid")
     }
 
     fn err(text: &str) -> String {
         MigrationHeader::find(text)
-            .expect("en-tête")
-            .expect_err("invalide")
+            .expect("header")
+            .expect_err("invalid")
             .message
     }
 
     #[test]
-    fn en_tete_complet() {
+    fn full_header() {
         let text =
             "-- pgweave: postgres=18 extensions=citext@1.6,btree_gist@1.7\nCREATE TABLE t ();";
         let h = ok(text);
@@ -182,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn sans_extensions_et_apres_des_commentaires() {
+    fn without_extensions_and_after_comments() {
         let h = ok("-- Migration 42\n\n-- pgweave: postgres=18\nSELECT 1;");
         assert_eq!(h.postgres, 18);
         assert!(h.extensions.is_empty());
@@ -194,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn rendu_deterministe() {
+    fn deterministic_rendering() {
         let h = ok("-- pgweave: extensions=citext@1.6,btree_gist@1.7 postgres=18");
         assert_eq!(
             h.to_string(),
@@ -204,13 +202,13 @@ mod tests {
     }
 
     #[test]
-    fn formes_refusees() {
+    fn rejected_forms() {
         assert!(err("-- pgweave: extensions=citext@1.6").contains("postgres"));
-        assert!(err("-- pgweave: postgres=dix-huit").contains("version majeure"));
-        assert!(err("-- pgweave: postgres=18 extensions=citext").contains("nom@version"));
-        assert!(err("-- pgweave: postgres=18 extensions=a@1,a@2").contains("double"));
-        assert!(err("-- pgweave: postgres=18 pg=17").contains("inconnu"));
-        assert!(err("-- pgweave: postgres=18\n-- pgweave: postgres=18").contains("double"));
-        assert!(err("SELECT 1;\n-- pgweave: postgres=18").contains("précéder"));
+        assert!(err("-- pgweave: postgres=eighteen").contains("major version"));
+        assert!(err("-- pgweave: postgres=18 extensions=citext").contains("name@version"));
+        assert!(err("-- pgweave: postgres=18 extensions=a@1,a@2").contains("duplicate"));
+        assert!(err("-- pgweave: postgres=18 pg=17").contains("unknown"));
+        assert!(err("-- pgweave: postgres=18\n-- pgweave: postgres=18").contains("duplicate"));
+        assert!(err("SELECT 1;\n-- pgweave: postgres=18").contains("precede"));
     }
 }

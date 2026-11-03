@@ -1,4 +1,4 @@
--- Commandes.
+-- Orders.
 
 -- name: open_order
 INSERT INTO orders (restaurant_id, customer_id)
@@ -6,7 +6,7 @@ VALUES ($restaurant, $customer)
 RETURNING id, status;
 
 -- name: add_item
--- Le prix unitaire est figé depuis le plat au moment de la commande.
+-- The unit price is frozen from the dish at order time.
 INSERT INTO order_items (order_id, dish_id, quantity, unit_price)
 SELECT $order, d.id, $quantity, d.price
 FROM dishes d
@@ -14,15 +14,15 @@ WHERE d.id = $dish
 RETURNING quantity, unit_price;
 
 -- name: set_status
--- Passer une commande à `served` déclenche le trigger de fidélité.
+-- Moving an order to `served` fires the loyalty trigger.
 UPDATE orders
 SET status = $status
 WHERE id = $id
 RETURNING id, status, updated_at;
 
 -- name: order_summary :optional
--- GROUP BY : l'analyse infère `many` ; la déclaration `:optional` restreint
--- (contrat vérifié à l'exécution). LEFT JOIN : `customer` peut être NULL.
+-- GROUP BY: the analysis infers `many`; the `:optional` declaration narrows
+-- it (contract checked at run time). LEFT JOIN: `customer` may be NULL.
 SELECT o.id,
        o.status,
        c.full_name AS customer,
@@ -45,13 +45,13 @@ GROUP BY d.kind
 ORDER BY d.kind;
 
 -- name: purge_drafts
--- Sans RETURNING : le nombre de lignes supprimées (`u64`).
+-- No RETURNING: the number of deleted rows (`u64`).
 DELETE FROM orders
 WHERE status = 'draft' AND updated_at < $before;
 
 -- name: orders_of_restaurant :many
--- `$status?` : filtre optionnel, `Option<OrderStatus>` en Rust ; absent,
--- toutes les commandes du restaurant.
+-- `$status?`: optional filter, `Option<OrderStatus>` in Rust; when absent,
+-- all the restaurant's orders.
 SELECT o.id, o.status, o.placed_at
 FROM orders o
 WHERE o.restaurant_id = $restaurant
@@ -59,14 +59,14 @@ WHERE o.restaurant_id = $restaurant
 ORDER BY o.id;
 
 -- name: orders_page :many
--- Pagination filtrée : chaque filtre fourni ajoute sa condition (`[[ … ]]`,
--- `Option` en Rust), le tri est un choix (`{{ … }}`, enum Rust). Les huit
--- variantes sont vérifiées à la compilation ; aucune n'est composée à
--- l'exécution.
+-- Filtered pagination: each filter provided adds its condition (`[[ … ]]`,
+-- `Option` in Rust), the sort order is a choice (`{{ … }}`, Rust enum). All
+-- eight variants are checked at compile time; none is assembled at run
+-- time.
 SELECT o.id, o.status, o.placed_at
 FROM orders o
 WHERE o.restaurant_id = $restaurant
 [[ AND o.status = $status ]]
 [[ AND o.placed_at >= $since ]]
-ORDER BY {{ tri: recent = o.placed_at DESC NULLS LAST, o.id DESC | ancien = o.id }}
+ORDER BY {{ sort: recent = o.placed_at DESC NULLS LAST, o.id DESC | oldest = o.id }}
 LIMIT $limit;

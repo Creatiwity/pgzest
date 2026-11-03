@@ -1,16 +1,16 @@
-//! Conversions de types (`parse_coerce.c`).
+//! Type conversions (`parse_coerce.c`).
 
 use pgweave_catalog::model::{CastContext, CastMethod};
 
 use crate::types::{CATEGORY_STRING, Ty, TypeSystem, is_polymorphic, pg};
 
-/// Contexte d'une conversion (`CoercionContext`) : ce qui est permis
-/// grandit d'implicite (expression) à explicite (`CAST`, `::`).
+/// Context of a conversion (`CoercionContext`): what is allowed grows
+/// from implicit (expression) to explicit (`CAST`, `::`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CoercionContext {
-    /// Argument d'opérateur ou de fonction, opérande d'une expression.
+    /// Operator or function argument, operand of an expression.
     Implicit,
-    /// Valeur affectée à une colonne (`INSERT`, `UPDATE`).
+    /// Value assigned to a column (`INSERT`, `UPDATE`).
     Assignment,
     /// `CAST(x AS t)`, `x::t`.
     Explicit,
@@ -26,38 +26,38 @@ impl CoercionContext {
     }
 }
 
-/// Chemin de conversion (`CoercionPathType`).
+/// Conversion pathway (`CoercionPathType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pathway {
-    /// Aucune conversion possible dans ce contexte.
+    /// No conversion possible in this context.
     None,
-    /// Même représentation (types identiques, domaine et sa base,
-    /// conversion binaire de `pg_cast`).
+    /// Same representation (identical types, domain and its base,
+    /// binary conversion from `pg_cast`).
     Relabel,
-    /// Entrée de `pg_cast` mise en œuvre par une fonction.
+    /// `pg_cast` entry implemented by a function.
     Cast,
-    /// Tableau converti élément par élément.
+    /// Array converted element by element.
     ArrayCoerce,
-    /// Par la représentation texte (sortie puis entrée).
+    /// Through the text representation (output then input).
     ViaIo,
 }
 
-/// Échec de [`TypeSystem::common_type`].
+/// Failure of [`TypeSystem::common_type`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommonTypeError {
-    /// Deux types de catégories différentes (`text` et `integer`).
+    /// Two types of different categories (`text` and `integer`).
     CategoryMismatch(Ty, Ty),
-    /// Un type ne se convertit pas implicitement vers le type retenu.
+    /// A type does not convert implicitly to the chosen type.
     NotCoercible { from: Ty, to: Ty },
 }
 
 impl TypeSystem<'_> {
-    /// `find_coercion_pathway` : comment convertir `source` en `target`.
+    /// `find_coercion_pathway`: how to convert `source` into `target`.
     pub fn pathway(&self, source: &Ty, target: &Ty, ctx: CoercionContext) -> Pathway {
         if source == target {
             return Pathway::Relabel;
         }
-        // Un domaine se convertit vers et depuis son type de base.
+        // A domain converts to and from its base type.
         let source = self.base_type(source);
         let target = self.base_type(target);
         if source == target {
@@ -73,8 +73,8 @@ impl TypeSystem<'_> {
                 CastMethod::InOut => Pathway::ViaIo,
             };
         }
-        // Sans entrée de `pg_cast` : tableau vers tableau si les éléments
-        // se convertissent (jamais vers `oidvector` ni `int2vector`)…
+        // Without a `pg_cast` entry: array to array if the elements
+        // convert (never to `oidvector` nor `int2vector`)…
         if target != pg("oidvector")
             && target != pg("int2vector")
             && let (Some(te), Some(se)) = (self.element(&target), self.element(&source))
@@ -82,8 +82,8 @@ impl TypeSystem<'_> {
         {
             return Pathway::ArrayCoerce;
         }
-        // … sinon conversion par le texte : vers une chaîne en affectation,
-        // depuis une chaîne en explicite.
+        // … otherwise conversion through text: to a string in assignment,
+        // from a string in explicit context.
         if (ctx >= CoercionContext::Assignment && self.category(&target) == CATEGORY_STRING)
             || (ctx == CoercionContext::Explicit && self.category(&source) == CATEGORY_STRING)
         {
@@ -92,8 +92,8 @@ impl TypeSystem<'_> {
         Pathway::None
     }
 
-    /// `can_coerce_type` : chaque entrée se convertit-elle vers sa cible ?
-    /// Les cibles polymorphes sont vérifiées ensemble, en dernier.
+    /// `can_coerce_type`: does each input convert to its target?
+    /// Polymorphic targets are checked together, last.
     pub fn can_coerce(&self, inputs: &[Ty], targets: &[Ty], ctx: CoercionContext) -> bool {
         let unknown = pg("unknown");
         let mut generic = false;
@@ -105,14 +105,14 @@ impl TypeSystem<'_> {
                 generic = true;
                 continue;
             }
-            // Un littéral sans type devient ce que la cible demande.
+            // An untyped literal becomes what the target asks for.
             if *input == unknown {
                 continue;
             }
             if self.pathway(input, target, ctx) != Pathway::None {
                 continue;
             }
-            // `record` et types composites se convertissent l'un vers l'autre.
+            // `record` and composite types convert to each other.
             if (*input == pg("record") && self.is_complex(target))
                 || (*target == pg("record") && self.is_complex(input))
             {
@@ -130,14 +130,14 @@ impl TypeSystem<'_> {
         !generic || self.generic_consistent(inputs, targets)
     }
 
-    /// `select_common_type` : type commun des branches d'un `UNION`, d'un
-    /// `CASE`, des arguments de `COALESCE`, des lignes de `VALUES`…
+    /// `select_common_type`: common type of the branches of a `UNION`, of a
+    /// `CASE`, of the arguments of `COALESCE`, of the rows of `VALUES`…
     pub fn common_type(&self, inputs: &[Ty]) -> Result<Ty, CommonTypeError> {
         let unknown = pg("unknown");
         let Some(first) = inputs.first() else {
             return Ok(pg("text"));
         };
-        // Seule façon d'obtenir un domaine : tous identiques.
+        // The only way to get a domain: all identical.
         if inputs.iter().all(|t| t == first) && *first != unknown {
             return Ok(first.clone());
         }
@@ -152,7 +152,7 @@ impl TypeSystem<'_> {
             let ncategory = self.category(&ntype);
             let npreferred = self.is_preferred(ncategory, &ntype);
             if ptype == unknown {
-                // Jusqu'ici des littéraux : on prend ce qui vient.
+                // Only literals so far: take what comes.
                 (ptype, pcategory, ppreferred) = (ntype, ncategory, npreferred);
             } else if ncategory != pcategory {
                 return Err(CommonTypeError::CategoryMismatch(ptype, ntype));
@@ -168,16 +168,16 @@ impl TypeSystem<'_> {
                     CoercionContext::Implicit,
                 )
             {
-                // Le nouveau type reçoit l'ancien implicitement, pas
-                // l'inverse ; un type préféré n'est jamais quitté.
+                // The new type accepts the old one implicitly, not the reverse;
+                // a preferred type is never left.
                 (ptype, pcategory, ppreferred) = (ntype, ncategory, npreferred);
             }
         }
-        // Que des littéraux : `text`.
+        // Only literals: `text`.
         if ptype == unknown {
             ptype = pg("text");
         }
-        // `verify_common_type` : tout doit pouvoir y être converti.
+        // `verify_common_type`: everything must be convertible to it.
         for t in inputs {
             if !self.can_coerce(
                 std::slice::from_ref(t),

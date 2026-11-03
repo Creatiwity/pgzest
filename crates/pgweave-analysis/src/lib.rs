@@ -1,21 +1,21 @@
-//! Façade d'orchestration : parse → check → lint.
+//! Orchestration facade: parse → check → lint.
 //!
-//! Ce crate existe pour tenir la règle de couches : `pgweave-checker` (et
-//! l'analyse sémantique qu'il porte) et `pgweave-lint` sont des passes
-//! indépendantes qui ne se connaissent pas entre elles. Tout ce qui doit en
-//! enchaîner plusieurs vit ici, au-dessus d'elles.
+//! This crate exists to uphold the layering rule: `pgweave-checker` (and the
+//! semantic analysis it carries) and `pgweave-lint` are independent passes
+//! that do not know about each other. Anything that chains several of them
+//! lives here, above them.
 
 use pgweave_catalog::ProjectCatalog;
 use pgweave_diagnostics::{Diagnostic, Severity, Span, Suppressions, codes};
 use pgweave_parser::{SkipReason, SkippedStatement};
 use pgweave_schema::{ParseConfig, SkipLevel};
 
-// ── Tolérance du parser ───────────────────────────────────────────────────────
+// ── Parser tolerance ──────────────────────────────────────────────────────────
 
-/// Traduit les statements écartés par le parser en diagnostics, selon la config.
+/// Turns the statements skipped by the parser into diagnostics, per the config.
 ///
-/// C'est ici que le choix « avaler ou signaler » se fait — plus dans le parser,
-/// qui se contente désormais de rapporter ce qu'il a écarté.
+/// This is where the "swallow or report" choice is made — no longer in the
+/// parser, which now merely reports what it skipped.
 pub fn skipped_to_diagnostics(skipped: &[SkippedStatement], cfg: &ParseConfig) -> Vec<Diagnostic> {
     let mut out = Vec::new();
 
@@ -24,22 +24,22 @@ pub fn skipped_to_diagnostics(skipped: &[SkippedStatement], cfg: &ParseConfig) -
             SkipReason::Unparsable(why) => (
                 cfg.unparsable,
                 codes::UNPARSABLE_STATEMENT,
-                format!("statement illisible, ignoré par l'analyse : {why}"),
+                format!("unreadable statement, ignored by the analysis: {why}"),
             ),
             SkipReason::Unsupported(what) => (
                 cfg.unsupported,
                 codes::UNSUPPORTED_STATEMENT,
-                format!("statement non modélisé, ignoré par l'analyse : {what}"),
+                format!("statement not modeled, ignored by the analysis: {what}"),
             ),
-            // Le statement est bien analysé, mais pas le corps de la fonction.
-            // Même niveau que `unparsable` : dans les deux cas, il y a du SQL
-            // que nous n'avons pas su lire.
+            // The statement itself is analyzed, but not the function body.
+            // Same level as `unparsable`: in both cases there is SQL we could
+            // not read.
             SkipReason::UnparsedBody { name, reason } => (
                 cfg.unparsable,
                 codes::UNPARSED_FUNCTION_BODY,
                 format!(
-                    "corps de '{name}' non analysé : {reason}. \
-                     Variables, types, RETURN et contexte trigger ne sont pas vérifiés"
+                    "body of '{name}' not analyzed: {reason}. \
+                     Variables, types, RETURN and trigger context are not checked"
                 ),
             ),
         };
@@ -67,30 +67,30 @@ pub fn skipped_to_diagnostics(skipped: &[SkippedStatement], cfg: &ParseConfig) -
 fn hint_for(reason: &SkipReason) -> &'static str {
     match reason {
         SkipReason::UnparsedBody { .. } => {
-            "une seule construction PL/pgSQL non gérée suffit à désactiver \
-             l'analyse de tout le corps ; `-- pgweave-disable-next-line \
-             unparsed-function-body` pour le taire ici"
+            "a single unhandled PL/pgSQL construct is enough to disable the \
+             analysis of the whole body; `-- pgweave-disable-next-line \
+             unparsed-function-body` to silence it here"
         }
         SkipReason::Unparsable(_) => {
-            "si ce SQL est valide, c'est une lacune du parser : \
-             `-- pgweave-disable-next-line unparsable-statement` pour le taire ici, \
-             ou `[parse] unparsable = \"ignore\"` pour tout le projet"
+            "if this SQL is valid, it is a parser gap: \
+             `-- pgweave-disable-next-line unparsable-statement` to silence it here, \
+             or `[parse] unparsable = \"ignore\"` for the whole project"
         }
         SkipReason::Unsupported(_) => {
-            "statement valide mais hors périmètre de l'analyse ; \
-             `[parse] unsupported = \"ignore\"` pour ne plus le signaler"
+            "valid statement but outside the analysis scope; \
+             `[parse] unsupported = \"ignore\"` to stop reporting it"
         }
     }
 }
 
-// ── Requêtes nommées ──────────────────────────────────────────────────────────
+// ── Named queries ─────────────────────────────────────────────────────────────
 
-/// Diagnostics de format d'un fichier de `[queries] directory`
-/// (`docs/named-queries.md`). S'ajoutent à l'analyse habituelle du fichier,
-/// qui vérifie déjà chaque statement contre le schéma.
+/// Format diagnostics of a `[queries] directory` file
+/// (`docs/named-queries.md`). They add to the usual analysis of the file,
+/// which already checks each statement against the schema.
 ///
-/// Partagé par la CLI et le LSP : un fichier de requêtes doit être jugé de la
-/// même façon dans l'éditeur et en CI.
+/// Shared by the CLI and the LSP: a query file must be judged the same way
+/// in the editor and in CI.
 pub fn query_file_diagnostics(
     path: &std::path::Path,
     sql: &str,
@@ -103,16 +103,16 @@ pub fn query_file_diagnostics(
         return vec![
             Diagnostic::error(
                 codes::QUERY_FILE_EXTENSION,
-                "un fichier de requêtes nommées est un `.sql`",
+                "a named query file is a `.sql` file",
             )
             .with_hint(
-                "une requête nommée utilise les fragments du projet (`@nom`), pas \
-                 un fichier .pgsql",
+                "a named query uses the project's fragments (`@name`), not \
+                 a .pgsql file",
             ),
         ];
     }
-    // Les erreurs de macro sont celles du désucrage du fichier, déjà
-    // rapportées avec lui.
+    // Macro errors are those of the file's desugaring, already reported
+    // with it.
     pgweave_query::parse_query_file_with(sql, macros)
         .diagnostics
         .into_iter()
@@ -120,14 +120,14 @@ pub fn query_file_diagnostics(
         .collect()
 }
 
-/// Ce qui empêche de décrire les requêtes nommées d'un fichier (PLAN.md §4) :
-/// paramètre que rien ne type, cardinalité déclarée contredite, statement
-/// hors du périmètre du descripteur. Les erreurs d'analyse elles-mêmes sont
-/// rapportées par la vérification du fichier, pas ici.
+/// What prevents describing the named queries of a file (PLAN.md §4):
+/// a parameter nothing types, a contradicted declared cardinality, a
+/// statement outside the descriptor's scope. Analysis errors themselves are
+/// reported by the file check, not here.
 ///
-/// `here` : module du fichier dans son répertoire de requêtes ; `others` :
-/// les requêtes de ce répertoire, pour vérifier une requête qui reprend les
-/// lignes d'une autre (`-> autre`, `-> a::b::autre`).
+/// `here`: module of the file in its query directory; `others`: the queries
+/// of that directory, to check a query that reuses the rows of another
+/// (`-> other`, `-> a::b::other`).
 pub fn query_descriptor_diagnostics(
     sql: &str,
     catalog: &ProjectCatalog,
@@ -149,7 +149,7 @@ pub fn query_descriptor_diagnostics(
             Err(ds) => out.extend(ds.into_iter().filter(|d| own.contains(&d.code))),
         }
     }
-    // Ce fichier fait foi sur la version enregistrée de son module.
+    // This file is authoritative over the saved version of its module.
     let mut modules: Vec<pgweave_query::QueryModule> =
         others.iter().filter(|m| m.path != here).cloned().collect();
     modules.push(pgweave_query::QueryModule {
@@ -174,10 +174,10 @@ pub fn query_descriptor_diagnostics(
     out
 }
 
-/// Requêtes d'un répertoire de requêtes, par module (`order/book.sql` →
-/// `["order", "book"]`). `read` donne le texte d'un fichier (document
-/// ouvert dans l'éditeur, sinon disque). Une requête non décrite est
-/// absente : son fichier le signale.
+/// Queries of a query directory, per module (`order/book.sql` →
+/// `["order", "book"]`). `read` gives the text of a file (document open in
+/// the editor, otherwise disk). An undescribed query is absent: its file
+/// reports it.
 pub fn query_modules(
     dir: &std::path::Path,
     catalog: &ProjectCatalog,
@@ -226,14 +226,14 @@ fn collect_sql_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 
 // ── Lint ──────────────────────────────────────────────────────────────────────
 
-/// Parse `sql` puis le lint, directives en commentaire appliquées.
+/// Parses `sql` then lints it, with comment directives applied.
 ///
-/// Cette fonction vit ici et pas dans `pgweave-lint` : le linter ne dépend
-/// volontairement pas du parser, pour rester une passe indépendante. Ce qui
-/// enchaîne parse et lint appartient donc à la façade.
+/// This function lives here and not in `pgweave-lint`: the linter
+/// deliberately does not depend on the parser, to stay an independent pass.
+/// What chains parse and lint therefore belongs to the facade.
 ///
-/// Remplace l'ancien `pgweave_lint::lint_sql`, qui était un `unimplemented!()`
-/// exporté publiquement — un panic garanti pour qui l'appelait.
+/// Replaces the former `pgweave_lint::lint_sql`, which was a publicly
+/// exported `unimplemented!()` — a guaranteed panic for any caller.
 pub fn lint_sql(sql: &str, config: &pgweave_lint::LintConfig) -> Vec<Diagnostic> {
     let Ok(stmts) = pgweave_parser::parse(sql) else {
         return vec![Diagnostic::error(
@@ -246,26 +246,26 @@ pub fn lint_sql(sql: &str, config: &pgweave_lint::LintConfig) -> Vec<Diagnostic>
     diags
 }
 
-// ── Analyse complète ──────────────────────────────────────────────────────────
+// ── Full analysis ─────────────────────────────────────────────────────────────
 
-/// Options d'une analyse.
+/// Options of an analysis.
 #[derive(Debug, Clone, Default)]
 pub struct AnalysisOptions {
     pub parse: ParseConfig,
 }
 
-/// Résultat d'une analyse complète.
+/// Result of a full analysis.
 pub struct AnalysisResult {
-    /// Diagnostics, directives en commentaire déjà appliquées.
+    /// Diagnostics, comment directives already applied.
     pub diagnostics: Vec<Diagnostic>,
-    /// Statements écartés par le parser, quel que soit le niveau configuré.
+    /// Statements skipped by the parser, whatever the configured level.
     pub skipped: Vec<SkippedStatement>,
-    /// Directives trouvées dans la source.
+    /// Directives found in the source.
     pub suppressions: Suppressions,
 }
 
 impl AnalysisResult {
-    /// Vrai si au moins un diagnostic est de sévérité Error.
+    /// True if at least one diagnostic has Error severity.
     pub fn has_errors(&self) -> bool {
         self.diagnostics
             .iter()
@@ -273,12 +273,12 @@ impl AnalysisResult {
     }
 }
 
-/// Pipeline complet sur une source : parse → tolérance → semantic → check,
-/// puis application des directives en commentaire.
+/// Full pipeline over a source: parse → tolerance → semantic → check,
+/// then application of the comment directives.
 ///
-/// C'est l'entrée à privilégier pour la CLI, le LSP et les bindings : elle
-/// garantit que tout le monde applique la même politique de tolérance et les
-/// mêmes suppressions.
+/// This is the preferred entry point for the CLI, the LSP and the bindings:
+/// it guarantees everyone applies the same tolerance policy and the same
+/// suppressions.
 pub fn analyze_source(
     sql: &str,
     schema: &ProjectCatalog,
@@ -287,9 +287,9 @@ pub fn analyze_source(
     analyze_parsed(sql, Some(schema), opts)
 }
 
-/// Vérification des statements : contre `catalog` s'il est donné (le
-/// fichier s'exécute sur ce schéma), sinon en rejouant le fichier lui-même,
-/// chaque statement vérifié à son application.
+/// Checks the statements: against `catalog` if given (the file runs on that
+/// schema), otherwise by replaying the file itself, each statement checked
+/// as it is applied.
 fn checks(stmts: &[pgweave_ast::Statement], catalog: Option<&ProjectCatalog>) -> Vec<Diagnostic> {
     match catalog {
         Some(c) => pgweave_checker::check_statements(stmts, c),
@@ -332,8 +332,8 @@ fn analyze_parsed(
     }
 }
 
-/// En-tête de migration mal formé (PLAN.md, D9) : un en-tête mal lu ferait
-/// analyser le fichier contre un autre contexte que celui annoncé.
+/// Malformed migration header (PLAN.md, D9): a misread header would analyze
+/// the file against a context other than the announced one.
 fn header_diagnostic(text: &str) -> Option<Diagnostic> {
     let Some(Err(e)) = pgweave_schema::MigrationHeader::find(text) else {
         return None;
@@ -344,16 +344,16 @@ fn header_diagnostic(text: &str) -> Option<Diagnostic> {
                 start: e.span.start,
                 end: e.span.end,
             })
-            .with_hint("forme attendue : `-- pgweave: postgres=18 extensions=nom@version,…`"),
+            .with_hint("expected form: `-- pgweave: postgres=18 extensions=name@version,…`"),
     )
 }
 
-/// Variante autonome : le schéma est dérivé du DDL contenu dans la source.
+/// Self-contained variant: the schema is derived from the DDL in the source.
 pub fn analyze_source_self_contained(sql: &str, opts: &AnalysisOptions) -> AnalysisResult {
     analyze_parsed(sql, None, opts)
 }
 
-/// Diagnostics de vérification de `sql` contre `schema`.
+/// Check diagnostics of `sql` against `schema`.
 pub fn analyze_sql(sql: &str, schema: &ProjectCatalog) -> Vec<Diagnostic> {
     match pgweave_parser::parse(sql) {
         Ok(stmts) => pgweave_checker::check_statements(&stmts, schema),
@@ -364,10 +364,10 @@ pub fn analyze_sql(sql: &str, schema: &ProjectCatalog) -> Vec<Diagnostic> {
     }
 }
 
-/// Diagnostics de vérification de `sql`, le schéma dérivé du DDL qu'il
-/// contient (chaque statement vérifié à son application).
+/// Check diagnostics of `sql`, the schema derived from the DDL it contains
+/// (each statement checked as it is applied).
 ///
-/// Mode utilisé pour vérifier un fichier autonome, sans schéma externe.
+/// Mode used to check a self-contained file, without an external schema.
 pub fn analyze_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
     pgweave_checker::check_sql_self_contained(sql)
 }
@@ -377,42 +377,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn analyse_un_fichier_autonome() {
+    fn analyzes_a_self_contained_file() {
         let sql = "CREATE TABLE t (a INT); SELECT a FROM t;";
         let diags = analyze_sql_self_contained(sql);
-        assert!(
-            diags.is_empty(),
-            "aucun diagnostic attendu, obtenu: {diags:?}"
-        );
+        assert!(diags.is_empty(), "no diagnostic expected, got: {diags:?}");
     }
 
     #[test]
-    fn signale_une_colonne_absente() {
+    fn reports_a_missing_column() {
         let sql = "CREATE TABLE t (a INT); SELECT nope FROM t;";
         let diags = analyze_sql_self_contained(sql);
         assert!(
             diags.iter().any(|d| d.code == codes::COLUMN_NOT_FOUND),
-            "column-not-found attendu, obtenu: {diags:?}"
+            "column-not-found expected, got: {diags:?}"
         );
     }
 
-    /// Régression : le SQL invalide ne doit plus passer silencieusement.
+    /// Regression: invalid SQL must no longer pass silently.
     ///
-    /// Historiquement `pgweave-parser` faisait `Err(_) => continue` et renvoyait
-    /// `Ok(0 statements)` sur n'importe quel SQL cassé, rendant `PARSE_ERROR`
-    /// inatteignable et `check` faussement rassurant. Les statements écartés
-    /// sont désormais remontés, avec un niveau piloté par la config.
+    /// Historically `pgweave-parser` did `Err(_) => continue` and returned
+    /// `Ok(0 statements)` on any broken SQL, making `PARSE_ERROR`
+    /// unreachable and `check` falsely reassuring. Skipped statements are
+    /// now reported, with a level driven by the config.
     #[test]
-    fn sql_invalide_est_signale() {
+    fn invalid_sql_is_reported() {
         let _diags = analyze_sql_self_contained("SELCT * FRM;");
-        // analyze_sql_self_contained garde le contrat historique (pas de config) ;
-        // c'est analyze_source qui applique la politique de tolérance.
+        // analyze_sql_self_contained keeps the historical contract (no config);
+        // analyze_source is what applies the tolerance policy.
         let r = analyze_source_self_contained("SELCT * FRM;", &AnalysisOptions::default());
         assert!(
             r.diagnostics
                 .iter()
                 .any(|d| d.code == codes::UNPARSABLE_STATEMENT),
-            "le SQL invalide doit être signalé, obtenu: {:?}",
+            "invalid SQL must be reported, got: {:?}",
             r.diagnostics
         );
     }
@@ -434,104 +431,101 @@ mod tolerance_tests {
     const BAD: &str = "CREATE TABLE t (a INT);\nSELCT oops;";
 
     #[test]
-    fn defaut_warn_le_sql_invalide_devient_visible() {
+    fn default_warn_makes_invalid_sql_visible() {
         let r = analyze_source_self_contained(BAD, &AnalysisOptions::default());
         let d = r
             .diagnostics
             .iter()
             .find(|d| d.code == codes::UNPARSABLE_STATEMENT)
-            .expect("un diagnostic unparsable-statement attendu par défaut");
-        assert_eq!(d.severity, Severity::Warning, "défaut = warn, pas error");
-        assert!(
-            !r.has_errors(),
-            "un warning ne doit pas faire échouer check"
-        );
+            .expect("an unparsable-statement diagnostic expected by default");
+        assert_eq!(d.severity, Severity::Warning, "default = warn, not error");
+        assert!(!r.has_errors(), "a warning must not make check fail");
     }
 
     #[test]
-    fn ignore_restaure_le_silence_pour_migrer() {
+    fn ignore_restores_silence_for_migration() {
         let r = analyze_source_self_contained(BAD, &opts(SkipLevel::Ignore));
         assert!(
             !r.diagnostics
                 .iter()
                 .any(|d| d.code == codes::UNPARSABLE_STATEMENT),
-            "en ignore, rien ne doit être signalé"
+            "with ignore, nothing must be reported"
         );
-        assert_eq!(r.skipped.len(), 1, "mais l'info reste disponible");
+        assert_eq!(r.skipped.len(), 1, "but the info stays available");
     }
 
     #[test]
-    fn error_fait_echouer() {
+    fn error_makes_it_fail() {
         let r = analyze_source_self_contained(BAD, &opts(SkipLevel::Error));
-        assert!(r.has_errors(), "en error, check doit échouer");
+        assert!(r.has_errors(), "with error, check must fail");
     }
 
     #[test]
-    fn le_diagnostic_pointe_sur_la_bonne_ligne() {
+    fn diagnostic_points_to_the_right_line() {
         let r = analyze_source_self_contained(BAD, &AnalysisOptions::default());
         let d = r
             .diagnostics
             .iter()
             .find(|d| d.code == codes::UNPARSABLE_STATEMENT)
             .unwrap();
-        let span = d.span.as_ref().expect("span attendu");
+        let span = d.span.as_ref().expect("span expected");
         assert!(
             BAD[span.start..span.end].contains("SELCT"),
-            "le span doit couvrir le statement fautif, obtenu {:?}",
+            "the span must cover the faulty statement, got {:?}",
             &BAD[span.start..span.end]
         );
     }
 
     #[test]
-    fn directive_en_commentaire_taire_le_statement() {
+    fn comment_directive_silences_the_statement() {
         let sql = "CREATE TABLE t (a INT);\n-- pgweave-disable-next-line unparsable-statement\nSELCT oops;";
         let r = analyze_source_self_contained(sql, &opts(SkipLevel::Error));
         assert!(
             !r.has_errors(),
-            "la directive doit neutraliser l'erreur, obtenu: {:?}",
+            "the directive must neutralize the error, got: {:?}",
             r.diagnostics
         );
     }
 
     #[test]
-    fn directive_ciblee_ne_taire_pas_les_autres_regles() {
-        // La directive ne vise que unparsable-statement : l'erreur de colonne
-        // sur une autre ligne doit survivre.
+    fn targeted_directive_does_not_silence_other_rules() {
+        // The directive only targets unparsable-statement: the column error
+        // on another line must survive.
         let sql = "CREATE TABLE t (a INT);\n-- pgweave-disable-next-line unparsable-statement\nSELCT oops;\nSELECT nope FROM t;";
         let r = analyze_source_self_contained(sql, &opts(SkipLevel::Error));
         assert!(
             r.diagnostics
                 .iter()
                 .any(|d| d.code == codes::COLUMN_NOT_FOUND),
-            "column-not-found doit rester, obtenu: {:?}",
+            "column-not-found must remain, got: {:?}",
             r.diagnostics
         );
         assert!(
             !r.diagnostics
                 .iter()
                 .any(|d| d.code == codes::UNPARSABLE_STATEMENT),
-            "unparsable doit être tu"
+            "unparsable must be silenced"
         );
     }
 
     #[test]
-    fn disable_file_taire_tout() {
+    fn disable_file_silences_everything() {
         let sql = "-- pgweave-disable-file\nCREATE TABLE t (a INT);\nSELECT nope FROM t;";
         let r = analyze_source_self_contained(sql, &AnalysisOptions::default());
         assert!(
             r.diagnostics.is_empty(),
-            "disable-file doit tout taire, obtenu: {:?}",
+            "disable-file must silence everything, got: {:?}",
             r.diagnostics
         );
     }
 
     #[test]
-    fn sql_propre_ne_produit_rien() {
+    fn clean_sql_produces_nothing() {
         let sql = "CREATE TABLE t (a INT); SELECT a FROM t;";
         let r = analyze_source_self_contained(sql, &AnalysisOptions::default());
         assert!(
             r.diagnostics.is_empty(),
-            "aucun diagnostic attendu, obtenu: {:?}",
+            "no diagnostic expected, got: {:?}",
             r.diagnostics
         );
         assert!(r.skipped.is_empty());
@@ -543,56 +537,56 @@ mod lint_tests {
     use super::*;
 
     #[test]
-    fn lint_sql_parse_et_lint() {
+    fn lint_sql_parses_and_lints() {
         let diags = lint_sql(
             "CREATE TABLE t (a INT PRIMARY KEY);\nSELECT * FROM t;",
             &pgweave_lint::LintConfig::default(),
         );
         assert!(
             diags.iter().any(|d| d.code == "L001"),
-            "L001 attendu, obtenu: {diags:?}"
+            "L001 expected, got: {diags:?}"
         );
     }
 
     #[test]
-    fn lint_sql_applique_les_directives() {
+    fn lint_sql_applies_directives() {
         let diags = lint_sql(
             "CREATE TABLE t (a INT PRIMARY KEY);\n-- pgweave-disable-next-line L001\nSELECT * FROM t;",
             &pgweave_lint::LintConfig::default(),
         );
         assert!(
             !diags.iter().any(|d| d.code == "L001"),
-            "la directive doit taire L001, obtenu: {diags:?}"
+            "the directive must silence L001, got: {diags:?}"
         );
     }
 
     #[test]
-    fn lint_sql_ne_panique_pas_sur_du_sql_invalide() {
-        // L'ancien pgweave_lint::lint_sql était un unimplemented!() : tout appel
-        // paniquait. Ici on doit obtenir un diagnostic, pas un crash.
-        let diags = lint_sql("!!! pas du sql !!!", &pgweave_lint::LintConfig::default());
-        let _ = diags; // le seul contrat est : ça ne panique pas
+    fn lint_sql_does_not_panic_on_invalid_sql() {
+        // The former pgweave_lint::lint_sql was an unimplemented!(): every
+        // call panicked. Here we must get a diagnostic, not a crash.
+        let diags = lint_sql("!!! not sql !!!", &pgweave_lint::LintConfig::default());
+        let _ = diags; // the only contract is: it does not panic
     }
 }
 
-// ── Sources contenant des macros ──────────────────────────────────────────────
+// ── Sources containing macros ─────────────────────────────────────────────────
 
-/// Une source prête à analyser : le SQL, et d'où vient chaque fragment.
+/// A source ready to analyze: the SQL, and where each fragment comes from.
 pub struct PreparedSource {
-    /// SQL à analyser — la source elle-même si elle ne contenait aucune macro.
+    /// SQL to analyze — the source itself if it contained no macro.
     pub sql: String,
-    /// Provenance de chaque fragment de `sql`. `None` si `sql` **est** la
-    /// source, auquel cas les positions sont déjà les bonnes.
+    /// Origin of each fragment of `sql`. `None` if `sql` **is** the source,
+    /// in which case positions are already correct.
     pub map: Option<pgweave_ast::SourceMap>,
-    /// Diagnostics du désucrage, déjà positionnés dans la source.
+    /// Desugaring diagnostics, already positioned in the source.
     pub diagnostics: Vec<Diagnostic>,
-    /// Invocations désucrées (macros et fragments), dans l'ordre du fichier.
+    /// Desugared invocations (macros and fragments), in file order.
     pub regions: Vec<pgweave_macro::expand::ExpandedRegion>,
 }
 
 impl PreparedSource {
-    /// L'invocation contenant `offset` (position dans la source) et le SQL
-    /// qu'elle a engendré.
+    /// The invocation containing `offset` (position in the source) and the
+    /// SQL it generated.
     pub fn region_at(
         &self,
         offset: usize,
@@ -601,12 +595,13 @@ impl PreparedSource {
         Some((r, self.sql.get(r.generated.clone())?))
     }
 
-    /// Parse en ramenant les spans dans le repère de la source d'origine.
+    /// Parses, bringing spans back into the original source's frame.
     ///
-    /// C'est ici que la correspondance est consommée : le parser assigne des
-    /// spans **déjà traduits**, donc l'AST rendu désigne le fichier édité. Tout
-    /// ce qui le lit ensuite — checker, linter, hover, go-to-definition,
-    /// codegen — obtient des positions justes sans rien savoir des macros.
+    /// This is where the mapping is consumed: the parser assigns spans
+    /// **already translated**, so the returned AST designates the edited
+    /// file. Everything reading it afterwards — checker, linter, hover,
+    /// go-to-definition, codegen — gets correct positions without knowing
+    /// anything about macros.
     pub fn parse(&self) -> Result<Vec<pgweave_ast::Statement>, pgweave_parser::ParseError> {
         match &self.map {
             Some(map) => pgweave_parser::parse_mapped(&self.sql, map),
@@ -614,7 +609,7 @@ impl PreparedSource {
         }
     }
 
-    /// Variante conservant la trace des statements écartés.
+    /// Variant keeping track of skipped statements.
     pub fn parse_with_outcome(
         &self,
     ) -> Result<pgweave_parser::ParseOutcome, pgweave_parser::ParseError> {
@@ -625,20 +620,19 @@ impl PreparedSource {
     }
 }
 
-/// Vrai si le chemin désigne un fichier pouvant contenir des macros.
+/// True if the path designates a file that may contain macros.
 pub fn is_macro_source(path: &std::path::Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("pgsql"))
 }
 
-/// Désucre `source` si elle contient des macros, sinon la renvoie telle quelle.
+/// Desugars `source` if it contains macros, otherwise returns it as is.
 ///
-/// Le désucrage est tenté sur tout fichier, quelle qu'en soit l'extension : une
-/// source sans macro est recopiée à l'identique, donc la vérification est
-/// gratuite et aucun fichier n'échappe au traitement à cause de son nom.
-/// [`is_macro_source`] sert à décider quels fichiers *présenter* comme sources
-/// de macros, pas à décider s'il faut désucrer.
+/// Desugaring is attempted on every file, whatever its extension: a source
+/// without macros is copied verbatim, so the check is free and no file
+/// escapes processing because of its name. [`is_macro_source`] decides which
+/// files to *present* as macro sources, not whether to desugar.
 pub fn prepare_source(source: &str, macros: &pgweave_macro::MacroSet) -> PreparedSource {
     let expansion = pgweave_macro::expand_source(source, macros);
 
@@ -659,19 +653,18 @@ pub fn prepare_source(source: &str, macros: &pgweave_macro::MacroSet) -> Prepare
     }
 }
 
-/// Comme [`prepare_source`], pour un fichier de requêtes nommées : les
-/// marqueurs `$nom?` (paramètres optionnels) sont effacés après insertion
-/// des fragments.
+/// Like [`prepare_source`], for a named query file: the `$name?` markers
+/// (optional parameters) are blanked after inserting the fragments.
 pub fn prepare_query_source(source: &str, macros: &pgweave_macro::MacroSet) -> PreparedSource {
     let mut prepared = prepare_source(source, macros);
     prepared.sql = pgweave_query::blank_optional_markers(&prepared.sql);
     prepared
 }
 
-/// Analyse une source pouvant contenir des macros.
+/// Analyzes a source that may contain macros.
 ///
-/// Les positions sont dans le repère du fichier édité, portées par l'AST plutôt
-/// que corrigées après coup : voir [`PreparedSource::parse`].
+/// Positions are in the edited file's frame, carried by the AST rather than
+/// corrected afterwards: see [`PreparedSource::parse`].
 pub fn analyze_source_with_macros(
     source: &str,
     macros: &pgweave_macro::MacroSet,
@@ -704,7 +697,7 @@ pub fn analyze_source_with_macros(
         &outcome.statements,
         schema,
     ));
-    // Les diagnostics de macro sont déjà dans le repère source.
+    // Macro diagnostics are already in the source frame.
     diagnostics.extend(prepared.diagnostics.clone());
     suppressions.apply(&mut diagnostics);
 

@@ -1,7 +1,7 @@
-//! Mots-clés de PostgreSQL 18 qu'un identifiant doit quoter : tous sauf les
-//! « unreserved » (`pg_get_keywords()`, `catcode <> 'U'`), comme le fait
-//! `quote_ident`. Liste extraite d'un PostgreSQL 18 ; triée, pour la
-//! recherche dichotomique.
+//! PostgreSQL 18 keywords that an identifier must quote: all except the
+//! "unreserved" ones (`pg_get_keywords()`, `catcode <> 'U'`), as
+//! `quote_ident` does. List extracted from a PostgreSQL 18; sorted, for
+//! binary search.
 
 pub const QUOTED_KEYWORDS: &[&str] = &[
     "all",
@@ -170,7 +170,7 @@ pub const QUOTED_KEYWORDS: &[&str] = &[
     "xmltable",
 ];
 
-/// `true` si `word` (déjà en minuscules) est un mot-clé à quoter.
+/// `true` if `word` (already lowercase) is a keyword to quote.
 pub fn needs_quoting(word: &str) -> bool {
     QUOTED_KEYWORDS.binary_search(&word).is_ok()
 }
@@ -178,7 +178,7 @@ pub fn needs_quoting(word: &str) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn liste_triee() {
+    fn list_is_sorted() {
         assert!(super::QUOTED_KEYWORDS.windows(2).all(|w| w[0] < w[1]));
         assert!(super::needs_quoting("default"));
         assert!(!super::needs_quoting("name"));

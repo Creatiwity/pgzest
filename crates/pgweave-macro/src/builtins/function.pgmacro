@@ -1,4 +1,4 @@
-# @function — supprime le boilerplate d'une fonction PL/pgSQL.
+# @function — removes the boilerplate of a PL/pgSQL function.
 #
 #   @function user_count(target_org UUID): INTEGER {
 #       DECLARE total INTEGER;
@@ -9,7 +9,7 @@
 macro function
 header {name:ident}({params:parens})[: {ret:type}][ {attrs:keywords}]
 
-# Sans `: TYPE`, la fonction ne retourne rien. Rien n'est deviné.
+# Without `: TYPE`, the function returns nothing. Nothing is guessed.
 default ret = VOID
 
 option language = plpgsql -> LANGUAGE {}

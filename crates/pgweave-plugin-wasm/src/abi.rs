@@ -1,18 +1,18 @@
-// abi.rs — types sérialisés pour l'ABI
+// abi.rs: serialized types for the ABI
 //
 // ABI WASM (JSON-over-linear-memory):
 //
-// Exports attendus de tout plugin WASM:
-//   pgweave_plugin_name() -> i32          // ptr vers une string UTF-8 null-terminated
+// Exports expected from every WASM plugin:
+//   pgweave_plugin_name() -> i32          // ptr to a null-terminated UTF-8 string
 //   pgweave_plugin_version() -> i32       // version int (100*major + minor)
-//   pgweave_alloc(size: i32) -> i32       // allocateur exposé à l'hôte
-//   pgweave_free(ptr: i32)                // libère une allocation
+//   pgweave_alloc(size: i32) -> i32       // allocator exposed to the host
+//   pgweave_free(ptr: i32)                // frees an allocation
 //   pgweave_check_select(ptr: i32, len: i32) -> i32  // JSON SelectStmt → JSON [Diagnostic]
 //   pgweave_check_table(ptr: i32, len: i32) -> i32   // JSON CreateTable → JSON [Diagnostic]
 //
-// Imports fournis par l'hôte:
-//   env.pgweave_get_table(name_ptr: i32, name_len: i32) -> i32  // → JSON TableSchema ou null
-//   env.pgweave_log(ptr: i32, len: i32)                         // console log depuis le plugin
+// Imports provided by the host:
+//   env.pgweave_get_table(name_ptr: i32, name_len: i32) -> i32  // → JSON TableSchema or null
+//   env.pgweave_log(ptr: i32, len: i32)                         // console log from the plugin
 //
 // Rule codes:
 //   Plugin rule codes must be prefixed with the plugin name and a `/`,
@@ -22,7 +22,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Diagnostic sérialisé pour passage JSON à travers la frontière WASM.
+/// Diagnostic serialized as JSON to cross the WASM boundary.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WasmDiagnostic {
     pub code: String,

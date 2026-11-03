@@ -1,22 +1,21 @@
-//! Diff de migration sur le modèle du catalogue (PLAN.md, D10 et P7).
+//! Migration diff on the catalog model (PLAN.md, D10 and P7).
 //!
-//! Deux catalogues reconstruits — l'état atteint par les migrations et
-//! l'état cible décrit par le schéma déclaratif — sont comparés objet par
-//! objet ; la différence est émise en statements ordonnés par leurs
-//! dépendances :
+//! Two rebuilt catalogs — the state reached by the migrations and the target
+//! state described by the declarative schema — are compared object by
+//! object; the difference is emitted as statements ordered by their
+//! dependencies:
 //!
-//! 1. ce qui doit disparaître avant toute modification (policies, triggers,
-//!    vues à reconstruire, index et contraintes modifiés ou retirés) ;
-//! 2. les créations et modifications, des schémas aux commentaires, tables,
-//!    routines et vues triées ensemble par dépendances ;
-//! 3. les suppressions définitives (colonnes, tables, routines, types,
-//!    extensions, schémas), en dernier : rien de ce qui reste n'en dépend
-//!    plus.
+//! 1. what must disappear before any change (policies, triggers, views to
+//!    rebuild, modified or removed indexes and constraints);
+//! 2. creations and modifications, from schemas to comments, with tables,
+//!    routines and views sorted together by dependencies;
+//! 3. final drops (columns, tables, routines, types, extensions, schemas),
+//!    last: nothing that remains depends on them anymore.
 //!
-//! Seuls les objets du projet sont comparés : ni le catalogue intégré, ni
-//! les membres d'extensions. Un changement qu'aucun statement ne sait
-//! exprimer sans perte (valeur d'enum retirée, type de base d'un domaine…)
-//! n'est jamais approché : il est rendu dans [`Migration::unsupported`].
+//! Only project objects are compared: neither the built-in catalog nor
+//! extension members. A change no statement can express losslessly (removed
+//! enum value, base type of a domain…) is never approximated: it is returned
+//! in [`Migration::unsupported`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -34,7 +33,7 @@ use crate::model::{
 };
 use crate::pack::signature;
 
-/// Un statement de la migration.
+/// One statement of the migration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
     pub sql: String,
@@ -49,20 +48,20 @@ impl Step {
         }
     }
 
-    /// L'application détruit des données : la migration ne s'applique pas
-    /// sans relecture.
+    /// Applying it destroys data: the migration is not applied without
+    /// review.
     pub fn is_destructive(&self) -> bool {
         self.risks.iter().any(|r| r.destructive)
     }
 }
 
-/// Risque d'un statement appliqué à une base peuplée (règles de sûreté
-/// `M0xx`).
+/// Risk of a statement applied to a populated database (`M0xx` safety
+/// rules).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Risk {
     pub code: &'static str,
     pub message: String,
-    /// Données perdues (table, colonne).
+    /// Lost data (table, column).
     pub destructive: bool,
 }
 
@@ -95,24 +94,24 @@ impl Risk {
     }
 }
 
-/// Colonne `NOT NULL` ajoutée sans défaut : échoue si la table a des lignes.
+/// `NOT NULL` column added without a default: fails if the table has rows.
 pub const M001_NOT_NULL_WITHOUT_DEFAULT: &str = "M001";
-/// Colonne supprimée, avec ses données.
+/// Dropped column, with its data.
 pub const M002_DROP_COLUMN: &str = "M002";
-/// Table supprimée, avec ses données.
+/// Dropped table, with its data.
 pub const M003_DROP_TABLE: &str = "M003";
-/// Type de colonne changé : table réécrite, conversion peut-être impossible.
+/// Column type changed: table rewritten, conversion possibly impossible.
 pub const M004_COLUMN_TYPE: &str = "M004";
-/// `SET NOT NULL` : parcours complet, échoue sur une valeur nulle.
+/// `SET NOT NULL`: full scan, fails on a null value.
 pub const M005_SET_NOT_NULL: &str = "M005";
-/// Index construit sans `CONCURRENTLY` sur une table existante : écritures
-/// bloquées pendant la construction.
+/// Index built without `CONCURRENTLY` on an existing table: writes blocked
+/// during the build.
 pub const M006_BLOCKING_INDEX: &str = "M006";
-/// Contrainte ajoutée à une table existante, vérifiée sur toutes les lignes
-/// sous verrou (`NOT VALID` puis `VALIDATE` l'évite).
+/// Constraint added to an existing table, checked on every row under lock
+/// (`NOT VALID` then `VALIDATE` avoids it).
 pub const M007_VALIDATED_CONSTRAINT: &str = "M007";
 
-/// Changement qu'aucun statement généré n'exprime : à écrire à la main.
+/// Change no generated statement expresses: to write by hand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unsupported {
     pub object: String,
@@ -123,12 +122,12 @@ pub struct Unsupported {
 pub struct Migration {
     pub steps: Vec<Step>,
     pub unsupported: Vec<Unsupported>,
-    /// Remarques sans effet sur l'état atteint (ordre des colonnes…).
+    /// Remarks with no effect on the reached state (column order…).
     pub notes: Vec<String>,
 }
 
 impl Migration {
-    /// Aucun écart : les deux catalogues décrivent le même état.
+    /// No gap: both catalogs describe the same state.
     pub fn is_empty(&self) -> bool {
         self.steps.is_empty() && self.unsupported.is_empty()
     }
@@ -174,16 +173,16 @@ const DROP_SCHEMA: u8 = 47;
 
 #[derive(Default)]
 struct Out {
-    /// (phase, rang dans la phase, statement).
+    /// (phase, rank within the phase, statement).
     steps: Vec<(u8, u64, Step)>,
     unsupported: Vec<Unsupported>,
     notes: Vec<String>,
-    /// Tables, routines et vues à créer ou modifier, triées ensemble.
+    /// Tables, routines and views to create or modify, sorted together.
     graph: Vec<Node>,
-    /// Suppressions de relations et de routines, triées par dépendances
-    /// dans le catalogue de départ puis inversées.
+    /// Drops of relations and routines, sorted by dependencies in the
+    /// starting catalog then reversed.
     drops: Vec<(u8, Node)>,
-    /// Risques d'un statement du graphe, par texte.
+    /// Risks of a graph statement, by text.
     risks: BTreeMap<String, Vec<Risk>>,
 }
 
@@ -205,7 +204,7 @@ impl Out {
     }
 }
 
-/// Instructions qui mènent de l'état `old` à l'état `new`.
+/// Instructions leading from state `old` to state `new`.
 pub fn diff(old: &Catalog, new: &Catalog) -> Migration {
     let o = Objects::of(old);
     let n = Objects::of(new);
@@ -224,7 +223,7 @@ pub fn diff(old: &Catalog, new: &Catalog) -> Migration {
     diff_policies(&o, &n, &mut out);
     diff_comments(old, new, &rebuilt_views, &mut out);
 
-    // Créations et modifications : un seul tri par dépendances.
+    // Creations and modifications: a single sort by dependencies.
     for (rank, node) in sort_by_dependencies(std::mem::take(&mut out.graph))
         .into_iter()
         .enumerate()
@@ -239,7 +238,7 @@ pub fn diff(old: &Catalog, new: &Catalog) -> Migration {
             },
         ));
     }
-    // Suppressions : l'ordre de création, inversé.
+    // Drops: creation order, reversed.
     let mut by_phase: BTreeMap<u8, Vec<Node>> = BTreeMap::new();
     for (phase, node) in std::mem::take(&mut out.drops) {
         by_phase.entry(phase).or_default().push(node);
@@ -252,7 +251,7 @@ pub fn diff(old: &Catalog, new: &Catalog) -> Migration {
                 DROP_TABLE => vec![Risk::destructive(
                     M003_DROP_TABLE,
                     format!(
-                        "table {} supprimée, avec ses lignes : renommage → ALTER TABLE … RENAME TO ; données à garder → les reprendre avant",
+                        "table {} dropped, with its rows: rename → ALTER TABLE … RENAME TO; data to keep → copy it first",
                         node.key_name()
                     ),
                 )],
@@ -275,7 +274,7 @@ pub fn diff(old: &Catalog, new: &Catalog) -> Migration {
             .steps
             .into_iter()
             .map(|(_, _, mut s)| {
-                // Les définitions conservées n'ont pas toutes leur `;`.
+                // Kept definitions do not all have their `;`.
                 if !s.sql.trim_end().ends_with(';') {
                     s.sql = format!("{};", s.sql.trim_end());
                 }
@@ -287,8 +286,8 @@ pub fn diff(old: &Catalog, new: &Catalog) -> Migration {
     }
 }
 
-/// Migration entre deux scripts SQL rejoués chacun sur le catalogue de base
-/// (sans analyse des vues : leurs colonnes ne sont pas typées).
+/// Migration between two SQL scripts, each replayed on the base catalog
+/// (without view analysis: their columns are not typed).
 pub fn diff_sql(old: &str, new: &str) -> Result<Migration, String> {
     let before = crate::ProjectCatalog::from_sql(old)?;
     let after = crate::ProjectCatalog::from_sql(new)?;
@@ -301,16 +300,16 @@ impl Node {
     }
 }
 
-// ── Objets du projet ──────────────────────────────────────────────────────────
+// ── Project objects ───────────────────────────────────────────────────────────
 
-/// Objets du projet d'un catalogue, indexés par identité.
+/// Project objects of a catalog, indexed by identity.
 struct Objects<'a> {
     types: BTreeMap<&'a QName, &'a TypeDef>,
     routines: BTreeMap<(QName, Vec<String>), &'a Routine>,
-    /// Tables et vues.
+    /// Tables and views.
     relations: BTreeMap<&'a QName, &'a Relation>,
     indexes: BTreeMap<&'a QName, &'a crate::model::Index>,
-    /// Séquences créées explicitement.
+    /// Explicitly created sequences.
     sequences: BTreeMap<&'a QName, &'a crate::model::Sequence>,
     triggers: BTreeMap<(&'a QName, &'a str), &'a crate::model::Trigger>,
     policies: BTreeMap<(&'a QName, &'a str), &'a crate::model::Policy>,
@@ -338,7 +337,7 @@ impl<'a> Objects<'a> {
                 .filter(|(q, t)| {
                     mine(q)
                         && !ext_types.contains(q)
-                        // Type ligne d'une relation : suit la relation.
+                        // Row type of a relation: follows the relation.
                         && !cat.relations.contains_key(q)
                         && matches!(
                             t.kind,
@@ -389,7 +388,7 @@ fn quote_literal(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-// ── Schémas et extensions ─────────────────────────────────────────────────────
+// ── Schemas and extensions ────────────────────────────────────────────────────
 
 fn diff_schemas(old: &Catalog, new: &Catalog, out: &mut Out) {
     let user = |c: &Catalog| -> BTreeSet<String> {
@@ -426,8 +425,8 @@ fn diff_schemas(old: &Catalog, new: &Catalog, out: &mut Out) {
                     ),
                 ),
                 None => out.unsupported(
-                    format!("schéma {s}"),
-                    "propriétaire retiré du schéma déclaratif : le propriétaire d'un schéma ne se retire pas",
+                    format!("schema {s}"),
+                    "owner removed from the declarative schema: a schema's owner cannot be removed",
                 ),
             }
         }
@@ -475,7 +474,7 @@ fn diff_extensions(old: &Catalog, new: &Catalog, out: &mut Out) {
                         ),
                         None => out.unsupported(
                             format!("extension {name}"),
-                            "version retirée du schéma déclaratif : la version visée n'est pas connue",
+                            "version removed from the declarative schema: the target version is unknown",
                         ),
                     }
                 }
@@ -529,13 +528,13 @@ fn alter_type(before: &TypeDef, after: &TypeDef, out: &mut Out) {
     let q = &after.name;
     match (&before.kind, &after.kind) {
         (TypeKind::Enum { labels: old }, TypeKind::Enum { labels: new }) => {
-            // Les valeurs existantes doivent rester, dans le même ordre :
-            // PostgreSQL ne sait ni retirer ni déplacer une valeur.
+            // Existing values must remain, in the same order: PostgreSQL can
+            // neither remove nor move a value.
             let kept: Vec<&String> = new.iter().filter(|l| old.contains(l)).collect();
             if kept.len() != old.len() || kept.iter().zip(old).any(|(a, b)| *a != b) {
                 out.unsupported(
                     format!("type {q}"),
-                    "valeurs d'enum retirées ou réordonnées : PostgreSQL ne retire pas une valeur d'enum (recréer le type et convertir les colonnes)",
+                    "enum values removed or reordered: PostgreSQL cannot remove an enum value (recreate the type and convert the columns)",
                 );
                 return;
             }
@@ -560,33 +559,33 @@ fn alter_type(before: &TypeDef, after: &TypeDef, out: &mut Out) {
                 );
             }
             out.notes.push(format!(
-                "valeurs ajoutées à l'enum {q} : PostgreSQL refuse de les utiliser dans la transaction qui les ajoute"
+                "values added to enum {q}: PostgreSQL refuses to use them in the transaction that adds them"
             ));
         }
         (TypeKind::Domain { .. }, TypeKind::Domain { .. }) => out.unsupported(
-            format!("domaine {q}"),
-            "définition modifiée (type de base, défaut, NOT NULL ou CHECK) : ALTER DOMAIN n'est pas encore généré",
+            format!("domain {q}"),
+            "definition changed (base type, default, NOT NULL or CHECK): ALTER DOMAIN is not generated yet",
         ),
         (TypeKind::Composite { .. }, TypeKind::Composite { .. }) => out.unsupported(
             format!("type {q}"),
-            "attributs modifiés : ALTER TYPE … ATTRIBUTE n'est pas encore généré",
+            "attributes changed: ALTER TYPE … ATTRIBUTE is not generated yet",
         ),
         _ => out.unsupported(
             format!("type {q}"),
-            "nature du type changée (enum, composite, domaine) : le recréer à la main",
+            "type kind changed (enum, composite, domain): recreate it by hand",
         ),
     }
 }
 
-// ── Séquences ─────────────────────────────────────────────────────────────────
+// ── Sequences ─────────────────────────────────────────────────────────────────
 
 fn diff_sequences(o: &Objects, n: &Objects, out: &mut Out) {
     for (q, s) in &n.sequences {
         match o.sequences.get(q) {
             None => out.push(CREATE_SEQUENCE, s.definition.clone().unwrap_or_default()),
             Some(before) if before.definition != s.definition => out.unsupported(
-                format!("séquence {q}"),
-                "paramètres modifiés : ALTER SEQUENCE n'est pas encore généré",
+                format!("sequence {q}"),
+                "parameters changed: ALTER SEQUENCE is not generated yet",
             ),
             Some(_) => {}
         }
@@ -618,8 +617,8 @@ fn drop_routine_sql(r: &Routine) -> String {
     )
 }
 
-/// Définition comparable : `OR REPLACE` n'est pas une propriété de l'objet
-/// (une routine remplacée garde le texte de son dernier `CREATE`).
+/// Comparable definition: `OR REPLACE` is not a property of the object (a
+/// replaced routine keeps the text of its last `CREATE`).
 fn same_definition(a: Option<&str>, b: Option<&str>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a == b || normalized(a) == normalized(b),
@@ -639,8 +638,8 @@ fn normalized(definition: &str) -> Option<String> {
     Some(emit_statement(&stmt))
 }
 
-/// Même routine : même texte écrit quand les deux sont connus (le corps est
-/// gardé à la lettre, un commentaire modifié compte), même définition sinon.
+/// Same routine: same written text when both are known (the body is kept
+/// verbatim, an edited comment counts), same definition otherwise.
 fn same_routine(a: &Routine, b: &Routine) -> bool {
     fn body(src: &str) -> &str {
         let rest = src.trim_start();
@@ -665,14 +664,14 @@ fn same_routine(a: &Routine, b: &Routine) -> bool {
     }
 }
 
-/// Texte à émettre pour une routine : celui qu'elle a été écrite, sinon sa
-/// définition émise.
+/// Text to emit for a routine: the one it was written with, otherwise its
+/// emitted definition.
 fn routine_sql(r: &Routine) -> Option<String> {
     r.source.clone().or_else(|| r.definition.clone())
 }
 
-/// `CREATE OR REPLACE` d'une routine, sur son texte écrit quand il est
-/// connu (`CREATE` → `CREATE OR REPLACE`, vérifié par relecture).
+/// `CREATE OR REPLACE` of a routine, on its written text when known
+/// (`CREATE` → `CREATE OR REPLACE`, checked by reading it back).
 fn routine_or_replace(r: &Routine) -> Option<String> {
     let def = r.definition.as_deref()?;
     if let Some(src) = &r.source {
@@ -699,7 +698,7 @@ fn routine_or_replace(r: &Routine) -> Option<String> {
     or_replace(def)
 }
 
-/// `CREATE OR REPLACE` d'une définition émise.
+/// `CREATE OR REPLACE` of an emitted definition.
 fn or_replace(definition: &str) -> Option<String> {
     let mut stmts = pgweave_parser::parse(definition).ok()?;
     let mut stmt = stmts.pop()?;
@@ -712,8 +711,8 @@ fn or_replace(definition: &str) -> Option<String> {
     Some(emit_statement(&stmt))
 }
 
-/// `CREATE OR REPLACE` garde la signature de sortie et les noms des
-/// paramètres d'entrée : sinon, PostgreSQL exige de supprimer d'abord.
+/// `CREATE OR REPLACE` keeps the output signature and the input parameter
+/// names: otherwise, PostgreSQL requires dropping first.
 fn replaceable(before: &Routine, after: &Routine) -> bool {
     let inputs = |r: &Routine| -> Vec<Option<String>> {
         r.args
@@ -744,7 +743,7 @@ fn replaceable(before: &Routine, after: &Routine) -> bool {
         && before.returns_set == after.returns_set
         && inputs(before) == inputs(after)
         && outputs(before) == outputs(after)
-        // Un défaut d'argument retiré : refusé par CREATE OR REPLACE.
+        // A removed argument default: rejected by CREATE OR REPLACE.
         && before
             .args
             .iter()
@@ -766,7 +765,7 @@ fn routine_node(cat: &Catalog, r: &Routine, sql: String) -> Node {
     }
 }
 
-/// Rend les routines supprimées puis recréées (signature de sortie changée).
+/// Returns the routines dropped then recreated (output signature changed).
 fn diff_routines(
     old: &Catalog,
     new: &Catalog,
@@ -780,7 +779,7 @@ fn diff_routines(
             if !o.routines.contains_key(key) {
                 out.unsupported(
                     format!("routine {}", r.name),
-                    "créée sans définition rejouable (CREATE AGGREGATE…) : à écrire à la main",
+                    "created without a replayable definition (CREATE AGGREGATE…): to write by hand",
                 );
             }
             continue;
@@ -803,7 +802,7 @@ fn diff_routines(
             if r.definition.is_none() {
                 out.unsupported(
                     format!("routine {}", r.name),
-                    "supprimée, sans définition connue : à supprimer à la main",
+                    "dropped, with no known definition: to drop by hand",
                 );
                 continue;
             }
@@ -828,8 +827,8 @@ fn is_view(r: &Relation) -> bool {
     matches!(r.kind, RelationKind::View | RelationKind::MaterializedView)
 }
 
-/// Colonnes dont la suppression ou le changement de type bloque les vues
-/// qui citent la table.
+/// Columns whose removal or type change blocks the views referencing the
+/// table.
 fn columns_reshaped(before: &Relation, after: &Relation) -> bool {
     before
         .columns
@@ -837,10 +836,10 @@ fn columns_reshaped(before: &Relation, after: &Relation) -> bool {
         .any(|c| after.column(&c.name).is_none_or(|a| a.ty != c.ty))
 }
 
-/// Vues de l'état de départ à supprimer avant les modifications : retirées,
-/// non remplaçables, ou dépendant d'un objet reconstruit (vue, routine, ou
-/// table dont une colonne change de type ou disparaît). Fermeture
-/// transitive : une vue qui cite une vue reconstruite l'est aussi.
+/// Views of the starting state to drop before modifications: removed, not
+/// replaceable, or depending on a rebuilt object (view, routine, or table
+/// whose column changes type or disappears). Transitive closure: a view
+/// referencing a rebuilt view is rebuilt too.
 fn views_to_rebuild(
     old: &Catalog,
     o: &Objects,
@@ -898,8 +897,8 @@ fn views_to_rebuild(
     out
 }
 
-/// `CREATE OR REPLACE VIEW` n'accepte que des colonnes ajoutées à la fin,
-/// les existantes gardant nom et type.
+/// `CREATE OR REPLACE VIEW` only accepts columns added at the end, existing
+/// ones keeping their name and type.
 fn view_replaceable(before: &Relation, after: &Relation) -> bool {
     before.kind == RelationKind::View
         && after.kind == RelationKind::View
@@ -929,7 +928,7 @@ fn diff_relations(
     rebuilt_views: &BTreeSet<QName>,
     out: &mut Out,
 ) {
-    // Vues supprimées ou à reconstruire : avant toute modification.
+    // Dropped views or views to rebuild: before any modification.
     for q in rebuilt_views {
         let r = o.relations[q];
         let kind = match r.kind {
@@ -955,7 +954,7 @@ fn diff_relations(
         {
             out.unsupported(
                 format!("relation {q}"),
-                "table devenue vue, ou l'inverse : à migrer à la main",
+                "table turned into a view, or the reverse: to migrate by hand",
             );
             continue;
         }
@@ -1020,8 +1019,8 @@ fn is_deferred(c: &Constraint) -> bool {
     matches!(c.kind, ConstraintKind::ForeignKey { .. }) || c.not_valid
 }
 
-/// Clés étrangères et contraintes `NOT VALID` d'une table : après les
-/// index (une clé étrangère peut viser un index unique).
+/// Foreign keys and `NOT VALID` constraints of a table: after the indexes (a
+/// foreign key may target a unique index).
 fn add_deferred_constraints(r: &Relation, before: Option<&Relation>, out: &mut Out) {
     for c in &r.constraints {
         let unchanged = before
@@ -1040,7 +1039,7 @@ fn add_deferred_constraints(r: &Relation, before: Option<&Relation>, out: &mut O
             step.risks.push(Risk::new(
                 M007_VALIDATED_CONSTRAINT,
                 format!(
-                    "contrainte {} vérifiée sur toutes les lignes de {}, sous verrou",
+                    "constraint {} checked on every row of {}, under lock",
                     c.name, r.name
                 ),
             ));
@@ -1069,23 +1068,23 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
     if before.persistence != after.persistence {
         out.unsupported(
             format!("table {q}"),
-            "persistance modifiée (UNLOGGED) : ALTER TABLE … SET LOGGED n'est pas encore généré",
+            "persistence changed (UNLOGGED): ALTER TABLE … SET LOGGED is not generated yet",
         );
     }
     if before.kind != after.kind {
         out.unsupported(
             format!("table {q}"),
-            "table partitionnée ou non : à migrer à la main",
+            "partitioned or not: to migrate by hand",
         );
     }
 
-    // Contraintes retirées ou modifiées : avant les colonnes.
+    // Removed or modified constraints: before the columns.
     for c in &before.constraints {
         let kept = after.constraints.iter().find(|x| x.name == c.name);
         match kept {
             Some(x) if same_constraint(c, x) => {}
             Some(x) if constraint_body(c) == constraint_body(x) && c.not_valid => {
-                // Validée depuis : seule la validation manque.
+                // Validated since: only the validation is missing.
                 out.graph.push(Node {
                     key: format!("r:{q}"),
                     schema: q.schema.clone(),
@@ -1098,8 +1097,8 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
                 });
             }
             Some(x) if constraint_body(c) == constraint_body(x) => out.unsupported(
-                format!("contrainte {} de {q}", c.name),
-                "une contrainte validée ne redevient pas NOT VALID",
+                format!("constraint {} of {q}", c.name),
+                "a validated constraint cannot become NOT VALID again",
             ),
             _ => {
                 let phase = if matches!(c.kind, ConstraintKind::ForeignKey { .. }) {
@@ -1131,7 +1130,7 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
                     warnings.push(Risk::new(
                         M001_NOT_NULL_WITHOUT_DEFAULT,
                         format!(
-                            "colonne {}.{} NOT NULL sans défaut : échoue si la table a des lignes → ajouter un DEFAULT, ou l'ajouter nullable, la remplir, puis SET NOT NULL",
+                            "column {}.{} NOT NULL without default: fails if the table has rows → add a DEFAULT, or add it nullable, fill it, then SET NOT NULL",
                             q, c.name
                         ),
                     ));
@@ -1141,7 +1140,7 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
             Some(b) => alter_column(q, b, c, &mut actions, &mut warnings, out),
         }
     }
-    // Contraintes ajoutées ou modifiées (hors clés étrangères et NOT VALID).
+    // Added or modified constraints (except foreign keys and NOT VALID).
     for c in &after.constraints {
         let unchanged = before
             .constraints
@@ -1152,7 +1151,7 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
             warnings.push(Risk::new(
                 M007_VALIDATED_CONSTRAINT,
                 format!(
-                    "contrainte {} vérifiée sur toutes les lignes de {q}, sous verrou",
+                    "constraint {} checked on every row of {q}, under lock",
                     c.name
                 ),
             ));
@@ -1178,7 +1177,7 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
         });
     }
 
-    // Colonnes retirées : en dernier, plus rien ne les cite.
+    // Removed columns: last, nothing references them anymore.
     let order_kept = |r: &Relation| -> Vec<String> {
         r.columns
             .iter()
@@ -1195,7 +1194,7 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
                     risks: vec![Risk::destructive(
                         M002_DROP_COLUMN,
                         format!(
-                            "colonne {q}.{} supprimée, avec ses valeurs : renommage → RENAME COLUMN ; valeurs à garder → les reprendre avant",
+                            "column {q}.{} dropped, with its values: rename → RENAME COLUMN; values to keep → copy them first",
                             c.name
                         ),
                     )],
@@ -1210,7 +1209,7 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
         .any(|c| before.column(&c.name).is_some());
     if order_kept(before) != order_kept(after) || appended {
         out.notes.push(format!(
-            "ordre des colonnes de {q} : PostgreSQL ajoute une colonne à la fin, l'ordre déclaré n'est pas reproduit"
+            "column order of {q}: PostgreSQL adds a column at the end, the declared order is not reproduced"
         ));
     }
 
@@ -1240,15 +1239,15 @@ fn alter_column(
     let col = quote_ident(&after.name);
     if before.identity != after.identity {
         out.unsupported(
-            format!("colonne {table}.{}", after.name),
-            "identité ajoutée, retirée ou modifiée : ALTER COLUMN … IDENTITY n'est pas encore généré",
+            format!("column {table}.{}", after.name),
+            "identity added, removed or changed: ALTER COLUMN … IDENTITY is not generated yet",
         );
         return;
     }
     if before.generated != after.generated {
         out.unsupported(
-            format!("colonne {table}.{}", after.name),
-            "expression générée modifiée : ALTER COLUMN … SET EXPRESSION n'est pas encore généré",
+            format!("column {table}.{}", after.name),
+            "generated expression changed: ALTER COLUMN … SET EXPRESSION is not generated yet",
         );
         return;
     }
@@ -1256,7 +1255,7 @@ fn alter_column(
         warnings.push(Risk::new(
             M004_COLUMN_TYPE,
             format!(
-                "colonne {table}.{} : {} → {} réécrit la table ; sans conversion d'affectation, PostgreSQL exige USING",
+                "column {table}.{}: {} → {} rewrites the table; without an assignment cast, PostgreSQL requires USING",
                 after.name,
                 type_sql(&before.ty),
                 type_sql(&after.ty)
@@ -1278,7 +1277,7 @@ fn alter_column(
             warnings.push(Risk::new(
                 M005_SET_NOT_NULL,
                 format!(
-                    "colonne {table}.{} NOT NULL : parcours complet de la table, échoue sur une valeur nulle → remplir les nulls avant",
+                    "column {table}.{} NOT NULL: full table scan, fails on a null value → fill the nulls first",
                     after.name
                 ),
             ));
@@ -1300,7 +1299,7 @@ fn diff_indexes(o: &Objects, n: &Objects, rebuilt_views: &BTreeSet<QName>, out: 
             step.risks.push(Risk::new(
                 M006_BLOCKING_INDEX,
                 format!(
-                    "index {} construit sans CONCURRENTLY : écritures sur {} bloquées pendant la construction",
+                    "index {} built without CONCURRENTLY: writes on {} blocked during the build",
                     i.name, i.table
                 ),
             ));
@@ -1395,9 +1394,9 @@ fn diff_policies(o: &Objects, n: &Objects, out: &mut Out) {
     }
 }
 
-// ── Commentaires ──────────────────────────────────────────────────────────────
+// ── Comments ──────────────────────────────────────────────────────────────────
 
-/// Cible d'un `COMMENT ON` émis : (nature, nom écrit).
+/// Target of an emitted `COMMENT ON`: (kind, written name).
 fn comment_target(sql: &str) -> Option<(pgweave_ast::utility::CommentTarget, Vec<String>)> {
     let stmt = pgweave_parser::parse(sql).ok()?.pop()?;
     match stmt {
@@ -1411,8 +1410,8 @@ fn comment_target(sql: &str) -> Option<(pgweave_ast::utility::CommentTarget, Vec
     }
 }
 
-/// L'objet commenté existe-t-il dans `cat` ? Un objet supprimé emporte son
-/// commentaire : il n'y a rien à retirer.
+/// Does the commented object exist in `cat`? A dropped object takes its
+/// comment with it: there is nothing to remove.
 fn comment_object_exists(cat: &Catalog, sql: &str) -> bool {
     use pgweave_ast::utility::CommentTarget as T;
     let Some((target, parts)) = comment_target(sql) else {
@@ -1461,7 +1460,7 @@ fn comment_object_exists(cat: &Catalog, sql: &str) -> bool {
 }
 
 fn diff_comments(old: &Catalog, new: &Catalog, rebuilt_views: &BTreeSet<QName>, out: &mut Out) {
-    // Un commentaire sur une vue reconstruite disparaît avec elle.
+    // A comment on a rebuilt view disappears with it.
     let on_rebuilt = |sql: &str| {
         comment_target(sql).is_some_and(|(_, parts)| {
             rebuilt_views.iter().any(|q| {

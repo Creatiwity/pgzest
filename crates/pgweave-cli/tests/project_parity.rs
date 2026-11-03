@@ -1,8 +1,8 @@
-//! La CLI doit voir le même schéma que le LSP.
+//! The CLI must see the same schema as the LSP.
 //!
-//! Historiquement `pgweave check` ignorait pgweave.toml et exigeait
-//! des `--schema` explicites, alors que le LSP indexait tout le projet. Même
-//! fichier, diagnostics différents entre l'éditeur et la CI.
+//! Historically `pgweave check` ignored pgweave.toml and required explicit
+//! `--schema` flags, while the LSP indexed the whole project. Same file,
+//! different diagnostics between the editor and CI.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,14 +25,14 @@ fn scaffold(name: &str, files: &[(&str, &str)]) -> PathBuf {
     root
 }
 
-/// Lance `pgweave check` depuis `root`, renvoie (code, stdout+stderr).
+/// Runs `pgweave check` from `root`, returns (code, stdout+stderr).
 fn check(root: &Path, args: &[&str]) -> (i32, String) {
     let out = Command::new(BIN)
         .arg("check")
         .args(args)
         .current_dir(root)
         .output()
-        .expect("le binaire pgweave doit s'exécuter");
+        .expect("the pgweave binary must run");
     let mut combined = String::from_utf8_lossy(&out.stdout).to_string();
     combined.push_str(&String::from_utf8_lossy(&out.stderr));
     (out.status.code().unwrap_or(-1), combined)
@@ -52,48 +52,48 @@ const PROJECT: &[(&str, &str)] = &[
 ];
 
 #[test]
-fn le_scope_projet_resout_sans_schema_explicite() {
+fn project_scope_resolves_without_explicit_schema() {
     let root = scaffold("resolve", PROJECT);
     let (code, out) = check(&root, &["queries/ok.sql"]);
     assert_eq!(
         code, 0,
-        "users doit se résoudre depuis le scope projet, sortie:\n{out}"
+        "users must resolve from the project scope, output:\n{out}"
     );
 }
 
 #[test]
-fn une_colonne_absente_est_toujours_detectee() {
+fn a_missing_column_is_still_detected() {
     let root = scaffold("badcol", PROJECT);
     let (code, out) = check(&root, &["queries/bad.sql"]);
-    assert_eq!(code, 1, "sortie:\n{out}");
+    assert_eq!(code, 1, "output:\n{out}");
     assert!(
         out.contains("column-not-found"),
-        "column-not-found attendu, sortie:\n{out}"
+        "column-not-found expected, output:\n{out}"
     );
 }
 
 #[test]
-fn no_project_revient_au_mode_isole() {
+fn no_project_falls_back_to_isolated_mode() {
     let root = scaffold("noproject", PROJECT);
     let (code, out) = check(&root, &["queries/ok.sql", "--no-project"]);
-    assert_eq!(code, 1, "sans index projet, users est inconnue:\n{out}");
-    assert!(out.contains("table-not-found"), "sortie:\n{out}");
+    assert_eq!(code, 1, "without a project index, users is unknown:\n{out}");
+    assert!(out.contains("table-not-found"), "output:\n{out}");
 }
 
 #[test]
-fn les_sous_repertoires_du_scope_comptent() {
-    // schema/tables/users.sql est dans un sous-répertoire : le scan doit
-    // récurser, sinon la table reste invisible.
+fn scope_subdirectories_count() {
+    // schema/tables/users.sql is in a subdirectory: the scan must recurse,
+    // otherwise the table stays invisible.
     let root = scaffold("subdir", PROJECT);
     let (code, out) = check(&root, &["queries/ok.sql"]);
-    assert_eq!(code, 0, "sortie:\n{out}");
-    assert!(!out.contains("table-not-found"), "sortie:\n{out}");
+    assert_eq!(code, 0, "output:\n{out}");
+    assert!(!out.contains("table-not-found"), "output:\n{out}");
 }
 
 #[test]
-fn un_statement_non_indexable_est_signale() {
-    // Une table définie dans un statement illisible disparaît de l'index ;
-    // la CLI doit prévenir plutôt que laisser croire à un index complet.
+fn an_unindexable_statement_is_reported() {
+    // A table defined in an unreadable statement disappears from the index;
+    // the CLI must warn rather than pretend the index is complete.
     let root = scaffold(
         "skipidx",
         &[
@@ -107,14 +107,14 @@ fn un_statement_non_indexable_est_signale() {
     );
     let (_code, out) = check(&root, &["queries/q.sql"]);
     assert!(
-        out.contains("non indexé"),
-        "l'écart d'indexation doit être signalé, sortie:\n{out}"
+        out.contains("not indexed"),
+        "the indexing gap must be reported, output:\n{out}"
     );
 }
 
 #[test]
-fn schema_explicite_reste_prioritaire() {
-    // Rétrocompatibilité : --schema doit continuer de fonctionner et primer.
+fn explicit_schema_still_takes_precedence() {
+    // Backward compatibility: --schema must keep working and take precedence.
     let root = scaffold(
         "explicit",
         &[
@@ -128,19 +128,19 @@ fn schema_explicite_reste_prioritaire() {
         ],
     );
     let (code, out) = check(&root, &["q.sql", "--schema", "other.sql"]);
-    assert_eq!(code, 0, "sortie:\n{out}");
+    assert_eq!(code, 0, "output:\n{out}");
 }
 
 #[test]
-fn sans_config_le_mode_autonome_est_conserve() {
-    // Aucun pgweave.toml : le comportement historique
-    // (DDL du fichier lui-même) doit rester intact.
+fn without_config_self_contained_mode_is_kept() {
+    // No pgweave.toml: the historical behavior
+    // (DDL of the file itself) must stay intact.
     let root = scaffold(
         "standalone",
         &[("q.sql", "CREATE TABLE t (a INT);\nSELECT a FROM t;")],
     );
     let (code, out) = check(&root, &["q.sql"]);
-    assert_eq!(code, 0, "sortie:\n{out}");
+    assert_eq!(code, 0, "output:\n{out}");
 }
 
 const QUERIES_PROJECT: &[(&str, &str)] = &[
@@ -170,43 +170,43 @@ const QUERIES_PROJECT: &[(&str, &str)] = &[
 ];
 
 #[test]
-fn un_fichier_de_requetes_nommees_valide_passe() {
+fn a_valid_named_query_file_passes() {
     let root = scaffold("queries-ok", QUERIES_PROJECT);
     let (code, out) = check(&root, &["queries/pages.sql"]);
-    assert_eq!(code, 0, "sortie:\n{out}");
+    assert_eq!(code, 0, "output:\n{out}");
 }
 
 #[test]
-fn le_format_des_requetes_nommees_est_verifie() {
+fn named_query_format_is_checked() {
     let root = scaffold("queries-format", QUERIES_PROJECT);
     let (code, out) = check(&root, &["queries/mixed.sql"]);
-    assert_eq!(code, 1, "sortie:\n{out}");
-    assert!(out.contains("query-mixed-parameters"), "sortie:\n{out}");
+    assert_eq!(code, 1, "output:\n{out}");
+    assert!(out.contains("query-mixed-parameters"), "output:\n{out}");
 
     let (code, out) = check(&root, &["queries/unnamed.sql"]);
-    assert_eq!(code, 1, "sortie:\n{out}");
-    assert!(out.contains("query-without-name"), "sortie:\n{out}");
+    assert_eq!(code, 1, "output:\n{out}");
+    assert!(out.contains("query-without-name"), "output:\n{out}");
 }
 
 #[test]
-fn une_requete_nommee_est_aussi_verifiee_contre_le_schema() {
+fn a_named_query_is_also_checked_against_the_schema() {
     let root = scaffold("queries-schema", QUERIES_PROJECT);
     let (code, out) = check(&root, &["queries/bad_column.sql"]);
-    assert_eq!(code, 1, "sortie:\n{out}");
-    assert!(out.contains("column-not-found"), "sortie:\n{out}");
+    assert_eq!(code, 1, "output:\n{out}");
+    assert!(out.contains("column-not-found"), "output:\n{out}");
 }
 
 #[test]
-fn le_format_ne_s_applique_qu_au_repertoire_des_requetes() {
-    // Un fichier hors [queries] directory n'a pas à porter d'en-tête.
+fn format_only_applies_to_the_queries_directory() {
+    // A file outside [queries] directory need not carry a header.
     let root = scaffold("queries-scope", QUERIES_PROJECT);
     fs::write(root.join("adhoc.sql"), "SELECT id FROM pages;\n").unwrap();
     let (code, out) = check(&root, &["adhoc.sql"]);
-    assert_eq!(code, 0, "sortie:\n{out}");
+    assert_eq!(code, 0, "output:\n{out}");
 }
 
 #[test]
-fn une_config_invalide_arrete_check() {
+fn an_invalid_config_stops_check() {
     let root = scaffold(
         "badconfig",
         &[
@@ -215,6 +215,6 @@ fn une_config_invalide_arrete_check() {
         ],
     );
     let (code, out) = check(&root, &["q.sql"]);
-    assert_eq!(code, 2, "sortie:\n{out}");
-    assert!(out.contains("pgweave.toml"), "sortie:\n{out}");
+    assert_eq!(code, 2, "output:\n{out}");
+    assert!(out.contains("pgweave.toml"), "output:\n{out}");
 }

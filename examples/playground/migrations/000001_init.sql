@@ -1,6 +1,6 @@
--- Indexée avec sa séquence (000001), jamais confondue avec le schéma.
+-- Indexed with its sequence number (000001), never confused with the schema.
 --
--- Dans le workflow visé, schema/ est canonique et les migrations en sont
--- dérivées : cette migration reflète last_seen_at, déjà présente dans
--- schema/tables/users.sql. Les deux doivent rester cohérents.
+-- In the intended workflow, schema/ is canonical and the migrations are
+-- derived from it: this migration reflects last_seen_at, already present in
+-- schema/tables/users.sql. The two must stay consistent.
 ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMPTZ;

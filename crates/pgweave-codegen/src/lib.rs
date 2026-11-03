@@ -1,4 +1,4 @@
-/// Rendu SQL de l'AST, désormais dans `pgweave-ast`.
+/// SQL rendering of the AST, now in `pgweave-ast`.
 pub use pgweave_ast::emit;
 pub mod inject;
 pub mod rust;

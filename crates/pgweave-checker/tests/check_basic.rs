@@ -219,8 +219,8 @@ fn rls_policy_valid_column_passes() {
 
 // ── PL/pgSQL body checks ──────────────────────────────────────────────────────
 
-/// Fonction trigger qui affecte `NEW.nonexistent_col` : le champ n'existe
-/// pas sur la table du trigger.
+/// Trigger function assigning `NEW.nonexistent_col`: the field does not
+/// exist on the trigger's table.
 #[test]
 fn trigger_new_nonexistent_column_is_error() {
     let sql = r#"
@@ -246,8 +246,8 @@ fn trigger_new_nonexistent_column_is_error() {
 
 #[test]
 fn self_contained_schema_resolves_policies() {
-    // Un seul fichier SQL qui contient CREATE TABLE + CREATE POLICY
-    // Le checker doit résoudre la table depuis le DDL du même fichier
+    // A single SQL file containing CREATE TABLE + CREATE POLICY.
+    // The checker must resolve the table from the DDL of the same file.
     let sql = "
         CREATE TABLE users (id UUID PRIMARY KEY, email TEXT NOT NULL);
         CREATE POLICY users_select ON users

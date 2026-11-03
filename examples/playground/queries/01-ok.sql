@@ -1,13 +1,13 @@
--- Ce fichier doit être entièrement propre.
+-- This file should be entirely clean.
 --
--- `users` et `organizations` ne sont pas définies ici : elles viennent de
--- schema/tables/, indexé automatiquement via pgweave.toml.
--- Aucun --schema à passer.
+-- `users` and `organizations` are not defined here: they come from
+-- schema/tables/, indexed automatically through pgweave.toml.
+-- No --schema to pass.
 
 SELECT u.email, o.name
 FROM users u
 JOIN organizations o ON o.id = u.org_id
 WHERE u.is_admin = true;
 
--- last_seen_at vient de migrations/000001_init.sql (ALTER TABLE).
+-- last_seen_at comes from migrations/000001_init.sql (ALTER TABLE).
 SELECT email, last_seen_at FROM users;

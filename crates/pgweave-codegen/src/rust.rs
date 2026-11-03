@@ -1,10 +1,10 @@
-//! Code Rust des requêtes nommées, depuis leurs descripteurs (PLAN.md §5,
-//! P5) : une fonction par requête, alignée sur sa cardinalité, une struct de
-//! paramètres et une struct de ligne, exécutées par `pgweave-runtime`.
+//! Rust code for named queries, from their descriptors (PLAN.md §5, P5):
+//! one function per query, matching its cardinality, a parameter struct
+//! and a row struct, executed by `pgweave-runtime`.
 //!
-//! Correspondance des types : table ci-dessous, extensible par projet
-//! ([`RustOptions::overrides`], D9). Un type sans correspondance est un
-//! refus, jamais un repli.
+//! Type mapping: table below, extensible per project
+//! ([`RustOptions::overrides`], D9). A type without a mapping is a
+//! refusal, never a fallback.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -16,7 +16,7 @@ use pgweave_query::descriptor::NullabilityDesc;
 pub use pgweave_query::{QueryModule, resolve_row};
 use pgweave_sema::{Ty, TypeSystem};
 
-/// Crate de dates et heures du projet.
+/// Date and time crate used by the project.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Temporal {
     #[default]
@@ -26,15 +26,15 @@ pub enum Temporal {
 
 #[derive(Debug, Clone)]
 pub struct RustOptions {
-    /// Chemin du runtime dans le crate utilisateur.
+    /// Path of the runtime in the user crate.
     pub runtime: String,
     pub temporal: Temporal,
-    /// Type Rust d'un type PostgreSQL (`"public.geometry"` →
-    /// `"geo_types::Geometry"`), prioritaire sur la table intégrée.
+    /// Rust type for a PostgreSQL type (`"public.geometry"` →
+    /// `"geo_types::Geometry"`), taking precedence over the built-in table.
     pub overrides: BTreeMap<String, String>,
-    /// Module des enums du projet (`[rust] types`, `crate::db`), générés à
-    /// part ([`generate_enums`]) : le code des requêtes y renvoie au lieu de
-    /// définir les siens.
+    /// Module holding the project's enums (`[rust] types`, `crate::db`),
+    /// generated separately ([`generate_enums`]): query code refers to it
+    /// instead of defining its own.
     pub types_path: Option<String>,
 }
 
@@ -49,12 +49,12 @@ impl Default for RustOptions {
     }
 }
 
-/// Type Rust d'une valeur : possédée (colonne) et empruntée (paramètre).
+/// Rust type of a value: owned (column) and borrowed (parameter).
 #[derive(Debug, Clone)]
 struct RustTy {
     owned: String,
     borrowed: String,
-    /// La forme empruntée porte la durée de vie `'a`.
+    /// The borrowed form carries the `'a` lifetime.
     lifetime: bool,
 }
 
@@ -71,13 +71,12 @@ impl RustTy {
 struct Generator<'c> {
     ts: TypeSystem<'c>,
     opts: &'c RustOptions,
-    /// Enums utilisés : nom qualifié → (type Rust, libellés).
+    /// Enums used: qualified name → (Rust type, PostgreSQL name, labels).
     enums: BTreeMap<Ty, (String, String, Vec<String>)>,
 }
 
-/// Module Rust des requêtes `descriptors`, toutes à la racine, typées contre
-/// `catalog`. Les erreurs disent quelle requête ne se traduit pas, et
-/// pourquoi.
+/// Rust module for the `descriptors` queries, all at the root, typed against
+/// `catalog`. Errors say which query cannot be translated, and why.
 pub fn generate_rust(
     descriptors: &[Descriptor],
     catalog: &ProjectCatalog,
@@ -94,8 +93,8 @@ pub fn generate_rust(
     )
 }
 
-/// Segment de module : snake_case, mot-clé en identifiant brut ; `self`,
-/// `super`, `crate` refusés (aucune forme brute).
+/// Module segment: snake_case, keyword as a raw identifier; `self`,
+/// `super`, `crate` rejected (no raw form).
 fn module_ident(segment: &str) -> Result<String, String> {
     let snake = segment
         .bytes()
@@ -106,7 +105,7 @@ fn module_ident(segment: &str) -> Result<String, String> {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
     if !snake || matches!(segment, "self" | "super" | "crate") {
         return Err(format!(
-            "`{segment}` ne fait pas un nom de module Rust (snake_case, ni self, super, crate)"
+            "`{segment}` is not a valid Rust module name (snake_case, not self, super or crate)"
         ));
     }
     Ok(if KEYWORDS.contains(&segment) {
@@ -116,10 +115,10 @@ fn module_ident(segment: &str) -> Result<String, String> {
     })
 }
 
-/// Arbre de modules du code généré : un `pub mod` par répertoire et par
-/// fichier de requêtes. Les enums sont à la racine ; chaque module importe
-/// son parent (`use super::*`) pour les voir. Une ligne reprise d'un autre
-/// module (`-> a::b::nom`) est désignée par un chemin relatif.
+/// Module tree of the generated code: one `pub mod` per directory and per
+/// query file. Enums are at the root; each module imports its parent
+/// (`use super::*`) to see them. A row reused from another module
+/// (`-> a::b::name`) is referred to by a relative path.
 pub fn generate_rust_modules(
     modules: &[QueryModule],
     catalog: &ProjectCatalog,
@@ -142,7 +141,7 @@ pub fn generate_rust_modules(
         for s in &m.path {
             match module_ident(s) {
                 Ok(i) => idents.push(i),
-                Err(e) => errors.push(format!("{where_} : {e}")),
+                Err(e) => errors.push(format!("{where_}: {e}")),
             }
         }
         let body = bodies.entry(m.path.clone()).or_default();
@@ -152,10 +151,10 @@ pub fn generate_rust_modules(
                 Some(r) => {
                     let target = resolve_row(&m.path, r, modules);
                     if let Err(e) = pgweave_query::check_row_reference(d, target.map(|(_, t)| t)) {
-                        errors.push(format!("{where_}{} : {e}", d.name));
+                        errors.push(format!("{where_}{}: {e}", d.name));
                         continue;
                     }
-                    let (path, t) = target.expect("vérifiée");
+                    let (path, t) = target.expect("checked");
                     let mut ty = "super::".repeat(m.path.len());
                     if path == m.path.as_slice() {
                         ty.clear();
@@ -171,7 +170,7 @@ pub fn generate_rust_modules(
             };
             match g.query(d, row) {
                 Ok(code) => body.push_str(&with_source(code, m.source.as_ref(), d)),
-                Err(e) => errors.push(format!("{where_}{} : {e}", d.name)),
+                Err(e) => errors.push(format!("{where_}{}: {e}", d.name)),
             }
         }
     }
@@ -179,14 +178,12 @@ pub fn generate_rust_modules(
         return Err(errors);
     }
     let body = render_tree(&bodies, &[]);
-    let mut out = String::from(
-        "// Généré par pgweave à partir des descripteurs de requêtes. Ne pas modifier.\n\n",
-    );
+    let mut out = String::from("// Generated by pgweave from query descriptors. Do not edit.\n\n");
     let mut names = BTreeMap::new();
     for (ty, (rust, typname, labels)) in &g.enums {
         if let Some(other) = names.insert(rust.clone(), ty.clone()) {
             return Err(vec![format!(
-                "les enums {other} et {ty} donnent le même type Rust `{rust}`"
+                "enums {other} and {ty} map to the same Rust type `{rust}`"
             )]);
         }
         out.push_str(&enum_code(&g.opts.runtime, rust, typname, labels)?);
@@ -195,10 +192,10 @@ pub fn generate_rust_modules(
     Ok(out)
 }
 
-/// `code` (celui d'une requête), chaque fonction et la struct de ligne
-/// précédées d'un lien vers l'en-tête de la requête dans son fichier SQL :
-/// une macro ne peut situer son code que dans le fichier Rust qui l'appelle,
-/// le lien mène au SQL (survol, ou ⌘-clic sur le lien).
+/// `code` (that of one query), with each function and the row struct
+/// preceded by a link to the query header in its SQL file: a macro can
+/// only locate its code in the Rust file that calls it, so the link leads
+/// to the SQL (hover, or ⌘-click on the link).
 fn with_source(
     code: String,
     source: Option<&pgweave_query::QuerySource>,
@@ -210,12 +207,12 @@ fn with_source(
     let Some(line) = src.lines.get(&d.name) else {
         return code;
     };
-    // Attribut plutôt que `///` : un commentaire de doc reparsé par le
-    // serveur de macros de rust-analyzer y garde un `/` de trop.
+    // Attribute rather than `///`: a doc comment reparsed by
+    // rust-analyzer's macro server keeps an extra `/`.
     let doc = format!(
         "#[doc = {:?}]\n",
         format!(
-            " Requête `{}` : [{}:{line}](file://{}#L{line})",
+            " Query `{}`: [{}:{line}](file://{}#L{line})",
             d.name,
             src.label,
             src.path.display()
@@ -232,9 +229,9 @@ fn with_source(
     out
 }
 
-/// Code d'une requête seule (`sql!`), sa ligne éventuellement reprise d'un
-/// type Rust (`row`, chemin). Un enum utilisé exige `types_path` : deux
-/// requêtes du même module ne peuvent pas chacune définir le sien.
+/// Code for a single query (`sql!`), its row possibly reused from a Rust
+/// type (`row`, path). A used enum requires `types_path`: two queries in
+/// the same module cannot each define their own.
 pub fn generate_query(
     d: &Descriptor,
     catalog: &ProjectCatalog,
@@ -249,16 +246,16 @@ pub fn generate_query(
     let code = g.query(d, row)?;
     if let Some(ty) = g.enums.keys().next() {
         return Err(format!(
-            "la requête utilise l'enum {ty} : déclarer où sont les enums du projet \
-             (`[rust] types = \"crate::db\"` dans pgweave.toml) et y appeler \
-             `pgweave_macros::types!();`"
+            "the query uses enum {ty}: declare where the project's enums live \
+             (`[rust] types = \"crate::db\"` in pgweave.toml) and call \
+             `pgweave_macros::types!();` there"
         ));
     }
     Ok(code)
 }
 
-/// Enums de tous les types énumérés du projet (`types!`), hors catalogue
-/// système.
+/// Enums for all enumerated types of the project (`types!`), excluding the
+/// system catalog.
 pub fn generate_enums(catalog: &ProjectCatalog, opts: &RustOptions) -> Result<String, Vec<String>> {
     let mut out = String::new();
     let mut names: BTreeMap<String, String> = BTreeMap::new();
@@ -272,7 +269,7 @@ pub fn generate_enums(catalog: &ProjectCatalog, opts: &RustOptions) -> Result<St
         let rust = pascal(&t.name.name);
         if let Some(other) = names.insert(rust.clone(), t.name.to_string()) {
             return Err(vec![format!(
-                "les enums {other} et {} donnent le même type Rust `{rust}`",
+                "enums {other} and {} map to the same Rust type `{rust}`",
                 t.name
             )]);
         }
@@ -281,7 +278,7 @@ pub fn generate_enums(catalog: &ProjectCatalog, opts: &RustOptions) -> Result<St
     Ok(out)
 }
 
-/// Code du module `at` et de ses sous-modules.
+/// Code of module `at` and its submodules.
 fn render_tree(bodies: &BTreeMap<Vec<String>, String>, at: &[String]) -> String {
     let mut out = bodies.get(at).cloned().unwrap_or_default();
     let children: std::collections::BTreeSet<&String> = bodies
@@ -303,7 +300,7 @@ fn render_tree(bodies: &BTreeMap<Vec<String>, String>, at: &[String]) -> String 
 }
 
 impl Generator<'_> {
-    /// `row` : type de la ligne reprise d'une autre requête (`-> autre`).
+    /// `row`: row type reused from another query (`-> other`).
     fn query(&mut self, d: &Descriptor, row: Option<String>) -> Result<String, String> {
         if let Some(copy) = &d.copy {
             return self.copy(d, copy);
@@ -314,9 +311,9 @@ impl Generator<'_> {
         let const_name = d.name.to_uppercase();
         let mut o = String::new();
 
-        // OID de chaque paramètre ; un domaine est passé sous son type de
-        // base (le serveur convertit implicitement), un type sans OID fixe
-        // laisse le serveur typer la requête.
+        // OID of each parameter; a domain is passed as its base type (the
+        // server converts implicitly), a type without a fixed OID lets the
+        // server type the query.
         let mut oids = Some(Vec::new());
         for p in &d.params {
             let base = self.ts.base_type(&qname(&p.ty.pg));
@@ -343,7 +340,7 @@ impl Generator<'_> {
                 let mut oids = Some(Vec::new());
                 for name in &v.params {
                     let p = d.params.iter().find(|p| &p.name == name).ok_or_else(|| {
-                        format!("variante {i} : paramètre ${name} inconnu du descripteur")
+                        format!("variant {i}: parameter ${name} unknown to the descriptor")
                     })?;
                     let base = self.ts.base_type(&qname(&p.ty.pg));
                     match (self.ts.def(&base).and_then(|t| t.oid), oids.as_mut()) {
@@ -367,22 +364,22 @@ impl Generator<'_> {
             let _ = writeln!(o);
         }
 
-        // Paramètres.
+        // Parameters.
         let mut params = Vec::new();
         let mut lifetime = false;
         for p in &d.params {
             let t = self.rust_type(&p.ty.pg)?;
             lifetime |= t.lifetime;
             let ty = match p.nullable {
-                // Un paramètre de nullabilité non établie est attendu non
-                // nul : NULL n'a de sens que là où la requête l'accepte
-                // explicitement (colonne nullable).
+                // A parameter whose nullability is not established is
+                // expected non-null: NULL only makes sense where the query
+                // explicitly accepts it (nullable column).
                 NullabilityDesc::Nullable => format!("Option<{}>", t.borrowed),
                 NullabilityDesc::NonNull | NullabilityDesc::Unknown => t.borrowed,
             };
             params.push((field_ident(&p.name)?, ty));
         }
-        // Requête à variantes : un enum par choix, champ de la struct.
+        // Query with variants: one enum per choice, as a struct field.
         let choice_types: Vec<(String, String, Vec<String>)> = d
             .dynamic
             .iter()
@@ -417,8 +414,7 @@ impl Generator<'_> {
             Some(format!("{name}{}", if lifetime { "<'_>" } else { "" }))
         };
 
-        // Ligne : celle d'une autre requête (`-> autre`, vérifiée), ou la
-        // sienne.
+        // Row: that of another query (`-> other`, checked), or its own.
         let row_ty = if let Some(r) = row {
             Some(r)
         } else if d.columns.is_empty() {
@@ -429,10 +425,10 @@ impl Generator<'_> {
             let mut fields = Vec::new();
             for c in &d.columns {
                 let f = field_ident(&c.name)
-                    .map_err(|e| format!("{e} (colonne de sortie : lui donner un alias)"))?;
+                    .map_err(|e| format!("{e} (output column: give it an alias)"))?;
                 if !seen.insert(f.clone()) {
                     return Err(format!(
-                        "deux colonnes de sortie s'appellent `{}` : leur donner des alias distincts",
+                        "two output columns are named `{}`: give them distinct aliases",
                         c.name
                     ));
                 }
@@ -454,9 +450,9 @@ impl Generator<'_> {
             }
             let _ = writeln!(o, "}}\n");
             let _ = writeln!(o, "impl {name} {{");
-            // Colonnes (nom, type PostgreSQL, non nulle) : une requête qui
-            // reprend cette ligne (`-> Chemin`) y est comparée à la
-            // compilation.
+            // Columns (name, PostgreSQL type, non-null): a query that reuses
+            // this row (`-> Path`) is compared against it at compile
+            // time.
             let _ = writeln!(
                 o,
                 "    pub const PGWEAVE_COLUMNS: &'static [(&'static str, &'static str, bool)] = &[{}];",
@@ -483,12 +479,12 @@ impl Generator<'_> {
             Some(name)
         };
 
-        // Fonction.
+        // Function.
         let args = match &params_ty {
             Some(t) => format!(", params: {t}"),
             None => String::new(),
         };
-        // Un domaine passe par `Domain` : le serveur peut l'annoncer tel quel.
+        // A domain goes through `Domain`: the server may announce it as such.
         let domains: Vec<bool> = d.params.iter().map(|p| self.is_domain(&p.ty.pg)).collect();
         let bound = match &params_ty {
             Some(_) => format!(
@@ -506,9 +502,9 @@ impl Generator<'_> {
             ),
             None => "&[]".into(),
         };
-        // Requête à variantes : la variante (vérifiée à la compilation) et
-        // ses valeurs, choisies par un `match` exhaustif sur les blocs
-        // fournis et les choix.
+        // Query with variants: the variant (checked at compile time) and
+        // its values, chosen by an exhaustive `match` on the provided
+        // blocks and the choices.
         let (prelude, qref, bound) = match &d.dynamic {
             None => (String::new(), format!("&{const_name}"), bound),
             Some(dy) => self.variant_match(d, dy, &const_name, &choice_types)?,
@@ -536,18 +532,18 @@ impl Generator<'_> {
             o,
             "pub async fn {fn_name}<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<{ret}, {rt}::Error> {{\n{prelude}    {call}.await\n}}\n"
         );
-        // Plusieurs lignes : aussi en flux, décodées à leur arrivée.
+        // Several rows: also as a stream, decoded as they arrive.
         if let (Cardinality::Many, Some(r)) = (d.cardinality, &row_ty) {
             let _ = writeln!(
                 o,
-                "/// Comme [`{fn_name}`], les lignes décodées au fil de leur arrivée.\npub async fn {fn_name}_stream<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<impl {rt}::futures_util::Stream<Item = Result<{r}, {rt}::Error>> + Send + use<C>, {rt}::Error> {{\n{prelude}    {rt}::stream(client, {qref}, {bound}, {r}::from_row).await\n}}\n"
+                "/// Like [`{fn_name}`], with rows decoded as they arrive.\npub async fn {fn_name}_stream<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<impl {rt}::futures_util::Stream<Item = Result<{r}, {rt}::Error>> + Send + use<C>, {rt}::Error> {{\n{prelude}    {rt}::stream(client, {qref}, {bound}, {r}::from_row).await\n}}\n"
             );
         }
         Ok(o)
     }
 
-    /// Préambule d'une fonction à variantes : `let (q, binds) = match …;`,
-    /// puis la requête et les valeurs à passer.
+    /// Prelude of a function with variants: `let (q, binds) = match …;`,
+    /// then the query and the values to pass.
     fn variant_match(
         &self,
         d: &Descriptor,
@@ -557,7 +553,7 @@ impl Generator<'_> {
     ) -> Result<(String, String, String), String> {
         let rt = &self.opts.runtime;
         let mut prelude = String::new();
-        // Domaines : valeurs préparées hors du `match` (pas de temporaire).
+        // Domains: values prepared outside the `match` (no temporary).
         let mut value = std::collections::BTreeMap::new();
         for p in &d.params {
             let f = field_ident(&p.name)?;
@@ -569,7 +565,7 @@ impl Generator<'_> {
                     let _ = writeln!(prelude, "    let __{f} = {rt}::Domain(params.{f});");
                     format!("&__{f}")
                 }
-                // Lié par le motif `Some(__c_f)` de la branche.
+                // Bound by the arm's `Some(__c_f)` pattern.
                 (true, _) => format!("__c_{f}"),
             };
             if cond && dom {
@@ -600,7 +596,7 @@ impl Generator<'_> {
         let n_blocks = dy.conditions.len();
         let mut arms = String::new();
         for (i, v) in dy.variants.iter().enumerate() {
-            // Indice → combinaison (voir `pgweave_query::dynamic::selections`).
+            // Index → combination (see `pgweave_query::dynamic::selections`).
             let bits: Vec<bool> = (0..n_blocks).map(|k| i >> k & 1 == 1).collect();
             let mut rest = i >> n_blocks;
             let mut patterns = Vec::new();
@@ -613,7 +609,7 @@ impl Generator<'_> {
                     .filter(|(n, _)| n == c)
                     .map(|(_, b)| *b)
                     .collect();
-                // Un même paramètre décide de plusieurs blocs : ensemble.
+                // One parameter controlling several blocks: they go together.
                 if states.iter().any(|b| *b != states[0]) {
                     consistent = false;
                 }
@@ -647,8 +643,8 @@ impl Generator<'_> {
         Ok((prelude, "q".into(), "&binds".into()))
     }
 
-    /// `COPY … FROM STDIN` : enregistrements typés (binaire) ou flux
-    /// d'octets (texte, CSV).
+    /// `COPY … FROM STDIN`: typed records (binary) or byte stream (text,
+    /// CSV).
     fn copy(
         &mut self,
         d: &Descriptor,
@@ -691,7 +687,7 @@ impl Generator<'_> {
         if copy.format != "binary" {
             let _ = writeln!(
                 o,
-                "/// Données au format {} lues dans `reader`, telles quelles ; renvoie le nombre de lignes copiées.\npub async fn {fn_name}<C: {rt}::CopyClient + ?Sized, R: {rt}::tokio::io::AsyncRead + Unpin>(client: &C, reader: R) -> Result<u64, {rt}::Error> {{\n    {rt}::copy_in_stream(client, &{const_name}, reader).await\n}}\n",
+                "/// Data in {} format read from `reader`, as is; returns the number of rows copied.\npub async fn {fn_name}<C: {rt}::CopyClient + ?Sized, R: {rt}::tokio::io::AsyncRead + Unpin>(client: &C, reader: R) -> Result<u64, {rt}::Error> {{\n    {rt}::copy_in_stream(client, &{const_name}, reader).await\n}}\n",
                 copy.format
             );
             return Ok(o);
@@ -726,12 +722,12 @@ impl Generator<'_> {
             .join(", ");
         let _ = writeln!(
             o,
-            "/// Copie binaire des enregistrements ; renvoie le nombre de lignes copiées.\npub async fn {fn_name}<'a, C: {rt}::CopyClient + ?Sized>(client: &C, records: impl IntoIterator<Item = {item}>) -> Result<u64, {rt}::Error> {{\n    let mut copy = {rt}::BinaryCopy::open(client, &{const_name}).await?;\n    for r in records {{\n        copy.write(&[{values}]).await?;\n    }}\n    copy.finish().await\n}}\n"
+            "/// Binary copy of the records; returns the number of rows copied.\npub async fn {fn_name}<'a, C: {rt}::CopyClient + ?Sized>(client: &C, records: impl IntoIterator<Item = {item}>) -> Result<u64, {rt}::Error> {{\n    let mut copy = {rt}::BinaryCopy::open(client, &{const_name}).await?;\n    for r in records {{\n        copy.write(&[{values}]).await?;\n    }}\n    copy.finish().await\n}}\n"
         );
         Ok(o)
     }
 
-    /// Le type (ou l'élément de tableau) est un domaine.
+    /// The type (or array element) is a domain.
     fn is_domain(&self, qualified: &str) -> bool {
         matches!(
             self.ts.def(&qname(qualified)).map(|d| &d.kind),
@@ -739,7 +735,7 @@ impl Generator<'_> {
         )
     }
 
-    /// Extension qui apporte ce type, s'il en vient une.
+    /// Extension that provides this type, if any.
     fn extension_of(&self, ty: &Ty) -> Option<String> {
         let cat = self.ts.catalog;
         cat.extension_packs.iter().find_map(|(ext, pack)| {
@@ -749,7 +745,7 @@ impl Generator<'_> {
         })
     }
 
-    /// Type Rust d'un type PostgreSQL (nom qualifié du descripteur).
+    /// Rust type of a PostgreSQL type (qualified name from the descriptor).
     fn rust_type(&mut self, qualified: &str) -> Result<RustTy, String> {
         if let Some(t) = self.opts.overrides.get(qualified) {
             return Ok(RustTy::copy(t));
@@ -773,7 +769,7 @@ impl Generator<'_> {
             Some(TypeKind::Array { element }) => {
                 let e = self.rust_type(&element.to_string())?;
                 return Ok(RustTy {
-                    // Un élément de tableau peut être NULL.
+                    // An array element may be NULL.
                     owned: format!("Vec<Option<{}>>", e.owned),
                     borrowed: format!("&'a [{}]", e.owned),
                     lifetime: true,
@@ -782,8 +778,8 @@ impl Generator<'_> {
             _ => {}
         }
         if ty.schema != "pg_catalog" {
-            // Type d'une extension : correspondance par extension et nom,
-            // quel que soit le schéma où elle est installée (D9).
+            // Extension type: mapping by extension and name, whatever
+            // schema it is installed in (D9).
             return match (self.extension_of(&ty).as_deref(), ty.name.as_str()) {
                 (Some("citext"), "citext") => Ok(RustTy {
                     owned: "String".into(),
@@ -791,10 +787,10 @@ impl Generator<'_> {
                     lifetime: true,
                 }),
                 (Some(ext), _) => Err(format!(
-                    "pas de type Rust pour {qualified} (extension {ext}) : le déclarer dans la table de correspondance du projet"
+                    "no Rust type for {qualified} (extension {ext}): declare it in the project's type mapping table"
                 )),
                 (None, _) => Err(format!(
-                    "pas de type Rust pour {qualified} : le déclarer dans la table de correspondance du projet"
+                    "no Rust type for {qualified}: declare it in the project's type mapping table"
                 )),
             };
         }
@@ -835,36 +831,36 @@ impl Generator<'_> {
             "timestamptz" => RustTy::copy("chrono::DateTime<chrono::Utc>"),
             _ => {
                 return Err(format!(
-                    "pas de type Rust pour {qualified} : le déclarer dans la table de correspondance du projet"
+                    "no Rust type for {qualified}: declare it in the project's type mapping table"
                 ));
             }
         })
     }
 }
 
-/// Pièces d'une requête inline (`query!`), à placer dans un bloc.
+/// Parts of an inline query (`query!`), to be placed in a block.
 pub struct InlineQuery {
     /// `const QUERY: Query = …;`
     pub query_const: String,
-    /// Struct `Row` et son décodage, si la requête renvoie des lignes.
+    /// `Row` struct and its decoding, if the query returns rows.
     pub row: Option<String>,
-    /// Paramètres dans l'ordre : nom, type Rust attendu (sans durée de vie
-    /// nommée : `&str`, `Option<i64>`…), et s'il est d'un domaine (à passer
-    /// par `Domain`).
+    /// Parameters in order: name, expected Rust type (without a named
+    /// lifetime: `&str`, `Option<i64>`…), and whether it is a domain (to be
+    /// passed through `Domain`).
     pub params: Vec<(String, String, bool)>,
-    /// Marqueur de cardinalité (`One`, `Optional`, `Many`, `NoRows`).
+    /// Cardinality marker (`One`, `Optional`, `Many`, `NoRows`).
     pub cardinality: &'static str,
 }
 
-/// Requête inline : comme une requête nommée, sans enum (ses types Rust
-/// doivent être uniques dans le crate : requêtes nommées, `build.rs`).
+/// Inline query: like a named query, without enums (their Rust types must
+/// be unique in the crate: named queries, `build.rs`).
 pub fn inline_query(
     d: &Descriptor,
     catalog: &ProjectCatalog,
     opts: &RustOptions,
 ) -> Result<InlineQuery, String> {
     if d.copy.is_some() {
-        return Err("COPY : déclarer une requête nommée (build.rs)".into());
+        return Err("COPY: declare a named query (build.rs)".into());
     }
     let mut g = Generator {
         ts: TypeSystem::new(&catalog.catalog),
@@ -907,10 +903,10 @@ pub fn inline_query(
         let mut fields = Vec::new();
         for c in &d.columns {
             let f = field_ident(&c.name)
-                .map_err(|e| format!("{e} (colonne de sortie : lui donner un alias)"))?;
+                .map_err(|e| format!("{e} (output column: give it an alias)"))?;
             if !seen.insert(f.clone()) {
                 return Err(format!(
-                    "deux colonnes de sortie s'appellent `{}` : leur donner des alias distincts",
+                    "two output columns are named `{}`: give them distinct aliases",
                     c.name
                 ));
             }
@@ -939,7 +935,7 @@ pub fn inline_query(
     };
     if let Some((ty, _)) = g.enums.iter().next() {
         return Err(format!(
-            "l'enum {ty} n'a pas de type Rust dans une requête inline : utiliser une requête nommée (build.rs), qui génère ses enums"
+            "enum {ty} has no Rust type in an inline query: use a named query (build.rs), which generates its enums"
         ));
     }
     use pgweave_query::Cardinality;
@@ -957,7 +953,7 @@ pub fn inline_query(
     })
 }
 
-/// Enum Rust d'un enum PostgreSQL, encodé par ses libellés.
+/// Rust enum for a PostgreSQL enum, encoded by its labels.
 fn enum_code(
     rt: &str,
     rust: &str,
@@ -969,12 +965,12 @@ fn enum_code(
         let v = pascal(l);
         if v.is_empty() || !v.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
             return Err(vec![format!(
-                "libellé {l:?} de l'enum {typname} : pas de variante Rust possible"
+                "label {l:?} of enum {typname}: no Rust variant possible"
             )]);
         }
         if variants.iter().any(|(x, _)| *x == v) {
             return Err(vec![format!(
-                "libellés de l'enum {typname} : deux donnent la variante `{v}`"
+                "labels of enum {typname}: two map to variant `{v}`"
             )]);
         }
         variants.push((v, l.clone()));
@@ -1036,9 +1032,9 @@ fn qname(qualified: &str) -> Ty {
         .unwrap_or_else(|| pgweave_sema::pg(qualified))
 }
 
-/// Mots d'un nom, en minuscules : séparés par tout caractère non
-/// alphanumérique et par les changements de casse (`createdAt` → created,
-/// at ; `HTTPServer` → http, server ; `ORDERED` → ordered).
+/// Words of a name, lowercased: split on any non-alphanumeric character
+/// and on case changes (`createdAt` → created, at; `HTTPServer` → http,
+/// server; `ORDERED` → ordered).
 fn words(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     for part in s
@@ -1090,20 +1086,20 @@ const KEYWORDS: &[&str] = &[
     "priv", "try", "typeof", "unsized", "virtual", "yield",
 ];
 
-/// Identifiant Rust d'un nom de requête (tel quel, il doit en être un).
+/// Rust identifier for a query name (it must be one as is).
 fn rust_ident(name: &str) -> Result<String, String> {
     field_ident(name)
 }
 
-/// Champ Rust d'un nom de colonne ou de paramètre : en snake_case
-/// (`createdAt` → `created_at`, `ID` → `id`), mot-clé en identifiant brut.
+/// Rust field for a column or parameter name: in snake_case
+/// (`createdAt` → `created_at`, `ID` → `id`), keyword as a raw identifier.
 fn field_ident(name: &str) -> Result<String, String> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(format!("`{name}` n'est pas un identifiant Rust"));
+        return Err(format!("`{name}` is not a Rust identifier"));
     }
     let out = words(name).join("_");
     if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) {
-        return Err(format!("`{name}` n'est pas un identifiant Rust"));
+        return Err(format!("`{name}` is not a Rust identifier"));
     }
     Ok(if KEYWORDS.contains(&out.as_str()) {
         format!("r#{out}")
@@ -1117,7 +1113,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn noms_rust() {
+    fn rust_names() {
         for (name, field, ty) in [
             ("createdAt", "created_at", "CreatedAt"),
             ("companyId", "company_id", "CompanyId"),

@@ -1,37 +1,33 @@
-//! Diff de migration (PLAN.md P7) : chaque migration générée est rejouée
-//! sur l'état de départ, et l'état obtenu doit être exactement la cible.
+//! Migration diff (PLAN.md P7): each generated migration is replayed on the
+//! starting state, and the resulting state must be exactly the target.
 
 use pgweave_catalog::ProjectCatalog;
 use pgweave_catalog::diff::{Migration, diff};
 use pgweave_diagnostics::Severity;
 
 fn replay(sql: &str) -> ProjectCatalog {
-    let p = ProjectCatalog::from_sql(sql).unwrap_or_else(|e| panic!("parse : {e}\n{sql}"));
+    let p = ProjectCatalog::from_sql(sql).unwrap_or_else(|e| panic!("parse: {e}\n{sql}"));
     let errors: Vec<_> = p
         .diagnostics
         .iter()
         .filter(|(_, d)| d.severity == Severity::Error)
         .map(|(_, d)| d.message.clone())
         .collect();
-    assert!(errors.is_empty(), "rejeu en erreur : {errors:?}\n{sql}");
+    assert!(errors.is_empty(), "replay failed: {errors:?}\n{sql}");
     p
 }
 
-/// Migration de `old` vers `new`, vérifiée par rejeu.
+/// Migration from `old` to `new`, checked by replay.
 fn migrate(old: &str, new: &str) -> Migration {
     let before = replay(old);
     let target = replay(new);
     let m = diff(&before.catalog, &target.catalog);
-    assert!(
-        m.unsupported.is_empty(),
-        "non pris en charge : {:?}",
-        m.unsupported
-    );
+    assert!(m.unsupported.is_empty(), "unsupported: {:?}", m.unsupported);
     let applied = replay(&format!("{old}\n{}", m.to_sql()));
     let rest = diff(&applied.catalog, &target.catalog);
     assert!(
         rest.is_empty(),
-        "la migration n'atteint pas la cible.\n--- migration\n{}\n--- reste\n{}\n{:?}",
+        "the migration does not reach the target.\n--- migration\n{}\n--- rest\n{}\n{:?}",
         m.to_sql(),
         rest.to_sql(),
         rest.unsupported
@@ -44,14 +40,14 @@ fn sql(m: &Migration) -> String {
 }
 
 #[test]
-fn un_schema_identique_ne_produit_rien() {
+fn identical_schema_produces_nothing() {
     let s = "CREATE TYPE k AS ENUM ('a');\nCREATE TABLE t (id BIGINT PRIMARY KEY, k k);\n\
              CREATE VIEW v AS SELECT id FROM t;\nCREATE INDEX t_k ON t (k);";
     assert!(migrate(s, s).is_empty());
 }
 
 #[test]
-fn nouvelle_table_avec_cle_etrangere_et_index() {
+fn new_table_with_foreign_key_and_index() {
     let m = migrate(
         "CREATE TABLE a (id BIGINT PRIMARY KEY);",
         "CREATE TABLE a (id BIGINT PRIMARY KEY);\n\
@@ -66,7 +62,7 @@ fn nouvelle_table_avec_cle_etrangere_et_index() {
 }
 
 #[test]
-fn colonnes_ajoutees_modifiees_retirees() {
+fn columns_added_changed_removed() {
     let m = migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, a INT, b TEXT DEFAULT 'x', gone TEXT);",
         "CREATE TABLE t (id BIGINT PRIMARY KEY, a BIGINT NOT NULL, b TEXT, c TEXT DEFAULT 'y');",
@@ -91,12 +87,12 @@ fn colonnes_ajoutees_modifiees_retirees() {
         codes.contains(&"M004") && codes.contains(&"M005"),
         "{codes:?}"
     );
-    // La suppression vient en dernier.
+    // The drop comes last.
     assert!(m.steps.last().unwrap().sql.contains("DROP COLUMN gone"));
 }
 
 #[test]
-fn valeurs_d_enum_ajoutees_a_leur_place() {
+fn enum_values_added_in_place() {
     let m = migrate(
         "CREATE TYPE s AS ENUM ('b', 'd');",
         "CREATE TYPE s AS ENUM ('a', 'b', 'c', 'd', 'e');",
@@ -109,7 +105,7 @@ fn valeurs_d_enum_ajoutees_a_leur_place() {
 }
 
 #[test]
-fn valeur_d_enum_retiree_non_prise_en_charge() {
+fn removed_enum_value_unsupported() {
     let before = replay("CREATE TYPE s AS ENUM ('a', 'b');");
     let after = replay("CREATE TYPE s AS ENUM ('a');");
     let m = diff(&before.catalog, &after.catalog);
@@ -118,7 +114,7 @@ fn valeur_d_enum_retiree_non_prise_en_charge() {
 }
 
 #[test]
-fn extension_et_schema_avant_ce_qui_en_depend() {
+fn extension_and_schema_before_what_depends_on_them() {
     let m = migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY);",
         "CREATE SCHEMA app;\nCREATE EXTENSION citext;\n\
@@ -133,7 +129,7 @@ fn extension_et_schema_avant_ce_qui_en_depend() {
 }
 
 #[test]
-fn extension_retiree_en_dernier() {
+fn extension_removed_last() {
     let m = migrate(
         "CREATE EXTENSION citext;\nCREATE TABLE t (id BIGINT PRIMARY KEY, email citext);",
         "CREATE TABLE t (id BIGINT PRIMARY KEY);",
@@ -146,10 +142,10 @@ fn extension_retiree_en_dernier() {
 }
 
 #[test]
-fn vue_aux_colonnes_non_typees_reconstruite() {
-    // Sans analyse des vues, leurs colonnes ne sont pas typées : rien ne
-    // prouve que `CREATE OR REPLACE` serait accepté (le cas typé est vérifié
-    // avec `pgweave-sema`, dans la CLI).
+fn view_with_untyped_columns_rebuilt() {
+    // Without view analysis, their columns are not typed: nothing proves that
+    // `CREATE OR REPLACE` would be accepted (the typed case is checked with
+    // `pgweave-sema`, in the CLI).
     let m = migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, a TEXT);\nCREATE VIEW v AS SELECT id FROM t;",
         "CREATE TABLE t (id BIGINT PRIMARY KEY, a TEXT);\nCREATE VIEW v AS SELECT id, a FROM t;",
@@ -162,7 +158,7 @@ fn vue_aux_colonnes_non_typees_reconstruite() {
 }
 
 #[test]
-fn vue_reconstruite_quand_sa_table_change_de_type() {
+fn view_rebuilt_when_its_table_changes_type() {
     let m = migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, a INT);\n\
          CREATE VIEW v AS SELECT a FROM t;\nCREATE VIEW w AS SELECT a FROM v;",
@@ -170,7 +166,7 @@ fn vue_reconstruite_quand_sa_table_change_de_type() {
          CREATE VIEW v AS SELECT a FROM t;\nCREATE VIEW w AS SELECT a FROM v;",
     );
     let s = sql(&m);
-    // w dépend de v : supprimée d'abord, recréée après.
+    // w depends on v: dropped first, recreated after.
     let drop_w = s.find("DROP VIEW w").unwrap();
     let drop_v = s.find("DROP VIEW v").unwrap();
     let alter = s.find("SET DATA TYPE bigint").unwrap();
@@ -183,7 +179,7 @@ fn vue_reconstruite_quand_sa_table_change_de_type() {
 }
 
 #[test]
-fn fonction_remplacee_ou_reconstruite() {
+fn function_replaced_or_rebuilt() {
     let f = |ret: &str, body: &str| {
         format!(
             "CREATE TABLE t (id BIGINT PRIMARY KEY);\n\
@@ -205,7 +201,7 @@ fn fonction_remplacee_ou_reconstruite() {
 }
 
 #[test]
-fn fonction_retiree_apres_le_trigger_qui_l_utilise() {
+fn function_removed_after_the_trigger_using_it() {
     let m = migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY);\n\
          CREATE FUNCTION trg() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n\
@@ -219,7 +215,7 @@ fn fonction_retiree_apres_le_trigger_qui_l_utilise() {
 }
 
 #[test]
-fn table_retiree_apres_la_cle_etrangere_qui_la_vise() {
+fn table_removed_after_the_foreign_key_targeting_it() {
     let m = migrate(
         "CREATE TABLE a (id BIGINT PRIMARY KEY);\n\
          CREATE TABLE b (id BIGINT PRIMARY KEY, a_id BIGINT REFERENCES a (id));",
@@ -237,7 +233,7 @@ fn table_retiree_apres_la_cle_etrangere_qui_la_vise() {
 }
 
 #[test]
-fn contraintes_policies_et_securite_par_ligne() {
+fn constraints_policies_and_row_level_security() {
     migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, n INT, owner TEXT);\n\
          CREATE POLICY p ON t USING (owner = current_user);",
@@ -248,18 +244,18 @@ fn contraintes_policies_et_securite_par_ligne() {
 }
 
 #[test]
-fn commentaires_poses_et_retires() {
+fn comments_set_and_removed() {
     let m = migrate(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY);\nCOMMENT ON TABLE t IS 'avant';",
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, a TEXT);\nCOMMENT ON COLUMN t.a IS 'nouvelle';",
+        "CREATE TABLE t (id BIGINT PRIMARY KEY);\nCOMMENT ON TABLE t IS 'before';",
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, a TEXT);\nCOMMENT ON COLUMN t.a IS 'new';",
     );
     let s = sql(&m);
-    assert!(s.contains("COMMENT ON COLUMN t.a IS 'nouvelle'"), "{s}");
+    assert!(s.contains("COMMENT ON COLUMN t.a IS 'new'"), "{s}");
     assert!(s.contains("COMMENT ON TABLE t IS NULL"), "{s}");
 }
 
 #[test]
-fn identite_modifiee_non_prise_en_charge() {
+fn changed_identity_unsupported() {
     let before = replay("CREATE TABLE t (id BIGINT PRIMARY KEY);");
     let after = replay("CREATE TABLE t (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY);");
     let m = diff(&before.catalog, &after.catalog);
@@ -267,7 +263,7 @@ fn identite_modifiee_non_prise_en_charge() {
 }
 
 #[test]
-fn colonne_serial_ajoutee() {
+fn serial_column_added() {
     migrate(
         "CREATE TABLE t (a TEXT);",
         "CREATE TABLE t (a TEXT, id SERIAL);",
@@ -297,7 +293,7 @@ fn declarative(migration: &str, schema: &str) -> ProjectCatalog {
 }
 
 #[test]
-fn mode_declaratif_migrations_rejouees_a_part() {
+fn declarative_mode_replays_migrations_separately() {
     let schema = "CREATE TABLE t (id BIGINT PRIMARY KEY, a TEXT);";
     let p = declarative("CREATE TABLE t (id BIGINT PRIMARY KEY, a TEXT);", schema);
     let codes: Vec<&str> = p.diagnostics.iter().map(|(_, d)| d.code).collect();
@@ -318,7 +314,7 @@ fn mode_declaratif_migrations_rejouees_a_part() {
         drift[0].0,
         std::path::PathBuf::from("migrations/0001_init.sql")
     );
-    // L'analyse voit la cible.
+    // Analysis sees the target.
     assert!(
         p.catalog
             .relations
@@ -328,11 +324,11 @@ fn mode_declaratif_migrations_rejouees_a_part() {
 }
 
 #[test]
-fn corps_de_fonction_repris_tel_qu_ecrit() {
+fn function_body_kept_as_written() {
     use pgweave_catalog::project::{ProjectBuilder, parse_source};
     use pgweave_schema::FileRole;
     let written = "CREATE FUNCTION f(x INT) RETURNS INT LANGUAGE sql\n\
-                   AS $$ SELECT x -- commentaire gardé\n $$";
+                   AS $$ SELECT x -- kept comment\n $$";
     let macros = pgweave_macro::MacroSet::builtin();
     let mut b = ProjectBuilder::new().keep_sources(true);
     let parsed = parse_source(written, 0, &macros);
@@ -344,12 +340,12 @@ fn corps_de_fonction_repris_tel_qu_ecrit() {
     );
     let after = b.finish();
     let m = diff(&replay("").catalog, &after.catalog);
-    assert!(sql(&m).contains("commentaire gardé"), "{}", sql(&m));
+    assert!(sql(&m).contains("kept comment"), "{}", sql(&m));
 }
 
 #[test]
-fn options_d_index_conservees() {
-    // Ordre, NULLS, classe d'opérateurs et INCLUDE font partie de l'index.
+fn index_options_kept() {
+    // Order, NULLS, operator class and INCLUDE are part of the index.
     let m = migrate(
         "CREATE TABLE t (a INT, b TEXT, c TEXT);",
         "CREATE TABLE t (a INT, b TEXT, c TEXT);\n\
@@ -367,8 +363,8 @@ fn options_d_index_conservees() {
 }
 
 #[test]
-fn defaut_litteral_garde_son_type_au_changement_de_type() {
-    // PostgreSQL convertit la constante d'origine à chaque insertion.
+fn literal_default_keeps_its_type_on_type_change() {
+    // PostgreSQL converts the original constant on each insert.
     let p = replay(
         "CREATE TABLE t (d TIMESTAMPTZ DEFAULT '2023-01-01 00:00:00 +00:00');\n\
          ALTER TABLE t ALTER COLUMN d SET DATA TYPE DATE;",

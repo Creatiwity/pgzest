@@ -1,15 +1,15 @@
--- Regles de lint.
+-- Lint rules.
 --
--- ATTENTION : `pgweave check` ne lance PAS le linter, seulement le type-checker.
--- Ici tu ne verras rien en CLI avec `check`. Deux façons de les voir :
---   - en CLI  : `pgweave lint queries/05-lint.sql`
---   - dans VS Code : le LSP lance check ET lint, donc tout est souligné.
+-- WARNING: `pgweave check` does NOT run the linter, only the type-checker.
+-- Here you will see nothing in the CLI with `check`. Two ways to see them:
+--   - in the CLI: `pgweave lint queries/05-lint.sql`
+--   - in VS Code: the LSP runs check AND lint, so everything is underlined.
 
--- L001 : SELECT *
+-- L001: SELECT *
 SELECT * FROM users;
 
--- L002 : table sans clé primaire
+-- L002: table without a primary key
 CREATE TABLE no_pk (id UUID);
 
--- L006 : LIKE avec joker en tete (empeche l'usage d'un index)
+-- L006: LIKE with a leading wildcard (prevents index use)
 SELECT email FROM users WHERE email LIKE '%@example.com';

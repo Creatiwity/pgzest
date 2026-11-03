@@ -1,8 +1,8 @@
-//! Définition déclarative d'une macro, et chargement depuis un fichier.
+//! Declarative definition of a macro, and loading from a file.
 //!
-//! Format volontairement minimal — cinq directives, un jeu fermé de types de
-//! trou. Assez pour exprimer `@function` et `@trigger`, donc assez pour la
-//! plupart des boilerplates SQL, sans devenir un langage de gabarits.
+//! Deliberately minimal format — five directives, a closed set of slot kinds.
+//! Enough to express `@function` and `@trigger`, hence enough for most SQL
+//! boilerplate, without becoming a template language.
 //!
 //! ```text
 //! macro function
@@ -23,42 +23,42 @@
 //! end
 //! ```
 //!
-//! Directives :
+//! Directives:
 //!
-//! - `macro <nom>` — le nom invoqué, ici `@function`.
-//! - `header <motif>` — ce qui suit `@nom` jusqu'à l'accolade ouvrante. Trous
-//!   `{nom:type}`, groupes optionnels entre `[ ]`, le reste est littéral.
-//! - `default <trou> = <texte>` — valeur si le trou est absent.
-//! - `flag <mot> -> <texte>` — mot-clé de présence, rendu dans `{options}`.
-//! - `option <mot> = <défaut> -> <texte avec {}>` — mot-clé à valeur, rendu
-//!   dans `{options}` ; `{}` reçoit la valeur.
-//! - `template` … `end` — le gabarit. `{trou}` interpole, `{body}` insère le
-//!   corps, `{options}` les drapeaux et options rendus.
+//! - `macro <name>` — the invoked name, here `@function`.
+//! - `header <pattern>` — what follows `@name` up to the opening brace. Slots
+//!   `{name:kind}`, optional groups between `[ ]`, the rest is literal.
+//! - `default <slot> = <text>` — value when the slot is absent.
+//! - `flag <word> -> <text>` — presence keyword, rendered in `{options}`.
+//! - `option <word> = <default> -> <text with {}>` — valued keyword, rendered
+//!   in `{options}`; `{}` receives the value.
+//! - `template` … `end` — the template. `{slot}` interpolates, `{body}` inserts
+//!   the body, `{options}` the rendered flags and options.
 //!
-//! Types de trou disponibles : voir [`SlotKind`].
+//! Available slot kinds: see [`SlotKind`].
 
 use std::collections::HashMap;
 
 use crate::header::{HeaderPattern, SlotKind};
 
-/// Un drapeau de présence : `immutable` → `IMMUTABLE`.
+/// A presence flag: `immutable` → `IMMUTABLE`.
 #[derive(Debug, Clone)]
 pub struct Flag {
     pub keyword: String,
     pub emits: String,
 }
 
-/// Un mot-clé à valeur : `language sql` → `LANGUAGE sql`.
+/// A valued keyword: `language sql` → `LANGUAGE sql`.
 #[derive(Debug, Clone)]
 pub struct Opt {
     pub keyword: String,
-    /// Valeur utilisée si le mot-clé est absent. `None` = ne rien rendre.
+    /// Value used when the keyword is absent. `None` = render nothing.
     pub default: Option<String>,
-    /// Gabarit de rendu, `{}` recevant la valeur.
+    /// Render template, `{}` receiving the value.
     pub emits: String,
 }
 
-/// Une macro : comment la reconnaître, et en quoi la traduire.
+/// A macro: how to recognize it, and what to translate it into.
 #[derive(Debug, Clone)]
 pub struct MacroDef {
     pub name: String,
@@ -67,12 +67,12 @@ pub struct MacroDef {
     pub flags: Vec<Flag>,
     pub options: Vec<Opt>,
     pub template: String,
-    /// Chemin d'origine, pour situer une erreur de définition.
+    /// Origin path, to locate a definition error.
     pub origin: String,
 }
 
 impl MacroDef {
-    /// Analyse une définition de macro.
+    /// Parses a macro definition.
     pub fn parse(text: &str, origin: &str) -> Result<Self, String> {
         let mut name = None;
         let mut header = None;
@@ -96,12 +96,12 @@ impl MacroDef {
             } else if let Some(rest) = line.strip_prefix("default ") {
                 let (k, v) = rest
                     .split_once('=')
-                    .ok_or_else(|| err("`default` attend `<trou> = <texte>`"))?;
+                    .ok_or_else(|| err("`default` expects `<slot> = <text>`"))?;
                 defaults.insert(k.trim().to_string(), v.trim().to_string());
             } else if let Some(rest) = line.strip_prefix("flag ") {
                 let (kw, emits) = rest
                     .split_once("->")
-                    .ok_or_else(|| err("`flag` attend `<mot> -> <texte>`"))?;
+                    .ok_or_else(|| err("`flag` expects `<word> -> <text>`"))?;
                 flags.push(Flag {
                     keyword: kw.trim().to_lowercase(),
                     emits: emits.trim().to_string(),
@@ -109,7 +109,7 @@ impl MacroDef {
             } else if let Some(rest) = line.strip_prefix("option ") {
                 let (lhs, emits) = rest
                     .split_once("->")
-                    .ok_or_else(|| err("`option` attend `<mot>[= <défaut>] -> <texte>`"))?;
+                    .ok_or_else(|| err("`option` expects `<word>[= <default>] -> <text>`"))?;
                 let (kw, default) = match lhs.split_once('=') {
                     Some((k, d)) => (k.trim(), Some(d.trim().to_string())),
                     None => (lhs.trim(), None),
@@ -131,32 +131,32 @@ impl MacroDef {
                     body.push('\n');
                 }
                 if !closed {
-                    return Err(err("`template` sans `end`"));
+                    return Err(err("`template` without `end`"));
                 }
                 template = Some(body);
             } else {
-                return Err(err(&format!("directive inconnue : {line:?}")));
+                return Err(err(&format!("unknown directive: {line:?}")));
             }
         }
 
         Ok(Self {
-            name: name.ok_or_else(|| format!("{origin}: directive `macro <nom>` manquante"))?,
-            header: header.ok_or_else(|| format!("{origin}: directive `header` manquante"))?,
+            name: name.ok_or_else(|| format!("{origin}: missing `macro <name>` directive"))?,
+            header: header.ok_or_else(|| format!("{origin}: missing `header` directive"))?,
             defaults,
             flags,
             options,
             template: template
-                .ok_or_else(|| format!("{origin}: bloc `template` … `end` manquant"))?,
+                .ok_or_else(|| format!("{origin}: missing `template` … `end` block"))?,
             origin: origin.to_string(),
         })
     }
 
-    /// Le trou `body` est-il attendu, c'est-à-dire la macro a-t-elle un bloc ?
+    /// Is the `body` slot expected, i.e. does the macro have a block?
     pub fn has_body(&self) -> bool {
         self.template.contains("{body}")
     }
 
-    /// Rend `{options}` : options (avec leurs défauts) puis drapeaux présents.
+    /// Renders `{options}`: options (with their defaults) then present flags.
     pub(crate) fn render_options(&self, present: &Keywords) -> String {
         let mut out: Vec<String> = Vec::new();
 
@@ -179,7 +179,7 @@ impl MacroDef {
     }
 }
 
-/// Mots-clés relevés dans l'en-tête d'une invocation.
+/// Keywords found in the header of an invocation.
 #[derive(Debug, Default, Clone)]
 pub struct Keywords {
     pub flags: Vec<String>,
@@ -187,10 +187,10 @@ pub struct Keywords {
 }
 
 impl Keywords {
-    /// Découpe une suite de mots-clés en drapeaux et couples clé/valeur.
+    /// Splits a sequence of keywords into flags and key/value pairs.
     ///
-    /// Un mot déclaré comme `option` consomme le mot suivant comme valeur ;
-    /// tout autre mot est un drapeau.
+    /// A word declared as `option` consumes the next word as its value; any
+    /// other word is a flag.
     pub fn parse(text: &str, def: &MacroDef) -> Result<Self, String> {
         let mut out = Self::default();
         let words: Vec<&str> = text.split_whitespace().collect();
@@ -200,7 +200,7 @@ impl Keywords {
             if let Some(opt) = def.options.iter().find(|o| o.keyword == w) {
                 let v = words
                     .get(i + 1)
-                    .ok_or_else(|| format!("`{}` attend une valeur", opt.keyword))?;
+                    .ok_or_else(|| format!("`{}` expects a value", opt.keyword))?;
                 out.values.insert(w, (*v).to_string());
                 i += 2;
             } else if def.flags.iter().any(|f| f.keyword == w) {
@@ -214,7 +214,7 @@ impl Keywords {
                     .chain(def.options.iter().map(|o| o.keyword.as_str()))
                     .collect();
                 return Err(format!(
-                    "mot-clé inconnu `{w}` pour @{} ; attendus : {}",
+                    "unknown keyword `{w}` for @{}; expected: {}",
                     def.name,
                     known.join(", ")
                 ));
@@ -224,25 +224,25 @@ impl Keywords {
     }
 }
 
-/// L'ensemble des macros reconnues : celles fournies, plus celles du projet.
+/// The set of recognized macros: the bundled ones, plus the project's.
 #[derive(Debug, Clone, Default)]
 pub struct MacroSet {
     defs: HashMap<String, MacroDef>,
-    /// Fragments du projet (`*.sql` de `[macros] directory`), par nom.
+    /// Project fragments (`*.sql` of `[macros] directory`), by name.
     fragments: HashMap<String, crate::fragment::FragmentDef>,
 }
 
 impl MacroSet {
-    /// Les macros fournies avec l'outil.
+    /// The macros bundled with the tool.
     ///
-    /// Définies dans le même format que celles de l'utilisateur, et embarquées
-    /// à la compilation. Un mécanisme d'extension dont les macros fournies ne
-    /// se servent pas est un mécanisme non testé.
+    /// Defined in the same format as the user's, and embedded at compile time.
+    /// An extension mechanism that the bundled macros do not use is an
+    /// untested mechanism.
     pub fn builtin() -> Self {
         let mut set = Self::default();
         for (origin, text) in Self::builtin_sources() {
             let def = MacroDef::parse(text, origin)
-                .unwrap_or_else(|e| panic!("macro fournie invalide : {e}"));
+                .unwrap_or_else(|e| panic!("invalid bundled macro: {e}"));
             set.defs.insert(def.name.clone(), def);
         }
         set
@@ -265,21 +265,21 @@ impl MacroSet {
         ]
     }
 
-    /// Ajoute une définition. Une macro de l'utilisateur portant le nom d'une
-    /// macro fournie la remplace — c'est le seul moyen d'ajuster une macro
-    /// fournie sans forker l'outil.
+    /// Adds a definition. A user macro with the name of a bundled macro
+    /// replaces it — the only way to adjust a bundled macro without forking
+    /// the tool.
     pub fn insert(&mut self, def: MacroDef) {
         self.defs.insert(def.name.clone(), def);
     }
 
-    /// Charge tous les `*.pgmacro` et les fragments (`*.sql`) d'un
-    /// répertoire, récursivement.
+    /// Loads all `*.pgmacro` files and fragments (`*.sql`) of a directory,
+    /// recursively.
     pub fn load_dir(&mut self, dir: &std::path::Path) -> Vec<String> {
         self.load_dir_with(dir, |_| None)
     }
 
-    /// Comme [`Self::load_dir`], le texte d'un fichier pris de `overlay`
-    /// quand il le fournit (document ouvert dans l'éditeur, non sauvegardé).
+    /// Like [`Self::load_dir`], with a file's text taken from `overlay` when it
+    /// provides it (document open in the editor, unsaved).
     pub fn load_dir_with(
         &mut self,
         dir: &std::path::Path,
@@ -319,19 +319,19 @@ impl MacroSet {
         for name in self.fragments.keys() {
             if self.defs.contains_key(name) {
                 errors.push(format!(
-                    "`@{name}` est à la fois une macro et un fragment : renommer l'un des deux"
+                    "`@{name}` is both a macro and a fragment: rename one of them"
                 ));
             }
         }
         errors
     }
 
-    /// Ajoute un fragment ; un nom déjà pris est une erreur (aucun fragment
-    /// ne remplace silencieusement un autre).
+    /// Adds a fragment; a name already taken is an error (no fragment silently
+    /// replaces another).
     pub fn insert_fragment(&mut self, def: crate::fragment::FragmentDef) -> Result<(), String> {
         if let Some(prev) = self.fragments.get(&def.name) {
             return Err(format!(
-                "{}:{}: fragment `{}` déjà défini en {}:{}",
+                "{}:{}: fragment `{}` already defined at {}:{}",
                 def.origin, def.line, def.name, prev.origin, prev.line
             ));
         }
@@ -347,7 +347,7 @@ impl MacroSet {
         &self.fragments
     }
 
-    /// Noms des fragments, triés.
+    /// Fragment names, sorted.
     pub fn fragment_names(&self) -> Vec<&str> {
         let mut v: Vec<&str> = self.fragments.keys().map(String::as_str).collect();
         v.sort_unstable();
@@ -358,7 +358,7 @@ impl MacroSet {
         self.defs.get(name)
     }
 
-    /// Noms connus, triés — pour un message d'erreur ou `pgweave macros`.
+    /// Known names, sorted — for an error message or `pgweave macros`.
     pub fn names(&self) -> Vec<&str> {
         let mut v: Vec<&str> = self.defs.keys().map(String::as_str).collect();
         v.sort_unstable();
@@ -373,7 +373,7 @@ impl MacroSet {
         self.defs.is_empty()
     }
 
-    /// Les trous déclarés par une macro, pour documentation.
+    /// The slots declared by a macro, for documentation.
     pub fn slots_of(&self, name: &str) -> Option<Vec<(&str, SlotKind)>> {
         self.defs.get(name).map(|d| d.header.slots())
     }
@@ -409,46 +409,46 @@ end
 ";
 
     #[test]
-    fn une_definition_minimale_se_lit() {
+    fn minimal_definition_parses() {
         let d = MacroDef::parse(SIMPLE, "t.pgmacro").expect("parse");
         assert_eq!(d.name, "greet");
         assert!(d.template.contains("hello {name}"));
-        assert!(!d.has_body(), "pas de {{body}} dans le gabarit");
+        assert!(!d.has_body(), "no {{body}} in the template");
     }
 
     #[test]
-    fn les_macros_fournies_sont_valides() {
-        // Garde-fou : les macros embarquées doivent parser, sinon `builtin()`
-        // paniquerait au démarrage.
+    fn bundled_macros_are_valid() {
+        // Safeguard: embedded macros must parse, otherwise `builtin()` would
+        // panic at startup.
         let set = MacroSet::builtin();
-        assert!(set.len() >= 3, "au moins function, procedure, trigger");
+        assert!(set.len() >= 3, "at least function, procedure, trigger");
         assert!(set.get("function").is_some());
         assert!(set.get("trigger").is_some());
     }
 
     #[test]
-    fn une_directive_inconnue_est_signalee() {
+    fn unknown_directive_is_reported() {
         let e = MacroDef::parse("macro x\nheader {a:ident}\nblah\n", "t").unwrap_err();
-        assert!(e.contains("directive inconnue"), "obtenu: {e}");
+        assert!(e.contains("unknown directive"), "got: {e}");
     }
 
     #[test]
-    fn un_template_non_ferme_est_signale() {
+    fn unclosed_template_is_reported() {
         let e = MacroDef::parse("macro x\nheader {a:ident}\ntemplate\nfoo\n", "t").unwrap_err();
-        assert!(e.contains("sans `end`"), "obtenu: {e}");
+        assert!(e.contains("without `end`"), "got: {e}");
     }
 
     #[test]
-    fn les_directives_obligatoires_sont_verifiees() {
+    fn mandatory_directives_are_checked() {
         assert!(
             MacroDef::parse("header {a:ident}\ntemplate\nx\nend\n", "t")
                 .unwrap_err()
-                .contains("`macro <nom>` manquante")
+                .contains("missing `macro <name>`")
         );
         assert!(
             MacroDef::parse("macro x\ntemplate\nx\nend\n", "t")
                 .unwrap_err()
-                .contains("`header` manquante")
+                .contains("missing `header`")
         );
         assert!(
             MacroDef::parse("macro x\nheader {a:ident}\n", "t")
@@ -458,7 +458,7 @@ end
     }
 
     #[test]
-    fn drapeaux_et_options_se_rendent() {
+    fn flags_and_options_render() {
         let def = MacroDef::parse(
             "\
 macro f
@@ -473,29 +473,29 @@ end
         )
         .unwrap();
 
-        // Rien de fourni : seul le défaut de l'option sort.
+        // Nothing given: only the option default is emitted.
         let none = Keywords::parse("", &def).unwrap();
         assert_eq!(def.render_options(&none), "LANGUAGE plpgsql");
 
-        // Drapeau présent + option surchargée.
+        // Flag present + overridden option.
         let some = Keywords::parse("immutable language sql", &def).unwrap();
         assert_eq!(def.render_options(&some), "LANGUAGE sql IMMUTABLE");
     }
 
     #[test]
-    fn un_mot_cle_inconnu_est_refuse_avec_la_liste() {
+    fn unknown_keyword_is_rejected_with_the_list() {
         let def = MacroDef::parse(
             "macro f\nheader {n:ident}\nflag immutable -> IMMUTABLE\ntemplate\nx\nend\n",
             "t",
         )
         .unwrap();
-        let e = Keywords::parse("immuable", &def).unwrap_err();
-        assert!(e.contains("inconnu"), "obtenu: {e}");
-        assert!(e.contains("immutable"), "doit lister les attendus: {e}");
+        let e = Keywords::parse("imutable", &def).unwrap_err();
+        assert!(e.contains("unknown"), "got: {e}");
+        assert!(e.contains("immutable"), "must list the expected ones: {e}");
     }
 
     #[test]
-    fn une_option_sans_valeur_est_refusee() {
+    fn option_without_value_is_rejected() {
         let def = MacroDef::parse(
             "macro f\nheader {n:ident}\noption language -> LANGUAGE {}\ntemplate\nx\nend\n",
             "t",
@@ -504,15 +504,15 @@ end
         assert!(
             Keywords::parse("language", &def)
                 .unwrap_err()
-                .contains("attend une valeur")
+                .contains("expects a value")
         );
     }
 
     #[test]
-    fn une_macro_utilisateur_remplace_une_macro_fournie() {
+    fn user_macro_replaces_bundled_macro() {
         let mut set = MacroSet::builtin();
         let custom = MacroDef::parse(
-            "macro function\nheader {n:ident}\ntemplate\n-- remplacée\nend\n",
+            "macro function\nheader {n:ident}\ntemplate\n-- replaced\nend\n",
             "mine.pgmacro",
         )
         .unwrap();

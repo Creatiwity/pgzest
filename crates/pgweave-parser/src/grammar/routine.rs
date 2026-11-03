@@ -1,10 +1,10 @@
-//! `CREATE [OR REPLACE] FUNCTION | PROCEDURE`, grammaire de PostgreSQL 18.
+//! `CREATE [OR REPLACE] FUNCTION | PROCEDURE`, PostgreSQL 18 grammar.
 //!
-//! sqlparser ne lit ni `CREATE PROCEDURE … AS $$…$$`, ni `COST`/`ROWS`, ni
-//! `BEGIN ATOMIC` ; l'ancien parser réécrivait le texte (procédure déguisée
-//! en fonction, options retirées puis recollées). Ici la grammaire est
-//! écrite pour PostgreSQL, et seuls les éléments communs — noms, types,
-//! expressions, statements des corps SQL standard — sont délégués à
+//! sqlparser reads neither `CREATE PROCEDURE … AS $$…$$`, nor `COST`/`ROWS`, nor
+//! `BEGIN ATOMIC`; the former parser rewrote the text (procedure disguised
+//! as a function, options removed then glued back). Here the grammar is
+//! written for PostgreSQL, and only the common elements — names, types,
+//! expressions, statements of standard SQL bodies — are delegated to
 //! sqlparser.
 
 use pgweave_ast::Statement;
@@ -25,25 +25,25 @@ use crate::convert::{
 };
 use crate::error::ParseError;
 
-/// Corps d'une routine, avant analyse.
+/// Body of a routine, before analysis.
 pub(crate) enum RoutineBody {
-    /// `AS 'texte'` ou `AS $tag$texte$tag$` : le texte et la position de son
-    /// premier caractère dans le texte en cours de parse.
+    /// `AS 'text'` or `AS $tag$text$tag$`: the text and the position of its
+    /// first character in the text being parsed.
     Text { content: String, start: usize },
-    /// `BEGIN ATOMIC … END` : statements déjà parsés.
+    /// `BEGIN ATOMIC … END`: already parsed statements.
     Atomic(Vec<sp::Statement>),
     /// `RETURN expr`.
     Return(Box<sp::Expr>),
 }
 
 pub(crate) struct ParsedRoutine {
-    /// Statement dont le corps vaut `FunctionBody::Raw("")` : le pipeline le
-    /// remplace après analyse de [`ParsedRoutine::body`].
+    /// Statement whose body is `FunctionBody::Raw("")`: the pipeline
+    /// replaces it after analyzing [`ParsedRoutine::body`].
     pub statement: Statement,
     pub body: Option<RoutineBody>,
 }
 
-/// `CREATE [OR REPLACE] FUNCTION|PROCEDURE` en tête ?
+/// `CREATE [OR REPLACE] FUNCTION|PROCEDURE` ahead?
 pub(crate) fn is_routine(p: &Parser) -> bool {
     let k = |n| keyword_at(p, n);
     k(0) == Some(Keyword::CREATE)
@@ -61,7 +61,7 @@ pub(crate) fn parse_routine(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, 
     let is_procedure = match p.parse_one_of_keywords(&[Keyword::FUNCTION, Keyword::PROCEDURE]) {
         Some(Keyword::PROCEDURE) => true,
         Some(_) => false,
-        None => return Err(expected(p, "FUNCTION ou PROCEDURE")),
+        None => return Err(expected(p, "FUNCTION or PROCEDURE")),
     };
     let name = convert_object_name(p.parse_object_name(false).map_err(pe)?);
 
@@ -98,8 +98,8 @@ pub(crate) fn parse_routine(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, 
         Some("c") => FunctionLanguage::C,
         Some("internal") => FunctionLanguage::Internal,
         Some(other) => FunctionLanguage::Other(other.to_string()),
-        // PostgreSQL : un corps SQL standard implique LANGUAGE sql ; sinon la
-        // clause est obligatoire.
+        // PostgreSQL: a standard SQL body implies LANGUAGE sql; otherwise the
+        // clause is mandatory.
         None if matches!(
             opts.body,
             Some(RoutineBody::Atomic(_) | RoutineBody::Return(_))
@@ -109,7 +109,7 @@ pub(crate) fn parse_routine(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, 
         }
         None => {
             return Err(ParseError::Unsupported(
-                "routine sans clause LANGUAGE".to_string(),
+                "routine without a LANGUAGE clause".to_string(),
             ));
         }
     };
@@ -131,7 +131,7 @@ pub(crate) fn parse_routine(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, 
     } else {
         let return_type = match return_type {
             Some(rt) => rt,
-            // Sans RETURNS : les paramètres OUT/INOUT définissent le résultat.
+            // Without RETURNS: the OUT/INOUT parameters define the result.
             None if params
                 .iter()
                 .any(|p| matches!(p.mode, ParamMode::Out | ParamMode::InOut)) =>
@@ -140,7 +140,7 @@ pub(crate) fn parse_routine(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, 
             }
             None => {
                 return Err(ParseError::Unsupported(
-                    "fonction sans RETURNS ni paramètre OUT".to_string(),
+                    "function without RETURNS or OUT parameter".to_string(),
                 ));
             }
         };
@@ -176,8 +176,8 @@ pub(crate) fn is_do(p: &Parser) -> bool {
     keyword_at(p, 0) == Some(Keyword::DO)
 }
 
-/// `DO [LANGUAGE l] code` (la clause LANGUAGE peut aussi suivre le code) :
-/// bloc anonyme, PL/pgSQL par défaut.
+/// `DO [LANGUAGE l] code` (the LANGUAGE clause may also follow the code):
+/// anonymous block, PL/pgSQL by default.
 pub(crate) fn parse_do(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, ParseError> {
     p.expect_keyword_is(Keyword::DO).map_err(pe)?;
     let mut language = None;
@@ -187,7 +187,7 @@ pub(crate) fn parse_do(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, Parse
             language = Some(match p.next_token().token {
                 Token::Word(w) => w.value,
                 Token::SingleQuotedString(s) => s,
-                _ => return Err(expected(p, "nom de langage")),
+                _ => return Err(expected(p, "language name")),
             });
             continue;
         }
@@ -202,11 +202,11 @@ pub(crate) fn parse_do(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, Parse
                 content: s,
                 start: start + 1,
             },
-            _ => return Err(expected_at(p, "corps du bloc DO", &tok)),
+            _ => return Err(expected_at(p, "DO block body", &tok)),
         });
     }
     let Some(body) = body else {
-        return Err(expected(p, "corps du bloc DO"));
+        return Err(expected(p, "DO block body"));
     };
     let language = match language.as_deref().map(str::to_ascii_lowercase).as_deref() {
         None | Some("plpgsql") => FunctionLanguage::PlPgSql,
@@ -226,7 +226,7 @@ pub(crate) fn parse_do(p: &mut Parser, ctx: &Ctx) -> Result<ParsedRoutine, Parse
     })
 }
 
-// ── Paramètres ────────────────────────────────────────────────────────────────
+// ── Parameters ────────────────────────────────────────────────────────────────
 
 struct RawParam {
     mode: ParamMode,
@@ -235,12 +235,12 @@ struct RawParam {
     default: Option<sp::Expr>,
 }
 
-/// `[mode] [nom] type [{DEFAULT | =} expr]`.
+/// `[mode] [name] type [{DEFAULT | =} expr]`.
 ///
-/// Le nom est optionnel, d'où une ambiguïté : `f(double precision)` est un
-/// type seul, `f(p_id uuid)` un nom et un type. On essaie d'abord le type
-/// seul, accepté seulement s'il est suivi de `,` `)` `DEFAULT` ou `=` ; sinon
-/// nom puis type. C'est la règle effective de la grammaire de PostgreSQL.
+/// The name is optional, hence an ambiguity: `f(double precision)` is a
+/// type alone, `f(p_id uuid)` a name and a type. We first try the type
+/// alone, accepted only if followed by `,` `)` `DEFAULT` or `=`; otherwise
+/// name then type. This is the effective rule of PostgreSQL's grammar.
 fn parse_param(p: &mut Parser) -> Result<RawParam, ParserError> {
     let mode = match p.parse_one_of_keywords(&[
         Keyword::IN,
@@ -251,7 +251,7 @@ fn parse_param(p: &mut Parser) -> Result<RawParam, ParserError> {
         Some(Keyword::OUT) => ParamMode::Out,
         Some(Keyword::INOUT) => ParamMode::InOut,
         Some(Keyword::VARIADIC) => ParamMode::Variadic,
-        // `IN OUT` est un synonyme d'INOUT.
+        // `IN OUT` is a synonym for INOUT.
         Some(Keyword::IN) if p.parse_keyword(Keyword::OUT) => ParamMode::InOut,
         _ => ParamMode::In,
     };
@@ -260,7 +260,7 @@ fn parse_param(p: &mut Parser) -> Result<RawParam, ParserError> {
         if ends_param(p) {
             Ok(t)
         } else {
-            p.expected_ref("fin de paramètre", p.peek_token_ref())
+            p.expected_ref("end of parameter", p.peek_token_ref())
         }
     })?;
     let (name, data_type) = match type_only {
@@ -350,7 +350,7 @@ struct Options {
 fn parse_option(p: &mut Parser, ctx: &Ctx, o: &mut Options) -> Result<(), ParseError> {
     let tok = p.peek_token_ref().clone();
     let Token::Word(w) = &tok.token else {
-        return Err(expected_at(p, "option de routine", &tok));
+        return Err(expected_at(p, "routine option", &tok));
     };
     match w.keyword {
         Keyword::LANGUAGE => {
@@ -358,7 +358,7 @@ fn parse_option(p: &mut Parser, ctx: &Ctx, o: &mut Options) -> Result<(), ParseE
             let lang = match p.next_token().token {
                 Token::Word(w) => w.value,
                 Token::SingleQuotedString(s) => s,
-                _ => return Err(expected_at(p, "nom de langage", &tok)),
+                _ => return Err(expected_at(p, "language name", &tok)),
             };
             o.language = Some(lang);
         }
@@ -406,7 +406,7 @@ fn parse_option(p: &mut Parser, ctx: &Ctx, o: &mut Options) -> Result<(), ParseE
                     Some(Keyword::DEFINER) => true,
                     Some(_) => false,
                     None => {
-                        return Err(expected(p, "DEFINER ou INVOKER"));
+                        return Err(expected(p, "DEFINER or INVOKER"));
                     }
                 };
         }
@@ -418,7 +418,7 @@ fn parse_option(p: &mut Parser, ctx: &Ctx, o: &mut Options) -> Result<(), ParseE
                     Parallel::Restricted
                 }
                 Token::Word(w) if w.value.eq_ignore_ascii_case("safe") => Parallel::Safe,
-                _ => return Err(expected_at(p, "UNSAFE, RESTRICTED ou SAFE", &tok)),
+                _ => return Err(expected_at(p, "UNSAFE, RESTRICTED or SAFE", &tok)),
             });
         }
         Keyword::COST | Keyword::ROWS => {
@@ -431,7 +431,7 @@ fn parse_option(p: &mut Parser, ctx: &Ctx, o: &mut Options) -> Result<(), ParseE
             }
         }
         Keyword::SUPPORT => {
-            // Fonction de support du planificateur : sans effet sur l'analyse.
+            // Planner support function: no effect on the analysis.
             p.next_token();
             p.parse_object_name(false).map_err(pe)?;
         }
@@ -453,10 +453,10 @@ fn parse_option(p: &mut Parser, ctx: &Ctx, o: &mut Options) -> Result<(), ParseE
                 }
                 Token::SingleQuotedString(s) => (s, 1),
                 Token::EscapedStringLiteral(s) => (s, 2),
-                _ => return Err(expected_at(p, "corps de routine", &body_tok)),
+                _ => return Err(expected_at(p, "routine body", &body_tok)),
             };
-            // `AS 'objet', 'symbole'` (langage C) : le second littéral est le
-            // symbole, sans intérêt pour l'analyse.
+            // `AS 'object', 'symbol'` (C language): the second literal is the
+            // symbol, irrelevant to the analysis.
             if p.consume_token(&Token::Comma) {
                 p.parse_literal_string().map_err(pe)?;
             }
@@ -487,12 +487,12 @@ fn parse_option(p: &mut Parser, ctx: &Ctx, o: &mut Options) -> Result<(), ParseE
                 "clause TRANSFORM FOR TYPE".to_string(),
             ));
         }
-        _ => return Err(expected_at(p, "option de routine", &tok)),
+        _ => return Err(expected_at(p, "routine option", &tok)),
     }
     Ok(())
 }
 
-/// `nom { TO | = } { valeur [, …] | DEFAULT }` ou `nom FROM CURRENT`.
+/// `name { TO | = } { value [, …] | DEFAULT }` or `name FROM CURRENT`.
 fn parse_setting(p: &mut Parser) -> Result<FunctionSetting, ParseError> {
     let name = p
         .parse_object_name(false)
@@ -509,7 +509,7 @@ fn parse_setting(p: &mut Parser) -> Result<FunctionSetting, ParseError> {
         });
     }
     if !p.parse_keyword(Keyword::TO) && !p.consume_token(&Token::Eq) {
-        return Err(expected(p, "TO ou ="));
+        return Err(expected(p, "TO or ="));
     }
     if p.parse_keyword(Keyword::DEFAULT) {
         return Ok(FunctionSetting {
@@ -524,7 +524,7 @@ fn parse_setting(p: &mut Parser) -> Result<FunctionSetting, ParseError> {
             Token::Word(w) => w.value,
             Token::SingleQuotedString(s) => s,
             Token::Number(n, _) => n,
-            _ => return Err(expected_at(p, "valeur de paramètre", &tok)),
+            _ => return Err(expected_at(p, "parameter value", &tok)),
         });
         if !p.consume_token(&Token::Comma) {
             break;
@@ -543,7 +543,7 @@ fn expect_keywords(p: &mut Parser, kws: &[Keyword]) -> Result<(), ParseError> {
     Ok(())
 }
 
-/// Erreur « attendu … » sur le prochain token.
+/// "Expected …" error on the next token.
 fn expected(p: &Parser, what: &str) -> ParseError {
     let found = p.peek_token_ref().clone();
     expected_at(p, what, &found)

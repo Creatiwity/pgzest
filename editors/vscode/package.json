@@ -115,7 +115,7 @@
     "commands": [
       {
         "command": "pgweave.expandMacro",
-        "title": "Voir l'expansion de la macro",
+        "title": "Show Macro Expansion",
         "category": "pgweave"
       }
     ],

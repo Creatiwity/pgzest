@@ -2,7 +2,7 @@
 name = "pgweave-macros"
 version = "0.1.0"
 edition = "2024"
-description = "Macro `query!` : requête SQL inline analysée à la compilation (PLAN.md §5, P5)"
+description = "`query!` macro: inline SQL query analyzed at compile time (PLAN.md §5, P5)"
 
 [lib]
 proc-macro = true

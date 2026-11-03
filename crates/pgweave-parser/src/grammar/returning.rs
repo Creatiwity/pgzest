@@ -1,10 +1,10 @@
-//! `RETURNING WITH (OLD AS o, NEW AS n)` (PostgreSQL 18), que sqlparser ne
-//! lit pas.
+//! `RETURNING WITH (OLD AS o, NEW AS n)` (PostgreSQL 18), which sqlparser does
+//! not read.
 //!
-//! La clause est retirée des **tokens** avant le parse — les autres tokens
-//! gardent leurs positions — puis rattachée au statement converti. Comme
-//! l'extraction de `INTO` dans un corps PL/pgSQL, ce n'est pas une
-//! réécriture du texte.
+//! The clause is removed from the **tokens** before parsing — the other tokens
+//! keep their positions — then attached to the converted statement. Like
+//! the extraction of `INTO` in a PL/pgSQL body, this is not a
+//! text rewrite.
 
 use pgweave_ast::Statement;
 use pgweave_ast::stmt::ReturningAliases;
@@ -17,8 +17,8 @@ fn is_word(t: &Token, w: &str) -> bool {
     matches!(t, Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(w))
 }
 
-/// Retire `WITH (…)` qui suit un `RETURNING` de premier niveau, et rend les
-/// alias qu'il déclare.
+/// Removes `WITH (…)` following a top-level `RETURNING`, and returns the
+/// aliases it declares.
 pub(crate) fn extract(
     tokens: &mut Vec<TokenWithSpan>,
 ) -> Result<Option<ReturningAliases>, ParseError> {
@@ -48,20 +48,20 @@ pub(crate) fn extract(
         return Ok(None);
     };
 
-    let bad = |what: &str| ParseError::Syntax(format!("RETURNING WITH : {what}"));
+    let bad = |what: &str| ParseError::Syntax(format!("RETURNING WITH: {what}"));
     let mut aliases = ReturningAliases::default();
     let mut k = with_k + 2;
     loop {
         let which = match tok(k) {
             Some(t) if is_word(t, "OLD") => true,
             Some(t) if is_word(t, "NEW") => false,
-            _ => return Err(bad("OLD ou NEW attendu")),
+            _ => return Err(bad("OLD or NEW expected")),
         };
         if !tok(k + 1).is_some_and(|t| is_word(t, "AS")) {
-            return Err(bad("AS attendu"));
+            return Err(bad("AS expected"));
         }
         let Some(Token::Word(w)) = tok(k + 2) else {
-            return Err(bad("alias attendu"));
+            return Err(bad("alias expected"));
         };
         let alias = convert_ident(w.clone().into_ident(tokens[significant[k + 2]].span));
         let slot = if which {
@@ -70,20 +70,20 @@ pub(crate) fn extract(
             &mut aliases.new
         };
         if slot.replace(alias).is_some() {
-            return Err(bad("OLD ou NEW nommé deux fois"));
+            return Err(bad("OLD or NEW named twice"));
         }
         k += 3;
         match tok(k) {
             Some(Token::Comma) => k += 1,
             Some(Token::RParen) => break,
-            _ => return Err(bad(", ou ) attendu")),
+            _ => return Err(bad(", or ) expected")),
         }
     }
     tokens.drain(significant[with_k]..=significant[k]);
     Ok(Some(aliases))
 }
 
-/// Rattache les alias au statement de modification qui porte le `RETURNING`.
+/// Attaches the aliases to the data-modifying statement carrying the `RETURNING`.
 pub(crate) fn apply(stmt: &mut Statement, aliases: ReturningAliases) -> Result<(), ParseError> {
     let slot = match stmt {
         Statement::Insert(s) if !s.returning.is_empty() => &mut s.returning_aliases,
@@ -91,7 +91,7 @@ pub(crate) fn apply(stmt: &mut Statement, aliases: ReturningAliases) -> Result<(
         Statement::Delete(s) if !s.returning.is_empty() => &mut s.returning_aliases,
         _ => {
             return Err(ParseError::Syntax(
-                "RETURNING WITH hors d'un INSERT, UPDATE ou DELETE".into(),
+                "RETURNING WITH outside an INSERT, UPDATE or DELETE".into(),
             ));
         }
     };

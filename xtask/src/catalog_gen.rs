@@ -1,13 +1,13 @@
-//! `cargo xtask catalog-gen` : génère un pack de catalogue (PLAN.md, D9)
-//! depuis un PostgreSQL réel.
+//! `cargo xtask catalog-gen`: generates a catalog pack (PLAN.md, D9) from a
+//! real PostgreSQL.
 //!
-//! - Sans `--extension` : le pack `postgres@<majeure>` — schémas
-//!   `pg_catalog` et `information_schema` d'une base vierge.
-//! - Avec `--extension nom` : le delta apporté par `CREATE EXTENSION nom`,
-//!   créée dans un schéma dédié remplacé par `@extschema@`.
+//! - Without `--extension`: the `postgres@<major>` pack, i.e. the
+//!   `pg_catalog` and `information_schema` schemas of an empty database.
+//! - With `--extension name`: the delta brought by `CREATE EXTENSION name`,
+//!   created in a dedicated schema replaced by `@extschema@`.
 //!
-//! Une base temporaire est créée puis supprimée ; rien n'est modifié
-//! ailleurs sur le serveur.
+//! A temporary database is created then dropped; nothing else is modified
+//! on the server.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ use pgweave_catalog::pack::{EXTSCHEMA, PACK_FORMAT};
 use pgweave_catalog::{Contributor, Pack, QName, TypeRef};
 use tokio_postgres::{Client, NoTls};
 
-/// Schéma de travail où l'extension est créée.
+/// Work schema where the extension is created.
 const WORK_SCHEMA: &str = "pgweave_ext";
 
 pub fn run(
@@ -32,7 +32,7 @@ pub fn run(
 ) -> Result<(), String> {
     let url = url
         .or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok())
-        .ok_or("--pg-url ou PGWEAVE_ORACLE_URL requis")?;
+        .ok_or("--pg-url or PGWEAVE_ORACLE_URL required")?;
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -50,7 +50,7 @@ pub fn run(
     }
     std::fs::write(&path, json).map_err(|e| format!("{}: {e}", path.display()))?;
     eprintln!(
-        "{} : {} types, {} routines, {} opérateurs, {} conversions, {} classes d'opérateurs, {} relations → {}",
+        "{}: {} types, {} routines, {} operators, {} casts, {} operator classes, {} relations → {}",
         pack.contributor,
         pack.types.len(),
         pack.routines.len(),
@@ -83,7 +83,7 @@ async fn generate(
     extension: Option<&str>,
     version: Option<&str>,
 ) -> Result<Pack, String> {
-    let base: tokio_postgres::Config = url.parse().map_err(|e| format!("URL : {e}"))?;
+    let base: tokio_postgres::Config = url.parse().map_err(|e| format!("URL: {e}"))?;
     let admin = connect(&base).await?;
     let db = format!("pgweave_catalog_{}", std::process::id());
     admin
@@ -152,8 +152,8 @@ async fn generate(
                     Some(major.to_string()),
                     &casts_before,
                 );
-                // Les OID d'une extension changent à chaque installation : ils
-                // ne décrivent rien de stable.
+                // An extension's OIDs change on every install: they describe
+                // nothing stable.
                 for t in &mut pack.types {
                     t.oid = None;
                 }
@@ -176,11 +176,11 @@ async fn generate(
     result
 }
 
-/// Colonne d'une relation : nom, type, rendu `format_type` si modificateur,
-/// `NOT NULL`.
+/// Column of a relation: name, type, `format_type` rendering if there is a
+/// modifier, `NOT NULL`.
 type AttrRow = (String, i64, Option<String>, bool);
 
-/// Clé d'une conversion : (source, cible) en OID.
+/// Cast key: (source, target) as OIDs.
 type CastKey = (i64, i64);
 
 #[derive(Clone)]
@@ -201,9 +201,9 @@ struct TypeRow {
     relkind: Option<String>,
 }
 
-/// Ce qu'un PostgreSQL contient dans un ensemble de schémas.
+/// What a PostgreSQL holds in a set of schemas.
 pub(crate) struct Snapshot {
-    /// Tous les types du serveur, pour nommer n'importe quel OID.
+    /// All server types, to name any OID.
     all_types: HashMap<i64, TypeRow>,
     schemas: Vec<String>,
     types: Vec<TypeRow>,
@@ -214,7 +214,7 @@ pub(crate) struct Snapshot {
     attributes: BTreeMap<i64, Vec<AttrRow>>,
     routines: Vec<tokio_postgres::Row>,
     operators: Vec<tokio_postgres::Row>,
-    /// (source, cible) → (`castcontext`, `castmethod`).
+    /// (source, target) → (`castcontext`, `castmethod`).
     casts: Vec<(CastKey, (String, String))>,
     opclasses: Vec<tokio_postgres::Row>,
     relations: Vec<tokio_postgres::Row>,
@@ -234,8 +234,8 @@ impl Snapshot {
             .collect())
     }
 
-    /// Objets des schémas `schemas`. `user` : catalogue d'un projet — les
-    /// membres d'extensions (fournis par leurs packs) sont exclus.
+    /// Objects of the `schemas` schemas. `user`: a project catalog, so
+    /// extension members (provided by their packs) are excluded.
     pub(crate) async fn take_user(client: &Client, schemas: &[&str]) -> Result<Snapshot, String> {
         let mut snap = Self::take(client, schemas).await?;
         let members: HashSet<i64> = client
@@ -453,14 +453,14 @@ impl Snapshot {
             .map(|t| self.qname(&t.schema, &t.name))
     }
 
-    /// Référence au type `oid`, avec les modificateurs extraits de son rendu
-    /// `format_type` (`character varying(20)` → `["20"]`).
+    /// Reference to type `oid`, with the modifiers extracted from its
+    /// `format_type` rendering (`character varying(20)` → `["20"]`).
     fn type_ref(&self, oid: i64, formatted: Option<&str>) -> TypeRef {
         let Some(t) = self.all_types.get(&oid) else {
             return TypeRef::Unresolved(format!("oid {oid}"));
         };
-        // `élément[]` seulement pour le tableau attitré de l'élément
-        // (`typarray`) : `oidvector` a `oid` pour élément sans être `oid[]`.
+        // `element[]` only for the element's designated array type
+        // (`typarray`): `oidvector` has `oid` as element without being `oid[]`.
         let canonical_array = self.all_types.get(&t.elem).is_some_and(|e| e.array == oid);
         if t.typtype == "b" && t.category == "A" && t.elem != 0 && canonical_array {
             let inner = formatted.map(|f| f.trim_end_matches("[]"));
@@ -560,7 +560,7 @@ impl Snapshot {
                 },
                 _ => TypeKind::Base,
             };
-            // Type ligne d'une table ou d'une vue : la relation le décrit.
+            // Row type of a table or view: the relation describes it.
             if t.typtype == "c" && t.relkind.as_deref() != Some("c") {
                 continue;
             }
@@ -699,7 +699,7 @@ impl Snapshot {
                 }
             })
             .collect();
-        // Les `pronargdefaults` derniers arguments d'entrée ont un défaut.
+        // The last `pronargdefaults` input arguments have a default.
         let input_positions: Vec<usize> = args
             .iter()
             .enumerate()

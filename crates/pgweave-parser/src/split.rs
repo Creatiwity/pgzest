@@ -1,25 +1,25 @@
-//! Découpage d'un texte en statements, sur les tokens.
+//! Splitting a text into statements, on tokens.
 //!
-//! Le texte entier est tokenisé une fois par le dialecte de pgweave : les
-//! chaînes, chaînes dollar, identifiants entre guillemets et commentaires sont
-//! des tokens atomiques, donc un `;` qu'ils contiennent ne coupe jamais un
-//! statement. Les positions des tokens sont celles du texte : le parse de
-//! chaque statement les réutilise telles quelles, sans recopie ni décalage.
+//! The whole text is tokenized once by pgweave's dialect: strings,
+//! dollar strings, quoted identifiers and comments are
+//! atomic tokens, so a `;` they contain never cuts a
+//! statement. Token positions are those of the text: the parse of
+//! each statement reuses them as is, without copying or shifting.
 //!
-//! Remplace un découpage textuel octet par octet, qui devait réimplémenter à
-//! la main la lexicographie de PostgreSQL (et la ratait sur les cas rares).
+//! Replaces a byte-by-byte textual split, which had to reimplement
+//! PostgreSQL's lexical rules by hand (and got the rare cases wrong).
 
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Location, Token, TokenWithSpan, Tokenizer};
 
 use crate::dialect::PgweaveDialect;
 
-/// Un morceau du texte : un statement à parser, ou une zone que le tokenizer
-/// n'a pas su lire.
+/// A piece of the text: a statement to parse, or a region the tokenizer
+/// could not read.
 pub(crate) enum Unit {
     Statement(StatementTokens),
-    /// Texte illisible jusqu'à la fin (chaîne non terminée…). Les statements
-    /// complets qui précèdent ont été découpés normalement.
+    /// Unreadable text up to the end (unterminated string…). The complete
+    /// statements preceding it were split normally.
     Unreadable {
         start: usize,
         end: usize,
@@ -28,15 +28,15 @@ pub(crate) enum Unit {
 }
 
 pub(crate) struct StatementTokens {
-    /// Tokens du statement, sans le `;` final ni les blancs qui le précèdent.
+    /// Tokens of the statement, without the final `;` or the whitespace preceding it.
     pub tokens: Vec<TokenWithSpan>,
-    /// Offset octet du premier token significatif, dans le texte.
+    /// Byte offset of the first significant token, in the text.
     pub start: usize,
-    /// Offset octet de fin du dernier token significatif.
+    /// End byte offset of the last significant token.
     pub end: usize,
 }
 
-/// Index des débuts de ligne, pour traduire une `Location` en offset octet.
+/// Index of line starts, to translate a `Location` into a byte offset.
 pub(crate) struct LineIndex {
     line_starts: Vec<usize>,
 }
@@ -53,8 +53,8 @@ impl LineIndex {
         Self { line_starts }
     }
 
-    /// Offset octet d'une position sqlparser (ligne et colonne 1-basées,
-    /// colonne en caractères).
+    /// Byte offset of a sqlparser position (1-based line and column,
+    /// column in characters).
     pub(crate) fn offset(&self, text: &str, loc: Location) -> Option<usize> {
         if loc.line == 0 || loc.column == 0 {
             return None;
@@ -75,7 +75,7 @@ impl LineIndex {
     }
 }
 
-/// Découpe `text` en statements.
+/// Splits `text` into statements.
 pub(crate) fn split(text: &str) -> Vec<Unit> {
     let index = LineIndex::new(text);
     let mut units = Vec::new();
@@ -83,9 +83,9 @@ pub(crate) fn split(text: &str) -> Vec<Unit> {
     let (tokens, failure) = match tokenize(text) {
         Ok(tokens) => (tokens, None),
         Err((at, message)) => {
-            // On garde ce qui précède l'erreur : les statements complets avant
-            // elle sont lisibles. Le préfixe se tokenise forcément, l'erreur
-            // étant sa première position illisible — sinon on renonce à tout.
+            // Keep what precedes the error: the complete statements before
+            // it are readable. The prefix necessarily tokenizes, the error
+            // being its first unreadable position — otherwise we give up on everything.
             match tokenize(&text[..at]) {
                 Ok(prefix) => (prefix, Some((at, message))),
                 Err(_) => {
@@ -102,8 +102,8 @@ pub(crate) fn split(text: &str) -> Vec<Unit> {
 
     let mut statements = split_tokens(tokens, text, &index);
     if let Some((at, message)) = failure {
-        // Le dernier statement du préfixe est coupé par l'erreur : il fait
-        // partie de la zone illisible, sauf s'il était terminé par un `;`.
+        // The last statement of the prefix is cut by the error: it is
+        // part of the unreadable region, unless it was terminated by a `;`.
         let unreadable_from = match statements.pop() {
             Some(last) if !last.terminated => last.tokens.start,
             Some(last) => {
@@ -124,7 +124,7 @@ pub(crate) fn split(text: &str) -> Vec<Unit> {
     units
 }
 
-/// Erreur de tokenisation : (offset octet, message).
+/// Tokenization error: (byte offset, message).
 fn tokenize(text: &str) -> Result<Vec<TokenWithSpan>, (usize, String)> {
     Tokenizer::new(&PgweaveDialect, text)
         .tokenize_with_location()
@@ -139,7 +139,7 @@ fn tokenize(text: &str) -> Result<Vec<TokenWithSpan>, (usize, String)> {
 
 struct Split {
     tokens: StatementTokens,
-    /// Terminé par un `;` (et non par la fin du texte).
+    /// Terminated by a `;` (and not by the end of the text).
     terminated: bool,
 }
 
@@ -182,9 +182,9 @@ fn is_trivia(t: &Token) -> bool {
     matches!(t, Token::Whitespace(_) | Token::EOF)
 }
 
-/// Suivi d'un corps `BEGIN ATOMIC … END` (fonction en SQL standard) : ses
-/// statements internes sont séparés par des `;` qui ne terminent pas le
-/// `CREATE FUNCTION`. Les `CASE … END` imbriqués sont comptés.
+/// Tracking of a `BEGIN ATOMIC … END` body (standard SQL function): its
+/// inner statements are separated by `;` that do not terminate the
+/// `CREATE FUNCTION`. Nested `CASE … END` are counted.
 #[derive(Default)]
 struct AtomicBody {
     depth: u32,
@@ -257,20 +257,20 @@ mod tests {
     }
 
     #[test]
-    fn decoupe_sur_les_points_virgules_de_premier_niveau() {
+    fn splits_on_top_level_semicolons() {
         assert_eq!(
-            texts("-- tête\nSELECT 1;  SELECT ';' , $$ ; $$ ;\n/* fin */ SELECT 3"),
+            texts("-- head\nSELECT 1;  SELECT ';' , $$ ; $$ ;\n/* end */ SELECT 3"),
             ["SELECT 1", "SELECT ';' , $$ ; $$", "SELECT 3"]
         );
     }
 
     #[test]
-    fn statements_vides_ignores() {
-        assert_eq!(texts(";; -- rien\n ;"), Vec::<String>::new());
+    fn empty_statements_ignored() {
+        assert_eq!(texts(";; -- nothing\n ;"), Vec::<String>::new());
     }
 
     #[test]
-    fn begin_atomic_garde_ses_points_virgules() {
+    fn begin_atomic_keeps_its_semicolons() {
         let sql = "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT CASE WHEN true THEN 1 END; SELECT 2; END; SELECT 4";
         assert_eq!(
             texts(sql),
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn begin_transaction_n_est_pas_atomic() {
+    fn begin_transaction_is_not_atomic() {
         assert_eq!(
             texts("BEGIN; SELECT 1; COMMIT"),
             ["BEGIN", "SELECT 1", "COMMIT"]
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn une_chaine_non_terminee_n_emporte_que_la_fin() {
+    fn an_unterminated_string_only_takes_the_end() {
         let t = texts("SELECT 1; SELECT 'oups; SELECT 3;");
         assert_eq!(t[0], "SELECT 1");
         assert!(t[1].starts_with("!SELECT 'oups"), "{t:?}");

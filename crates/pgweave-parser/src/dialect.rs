@@ -1,24 +1,24 @@
-//! `PgweaveDialect` : le dialecte PostgreSQL de sqlparser, complété là où il
-//! s'écarte de PostgreSQL 18 (PLAN.md, D1).
+//! `PgweaveDialect`: sqlparser's PostgreSQL dialect, completed where it
+//! diverges from PostgreSQL 18 (PLAN.md, D1).
 //!
-//! C'est une **enveloppe**, pas un fork : chaque méthode que
-//! `PostgreSqlDialect` redéfinit est déléguée, et [`Dialect::dialect`] renvoie
-//! le `TypeId` de `PostgreSqlDialect`, de sorte que les tests internes de
-//! sqlparser (`dialect_of!(self is PostgreSqlDialect)`) traitent cette
-//! enveloppe exactement comme PostgreSQL. Les méthodes que `PostgreSqlDialect`
-//! ne redéfinit pas gardent leur comportement par défaut, identique des deux
-//! côtés.
+//! It is a **wrapper**, not a fork: every method that
+//! `PostgreSqlDialect` overrides is delegated, and [`Dialect::dialect`] returns
+//! the `TypeId` of `PostgreSqlDialect`, so that sqlparser's internal checks
+//! (`dialect_of!(self is PostgreSqlDialect)`) treat this
+//! wrapper exactly like PostgreSQL. Methods that `PostgreSqlDialect`
+//! does not override keep their default behavior, identical on both
+//! sides.
 //!
-//! Garde-fous : sqlparser est épinglé, et le test `dialect_parity` vérifie
-//! que la liste des méthodes déléguées correspond à celles que
-//! `PostgreSqlDialect` redéfinit dans la version utilisée. Une montée de
-//! version qui en ajoute une fait échouer ce test au lieu de diverger en
-//! silence.
+//! Safeguards: sqlparser is pinned, and the `dialect_parity` test checks
+//! that the list of delegated methods matches those that
+//! `PostgreSqlDialect` overrides in the version in use. A version bump
+//! that adds one makes this test fail instead of silently
+//! diverging.
 //!
-//! Seuls deux manques **au niveau des expressions et des options de
-//! colonne** sont comblés ici, parce que sqlparser sait les représenter. Les
-//! statements que son AST ne peut pas représenter (`DO`, contraintes
-//! `EXCLUDE`, …) sont traités par notre propre grammaire (`grammar`).
+//! Only two gaps **at the level of expressions and column
+//! options** are filled here, because sqlparser can represent them.
+//! Statements its AST cannot represent (`DO`, `EXCLUDE`
+//! constraints, …) are handled by our own grammar (`grammar`).
 
 use std::any::TypeId;
 
@@ -33,12 +33,12 @@ pub struct PgweaveDialect;
 
 const PG: PostgreSqlDialect = PostgreSqlDialect {};
 
-/// Précédence de l'opérande d'un moins unaire : au-dessus de `COLLATE`
-/// (120 chez sqlparser), au-dessous des crochets (130), de `::` et de `.`.
+/// Precedence of the operand of a unary minus: above `COLLATE`
+/// (120 in sqlparser), below brackets (130), `::` and `.`.
 const UMINUS_PREC: u8 = 125;
 
-/// Méthodes redéfinies par `PostgreSqlDialect` dans sqlparser 0.62, toutes
-/// déléguées ci-dessous. Tenue à jour par le test `dialect_parity`.
+/// Methods overridden by `PostgreSqlDialect` in sqlparser 0.62, all
+/// delegated below. Kept up to date by the `dialect_parity` test.
 pub const DELEGATED: &[&str] = &[
     "identifier_quote_style",
     "is_delimited_identifier_start",
@@ -85,14 +85,14 @@ impl Dialect for PgweaveDialect {
         TypeId::of::<PostgreSqlDialect>()
     }
 
-    // ── Compléments ──────────────────────────────────────────────────────────
+    // ── Additions ────────────────────────────────────────────────────────────
 
-    /// `trim(BOTH FROM x)` : forme PostgreSQL sans caractères à retirer, que
-    /// sqlparser refuse (il attend une expression avant `FROM`).
+    /// `trim(BOTH FROM x)`: PostgreSQL form without characters to remove, which
+    /// sqlparser rejects (it expects an expression before `FROM`).
     fn parse_prefix(&self, parser: &mut Parser) -> Option<Result<Expr, ParserError>> {
-        // `-x ^ y` : dans `gram.y`, le moins unaire (`UMINUS`) lie plus fort
-        // que `^`, `AT TIME ZONE` et `COLLATE`, moins que `[…]`, `::` et `.` ;
-        // sqlparser lui donne la précédence de `*`, donc `-(x ^ y)`.
+        // `-x ^ y`: in `gram.y`, unary minus (`UMINUS`) binds tighter
+        // than `^`, `AT TIME ZONE` and `COLLATE`, looser than `[…]`, `::` and `.`;
+        // sqlparser gives it the precedence of `*`, hence `-(x ^ y)`.
         if let op @ (Token::Minus | Token::Plus) = &parser.peek_token_ref().token {
             let op = if *op == Token::Minus {
                 sqlparser::ast::UnaryOperator::Minus
@@ -144,10 +144,10 @@ impl Dialect for PgweaveDialect {
         })())
     }
 
-    /// `a IS [NOT] DISTINCT FROM b` : sqlparser lit `b` comme une expression
-    /// complète, donc `x IS DISTINCT FROM y AND z` devenait
-    /// `x IS DISTINCT FROM (y AND z)`. Dans `gram.y`, l'opérande droit a la
-    /// précédence de `IS` : il absorbe `=`, `+`… mais s'arrête à `AND`/`OR`.
+    /// `a IS [NOT] DISTINCT FROM b`: sqlparser reads `b` as a full
+    /// expression, so `x IS DISTINCT FROM y AND z` became
+    /// `x IS DISTINCT FROM (y AND z)`. In `gram.y`, the right operand has the
+    /// precedence of `IS`: it absorbs `=`, `+`… but stops at `AND`/`OR`.
     fn parse_infix(
         &self,
         parser: &mut Parser,
@@ -183,10 +183,10 @@ impl Dialect for PgweaveDialect {
         )
     }
 
-    /// `GENERATED ALWAYS AS (expr) [STORED | VIRTUAL]`. sqlparser n'accepte
-    /// que `STORED` ; PostgreSQL 18 ajoute `VIRTUAL`, qui est aussi le défaut
-    /// quand aucun mot-clé ne suit. La forme `… AS IDENTITY` n'est pas
-    /// interceptée.
+    /// `GENERATED ALWAYS AS (expr) [STORED | VIRTUAL]`. sqlparser only accepts
+    /// `STORED`; PostgreSQL 18 adds `VIRTUAL`, which is also the default
+    /// when no keyword follows. The `… AS IDENTITY` form is not
+    /// intercepted.
     fn parse_column_option(
         &self,
         parser: &mut Parser,
@@ -211,7 +211,7 @@ impl Dialect for PgweaveDialect {
             let mode = if parser.parse_keyword(Keyword::STORED) {
                 GeneratedExpressionMode::Stored
             } else {
-                // `VIRTUAL` explicite ou absent : virtuel (défaut de PG 18).
+                // Explicit or absent `VIRTUAL`: virtual (PG 18 default).
                 let _explicit = parser.parse_keyword(Keyword::VIRTUAL);
                 GeneratedExpressionMode::Virtual
             };
@@ -225,7 +225,7 @@ impl Dialect for PgweaveDialect {
         })()))
     }
 
-    // ── Délégation à PostgreSqlDialect ───────────────────────────────────────
+    // ── Delegation to PostgreSqlDialect ──────────────────────────────────────
 
     fn identifier_quote_style(&self, identifier: &str) -> Option<char> {
         PG.identifier_quote_style(identifier)

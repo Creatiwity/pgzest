@@ -1,11 +1,11 @@
-//! Application ordonnée des statements au catalogue : le rejeu.
+//! Ordered application of statements to the catalog: the replay.
 //!
-//! Chaque statement modifie le catalogue comme PostgreSQL le ferait :
-//! création, `ALTER`, `DROP`, `CREATE EXTENSION` (qui charge le pack de
-//! l'extension), `SET search_path`. Ce qui serait refusé par PostgreSQL
-//! (objet inexistant, type inconnu, suppression sans `CASCADE` d'un objet
-//! référencé) est signalé, sans interrompre le rejeu — sur des migrations
-//! appliquées en production, un tel diagnostic révèle une lacune de pgweave.
+//! Each statement modifies the catalog as PostgreSQL would: creation,
+//! `ALTER`, `DROP`, `CREATE EXTENSION` (which loads the extension's pack),
+//! `SET search_path`. What PostgreSQL would reject (missing object, unknown
+//! type, drop without `CASCADE` of a referenced object) is reported, without
+//! interrupting the replay — on migrations applied in production, such a
+//! diagnostic reveals a gap in pgweave.
 
 use pgweave_ast::Statement;
 use pgweave_ast::ddl::FunctionBody;
@@ -34,15 +34,15 @@ use crate::model::{
 };
 use crate::names::{array_type_name, choose_name, columns_addition};
 
-/// État du rejeu : le catalogue et le `search_path` courant.
-/// Typage de la requête d'une vue.
+/// Replay state: the catalog and the current `search_path`.
+/// Typing of a view's query.
 ///
-/// Fourni par l'analyse sémantique (`pgweave-sema`), qui dépend du
-/// catalogue et ne peut donc pas être appelée d'ici. Sans typeur, les
-/// colonnes d'une vue restent de type inconnu — jamais supposé.
+/// Provided by semantic analysis (`pgweave-sema`), which depends on the
+/// catalog and therefore cannot be called from here. Without a typer, the
+/// columns of a view keep an unknown type — never assumed.
 pub trait QueryTyper: Send + Sync {
-    /// Colonnes produites par `query` : nom et type, modificateurs compris.
-    /// `Err` dit pourquoi elles ne sont pas établies.
+    /// Columns produced by `query`: name and type, modifiers included.
+    /// `Err` says why they are not established.
     fn output_columns(
         &self,
         catalog: &Catalog,
@@ -54,7 +54,7 @@ pub trait QueryTyper: Send + Sync {
 pub struct Replay {
     pub catalog: Catalog,
     pub search_path: SearchPath,
-    /// Typeur des requêtes de vues, s'il y en a un.
+    /// Typer for view queries, if there is one.
     pub typer: Option<std::sync::Arc<dyn QueryTyper>>,
 }
 
@@ -67,7 +67,7 @@ impl Replay {
         }
     }
 
-    /// Applique un statement ; les diagnostics sont ajoutés à `out`.
+    /// Applies a statement; diagnostics are appended to `out`.
     pub fn apply(&mut self, stmt: &Statement, out: &mut Vec<Diagnostic>) {
         let mut a = Applier {
             cat: &mut self.catalog,
@@ -84,13 +84,13 @@ struct Applier<'a> {
     cat: &'a mut Catalog,
     path: &'a mut SearchPath,
     out: &'a mut Vec<Diagnostic>,
-    /// Index copiés par `LIKE … INCLUDING INDEXES`, créés une fois la table
-    /// enregistrée.
+    /// Indexes copied by `LIKE … INCLUDING INDEXES`, created once the table
+    /// is registered.
     pending_indexes: Vec<pgweave_ast::ddl::CreateIndex>,
     typer: Option<&'a dyn QueryTyper>,
 }
 
-/// Nom écrit, découpé : `(schéma explicite, nom)`.
+/// Written name, split: `(explicit schema, name)`.
 fn split_name(n: &ObjectName) -> (Option<&str>, &str) {
     match n.0.as_slice() {
         [name] => (None, name.value.as_str()),
@@ -106,8 +106,8 @@ fn written(n: &ObjectName) -> String {
         .join(".")
 }
 
-/// Type intégré désigné par un type de l'AST : nom dans `pg_catalog` et
-/// modificateurs.
+/// Built-in type designated by an AST type: name in `pg_catalog` and
+/// modifiers.
 fn builtin_type(dt: &DataType) -> Option<(&'static str, Vec<String>)> {
     Some(match dt {
         DataType::SmallInt => ("int2", vec![]),
@@ -125,7 +125,7 @@ fn builtin_type(dt: &DataType) -> Option<(&'static str, Vec<String>)> {
         DataType::DoublePrecision => ("float8", vec![]),
         DataType::Text => ("text", vec![]),
         DataType::Varchar(n) => ("varchar", n.iter().map(u64::to_string).collect()),
-        // `char` sans longueur est `character(1)`.
+        // `char` without a length is `character(1)`.
         DataType::Char(n) => ("bpchar", vec![n.unwrap_or(1).to_string()]),
         DataType::Date => ("date", vec![]),
         DataType::Time(p) => ("time", p.iter().map(u64::to_string).collect()),
@@ -142,7 +142,7 @@ fn builtin_type(dt: &DataType) -> Option<(&'static str, Vec<String>)> {
     })
 }
 
-/// Pseudo-types `serial` : type réel et nom.
+/// `serial` pseudo-types: actual type and name.
 fn serial_kind(dt: &DataType) -> Option<&'static str> {
     match dt {
         DataType::Custom(n) => match n.as_str() {
@@ -165,10 +165,10 @@ impl Applier<'_> {
         self.cat.next_order
     }
 
-    // ── Noms ─────────────────────────────────────────────────────────────────
+    // ── Names ────────────────────────────────────────────────────────────────
 
-    /// Nom qualifié d'un objet créé : schéma explicite, `pg_temp` pour un
-    /// objet temporaire, sinon le schéma de création du `search_path`.
+    /// Qualified name of a created object: explicit schema, `pg_temp` for a
+    /// temporary object, otherwise the creation schema of the `search_path`.
     fn creation_name(&mut self, n: &ObjectName, temporary: bool) -> Option<QName> {
         let (schema, name) = split_name(n);
         let schema = match schema {
@@ -179,7 +179,7 @@ impl Applier<'_> {
                 None => {
                     self.error(
                         codes::SCHEMA_NOT_FOUND,
-                        format!("aucun schéma de création pour « {name} » (search_path vide)"),
+                        format!("no schema has been selected to create \"{name}\" in (empty search_path)"),
                     );
                     return None;
                 }
@@ -188,7 +188,7 @@ impl Applier<'_> {
         if schema != "pg_temp" && !self.cat.schema_exists(&schema) {
             self.error(
                 codes::SCHEMA_NOT_FOUND,
-                format!("le schéma « {schema} » n'existe pas"),
+                format!("schema \"{schema}\" does not exist"),
             );
             return None;
         }
@@ -202,7 +202,7 @@ impl Applier<'_> {
             None => {
                 self.error(
                     codes::OBJECT_NOT_FOUND,
-                    format!("la relation « {} » n'existe pas", written(n)),
+                    format!("relation \"{}\" does not exist", written(n)),
                 );
                 None
             }
@@ -213,14 +213,14 @@ impl Applier<'_> {
         if let Some(t) = self.cat.resolve_type(schema, name, self.path) {
             return Some(t.name.clone());
         }
-        // Le type ligne d'une table porte son nom.
+        // A table's row type has its name.
         self.cat
             .resolve_relation(schema, name, self.path)
             .map(|r| r.name.clone())
     }
 
-    /// Référence de type d'un type de l'AST. Un nom introuvable est signalé
-    /// et conservé tel qu'écrit.
+    /// Type reference of an AST type. A name that cannot be found is reported
+    /// and kept as written.
     fn type_ref(&mut self, dt: &DataType) -> TypeRef {
         if let Some((name, modifiers)) = builtin_type(dt) {
             return TypeRef::Named {
@@ -232,7 +232,7 @@ impl Applier<'_> {
             DataType::Array(inner) => return TypeRef::Array(Box::new(self.type_ref(inner))),
             DataType::Custom(n) => (n.as_str(), Vec::new()),
             DataType::Modified { name, modifiers } => (name.as_str(), modifiers.clone()),
-            _ => unreachable!("types intégrés traités plus haut"),
+            _ => unreachable!("built-in types handled above"),
         };
         let (schema, name) = match written.rsplit_once('.') {
             Some((s, n)) => (Some(s), n),
@@ -243,13 +243,13 @@ impl Applier<'_> {
             None => {
                 let mut d = Diagnostic::error(
                     codes::TYPE_NOT_FOUND,
-                    format!("le type « {written} » n'existe pas"),
+                    format!("type \"{written}\" does not exist"),
                 );
                 let from = builtin::extensions_providing(builtin::ObjectSort::Type, name);
                 if let Some(ext) = from.first() {
                     let ext_name = ext.split('@').next().unwrap_or(ext);
                     d = d.with_hint(format!(
-                        "« {name} » est fourni par l'extension {ext}, absente ici : ajouter `CREATE EXTENSION {ext_name}`"
+                        "\"{name}\" is provided by extension {ext}, missing here: add `CREATE EXTENSION {ext_name}`"
                     ));
                 }
                 self.out.push(d);
@@ -285,13 +285,13 @@ impl Applier<'_> {
                     FunctionBody::Parsed(b) => {
                         let _ = self.exec_block(&b.block);
                     }
-                    FunctionBody::Raw(_) => self.not_replayed("bloc DO non analysé"),
+                    FunctionBody::Raw(_) => self.not_replayed("unanalyzed DO block"),
                     _ => {}
                 },
                 _ => {}
             },
-            // Les requêtes et modifications de données ne changent pas le
-            // catalogue — sauf par les routines qu'elles appellent.
+            // Queries and data modifications do not change the catalog —
+            // except through the routines they call.
             Statement::Select(_)
             | Statement::Insert(_)
             | Statement::Update(_)
@@ -299,22 +299,22 @@ impl Applier<'_> {
         }
     }
 
-    // ── Blocs DO ─────────────────────────────────────────────────────────────
+    // ── DO blocks ────────────────────────────────────────────────────────────
 
     fn not_replayed(&mut self, why: &str) {
         self.out.push(
             Diagnostic::warning(
                 codes::DDL_NOT_REPLAYED,
-                format!("DDL non rejoué ({why}) : le catalogue peut différer de la base"),
+                format!("DDL not replayed ({why}): the catalog may differ from the database"),
             )
-            .with_hint("seules les conditions sur le catalogue système (pg_type, pg_enum, information_schema…) sont évaluées"),
+            .with_hint("only conditions on the system catalog (pg_type, pg_enum, information_schema…) are evaluated"),
         );
     }
 
-    /// Exécute un bloc ; `false` si un `RETURN` l'a interrompu.
+    /// Runs a block; `false` if a `RETURN` interrupted it.
     fn exec_block(&mut self, block: &Block) -> bool {
-        // Les gestionnaires d'exception ne sont pas parcourus : sur une
-        // migration appliquée, le bloc s'est exécuté sans erreur.
+        // Exception handlers are not walked: on an applied migration, the
+        // block ran without error.
         self.exec_statements(&block.statements)
     }
 
@@ -349,7 +349,7 @@ impl Applier<'_> {
                         Some(false) => continue,
                         None => {
                             if has_effect(std::slice::from_ref(stmt)) {
-                                self.not_replayed("condition non évaluable sur le catalogue");
+                                self.not_replayed("condition not evaluable on the catalog");
                             }
                             return true;
                         }
@@ -360,28 +360,28 @@ impl Applier<'_> {
                     None => true,
                 }
             }
-            // `RAISE EXCEPTION` atteint : la migration aurait échoué. Elle a
-            // été appliquée, donc l'état reconstruit diffère de la réalité.
+            // `RAISE EXCEPTION` reached: the migration would have failed. It
+            // was applied, so the rebuilt state differs from reality.
             PlStatementKind::Raise {
                 level: pgweave_ast::plpgsql::RaiseLevel::Exception,
                 ..
             } => {
-                self.not_replayed("RAISE EXCEPTION atteint : état reconstruit incohérent");
+                self.not_replayed("RAISE EXCEPTION reached: inconsistent rebuilt state");
                 false
             }
             other => {
                 let stmt_ref = std::slice::from_ref(stmt);
                 if has_effect(stmt_ref) {
                     let _ = other;
-                    self.not_replayed("SQL dynamique, boucle ou CASE dans un bloc DO");
+                    self.not_replayed("dynamic SQL, loop or CASE in a DO block");
                 }
                 true
             }
         }
     }
 
-    /// Appels de routines du projet dont le corps modifie le catalogue :
-    /// leurs effets ne sont pas rejoués, on le dit.
+    /// Calls to project routines whose body modifies the catalog: their
+    /// effects are not replayed, and we say so.
     fn calls_with_effects(&mut self, stmt: &Statement) {
         let Ok(v) = serde_json::to_value(stmt) else {
             return;
@@ -408,7 +408,7 @@ impl Applier<'_> {
                 .any(|r| r.catalog_effects);
             if effects {
                 self.not_replayed(&format!(
-                    "appel de « {name} », dont le corps modifie le catalogue"
+                    "call to \"{name}\", whose body modifies the catalog"
                 ));
             }
         }
@@ -435,7 +435,7 @@ impl Applier<'_> {
                     if !cs.if_not_exists {
                         self.error(
                             codes::OBJECT_ALREADY_EXISTS,
-                            format!("le schéma « {} » existe déjà", cs.name.value),
+                            format!("schema \"{}\" already exists", cs.name.value),
                         );
                     }
                     return;
@@ -460,7 +460,7 @@ impl Applier<'_> {
                     if !at.if_exists {
                         self.error(
                             codes::OBJECT_NOT_FOUND,
-                            format!("la relation « {} » n'existe pas", written(&at.name)),
+                            format!("relation \"{}\" does not exist", written(&at.name)),
                         );
                     }
                     return;
@@ -512,7 +512,7 @@ impl Applier<'_> {
                 else {
                     self.error(
                         codes::FUNCTION_NOT_FOUND,
-                        format!("la fonction « {}() » n'existe pas", written(&ct.function)),
+                        format!("function {}() does not exist", written(&ct.function)),
                     );
                     return;
                 };
@@ -520,7 +520,10 @@ impl Applier<'_> {
                 if triggers.contains_key(&ct.name.value) && !ct.or_replace {
                     self.error(
                         codes::OBJECT_ALREADY_EXISTS,
-                        format!("le trigger « {} » existe déjà sur {table}", ct.name.value),
+                        format!(
+                            "trigger \"{}\" for relation {table} already exists",
+                            ct.name.value
+                        ),
                     );
                     return;
                 }
@@ -578,7 +581,10 @@ impl Applier<'_> {
                 if policies.contains_key(&cp.name.value) {
                     self.error(
                         codes::OBJECT_ALREADY_EXISTS,
-                        format!("la policy « {} » existe déjà sur {table}", cp.name.value),
+                        format!(
+                            "policy \"{}\" for table {table} already exists",
+                            cp.name.value
+                        ),
                     );
                     return;
                 }
@@ -613,7 +619,7 @@ impl Applier<'_> {
                     if !cs.if_not_exists {
                         self.error(
                             codes::OBJECT_ALREADY_EXISTS,
-                            format!("la relation « {name} » existe déjà"),
+                            format!("relation \"{name}\" already exists"),
                         );
                     }
                     return;
@@ -647,7 +653,7 @@ impl Applier<'_> {
             if !ce.if_not_exists {
                 self.error(
                     codes::OBJECT_ALREADY_EXISTS,
-                    format!("l'extension « {name} » existe déjà"),
+                    format!("extension \"{name}\" already exists"),
                 );
             }
             return;
@@ -657,7 +663,7 @@ impl Applier<'_> {
             None => match self.path.creation_schema() {
                 Some(s) => s.to_string(),
                 None => {
-                    self.error(codes::SCHEMA_NOT_FOUND, "search_path vide".into());
+                    self.error(codes::SCHEMA_NOT_FOUND, "empty search_path".into());
                     return;
                 }
             },
@@ -665,7 +671,7 @@ impl Applier<'_> {
         if !self.cat.schema_exists(&schema) {
             self.error(
                 codes::SCHEMA_NOT_FOUND,
-                format!("le schéma « {schema} » n'existe pas"),
+                format!("schema \"{schema}\" does not exist"),
             );
             return;
         }
@@ -675,7 +681,7 @@ impl Applier<'_> {
         self.load_extension(&name, &version, &schema);
     }
 
-    /// Version à charger : celle demandée, sinon l'unique pack disponible.
+    /// Version to load: the requested one, otherwise the only available pack.
     fn extension_version(&mut self, name: &str, requested: Option<&str>) -> Option<String> {
         let available = builtin::versions(name);
         let chosen = match requested {
@@ -688,12 +694,12 @@ impl Applier<'_> {
             self.out.push(
                 Diagnostic::error(
                     codes::EXTENSION_UNAVAILABLE,
-                    format!("aucun pack de catalogue pour l'extension « {name}{wanted} »"),
+                    format!("no catalog pack for extension \"{name}{wanted}\""),
                 )
                 .with_hint(if available.is_empty() {
-                    "générer le pack : cargo xtask catalog-gen --extension <nom>".to_string()
+                    "generate the pack: cargo xtask catalog-gen --extension <name>".to_string()
                 } else {
-                    format!("versions disponibles : {}", available.join(", "))
+                    format!("available versions: {}", available.join(", "))
                 }),
             );
         }
@@ -723,7 +729,7 @@ impl Applier<'_> {
         let Some(ext) = self.cat.extensions.get(&name).cloned() else {
             self.error(
                 codes::OBJECT_NOT_FOUND,
-                format!("l'extension « {name} » n'existe pas"),
+                format!("extension \"{name}\" does not exist"),
             );
             return;
         };
@@ -752,7 +758,7 @@ impl Applier<'_> {
             if !ct.if_not_exists {
                 self.error(
                     codes::OBJECT_ALREADY_EXISTS,
-                    format!("la relation « {name} » existe déjà"),
+                    format!("relation \"{name}\" already exists"),
                 );
             }
             return;
@@ -774,14 +780,14 @@ impl Applier<'_> {
             definition: None,
             order: self.next_order(),
         };
-        // Insérée d'abord : les contraintes nommées automatiquement doivent
-        // voir la table, et une FK peut se référencer elle-même.
+        // Inserted first: automatically named constraints must see the table,
+        // and an FK may reference itself.
         self.cat.relations.insert(name.clone(), rel.clone());
         self.add_rowtype_array(&name);
 
         if let Some(q) = &ct.as_query {
-            // `CREATE TABLE … AS` : les colonnes de la requête, nommées par la
-            // liste éventuelle.
+            // `CREATE TABLE … AS`: the query's columns, named by the optional
+            // list.
             let aliases: Vec<&Ident> = ct.columns.iter().map(|c| &c.name).collect();
             let (columns, opaque) = self.query_columns("table", &name, q, &aliases);
             rel.columns = columns;
@@ -801,7 +807,7 @@ impl Applier<'_> {
             ok &= self.copy_like(&mut rel, like);
         }
         if !ok {
-            // Statement rejeté en entier : ni table, ni type ligne, ni séquence.
+            // Statement rejected as a whole: no table, row type or sequence.
             self.drop_relation(&name);
             self.cat
                 .sequences
@@ -820,8 +826,8 @@ impl Applier<'_> {
         }
     }
 
-    /// Copie les colonnes d'un `LIKE` ; `false` si la source n'existe pas
-    /// (PostgreSQL rejette alors tout le `CREATE TABLE`).
+    /// Copies the columns of a `LIKE`; `false` if the source does not exist
+    /// (PostgreSQL then rejects the whole `CREATE TABLE`).
     fn copy_like(&mut self, rel: &mut Relation, like: &pgweave_ast::ddl::TableLike) -> bool {
         let Some(src_name) = self.relation_name(&like.source) else {
             return false;
@@ -862,8 +868,8 @@ impl Applier<'_> {
             if !keep {
                 continue;
             }
-            // Les contraintes copiées par `LIKE` sont renommées d'après la
-            // nouvelle table (les CHECK gardent leur nom).
+            // Constraints copied by `LIKE` are renamed after the new table
+            // (CHECKs keep their name).
             let name = match &con.kind {
                 ConstraintKind::Check { .. } => con.name.clone(),
                 ConstraintKind::PrimaryKey { .. } => self.free_constraint_name(rel, None, "pkey"),
@@ -881,8 +887,8 @@ impl Applier<'_> {
                 not_valid: con.not_valid,
             });
         }
-        // Index ordinaires de la source, recréés sur la nouvelle table avec un
-        // nom choisi comme PostgreSQL (`<table>_<colonnes>_idx`).
+        // Plain indexes of the source, recreated on the new table with a name
+        // chosen as PostgreSQL does (`<table>_<columns>_idx`).
         if indexes {
             let sources: Vec<Index> = self
                 .cat
@@ -917,8 +923,8 @@ impl Applier<'_> {
         true
     }
 
-    /// Colonne d'un `CREATE TABLE` / `ADD COLUMN`, avec ses contraintes de
-    /// colonne (rendues en contraintes de table, appliquées par l'appelant).
+    /// Column of a `CREATE TABLE` / `ADD COLUMN`, with its column constraints
+    /// (turned into table constraints, applied by the caller).
     fn add_column_def(
         &mut self,
         rel: &mut Relation,
@@ -940,8 +946,8 @@ impl Applier<'_> {
             }),
         };
         if let Some(real) = serial_kind(&col.data_type) {
-            // `serial` : entier, NOT NULL, défaut tiré d'une séquence
-            // possédée par la colonne.
+            // `serial`: integer, NOT NULL, default taken from a sequence owned
+            // by the column.
             column.ty = TypeRef::named(QName::pg_catalog(real));
             column.not_null = true;
             let seq = self.owned_sequence(&rel.name, &column.name);
@@ -1011,7 +1017,7 @@ impl Applier<'_> {
         rel.columns.push(column);
     }
 
-    /// Séquence `table_colonne_seq` d'un `serial` ou d'une identité.
+    /// `table_column_seq` sequence of a `serial` or an identity.
     fn owned_sequence(&mut self, table: &QName, column: &str) -> QName {
         let name = choose_name(&table.name, Some(column), "seq", |n| {
             let q = QName::new(table.schema.clone(), n);
@@ -1029,9 +1035,9 @@ impl Applier<'_> {
         q
     }
 
-    /// Nom libre pour une contrainte de `rel` : ni contrainte de la table, ni
-    /// relation ou index du schéma (une PK ou un UNIQUE crée un index du même
-    /// nom).
+    /// Free name for a constraint of `rel`: neither a constraint of the
+    /// table, nor a relation or index of the schema (a PK or UNIQUE creates an
+    /// index with the same name).
     fn free_constraint_name(&self, rel: &Relation, name2: Option<&str>, label: &str) -> String {
         choose_name(&rel.name.name, name2, label, |n| {
             let q = QName::new(rel.name.schema.clone(), n);
@@ -1080,7 +1086,7 @@ impl Applier<'_> {
                 let Some(references) = self.relation_name(ref_table) else {
                     return;
                 };
-                // Sans colonnes référencées : la clé primaire de la cible.
+                // Without referenced columns: the target's primary key.
                 let ref_columns = if ref_columns.is_empty() {
                     self.cat
                         .relations
@@ -1107,8 +1113,8 @@ impl Applier<'_> {
                 )
             }
             TableConstraint::Check { name, expr } => {
-                // Nom d'après la colonne de la contrainte de colonne, sinon la
-                // première colonne citée.
+                // Named after the column of the column constraint, otherwise
+                // the first referenced column.
                 let first = column.map(str::to_string).or_else(|| first_column(expr));
                 (
                     name,
@@ -1167,15 +1173,11 @@ impl Applier<'_> {
         if rel.constraints.iter().any(|c| c.name == name) {
             self.error(
                 codes::OBJECT_ALREADY_EXISTS,
-                format!("la contrainte « {name} » existe déjà sur {table}"),
+                format!("constraint \"{name}\" for relation {table} already exists"),
             );
             return;
         }
-        let rel = self
-            .cat
-            .relations
-            .get_mut(table)
-            .expect("relation présente");
+        let rel = self.cat.relations.get_mut(table).expect("relation present");
         if let ConstraintKind::PrimaryKey { columns } = &kind {
             for c in &mut rel.columns {
                 if columns.contains(&c.name) {
@@ -1215,7 +1217,7 @@ impl Applier<'_> {
                         self.error(
                             codes::OBJECT_ALREADY_EXISTS,
                             format!(
-                                "la colonne « {} » existe déjà dans {table}",
+                                "column \"{}\" of relation {table} already exists",
                                 column.name.value
                             ),
                         );
@@ -1242,7 +1244,7 @@ impl Applier<'_> {
                     if !if_exists {
                         self.error(
                             codes::OBJECT_NOT_FOUND,
-                            format!("la colonne « {col} » n'existe pas dans {table}"),
+                            format!("column \"{col}\" of relation {table} does not exist"),
                         );
                     }
                     return;
@@ -1251,7 +1253,7 @@ impl Applier<'_> {
                     self.error(
                         codes::DEPENDENT_OBJECTS,
                         format!(
-                            "la colonne « {col} » de {table} est référencée par une clé étrangère"
+                            "cannot drop column \"{col}\" of {table}: it is referenced by a foreign key"
                         ),
                     );
                 }
@@ -1283,7 +1285,7 @@ impl Applier<'_> {
                 let Some(c) = rel.columns.iter_mut().find(|c| c.name == col) else {
                     self.error(
                         codes::OBJECT_NOT_FOUND,
-                        format!("la colonne « {col} » n'existe pas dans {table}"),
+                        format!("column \"{col}\" of relation {table} does not exist"),
                     );
                     return;
                 };
@@ -1293,15 +1295,15 @@ impl Applier<'_> {
                     AlterColumnAction::SetNotNull => c.not_null = true,
                     AlterColumnAction::DropNotNull => c.not_null = false,
                     AlterColumnAction::SetDataType { .. } => {
-                        // Un défaut littéral a pris le type de la colonne à sa
-                        // définition : PostgreSQL garde cette constante et la
-                        // convertit vers le nouveau type à chaque insertion.
+                        // A literal default took the column's type at its
+                        // definition: PostgreSQL keeps that constant and
+                        // converts it to the new type on each insert.
                         if let Some(d) = &c.default
                             && is_string_literal(d)
                         {
                             c.default = Some(typed_literal(d, &c.ty));
                         }
-                        c.ty = ty.expect("calculé plus haut");
+                        c.ty = ty.expect("computed above");
                     }
                 }
             }
@@ -1320,7 +1322,10 @@ impl Applier<'_> {
                 if rel.constraints.len() == before && !if_exists {
                     self.error(
                         codes::OBJECT_NOT_FOUND,
-                        format!("la contrainte « {} » n'existe pas sur {table}", name.value),
+                        format!(
+                            "constraint \"{}\" of relation {table} does not exist",
+                            name.value
+                        ),
                     );
                 }
             }
@@ -1335,7 +1340,10 @@ impl Applier<'_> {
                 if !found {
                     self.error(
                         codes::OBJECT_NOT_FOUND,
-                        format!("la contrainte « {} » n'existe pas sur {table}", name.value),
+                        format!(
+                            "constraint \"{}\" of relation {table} does not exist",
+                            name.value
+                        ),
                     );
                 }
             }
@@ -1350,7 +1358,7 @@ impl Applier<'_> {
                 if !self.cat.schema_exists(&schema.value) {
                     self.error(
                         codes::SCHEMA_NOT_FOUND,
-                        format!("le schéma « {} » n'existe pas", schema.value),
+                        format!("schema \"{}\" does not exist", schema.value),
                     );
                     return;
                 }
@@ -1377,8 +1385,8 @@ impl Applier<'_> {
         })
     }
 
-    /// Supprime une colonne et ce qui en dépend : contraintes qui la citent,
-    /// index sur elle, séquence possédée.
+    /// Drops a column and what depends on it: constraints referencing it,
+    /// indexes on it, owned sequence.
     fn drop_column(&mut self, table: &QName, col: &str) {
         if let Some(rel) = self.cat.relations.get_mut(table) {
             rel.columns.retain(|c| c.name != col);
@@ -1409,7 +1417,7 @@ impl Applier<'_> {
         let Some(c) = rel.columns.iter_mut().find(|c| c.name == from) else {
             self.error(
                 codes::OBJECT_NOT_FOUND,
-                format!("la colonne « {from} » n'existe pas dans {table}"),
+                format!("column \"{from}\" of relation {table} does not exist"),
             );
             return;
         };
@@ -1458,12 +1466,12 @@ impl Applier<'_> {
         }
     }
 
-    /// Renomme ou déplace une relation, et tout ce qui la désigne.
+    /// Renames or moves a relation, and everything that designates it.
     fn move_relation(&mut self, from: &QName, to: QName) {
         if self.cat.relations.contains_key(&to) {
             self.error(
                 codes::OBJECT_ALREADY_EXISTS,
-                format!("la relation « {to} » existe déjà"),
+                format!("relation \"{to}\" already exists"),
             );
             return;
         }
@@ -1512,8 +1520,8 @@ impl Applier<'_> {
         }
     }
 
-    /// Type tableau du type ligne d'une relation (`_table`), que PostgreSQL
-    /// crée avec toute table ou vue.
+    /// Array type of a relation's row type (`_table`), which PostgreSQL
+    /// creates with every table or view.
     fn add_rowtype_array(&mut self, rel: &QName) {
         let name = array_type_name(&rel.name, |n| {
             self.cat
@@ -1544,7 +1552,7 @@ impl Applier<'_> {
             .map(|t| t.name.clone())
     }
 
-    // ── Index ────────────────────────────────────────────────────────────────
+    // ── Indexes ──────────────────────────────────────────────────────────────
 
     fn create_index(&mut self, ci: &pgweave_ast::ddl::CreateIndex) {
         let Some(table) = self.relation_name(&ci.table) else {
@@ -1560,8 +1568,8 @@ impl Applier<'_> {
                         IndexElement::Column(c) => c.value.clone(),
                         IndexElement::Expr(x) => index_column_name(x),
                     })
-                    // Le nom choisi par PostgreSQL cite aussi les colonnes
-                    // INCLUDE.
+                    // The name PostgreSQL chooses also includes the INCLUDE
+                    // columns.
                     .chain(ci.include.iter().map(|c| c.value.clone()))
                     .collect();
                 let add = columns_addition(cols.iter().map(String::as_str));
@@ -1576,7 +1584,7 @@ impl Applier<'_> {
             if !ci.if_not_exists {
                 self.error(
                     codes::OBJECT_ALREADY_EXISTS,
-                    format!("la relation « {name} » existe déjà"),
+                    format!("relation \"{name}\" already exists"),
                 );
             }
             return;
@@ -1604,8 +1612,8 @@ impl Applier<'_> {
                 name: name.clone(),
                 table,
                 unique: ci.unique,
-                // Avec le nom effectif : un index non nommé l'est par
-                // PostgreSQL, et l'export doit le recréer à l'identique.
+                // With the effective name: an unnamed index is named by
+                // PostgreSQL, and export must recreate it identically.
                 definition: {
                     let mut named = ci.clone();
                     named.name = Some(Ident {
@@ -1621,12 +1629,12 @@ impl Applier<'_> {
 
     // ── Types ────────────────────────────────────────────────────────────────
 
-    /// Ajoute un type et son type tableau.
+    /// Adds a type and its array type.
     fn add_type(&mut self, name: QName, kind: TypeKind, category: char) {
         if self.cat.types.contains_key(&name) {
             self.error(
                 codes::OBJECT_ALREADY_EXISTS,
-                format!("le type « {name} » existe déjà"),
+                format!("type \"{name}\" already exists"),
             );
             return;
         }
@@ -1696,7 +1704,7 @@ impl Applier<'_> {
         else {
             self.error(
                 codes::TYPE_NOT_FOUND,
-                format!("le type « {} » n'existe pas", written(&at.name)),
+                format!("type \"{}\" does not exist", written(&at.name)),
             );
             return;
         };
@@ -1713,7 +1721,7 @@ impl Applier<'_> {
                 else {
                     self.error(
                         codes::OBJECT_NOT_FOUND,
-                        format!("« {name} » n'est pas une énumération"),
+                        format!("\"{name}\" is not an enum"),
                     );
                     return;
                 };
@@ -1721,7 +1729,7 @@ impl Applier<'_> {
                     if !if_not_exists {
                         self.error(
                             codes::OBJECT_ALREADY_EXISTS,
-                            format!("la valeur « {value} » existe déjà dans {name}"),
+                            format!("enum label \"{value}\" already exists in {name}"),
                         );
                     }
                     return;
@@ -1737,7 +1745,7 @@ impl Applier<'_> {
                     Some(i) => labels.insert(i, value.clone()),
                     None => self.error(
                         codes::OBJECT_NOT_FOUND,
-                        format!("valeur de référence absente de {name}"),
+                        format!("neighbor enum label not found in {name}"),
                     ),
                 }
             }
@@ -1752,7 +1760,7 @@ impl Applier<'_> {
                 } else {
                     self.error(
                         codes::OBJECT_NOT_FOUND,
-                        format!("la valeur « {from} » n'existe pas dans {name}"),
+                        format!("enum label \"{from}\" does not exist in {name}"),
                     );
                 }
             }
@@ -1767,13 +1775,13 @@ impl Applier<'_> {
         }
     }
 
-    /// Renomme ou déplace un type ; les colonnes et attributs qui l'utilisent
-    /// suivent (le type est désigné par son OID dans PostgreSQL).
+    /// Renames or moves a type; the columns and attributes using it follow
+    /// (the type is designated by its OID in PostgreSQL).
     fn move_type(&mut self, from: &QName, to: QName) {
         if self.cat.types.contains_key(&to) {
             self.error(
                 codes::OBJECT_ALREADY_EXISTS,
-                format!("le type « {to} » existe déjà"),
+                format!("type \"{to}\" already exists"),
             );
             return;
         }
@@ -1781,7 +1789,7 @@ impl Applier<'_> {
             return;
         };
         t.name = to.clone();
-        // Le type tableau suit le déplacement de schéma, et est renommé.
+        // The array type follows the schema move, and is renamed.
         if let Some(arr) = t.array.take() {
             let mut a = self.cat.types.remove(&arr);
             let arr_name = array_type_name(&to.name, |n| {
@@ -1859,7 +1867,7 @@ impl Applier<'_> {
                 self.error(
                     codes::OBJECT_ALREADY_EXISTS,
                     format!(
-                        "la fonction « {}({}) » existe déjà",
+                        "function {}({}) already exists with same argument types",
                         routine.name,
                         sig.join(", ")
                     ),
@@ -1878,7 +1886,7 @@ impl Applier<'_> {
         };
         let mut args = self.args(&cf.params);
         let (returns, returns_set) = match &cf.return_type {
-            // Sans RETURNS : le seul paramètre OUT, ou `record`.
+            // Without RETURNS: the only OUT parameter, or `record`.
             ReturnType::OutParams => {
                 let outs: Vec<&Arg> = args
                     .iter()
@@ -1962,7 +1970,7 @@ impl Applier<'_> {
         );
     }
 
-    // ── Vues ─────────────────────────────────────────────────────────────────
+    // ── Views ────────────────────────────────────────────────────────────────
 
     fn create_view(&mut self, cv: &pgweave_ast::ddl::CreateView) {
         let Some(name) = self.creation_name(&cv.name, cv.temporary) else {
@@ -1971,12 +1979,12 @@ impl Applier<'_> {
         if self.cat.relations.contains_key(&name) && !cv.or_replace {
             self.error(
                 codes::OBJECT_ALREADY_EXISTS,
-                format!("la relation « {name} » existe déjà"),
+                format!("relation \"{name}\" already exists"),
             );
             return;
         }
         let aliases: Vec<&Ident> = cv.columns.iter().collect();
-        let (columns, opaque) = self.query_columns("vue", &name, &cv.query, &aliases);
+        let (columns, opaque) = self.query_columns("view", &name, &cv.query, &aliases);
         let existed = self.cat.relations.contains_key(&name);
         if !existed {
             self.add_rowtype_array(&name);
@@ -2008,10 +2016,10 @@ impl Applier<'_> {
         );
     }
 
-    /// Colonnes produites par la requête d'une vue ou d'un `CREATE TABLE …
-    /// AS` (renommées par `aliases`), et vrai si leurs noms ne sont pas
-    /// établis. Les types sont ceux de l'analyse de la requête, si un typeur
-    /// est fourni et qu'il les établit ; inconnus sinon, jamais supposés.
+    /// Columns produced by the query of a view or of a `CREATE TABLE … AS`
+    /// (renamed by `aliases`), and true if their names are not established.
+    /// Types are those of the query analysis, if a typer is provided and
+    /// establishes them; unknown otherwise, never assumed.
     fn query_columns(
         &mut self,
         what: &str,
@@ -2035,7 +2043,7 @@ impl Applier<'_> {
                     self.out.push(Diagnostic::info(
                         codes::VIEW_NOT_TYPED,
                         format!(
-                            "{what} « {name} » : {} colonnes analysées pour {} nommées ; types non établis",
+                            "{what} \"{name}\": {} columns analyzed for {} named; types not established",
                             cols.len(),
                             names.len()
                         ),
@@ -2045,7 +2053,7 @@ impl Applier<'_> {
                 Err(why) => {
                     self.out.push(Diagnostic::info(
                         codes::VIEW_NOT_TYPED,
-                        format!("{what} « {name} » : types des colonnes non établis ({why})"),
+                        format!("{what} \"{name}\": column types not established ({why})"),
                     ));
                     Vec::new()
                 }
@@ -2067,8 +2075,8 @@ impl Applier<'_> {
         (columns, opaque)
     }
 
-    /// Noms des colonnes produites par une requête, comme PostgreSQL les
-    /// nomme. `None` si un `*` porte sur une source non développable ici.
+    /// Names of the columns produced by a query, as PostgreSQL names them.
+    /// `None` if a `*` covers a source that cannot be expanded here.
     fn output_names(&self, sel: &SelectStmt) -> Option<Vec<String>> {
         let ctes: Vec<&str> = sel.with.iter().map(|c| c.name.value.as_str()).collect();
         let source_columns = |alias: Option<&str>| -> Option<Vec<String>> {
@@ -2124,7 +2132,9 @@ impl Applier<'_> {
                             if !d.cascade && self.referenced_by_foreign_key(&q, None) {
                                 self.error(
                                     codes::DEPENDENT_OBJECTS,
-                                    format!("« {q} » est référencée par une clé étrangère (CASCADE requis)"),
+                                    format!(
+                                        "\"{q}\" is referenced by a foreign key (CASCADE required)"
+                                    ),
                                 );
                             }
                             self.drop_relation(&q);
@@ -2183,7 +2193,7 @@ impl Applier<'_> {
                         if !d.if_exists {
                             self.error(
                                 codes::OBJECT_NOT_FOUND,
-                                format!("table de « {name} » introuvable"),
+                                format!("table of \"{name}\" not found"),
                             );
                         }
                         continue;
@@ -2221,7 +2231,7 @@ impl Applier<'_> {
             if !found && !d.if_exists {
                 self.error(
                     codes::OBJECT_NOT_FOUND,
-                    format!("« {} » n'existe pas", written(n)),
+                    format!("\"{}\" does not exist", written(n)),
                 );
             }
         }
@@ -2276,9 +2286,7 @@ impl Applier<'_> {
             _ => {
                 self.error(
                     codes::AMBIGUOUS_ROUTINE,
-                    format!(
-                        "« {name} » désigne plusieurs surcharges : préciser les types d'arguments"
-                    ),
+                    format!("\"{name}\" designates several overloads: specify the argument types"),
                 );
                 true
             }
@@ -2296,7 +2304,7 @@ fn language(l: &FunctionLanguage) -> String {
     }
 }
 
-/// Nom de colonne que PostgreSQL donne à une expression non aliasée.
+/// Column name PostgreSQL gives to an unaliased expression.
 fn output_name(expr: &pgweave_ast::Expr) -> String {
     match &expr.kind {
         ExprKind::Column(c) => c.column.value.clone(),
@@ -2318,7 +2326,7 @@ fn output_name(expr: &pgweave_ast::Expr) -> String {
     }
 }
 
-/// `'x'::int` se nomme comme le type (`int4`).
+/// `'x'::int` is named after the type (`int4`).
 pub(crate) fn cast_output_name(dt: &DataType) -> String {
     match builtin_type(dt) {
         Some((n, _)) => n.to_string(),
@@ -2331,7 +2339,7 @@ pub(crate) fn cast_output_name(dt: &DataType) -> String {
     }
 }
 
-/// Première colonne citée par une expression (nom d'une contrainte CHECK).
+/// First column referenced by an expression (name of a CHECK constraint).
 fn first_column(expr: &pgweave_ast::Expr) -> Option<String> {
     if let ExprKind::Column(c) = &expr.kind {
         return Some(c.column.value.clone());
@@ -2339,7 +2347,7 @@ fn first_column(expr: &pgweave_ast::Expr) -> Option<String> {
     expr.children().into_iter().find_map(first_column)
 }
 
-/// Une contrainte de table qui cite la colonne disparaît avec elle.
+/// A table constraint referencing the column goes away with it.
 fn constraint_uses(c: &Constraint, col: &str) -> bool {
     match &c.kind {
         ConstraintKind::PrimaryKey { columns }
@@ -2350,8 +2358,8 @@ fn constraint_uses(c: &Constraint, col: &str) -> bool {
     }
 }
 
-/// Colonnes citées par une expression de contrainte ou d'index, dans
-/// l'ordre de première apparition (hors sous-requêtes, interdites là).
+/// Columns referenced by a constraint or index expression, in order of first
+/// appearance (excluding subqueries, forbidden there).
 fn columns_of(expr: &pgweave_ast::Expr) -> Vec<String> {
     fn walk(e: &pgweave_ast::Expr, out: &mut Vec<String>) {
         if let ExprKind::Column(c) = &e.kind {
@@ -2380,8 +2388,8 @@ fn retarget(r: &mut TypeRef, from: &QName, to: &QName) {
     }
 }
 
-/// Le statement (ou ce qu'il contient) peut-il modifier le catalogue ? Le
-/// SQL dynamique (`EXECUTE`) est compté : son contenu est inconnu.
+/// Can the statement (or what it contains) modify the catalog? Dynamic SQL
+/// (`EXECUTE`) counts: its content is unknown.
 fn has_effect(stmts: &[PlStatement]) -> bool {
     stmts.iter().any(|s| match &s.kind {
         PlStatementKind::Sql { statement, .. } => matches!(
@@ -2422,8 +2430,8 @@ fn has_effect(stmts: &[PlStatement]) -> bool {
     })
 }
 
-/// La contrainte sans son nom : le corps de sa définition, le nom (écrit ou
-/// choisi) étant porté à part.
+/// The constraint without its name: the body of its definition, the name
+/// (written or chosen) being carried separately.
 fn unnamed(tc: &TableConstraint) -> TableConstraint {
     let mut tc = tc.clone();
     match &mut tc {
@@ -2436,16 +2444,16 @@ fn unnamed(tc: &TableConstraint) -> TableConstraint {
     tc
 }
 
-/// Défaut tel que PostgreSQL le conserve : `DEFAULT NULL` (éventuellement
-/// converti, `NULL::text`) n'est pas enregistré.
+/// Default as PostgreSQL keeps it: `DEFAULT NULL` (possibly cast,
+/// `NULL::text`) is not recorded.
 impl Applier<'_> {
-    /// Défaut stocké dans `pg_attrdef` pour une colonne de type `ty`.
+    /// Default stored in `pg_attrdef` for a column of type `ty`.
     ///
-    /// PostgreSQL (`AddRelationNewConstraints`) n'écrit pas un défaut dont
-    /// l'expression, une fois convertie vers le type de la colonne, est une
-    /// constante NULL nue. Il l'écrit dès que la conversion laisse un nœud :
-    /// coercion vers un domaine, coercion de longueur (`varchar(1)`,
-    /// `numeric(5,2)`), ou cast explicite vers un autre type.
+    /// PostgreSQL (`AddRelationNewConstraints`) does not write a default whose
+    /// expression, once converted to the column type, is a bare NULL
+    /// constant. It writes it as soon as the conversion leaves a node:
+    /// coercion to a domain, length coercion (`varchar(1)`, `numeric(5,2)`),
+    /// or explicit cast to another type.
     fn stored_default(&mut self, e: &pgweave_ast::Expr, ty: &TypeRef) -> Option<String> {
         let mut x = e;
         let mut outer_cast = None;
@@ -2457,12 +2465,12 @@ impl Applier<'_> {
             return Some(emit_expr(e));
         }
         let kept = match outer_cast {
-            // `NULL` littéral : converti directement vers le type de la
-            // colonne, modificateur compris.
+            // Literal `NULL`: converted directly to the column type, modifier
+            // included.
             None => self.coercion_leaves_node(ty),
-            // Cast explicite : il laisse son propre nœud s'il applique un
-            // modificateur (`NULL::varchar(1)` est stocké), et la conversion
-            // vers la colonne en laisse un si les types diffèrent.
+            // Explicit cast: it leaves its own node if it applies a modifier
+            // (`NULL::varchar(1)` is stored), and the conversion to the column
+            // leaves one if the types differ.
             Some(dt) => {
                 let written = self.type_ref(dt);
                 strip_modifiers(&written) != strip_modifiers(ty)
@@ -2473,9 +2481,8 @@ impl Applier<'_> {
         kept.then(|| emit_expr(e))
     }
 
-    /// La conversion d'une constante vers `ty` laisse-t-elle un nœud
-    /// d'expression (domaine, ou fonction de longueur appliquée au
-    /// modificateur) ?
+    /// Does converting a constant to `ty` leave an expression node (domain,
+    /// or length function applied to the modifier)?
     fn coercion_leaves_node(&self, ty: &TypeRef) -> bool {
         match ty {
             TypeRef::Array(inner) => self.coercion_leaves_node(inner),
@@ -2499,7 +2506,7 @@ impl Applier<'_> {
     }
 }
 
-/// Type sans ses modificateurs (`varchar(1)` → `varchar`).
+/// Type without its modifiers (`varchar(1)` → `varchar`).
 fn strip_modifiers(ty: &TypeRef) -> TypeRef {
     match ty {
         TypeRef::Named { name, .. } => TypeRef::named(name.clone()),
@@ -2508,8 +2515,8 @@ fn strip_modifiers(ty: &TypeRef) -> TypeRef {
     }
 }
 
-/// Nom d'une colonne d'index portant une expression (`FigureIndexColname`) :
-/// nom de la fonction ou de la colonne, sinon `expr`.
+/// Name of an index column carrying an expression (`FigureIndexColname`):
+/// name of the function or column, otherwise `expr`.
 fn index_column_name(e: &pgweave_ast::Expr) -> String {
     match output_name(e).as_str() {
         "?column?" => "expr".to_string(),
@@ -2517,7 +2524,7 @@ fn index_column_name(e: &pgweave_ast::Expr) -> String {
     }
 }
 
-/// Le corps d'une routine contient-il du DDL ou du SQL dynamique ?
+/// Does a routine body contain DDL or dynamic SQL?
 fn body_has_effects(body: &FunctionBody) -> bool {
     match body {
         FunctionBody::Parsed(b) => has_effect(&b.block.statements),
@@ -2526,7 +2533,7 @@ fn body_has_effects(body: &FunctionBody) -> bool {
     }
 }
 
-/// Noms des fonctions appelées dans un AST sérialisé.
+/// Names of the functions called in a serialized AST.
 fn collect_calls(v: &serde_json::Value, out: &mut Vec<Vec<String>>) {
     match v {
         serde_json::Value::Object(map) => {
@@ -2546,7 +2553,7 @@ fn collect_calls(v: &serde_json::Value, out: &mut Vec<Vec<String>>) {
     }
 }
 
-/// `'…'` émis : une constante chaîne seule, sans type écrit.
+/// Emitted `'…'`: a lone string constant, with no written type.
 fn is_string_literal(sql: &str) -> bool {
     sql.len() >= 2
         && sql.starts_with('\'')
@@ -2554,8 +2561,8 @@ fn is_string_literal(sql: &str) -> bool {
         && !sql[1..sql.len() - 1].replace("''", "").contains('\'')
 }
 
-/// `'…'::type`, sous la forme émise d'un défaut (relu puis réémis : le
-/// schéma déclaratif qui l'écrit ainsi est rejoué en ce même texte).
+/// `'…'::type`, in the emitted form of a default (read back then re-emitted:
+/// the declarative schema writing it that way replays to this same text).
 fn typed_literal(literal: &str, ty: &TypeRef) -> String {
     let written = format!("{literal}::{}", crate::dump::type_sql(ty));
     let parsed = pgweave_parser::parse(&format!("SELECT {written}"));

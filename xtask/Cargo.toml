@@ -2,7 +2,7 @@
 name = "xtask"
 version = "0.1.0"
 edition = "2024"
-description = "Tâches de développement de pgweave (cargo xtask …)"
+description = "pgweave development tasks (cargo xtask ...)"
 publish = false
 
 [dependencies]

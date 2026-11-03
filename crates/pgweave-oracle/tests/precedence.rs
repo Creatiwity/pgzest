@@ -1,12 +1,12 @@
-//! Précédence des opérateurs : chaque expression est relue par pgweave puis
-//! émise entièrement parenthésée ; PostgreSQL évalue les deux formes sur un
-//! jeu de valeurs et doit trouver le même résultat. Un écart de précédence
-//! du parser change le sens d'une requête sans rien signaler.
+//! Operator precedence: each expression is read back by pgweave then emitted
+//! fully parenthesized; PostgreSQL evaluates both forms on a set of values
+//! and must find the same result. A parser precedence gap changes the
+//! meaning of a query without reporting anything.
 
 use pgweave_oracle::URL_ENV;
 
-/// Expressions sur `a b c d` (booléens), `x y z w` (entiers), `s t u v`
-/// (textes).
+/// Expressions over `a b c d` (booleans), `x y z w` (integers), `s t u v`
+/// (texts).
 const EXPRESSIONS: &[&str] = &[
     "a IS DISTINCT FROM b AND c",
     "a IS NOT DISTINCT FROM b OR c",
@@ -38,7 +38,7 @@ const EXPRESSIONS: &[&str] = &[
     "x > y AND y > z OR NOT c",
 ];
 
-/// Jeux de valeurs : chacun doit donner le même résultat aux deux formes.
+/// Value sets: each must give the same result for both forms.
 const ROWS: &str = "(VALUES
     (true, false, true, false, 1, 2, 3, 4, 'a', 'b', 'ab', 'x'),
     (false, true, NULL, true, -2, 3, 2, 7, 'xa', 'x%', NULL, 'ab'),
@@ -46,13 +46,13 @@ const ROWS: &str = "(VALUES
 ) AS q(a, b, c, d, x, y, z, w, s, t, u, v)";
 
 #[tokio::test]
-#[ignore = "nécessite PostgreSQL 18 : `make oracle` (variable PGWEAVE_ORACLE_URL)"]
-async fn la_precedence_des_operateurs_est_celle_de_postgresql() {
+#[ignore = "requires PostgreSQL 18: `make oracle` (PGWEAVE_ORACLE_URL variable)"]
+async fn operator_precedence_matches_postgresql() {
     let url = std::env::var(URL_ENV)
-        .unwrap_or_else(|_| panic!("{URL_ENV} doit être défini : lancer `make oracle`"));
+        .unwrap_or_else(|_| panic!("{URL_ENV} must be set: run `make oracle`"));
     let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .expect("connexion");
+        .expect("connection");
     tokio::spawn(conn);
 
     let mut divergent = Vec::new();
@@ -78,7 +78,7 @@ async fn la_precedence_des_operateurs_est_celle_de_postgresql() {
     }
     assert!(
         divergent.is_empty(),
-        "lectures divergentes de PostgreSQL :\n{}",
+        "readings diverging from PostgreSQL:\n{}",
         divergent.join("\n")
     );
 }

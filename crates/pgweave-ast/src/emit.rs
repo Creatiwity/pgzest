@@ -1,4 +1,4 @@
-//! Rendu SQL de l'AST : le texte émis se relit en un AST équivalent.
+//! SQL rendering of the AST: the emitted text parses back into an equivalent AST.
 
 use crate::expr::ExprKind;
 use crate::*;
@@ -16,7 +16,7 @@ pub fn emit_statement(stmt: &Statement) -> String {
     }
 }
 
-// ── Utilitaires ───────────────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
 pub fn emit_utility(u: &UtilityKind) -> String {
     use crate::utility::{CommentTarget, CopyOption, CopySource, CopyTarget, TransactionCommand};
@@ -223,7 +223,7 @@ pub fn emit_utility(u: &UtilityKind) -> String {
 
 // ── SELECT ────────────────────────────────────────────────────────────────────
 
-/// Clause `WITH` suivie d'une espace, ou rien.
+/// `WITH` clause followed by a space, or nothing.
 fn emit_with(with: &[Cte], recursive: bool) -> String {
     if with.is_empty() {
         return String::new();
@@ -270,10 +270,10 @@ pub fn emit_select(sel: &SelectStmt) -> String {
 
     out.push_str(&emit_with(&sel.with, sel.with_recursive));
 
-    // Corps : SELECT, puis opérations ensemblistes. Elles sont appliquées de
-    // gauche à droite (voir `SelectStmt::set_ops`) ; INTERSECT liant plus fort
-    // que UNION/EXCEPT en SQL, le préfixe est parenthésé quand un INTERSECT
-    // suit un UNION ou un EXCEPT.
+    // Body: SELECT, then set operations. They are applied left to right
+    // (see `SelectStmt::set_ops`); since INTERSECT binds tighter than
+    // UNION/EXCEPT in SQL, the prefix is parenthesized when an INTERSECT
+    // follows a UNION or an EXCEPT.
     let mut body = emit_select_core(sel);
     let mut loose_prefix = false;
     for op in &sel.set_ops {
@@ -330,8 +330,8 @@ pub fn emit_select(sel: &SelectStmt) -> String {
     out
 }
 
-/// `SELECT … FROM … WHERE … GROUP BY … HAVING …`, sans opérations
-/// ensemblistes ni ORDER BY / LIMIT.
+/// `SELECT … FROM … WHERE … GROUP BY … HAVING …`, without set operations
+/// or ORDER BY / LIMIT.
 fn emit_select_core(sel: &SelectStmt) -> String {
     if !sel.values.is_empty() {
         let rows: Vec<String> = sel
@@ -405,7 +405,7 @@ fn emit_select_core(sel: &SelectStmt) -> String {
     out
 }
 
-/// Contenu des parenthèses d'une fenêtre.
+/// Contents of a window's parentheses.
 fn emit_window_spec(spec: &WindowSpec) -> String {
     let mut parts = Vec::new();
     if let Some(base) = &spec.base {
@@ -544,7 +544,7 @@ fn emit_order_by(ob: &OrderByExpr) -> String {
 
 // ── EXPRESSIONS ───────────────────────────────────────────────────────────────
 
-/// Fonctions SQL appelées sans parenthèses (« SQL value functions »).
+/// SQL functions called without parentheses ("SQL value functions").
 const SQL_VALUE_FUNCTIONS: &[&str] = &[
     "current_catalog",
     "current_date",
@@ -611,13 +611,13 @@ pub fn emit_expr(expr: &Expr) -> String {
             over,
         } => {
             let fn_name = emit_routine_name(name);
-            // `ARRAY[…]` est représenté comme un appel à `array`.
+            // `ARRAY[…]` is represented as a call to `array`.
             if name.0.len() == 1 && !name.0[0].quoted && name.0[0].value == "array" {
                 let items: Vec<String> = args.iter().map(emit_expr).collect();
                 return format!("ARRAY[{}]", items.join(", "));
             }
-            // Fonctions-valeurs SQL (`current_user`, `current_date`…) : des
-            // mots-clés, que PostgreSQL refuse suivis de `()`.
+            // SQL value functions (`current_user`, `current_date`…): keywords,
+            // which PostgreSQL rejects when followed by `()`.
             if args.is_empty()
                 && over.is_none()
                 && filter.is_none()
@@ -728,7 +728,7 @@ pub fn emit_expr(expr: &Expr) -> String {
         ExprKind::Wildcard => "*".to_string(),
         ExprKind::QualifiedWildcard(ident) => format!("{}.*", emit_ident(ident)),
 
-        // ── Constructions ajoutées ────────────────────────────────────────────
+        // ── Added constructs ──────────────────────────────────────────────────
         ExprKind::Exists { subquery, negated } => format!(
             "{}EXISTS ({})",
             if *negated { "NOT " } else { "" },
@@ -775,29 +775,29 @@ pub fn emit_expr(expr: &Expr) -> String {
             format!("{} => {}", emit_ident(name), emit_expr(value))
         }
 
-        // Une expression non modélisée ne peut pas être ré-émise fidèlement.
+        // An unmodeled expression cannot be re-emitted faithfully.
         //
-        // Cet émetteur alimente la génération de migrations : produire du SQL
-        // approximatif ici serait déployé tel quel. On émet donc une construction
-        // volontairement INVALIDE, qui casse à la relecture plutôt que de passer
-        // pour du SQL correct. `emit_contains_unsupported` permet à l'appelant de
-        // le détecter avant écriture.
+        // This emitter feeds migration generation: producing approximate SQL
+        // here would be deployed as is. So we emit a deliberately INVALID
+        // construct, which breaks on re-parse rather than passing for
+        // correct SQL. `emit_contains_unsupported` lets the caller detect it
+        // before writing.
         ExprKind::Unsupported(what) => {
             format!("{UNSUPPORTED_MARKER}/* {what} */")
         }
     }
 }
 
-/// Marqueur émis à la place d'une expression non modélisée.
+/// Marker emitted in place of an unmodeled expression.
 ///
-/// Syntaxiquement invalide à dessein : une migration qui en contient doit
-/// échouer bruyamment, pas être déployée.
+/// Deliberately syntactically invalid: a migration containing it must
+/// fail loudly, not be deployed.
 pub const UNSUPPORTED_MARKER: &str = "$$PGSQL_UNSUPPORTED$$";
 
-/// Vrai si `sql` contient une expression que l'AST ne modélisait pas.
+/// True if `sql` contains an expression the AST did not model.
 ///
-/// À vérifier avant d'écrire un fichier de migration : le SQL produit n'est
-/// alors pas déployable.
+/// To check before writing a migration file: the produced SQL is then
+/// not deployable.
 pub fn emit_contains_unsupported(sql: &str) -> bool {
     sql.contains(UNSUPPORTED_MARKER)
 }
@@ -892,8 +892,8 @@ pub fn emit_create_table(ct: &CreateTable) -> String {
     } else {
         ""
     };
-    // Colonnes et `LIKE` entrelacés : la position d'un `LIKE` fixe l'ordre
-    // des colonnes de la table.
+    // Columns and `LIKE` interleaved: the position of a `LIKE` sets the
+    // order of the table's columns.
     let mut parts: Vec<String> = Vec::new();
     for (i, col) in ct.columns.iter().enumerate() {
         for like in ct.likes.iter().filter(|l| l.position == i) {
@@ -973,7 +973,7 @@ pub fn emit_column_def(col: &ColumnDef) -> String {
         Some(Identity::Always) => parts.push("GENERATED ALWAYS AS IDENTITY".to_string()),
         Some(Identity::ByDefault) => parts.push("GENERATED BY DEFAULT AS IDENTITY".to_string()),
     }
-    // Une colonne identité est implicitement NOT NULL : ne pas le répéter.
+    // An identity column is implicitly NOT NULL: do not repeat it.
     if !col.nullable && col.identity.is_none() {
         // Only emit NOT NULL if there is no explicit PrimaryKey constraint
         // (PK implies NOT NULL).
@@ -1290,7 +1290,7 @@ fn emit_function_param(param: &FunctionParam) -> String {
     )
 }
 
-/// Clause `RETURNS …` complète, vide sans clause (`OutParams`).
+/// Full `RETURNS …` clause, empty without a clause (`OutParams`).
 fn emit_return_type(rt: &ReturnType) -> String {
     let t = match rt {
         ReturnType::OutParams => return String::new(),
@@ -1336,8 +1336,8 @@ fn emit_function_body(body: &FunctionBody) -> String {
     }
 }
 
-/// `$$texte$$`, ou `$pgweaveN$texte$pgweaveN$` si le texte contient déjà le
-/// délimiteur : le corps doit ressortir intact, quoi qu'il contienne.
+/// `$$text$$`, or `$pgweaveN$text$pgweaveN$` if the text already contains the
+/// delimiter: the body must come out intact, whatever it contains.
 fn dollar_quote(text: &str) -> String {
     let mut tag = String::new();
     let mut n = 0;
@@ -1540,7 +1540,7 @@ fn emit_alter_table_op(op: &AlterTableOp) -> String {
     }
 }
 
-// ── Types, domaines, extensions, vues, séquences, DROP ────────────────────────
+// ── Types, domains, extensions, views, sequences, DROP ────────────────────────
 
 fn emit_string_literal(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
@@ -1924,14 +1924,14 @@ fn emit_returning(items: &[SelectItem], aliases: &ReturningAliases) -> String {
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-/// Un identifiant quoté le reste ; un identifiant que PostgreSQL ne relirait
-/// pas à l'identique sans guillemets (majuscules, caractères spéciaux) est
-/// quoté, pour ne jamais désigner un autre objet.
+/// A quoted identifier stays quoted; an identifier PostgreSQL would not read
+/// back identically without quotes (uppercase, special characters) is
+/// quoted, so as never to designate another object.
 ///
-/// Un identifiant non quoté égal à un mot-clé n'a pu être lu qu'à une
-/// position où le mot-clé est admis (`current_user` comme rôle) : il reste
-/// tel quel. Les noms qui ne viennent pas du parse (export du catalogue)
-/// passent par `is_plain_identifier`, qui quote aussi les mots-clés.
+/// An unquoted identifier equal to a keyword can only have been read at a
+/// position where the keyword is allowed (`current_user` as a role): it stays
+/// as is. Names that do not come from parsing (catalog export) go through
+/// `is_plain_identifier`, which also quotes keywords.
 pub fn emit_ident(ident: &Ident) -> String {
     if ident.quoted || !has_plain_shape(&ident.value) {
         quote_ident(&ident.value)
@@ -1944,14 +1944,14 @@ fn quote_ident(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
 }
 
-/// `[a-z_][a-z0-9_$]*` et pas un mot-clé : relu tel quel sans guillemets.
+/// `[a-z_][a-z0-9_$]*` and not a keyword: read back as is without quotes.
 pub fn is_plain_identifier(value: &str) -> bool {
     has_plain_shape(value) && !crate::keywords::needs_quoting(value)
 }
 
-/// `[a-z_][a-z0-9_$]*`. Suffit pour un nom de fonction ou de type, où les
-/// mots-clés (`coalesce`, `bit`) s'écrivent sans guillemets — quotés, ils
-/// désigneraient un autre objet.
+/// `[a-z_][a-z0-9_$]*`. Enough for a function or type name, where keywords
+/// (`coalesce`, `bit`) are written without quotes — quoted, they would
+/// designate another object.
 pub fn has_plain_shape(value: &str) -> bool {
     let mut chars = value.chars();
     chars
@@ -1960,8 +1960,8 @@ pub fn has_plain_shape(value: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$')
 }
 
-/// Nom de fonction ou de type : quoté seulement s'il l'était, ou si sa
-/// forme l'exige.
+/// Function or type name: quoted only if it was, or if its form
+/// requires it.
 fn emit_routine_name(name: &ObjectName) -> String {
     name.0
         .iter()
@@ -1980,7 +1980,7 @@ pub fn emit_object_name(name: &ObjectName) -> String {
     name.0.iter().map(emit_ident).collect::<Vec<_>>().join(".")
 }
 
-/// `(n)` d'une précision de secondes fractionnaires, ou rien.
+/// `(n)` of a fractional-seconds precision, or nothing.
 fn precision(p: Option<u64>) -> String {
     p.map(|n| format!("({n})")).unwrap_or_default()
 }
@@ -2018,9 +2018,9 @@ pub fn emit_data_type(dt: &DataType) -> String {
         DataType::Jsonb => "JSONB".to_string(),
         DataType::Uuid => "UUID".to_string(),
         DataType::Array(inner) => format!("{}[]", emit_data_type(inner)),
-        // Nom pointé dont chaque partie a déjà sa casse PostgreSQL : seules
-        // les parties qui ne se reliraient pas à l'identique sont quotées.
-        // (Un nom quoté contenant un point n'est pas représentable ici.)
+        // Dotted name where each part already has its PostgreSQL case: only
+        // the parts that would not read back identically are quoted.
+        // (A quoted name containing a dot cannot be represented here.)
         DataType::Custom(name) => name
             .split('.')
             .map(|part| {

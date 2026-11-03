@@ -1,6 +1,6 @@
-//! Répertoires de migrations des outils courants : fichiers numérotés,
-//! Prisma (`<horodatage>_<nom>/migration.sql`), Diesel (`<date>_<nom>/up.sql`
-//! et `down.sql`).
+//! Migration directories of common tools: numbered files, Prisma
+//! (`<timestamp>_<name>/migration.sql`), Diesel (`<date>_<name>/up.sql` and
+//! `down.sql`).
 
 use pgweave_schema::{FileRole, MigrationDirSource, SchemaSource};
 
@@ -24,7 +24,7 @@ fn layout(name: &str, files: &[(&str, &str)]) -> Vec<(String, u64)> {
                 .display()
                 .to_string();
             let FileRole::Migration { sequence } = c.role else {
-                panic!("migration attendue")
+                panic!("expected a migration")
             };
             (rel, sequence)
         })
@@ -53,7 +53,7 @@ fn prisma() {
 }
 
 #[test]
-fn diesel_sans_les_down() {
+fn diesel_without_down_files() {
     let got = layout(
         "diesel",
         &[
@@ -71,7 +71,7 @@ fn diesel_sans_les_down() {
 }
 
 #[test]
-fn fichiers_numerotes() {
+fn numbered_files() {
     let got = layout("flat", &[("0002_b.sql", ""), ("0001_a.sql", "")]);
     assert_eq!(
         got,

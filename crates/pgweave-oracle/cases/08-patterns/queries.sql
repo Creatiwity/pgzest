@@ -1,5 +1,5 @@
--- Motifs applicatifs : CTE modifiantes, JSON en FROM, regroupements,
--- fonctions courantes, pagination, paramètres tableaux.
+-- Application patterns: data-modifying CTEs, JSON in FROM, grouping,
+-- common functions, pagination, array parameters.
 
 -- name: cte_insert_returning
 WITH new_user AS (INSERT INTO users (handle) VALUES ($handle) RETURNING id, handle)

@@ -25,9 +25,8 @@ pub fn legend() -> SemanticTokensLegend {
     }
 }
 
-/// Jetons des documents SQL seulement : le serveur sert aussi les fichiers
-/// Rust (requêtes de `sql!`), dont les jetons restent ceux de
-/// rust-analyzer.
+/// Tokens for SQL documents only: the server also serves Rust files
+/// (`sql!` queries), whose tokens remain rust-analyzer's.
 pub fn server_capability() -> SemanticTokensServerCapabilities {
     let sql = |language: &str| DocumentFilter {
         language: Some(language.to_string()),

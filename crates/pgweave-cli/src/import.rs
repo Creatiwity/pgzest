@@ -1,28 +1,28 @@
-//! `pgweave schema import` : import brownfield (PLAN.md, P2).
+//! `pgweave schema import`: brownfield import (PLAN.md, P2).
 //!
-//! Les migrations existantes (Prisma, Diesel, ou un répertoire de `.sql`)
-//! sont rejouées sur le catalogue ; le catalogue obtenu est émis en fichiers
-//! de schéma déclaratifs, un par schéma PostgreSQL
-//! (`<out>/<schéma>/schema.sql`), et en une migration de référence portant
-//! l'en-tête `-- pgweave:`.
+//! The existing migrations (Prisma, Diesel, or a directory of `.sql` files)
+//! are replayed onto the catalog; the resulting catalog is emitted as
+//! declarative schema files, one per PostgreSQL schema
+//! (`<out>/<schema>/schema.sql`), and as a baseline migration carrying the
+//! `-- pgweave:` header.
 //!
-//! Si le rejeu signale une erreur, l'état reconstruit n'est pas celui de la
-//! base : rien n'est écrit, sauf `--force`.
+//! If the replay reports an error, the rebuilt state is not the database's:
+//! nothing is written, unless `--force`.
 
 use std::path::{Path, PathBuf};
 
 use pgweave_diagnostics::Severity;
 use pgweave_schema::{FileRole, SourceOrigin, SqlChunk};
 
-/// Organisation du répertoire de migrations. Explicite : la deviner ferait
-/// prendre un script de retour arrière pour une migration.
+/// Layout of the migrations directory. Explicit: guessing it could mistake
+/// a rollback script for a migration.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum Layout {
-    /// Tous les `.sql`, récursivement, triés par chemin.
+    /// All `.sql` files, recursively, sorted by path.
     Flat,
-    /// Prisma : `<horodatage>_<nom>/migration.sql`.
+    /// Prisma: `<timestamp>_<name>/migration.sql`.
     Prisma,
-    /// Diesel : `<horodatage>_<nom>/up.sql`.
+    /// Diesel: `<timestamp>_<name>/up.sql`.
     Diesel,
 }
 
@@ -62,7 +62,7 @@ pub fn run(
     }
     files.sort();
     if files.is_empty() {
-        eprintln!("error: aucune migration sous {}", migrations.display());
+        eprintln!("error: no migration under {}", migrations.display());
         return 2;
     }
     let mut chunks = Vec::new();
@@ -96,7 +96,7 @@ pub fn run(
     let mut errors = 0;
     for (path, sk) in &project.skipped {
         eprintln!(
-            "warning: {}: statement non rejoué ({:?}) — l'état reconstruit peut être incomplet",
+            "warning: {}: statement not replayed ({:?}) — the rebuilt state may be incomplete",
             path.display(),
             sk.reason
         );
@@ -114,7 +114,7 @@ pub fn run(
     }
     if errors > 0 && !force {
         eprintln!(
-            "error: {errors} erreur(s) de rejeu : l'état reconstruit n'est pas celui de la base, rien n'est écrit (--force pour écrire quand même)"
+            "error: {errors} replay error(s): the rebuilt state is not the database's, nothing is written (--force to write anyway)"
         );
         return 1;
     }
@@ -128,7 +128,7 @@ pub fn run(
             eprintln!("error: {}: {e}", file.display());
             return 2;
         }
-        eprintln!("écrit : {}", file.display());
+        eprintln!("written: {}", file.display());
     }
     let baseline = baseline
         .map(Path::to_path_buf)
@@ -137,6 +137,6 @@ pub fn run(
         eprintln!("error: {}: {e}", baseline.display());
         return 2;
     }
-    eprintln!("écrit : {} (migration de référence)", baseline.display());
+    eprintln!("written: {} (baseline migration)", baseline.display());
     0
 }

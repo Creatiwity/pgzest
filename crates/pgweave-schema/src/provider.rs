@@ -19,8 +19,8 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
-    /// Colonne de ce nom, casse exacte (principe 8 : la casse est fixée au
-    /// parse).
+    /// Column with this name, exact case (principle 8: case is fixed at parse
+    /// time).
     pub fn get_column(&self, name: &str) -> Option<&ColumnInfo> {
         self.columns.iter().find(|c| c.name == name)
     }
@@ -60,10 +60,10 @@ pub trait RlsAwareSchemaProvider: SchemaProvider {
     fn table_has_rls(&self, table_name: &str) -> bool;
 }
 
-// ── Colonnes d'un CREATE TABLE ────────────────────────────────────────────────
+// ── CREATE TABLE columns ──────────────────────────────────────────────────────
 
-/// Qualifie un nom pointé avec `default_schema` s'il ne l'est pas. Casse
-/// conservée : elle a été fixée au parse (principe 8).
+/// Qualifies a dotted name with `default_schema` if it is not qualified.
+/// Case preserved: it was fixed at parse time (principle 8).
 pub fn qualify_str(name: &str, default_schema: &str) -> String {
     if name.contains('.') {
         name.to_string()

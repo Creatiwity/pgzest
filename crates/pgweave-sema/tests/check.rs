@@ -1,9 +1,9 @@
-//! Vérification des statements par sema : requêtes, corps de routines.
+//! Statement checking by sema: queries, routine bodies.
 
 use pgweave_catalog::ProjectCatalog;
 
-/// Diagnostics d'un script : catalogue rejoué depuis le script, puis
-/// chaque statement vérifié contre l'état final.
+/// Diagnostics of a script: catalog replayed from the script, then each
+/// statement checked against the final state.
 fn check(sql: &str) -> Vec<String> {
     let stmts = pgweave_parser::parse(sql).expect("parse");
     let p = ProjectCatalog::from_statements(&stmts);
@@ -19,7 +19,7 @@ CREATE TABLE posts (id int PRIMARY KEY, user_id int REFERENCES users, title text
 ";
 
 #[test]
-fn requetes_valides_sans_diagnostic() {
+fn valid_queries_without_diagnostic() {
     let sql = format!(
         "{SCHEMA}
         SELECT u.name, p.title FROM users u JOIN posts p ON p.user_id = u.id WHERE u.id = $1;
@@ -32,7 +32,7 @@ fn requetes_valides_sans_diagnostic() {
 }
 
 #[test]
-fn compatibilite_de_types() {
+fn type_compatibility() {
     let sql = format!("{SCHEMA} SELECT * FROM users WHERE name = 42;");
     assert_eq!(
         check(&sql),
@@ -41,19 +41,19 @@ fn compatibilite_de_types() {
 }
 
 #[test]
-fn colonne_et_table_inconnues() {
-    let sql = format!("{SCHEMA} SELECT nom FROM users; SELECT 1 FROM usagers;");
+fn unknown_column_and_table() {
+    let sql = format!("{SCHEMA} SELECT nam FROM users; SELECT 1 FROM userz;");
     assert_eq!(
         check(&sql),
         vec![
-            "column-not-found: column \"nom\" does not exist",
-            "table-not-found: relation \"usagers\" does not exist",
+            "column-not-found: column \"nam\" does not exist",
+            "table-not-found: relation \"userz\" does not exist",
         ]
     );
 }
 
 #[test]
-fn corps_plpgsql_variables_et_colonnes() {
+fn plpgsql_body_variables_and_columns() {
     let sql = format!(
         "{SCHEMA}
         CREATE FUNCTION f(p_id int) RETURNS text LANGUAGE plpgsql AS $$
@@ -66,22 +66,22 @@ fn corps_plpgsql_variables_et_colonnes() {
                 RAISE NOTICE '% %', r.id, r.title;
             END LOOP;
             IF NOT FOUND THEN
-                RETURN v_nom;
+                RETURN v_nam;
             END IF;
-            RETURN v_name || r.titre;
+            RETURN v_name || r.titl;
         END $$;"
     );
     assert_eq!(
         check(&sql),
         vec![
-            "undeclared-variable: variable 'v_nom' is not declared",
-            "column-not-found: record \"r\" has no field \"titre\"",
+            "undeclared-variable: variable 'v_nam' is not declared",
+            "column-not-found: record \"r\" has no field \"titl\"",
         ]
     );
 }
 
 #[test]
-fn conflit_variable_colonne() {
+fn variable_column_conflict() {
     let sql = format!(
         "{SCHEMA}
         CREATE FUNCTION f(id int) RETURNS text LANGUAGE plpgsql AS $$
@@ -104,7 +104,7 @@ fn trigger_new_old() {
         CREATE FUNCTION touch() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
             NEW.name := lower(NEW.name);
-            NEW.nom := 'x';
+            NEW.nam := 'x';
             IF TG_OP = 'UPDATE' AND OLD.email IS DISTINCT FROM NEW.email THEN
                 RETURN NEW;
             END IF;
@@ -114,12 +114,12 @@ fn trigger_new_old() {
     );
     assert_eq!(
         check(&sql),
-        vec!["column-not-found: record \"new\" has no field \"nom\" (type users)"]
+        vec!["column-not-found: record \"new\" has no field \"nam\" (type users)"]
     );
 }
 
 #[test]
-fn fonction_sql_parametres() {
+fn sql_function_parameters() {
     let sql = format!(
         "{SCHEMA}
         CREATE FUNCTION g(uid int) RETURNS SETOF posts LANGUAGE sql AS $$
@@ -132,10 +132,10 @@ fn fonction_sql_parametres() {
     );
 }
 
-/// Expressions d'une table typées dans son contexte ; chaque cas est refusé
-/// (ou accepté) par PostgreSQL 18 avec ce message.
+/// Table expressions typed in their context; each case is refused
+/// (or accepted) by PostgreSQL 18 with this message.
 #[test]
-fn expressions_de_table() {
+fn table_expressions() {
     assert_eq!(
         check(
             "CREATE TABLE ok1 (a int DEFAULT 1 + 1, b text DEFAULT 'x', c timestamptz DEFAULT now(), \
@@ -181,7 +181,7 @@ fn expressions_de_table() {
 }
 
 #[test]
-fn default_hors_affectation() {
+fn default_outside_assignment() {
     let sql = format!(
         "{SCHEMA}
         SELECT default FROM users;
@@ -195,7 +195,7 @@ fn default_hors_affectation() {
 }
 
 #[test]
-fn index_verifie_dans_le_contexte_de_sa_table() {
+fn index_checked_in_the_context_of_its_table() {
     let d = check(
         "CREATE TABLE t (a int, c text);
          CREATE INDEX t_ok ON t (a DESC NULLS LAST, (lower(c))) INCLUDE (c) WHERE a > 0;
@@ -216,7 +216,7 @@ fn index_verifie_dans_le_contexte_de_sa_table() {
         ],
         "{d:?}"
     );
-    // Fournie par pg_trgm : connue une fois l'extension créée.
+    // Provided by pg_trgm: known once the extension is created.
     assert!(
         check(
             "CREATE EXTENSION pg_trgm;

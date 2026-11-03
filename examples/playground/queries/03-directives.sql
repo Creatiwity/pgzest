@@ -1,21 +1,21 @@
--- Les directives, à la ESLint. Compare avec 02-erreurs.sql.
+-- Directives, ESLint-style. Compare with 02-errors.sql.
 
--- Rien n'est signalé sur la ligne suivante :
+-- Nothing is reported on the next line:
 -- pgweave-disable-next-line
 SELECT nope FROM users;
 
--- Seule column-not-found est tue ; les autres règles restent actives :
--- pgweave-disable-next-line column-not-found -- colonne ajoutée par la migration 42
+-- Only column-not-found is silenced; the other rules stay active:
+-- pgweave-disable-next-line column-not-found -- column added by migration 42
 SELECT also_missing FROM users;
 
--- Une justification après un second `--` est ignorée par le parseur de
--- directives, donc documente librement.
+-- A justification after a second `--` is ignored by the directive
+-- parser, so document freely.
 
--- Bloc : tout est tu entre disable et enable.
+-- Block: everything is silenced between disable and enable.
 -- pgweave-disable
 SELECT missing_a FROM users;
 SELECT missing_b FROM users;
 -- pgweave-enable
 
--- Hors du bloc, le check reprend → celle-ci doit être soulignée :
+-- Outside the block, checking resumes → this one should be underlined:
 SELECT missing_c FROM users;

@@ -1,13 +1,13 @@
-//! Les expressions des corps PL/pgSQL sont confrontées aux variables déclarées.
+//! Expressions in PL/pgSQL bodies are checked against the declared variables.
 //!
-//! Régression : `PlExpr::Sql` n'était pas vérifié du tout, donc
-//! `RETURN colonne_inexistante;` passait en silence — alors que PostgreSQL
-//! répond `column "…" does not exist`.
+//! Regression: `PlExpr::Sql` was not checked at all, so
+//! `RETURN nonexistent_column;` passed silently — whereas PostgreSQL
+//! answers `column "…" does not exist`.
 //!
-//! L'enjeu de cette vérification est le rapport signal/bruit : un identifiant
-//! nu en PL/pgSQL peut être une variable, un paramètre, une variable spéciale
-//! (`TG_OP`), ou une variable ligne (`NEW`). Chaque cas non reconnu devient un
-//! faux positif sur du code correct, donc chacun a son test.
+//! The stake of this check is the signal/noise ratio: a bare identifier
+//! in PL/pgSQL can be a variable, a parameter, a special variable
+//! (`TG_OP`), or a row variable (`NEW`). Every unrecognized case becomes a
+//! false positive on correct code, so each one has its test.
 
 use pgweave_checker::check_sql_self_contained;
 use pgweave_diagnostics::{Diagnostic, codes};
@@ -49,148 +49,148 @@ fn undeclared(diags: &[Diagnostic]) -> Vec<&str> {
         .collect()
 }
 
-// ── Ce qui doit être signalé ──────────────────────────────────────────────────
+// ── What must be reported ─────────────────────────────────────────────────────
 
 #[test]
-fn un_return_dune_variable_inconnue_est_signale() {
-    let d = diags("    RETURN colonne_bidon;");
+fn returning_an_unknown_variable_is_reported() {
+    let d = diags("    RETURN bogus_column;");
     let msgs = undeclared(&d);
-    assert_eq!(msgs.len(), 1, "un seul signalement attendu : {msgs:?}");
-    assert!(msgs[0].contains("colonne_bidon"), "obtenu : {msgs:?}");
+    assert_eq!(msgs.len(), 1, "exactly one report expected: {msgs:?}");
+    assert!(msgs[0].contains("bogus_column"), "got: {msgs:?}");
 }
 
 #[test]
-fn le_hint_liste_les_variables_disponibles() {
-    let d = diags("    RETURN colonne_bidon;");
+fn the_hint_lists_the_available_variables() {
+    let d = diags("    RETURN bogus_column;");
     let hint = d
         .iter()
         .find(|d| d.code == codes::UNDECLARED_VARIABLE)
         .and_then(|d| d.hint.clone())
-        .expect("hint attendu");
-    assert!(hint.contains("total"), "la variable déclarée : {hint}");
-    assert!(hint.contains("p_arg"), "le paramètre : {hint}");
+        .expect("hint expected");
+    assert!(hint.contains("total"), "the declared variable: {hint}");
+    assert!(hint.contains("p_arg"), "the parameter: {hint}");
 }
 
 #[test]
-fn une_variable_inconnue_dans_une_sous_expression_est_signalee() {
-    let d = diags("    RETURN total + inconnue;");
+fn an_unknown_variable_in_a_subexpression_is_reported() {
+    let d = diags("    RETURN total + unknown_var;");
     let msgs = undeclared(&d);
     assert!(
-        msgs.iter().any(|m| m.contains("inconnue")),
-        "la récursion doit descendre dans les opérandes : {msgs:?}"
+        msgs.iter().any(|m| m.contains("unknown_var")),
+        "the recursion must descend into the operands: {msgs:?}"
     );
     assert!(
         !msgs.iter().any(|m| m.contains("total")),
-        "la variable déclarée ne doit pas remonter : {msgs:?}"
+        "the declared variable must not be reported: {msgs:?}"
     );
 }
 
 #[test]
-fn une_variable_inconnue_en_argument_de_fonction_est_signalee() {
-    let d = diags("    RETURN abs(inconnue);");
+fn an_unknown_variable_as_function_argument_is_reported() {
+    let d = diags("    RETURN abs(unknown_var);");
     assert!(
-        undeclared(&d).iter().any(|m| m.contains("inconnue")),
-        "obtenu : {:?}",
+        undeclared(&d).iter().any(|m| m.contains("unknown_var")),
+        "got: {:?}",
         undeclared(&d)
     );
 }
 
 #[test]
-fn une_variable_inconnue_dans_un_case_est_signalee() {
-    let d = diags("    RETURN CASE WHEN inconnue > 0 THEN 1 ELSE 0 END;");
+fn an_unknown_variable_in_a_case_is_reported() {
+    let d = diags("    RETURN CASE WHEN unknown_var > 0 THEN 1 ELSE 0 END;");
     assert!(
-        undeclared(&d).iter().any(|m| m.contains("inconnue")),
-        "obtenu : {:?}",
+        undeclared(&d).iter().any(|m| m.contains("unknown_var")),
+        "got: {:?}",
         undeclared(&d)
     );
 }
 
 #[test]
-fn new_dans_une_fonction_ordinaire_est_signale() {
-    // `RETURN NEW` hors trigger est une vraie erreur : NEW n'existe pas.
-    // L'identifiant est nommé comme PostgreSQL le lit : replié en minuscules.
+fn new_in_an_ordinary_function_is_reported() {
+    // `RETURN NEW` outside a trigger is a real error: NEW does not exist.
+    // The identifier is named the way PostgreSQL reads it: folded to lower case.
     let d = diags("    RETURN NEW;");
     assert!(
         undeclared(&d).iter().any(|m| m.contains("'new'")),
-        "obtenu : {:?}",
+        "got: {:?}",
         undeclared(&d)
     );
 }
 
-// ── Ce qui ne doit PAS être signalé ───────────────────────────────────────────
+// ── What must NOT be reported ─────────────────────────────────────────────────
 
 #[test]
-fn une_variable_declaree_ne_produit_rien() {
+fn a_declared_variable_produces_nothing() {
     assert!(undeclared(&diags("    RETURN total;")).is_empty());
 }
 
 #[test]
-fn un_parametre_ne_produit_rien() {
+fn a_parameter_produces_nothing() {
     assert!(undeclared(&diags("    RETURN p_arg;")).is_empty());
 }
 
 #[test]
-fn un_litteral_ne_produit_rien() {
+fn a_literal_produces_nothing() {
     assert!(undeclared(&diags("    RETURN 42;")).is_empty());
-    assert!(undeclared(&diags("    RETURN 'texte'::INTEGER;")).is_empty());
+    assert!(undeclared(&diags("    RETURN 'text'::INTEGER;")).is_empty());
 }
 
 #[test]
-fn un_return_vide_ne_produit_rien() {
+fn an_empty_return_produces_nothing() {
     assert!(undeclared(&diags("    RETURN;")).is_empty());
 }
 
 #[test]
-fn les_variables_speciales_de_trigger_ne_produisent_rien() {
+fn trigger_special_variables_produce_nothing() {
     for v in ["TG_OP", "TG_TABLE_NAME", "TG_WHEN", "TG_LEVEL", "TG_NARGS"] {
         let d = trigger_diags(&format!("    RAISE NOTICE '%', {v};\n    RETURN NEW;"));
         assert!(
             undeclared(&d).is_empty(),
-            "{v} est une variable spéciale valide, obtenu : {:?}",
+            "{v} is a valid special variable, got: {:?}",
             undeclared(&d)
         );
     }
 }
 
 #[test]
-fn new_et_old_nus_ne_produisent_rien_dans_un_trigger() {
-    // Le parser n'en fait un `NewField` que si un `.colonne` suit ; nus, ils
-    // arrivent comme identifiants ordinaires.
+fn bare_new_and_old_produce_nothing_in_a_trigger() {
+    // The parser only makes a `NewField` of them if a `.column` follows; bare,
+    // they arrive as ordinary identifiers.
     for body in ["    RETURN NEW;", "    RETURN OLD;"] {
         let d = trigger_diags(body);
         assert!(
             undeclared(&d).is_empty(),
-            "{body} est valide dans un trigger, obtenu : {:?}",
+            "{body} is valid in a trigger, got: {:?}",
             undeclared(&d)
         );
     }
 }
 
 #[test]
-fn found_ne_produit_rien() {
+fn found_produces_nothing() {
     let d = diags("    IF FOUND THEN RETURN 1; END IF;\n    RETURN 0;");
-    assert!(undeclared(&d).is_empty(), "obtenu : {:?}", undeclared(&d));
+    assert!(undeclared(&d).is_empty(), "got: {:?}", undeclared(&d));
 }
 
 #[test]
-fn une_reference_qualifiee_ne_produit_rien() {
-    // `rec.champ` : le type du record n'est pas suivi, trancher produirait des
-    // faux positifs.
+fn a_qualified_reference_produces_nothing() {
+    // `rec.field`: the record's type is not tracked, deciding would produce
+    // false positives.
     let d = diags("    RETURN some_rec.some_field;");
-    assert!(undeclared(&d).is_empty(), "obtenu : {:?}", undeclared(&d));
+    assert!(undeclared(&d).is_empty(), "got: {:?}", undeclared(&d));
 }
 
 #[test]
-fn une_sous_requete_ne_produit_rien() {
-    // Les colonnes d'une sous-requête ont leur propre portée.
+fn a_subquery_produces_nothing() {
+    // The columns of a subquery have their own scope.
     let d = diags("    RETURN (SELECT count(*) FROM users);");
-    assert!(undeclared(&d).is_empty(), "obtenu : {:?}", undeclared(&d));
+    assert!(undeclared(&d).is_empty(), "got: {:?}", undeclared(&d));
 }
 
 #[test]
-fn un_schema_reel_ne_produit_aucun_faux_positif() {
-    // Garde-fou sur la fixture la plus riche du dépôt : plusieurs fonctions
-    // PL/pgSQL, des triggers, du RLS.
+fn a_real_schema_produces_no_false_positive() {
+    // Safeguard on the richest fixture of the repository: several PL/pgSQL
+    // functions, triggers, RLS.
     let sql = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../examples/schema.sql"
@@ -199,7 +199,7 @@ fn un_schema_reel_ne_produit_aucun_faux_positif() {
     let d = check_sql_self_contained(&sql);
     assert!(
         undeclared(&d).is_empty(),
-        "aucun faux positif attendu sur examples/schema.sql, obtenu : {:?}",
+        "no false positive expected on examples/schema.sql, got: {:?}",
         undeclared(&d)
     );
 }

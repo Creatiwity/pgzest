@@ -1,12 +1,12 @@
-//! Oracle des migrations (PLAN.md P7) : une suite de migrations appliquée à
-//! une base vierge doit produire exactement le schéma déclaratif appliqué à
-//! une autre. Les deux bases sont comparées par ce que PostgreSQL dit de
-//! leurs objets (`format_type`, `pg_get_*def`), indépendamment du modèle de
-//! pgweave.
+//! Migration oracle (PLAN.md P7): a migration sequence applied to an empty
+//! database must produce exactly the declarative schema applied to another
+//! one. Both databases are compared through what PostgreSQL says about
+//! their objects (`format_type`, `pg_get_*def`), independently of pgweave's
+//! model.
 //!
-//! Ne sont pas comparés : la position des colonnes (`ADD COLUMN` ajoute en
-//! fin de table, le diff le signale sans pouvoir le reproduire) et le nom
-//! des contraintes NOT NULL (non modélisé par pgweave).
+//! Not compared: column position (`ADD COLUMN` appends at the end of the
+//! table, the diff reports it without being able to reproduce it) and the
+//! name of NOT NULL constraints (not modeled by pgweave).
 
 use std::collections::BTreeSet;
 
@@ -14,17 +14,17 @@ use tokio_postgres::{Client, Config};
 
 use crate::pg::{connect_config, connect_url, db_error_message};
 
-/// Objets d'une base, hors catalogue système et membres d'extensions :
-/// une ligne normalisée par propriété comparée.
+/// Objects of a database, excluding the system catalog and extension
+/// members: one normalized line per compared property.
 const INTROSPECTION: &[&str] = &[
-    // Schémas.
+    // Schemas.
     "SELECT 'schema ' || nspname FROM pg_namespace
      WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'",
     // Extensions.
     "SELECT 'extension ' || e.extname || ' ' || e.extversion || ' ' || n.nspname
      FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
      WHERE e.extname <> 'plpgsql'",
-    // Types : enums, domaines, composites.
+    // Types: enums, domains, composites.
     "SELECT 'enum ' || t.oid::regtype || ' ' || string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
      FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
      WHERE NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e')
@@ -42,7 +42,7 @@ const INTROSPECTION: &[&str] = &[
      WHERE t.typtype = 'c' AND c.relkind = 'c' AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e')
      GROUP BY t.oid",
-    // Relations, colonnes, définitions de vues.
+    // Relations, columns, view definitions.
     "SELECT 'relation ' || c.oid::regclass || ' kind=' || c.relkind::text || ' persistence=' || c.relpersistence::text
             || ' rls=' || c.relrowsecurity || ' force_rls=' || c.relforcerowsecurity
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -60,22 +60,22 @@ const INTROSPECTION: &[&str] = &[
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE c.relkind IN ('v', 'm') AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')",
-    // Contraintes. Une contrainte NOT NULL (nommée depuis PostgreSQL 18)
-    // est comparée sans son nom : pgweave ne modélise pas ce nom, qu'un
-    // renommage de colonne laisse inchangé (limite documentée, PLAN.md P7).
+    // Constraints. A NOT NULL constraint (named since PostgreSQL 18) is
+    // compared without its name: pgweave does not model that name, which a
+    // column rename leaves unchanged (documented limit, PLAN.md P7).
     "SELECT 'constraint ' || c.conrelid::regclass || ' '
             || CASE WHEN c.contype = 'n' THEN '' ELSE quote_ident(c.conname) || ' ' END
             || pg_get_constraintdef(c.oid) || ' valid=' || c.convalidated
      FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
      WHERE c.conrelid <> 0 AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.conrelid AND d.deptype = 'e')",
-    // Index hors contraintes.
+    // Indexes outside constraints.
     "SELECT 'index ' || pg_get_indexdef(i.indexrelid)
      FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
        AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conindid = i.indexrelid AND k.conrelid = i.indrelid)
        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = i.indrelid AND d.deptype = 'e')",
-    // Séquences.
+    // Sequences.
     "SELECT 'sequence ' || quote_ident(schemaname) || '.' || quote_ident(sequencename) || ' ' || data_type
             || ' start=' || start_value || ' min=' || min_value || ' max=' || max_value
             || ' increment=' || increment_by || ' cycle=' || cycle || ' cache=' || cache_size
@@ -83,7 +83,7 @@ const INTROSPECTION: &[&str] = &[
      WHERE NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
                          AND d.objid = (quote_ident(s.schemaname) || '.' || quote_ident(s.sequencename))::regclass
                          AND d.deptype = 'e')",
-    // Routines (les agrégats n'ont pas de pg_get_functiondef).
+    // Routines (aggregates have no pg_get_functiondef).
     "SELECT 'routine ' || p.oid::regprocedure || ' ' || pg_get_functiondef(p.oid)
      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE p.prokind IN ('f', 'p', 'w') AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
@@ -96,7 +96,7 @@ const INTROSPECTION: &[&str] = &[
             || ' ' || permissive || ' ' || array_to_string(roles, ',') || ' ' || cmd
             || ' using=' || coalesce(qual, '') || ' check=' || coalesce(with_check, '')
      FROM pg_policies",
-    // Commentaires.
+    // Comments.
     "SELECT 'comment ' || o.type || ' ' || o.identity || ' ' || d.description
      FROM pg_description d, LATERAL pg_identify_object(d.classoid, d.objoid, d.objsubid) o
      WHERE coalesce(o.schema, '') NOT LIKE 'pg\\_%' AND coalesce(o.schema, '') <> 'information_schema'
@@ -105,14 +105,14 @@ const INTROSPECTION: &[&str] = &[
        AND NOT EXISTS (SELECT 1 FROM pg_depend x WHERE x.objid = d.objoid AND x.classid = d.classoid AND x.deptype = 'e')",
 ];
 
-/// Description normalisée des objets d'une base.
+/// Normalized description of a database's objects.
 pub async fn introspect(client: &Client) -> Result<BTreeSet<String>, String> {
     let mut out = BTreeSet::new();
     for q in INTROSPECTION {
         for row in client
             .query(*q, &[])
             .await
-            .map_err(|e| format!("introspection : {}\n{q}", db_error_message(&e)))?
+            .map_err(|e| format!("introspection: {}\n{q}", db_error_message(&e)))?
         {
             let line: Option<String> = row.get(0);
             out.extend(line);
@@ -121,7 +121,7 @@ pub async fn introspect(client: &Client) -> Result<BTreeSet<String>, String> {
     Ok(out)
 }
 
-/// Base vierge, supprimée après usage.
+/// Empty database, dropped after use.
 struct Scratch {
     admin: Client,
     name: String,
@@ -147,7 +147,7 @@ impl Scratch {
     }
 
     async fn client(&self, admin_url: &str) -> Result<Client, String> {
-        let mut config: Config = admin_url.parse().map_err(|e| format!("URL : {e}"))?;
+        let mut config: Config = admin_url.parse().map_err(|e| format!("URL: {e}"))?;
         config.dbname(&self.name);
         connect_config(&config).await
     }
@@ -175,7 +175,7 @@ async fn applied(
             client
                 .batch_execute(sql)
                 .await
-                .map_err(|e| format!("{name} refusé par PostgreSQL : {}", db_error_message(&e)))?;
+                .map_err(|e| format!("{name} rejected by PostgreSQL: {}", db_error_message(&e)))?;
         }
         introspect(&client).await
     }
@@ -184,9 +184,9 @@ async fn applied(
     result
 }
 
-/// Écart entre l'état atteint par `migrations` (chacune `(nom, SQL)`,
-/// appliquées dans l'ordre) et `schema` appliqué d'un bloc : lignes propres
-/// à chaque côté. Vide si les deux bases sont identiques.
+/// Gap between the state reached by `migrations` (each `(name, SQL)`,
+/// applied in order) and `schema` applied at once: lines specific to each
+/// side. Empty if both databases are identical.
 pub async fn compare(
     admin_url: &str,
     label: &str,
@@ -197,7 +197,7 @@ pub async fn compare(
     let declared = applied(
         admin_url,
         &format!("{label}_s"),
-        &[("schéma déclaratif".into(), schema.to_string())],
+        &[("declarative schema".into(), schema.to_string())],
     )
     .await?;
     Ok(SchemaComparison {
@@ -211,7 +211,7 @@ pub async fn compare(
 pub struct SchemaComparison {
     pub only_migrations: Vec<String>,
     pub only_schema: Vec<String>,
-    /// Lignes comparées (taille du schéma déclaratif).
+    /// Compared lines (size of the declarative schema).
     pub objects: usize,
 }
 

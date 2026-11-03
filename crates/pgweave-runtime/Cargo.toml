@@ -2,7 +2,7 @@
 name = "pgweave-runtime"
 version = "0.1.0"
 edition = "2024"
-description = "Exécution des requêtes générées par pgweave sur tokio-postgres (PLAN.md D8)"
+description = "Execution of pgweave-generated queries on tokio-postgres (PLAN.md D8)"
 
 [dependencies]
 tokio-postgres = { workspace = true }

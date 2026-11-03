@@ -2,7 +2,7 @@ use std::path::Path;
 
 use pgweave_query::{NamedQuery, parse_query_file};
 
-/// Un cas du corpus : un schéma et les requêtes à décrire contre lui.
+/// A corpus case: a schema and the queries to describe against it.
 #[derive(Debug, Clone)]
 pub struct Case {
     pub name: String,
@@ -10,10 +10,10 @@ pub struct Case {
     pub queries: Vec<NamedQuery>,
 }
 
-/// Charge tous les cas de `dir`, triés par nom.
+/// Loads every case of `dir`, sorted by name.
 ///
-/// Un cas mal formé (fichier manquant, requêtes au format invalide) est une
-/// erreur : un corpus qui se charge à moitié donnerait un rapport trompeur.
+/// A malformed case (missing file, invalid query format) is an error: a
+/// half-loaded corpus would give a misleading report.
 pub fn load_cases(dir: &Path) -> Result<Vec<Case>, String> {
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
@@ -40,7 +40,7 @@ pub fn load_cases(dir: &Path) -> Result<Vec<Case>, String> {
                 .map(|d| format!("{}: {}", d.code, d.message))
                 .collect();
             return Err(format!(
-                "{}/queries.sql invalide :\n  {}",
+                "{}/queries.sql is invalid:\n  {}",
                 path.display(),
                 msgs.join("\n  ")
             ));

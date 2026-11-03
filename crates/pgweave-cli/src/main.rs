@@ -16,14 +16,14 @@ struct Cli {
     command: Command,
 }
 
-/// Miroir clap de `pgweave_schema::SkipLevel`, pour exposer les niveaux en CLI.
+/// clap mirror of `pgweave_schema::SkipLevel`, to expose the levels in the CLI.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum CliSkipLevel {
-    /// Ne rien signaler.
+    /// Report nothing.
     Ignore,
-    /// Signaler sans faire échouer.
+    /// Report without failing.
     Warn,
-    /// Signaler et faire échouer.
+    /// Report and fail.
     Error,
 }
 
@@ -231,11 +231,11 @@ fn cmd_check(
     on_unsupported: Option<pgweave_schema::SkipLevel>,
     no_project: bool,
 ) -> i32 {
-    // ── Découverte du projet ───────────────────────────────────────────────────
-    // Même mécanisme que le LSP : on remonte jusqu'à pgweave.toml. Sans ça,
-    // l'éditeur et la CI ne voient pas le même schéma pour un même fichier —
-    // l'un indexe tout le projet, l'autre exige des --schema explicites, et
-    // les diagnostics divergent.
+    // ── Project discovery ──────────────────────────────────────────────────────
+    // Same mechanism as the LSP: walk up to pgweave.toml. Without it, the
+    // editor and CI do not see the same schema for the same file — one
+    // indexes the whole project, the other requires explicit --schema, and
+    // the diagnostics diverge.
     let project = if no_project {
         None
     } else {
@@ -279,7 +279,7 @@ fn cmd_check(
         .flat_map(|(_, s)| s.iter().cloned())
         .collect();
 
-    // ── Politique de tolérance du parser ───────────────────────────────────────
+    // ── Parser tolerance policy ────────────────────────────────────────────────
     let parse_cfg = {
         let mut cfg = project
             .as_ref()
@@ -297,16 +297,16 @@ fn cmd_check(
         parse: parse_cfg.clone(),
     };
 
-    // Macros : fournies + celles du projet. Le désucrage est tenté sur tout
-    // fichier — une source sans macro est recopiée à l'identique.
+    // Macros: shipped + the project's. Desugaring is attempted on every
+    // file — a source without macros is copied verbatim.
     let (macros, macro_errors) = load_macros(project.as_ref());
     for e in &macro_errors {
         eprintln!("warning: {e}");
     }
 
     // ── Parse target files ─────────────────────────────────────────────────────
-    // `parse_with_outcome` conserve la trace des statements écartés au lieu de
-    // les perdre : c'est ce qui permet de les signaler plus bas.
+    // `parse_with_outcome` keeps track of skipped statements instead of
+    // losing them: that is what allows reporting them below.
     type Target = (
         String,
         String,
@@ -315,7 +315,7 @@ fn cmd_check(
         Vec<pgweave_diagnostics::Diagnostic>,
     );
     let parsed_targets: Vec<Target> = {
-        // (path, source, stmts, skipped, diagnostics de macro)
+        // (path, source, stmts, skipped, macro diagnostics)
         let mut out = Vec::new();
         for file in files {
             let sql = match read_file(file) {
@@ -325,9 +325,9 @@ fn cmd_check(
                     return 1;
                 }
             };
-            // Désucrage : les spans rendus par le parse sont déjà dans le
-            // repère du fichier édité, donc rien à retraduire ensuite.
-            // Fichier de requêtes : marqueurs `$nom?` effacés pour le parse.
+            // Desugaring: the spans returned by the parse are already in the
+            // edited file's frame, so nothing to translate back afterwards.
+            // Query file: `$name?` markers blanked for the parse.
             let query_file = project.as_ref().is_some_and(|(root, cfg)| {
                 cfg.classify_file(Path::new(file), root) == pgweave_schema::FileRole::Query
             });
@@ -353,14 +353,14 @@ fn cmd_check(
         out
     };
 
-    // ── Catalogue et vérification ──────────────────────────────────────────────
-    // Un seul rejeu : schémas `--schema`, fichiers du projet (même
-    // construction que le LSP), puis les cibles hors projet. Chaque statement
-    // y est vérifié quand il s'applique, contre l'état du catalogue à ce
-    // point ; un corps PL/pgSQL l'est contre l'état final (`pgweave-sema`).
+    // ── Catalog and check ──────────────────────────────────────────────────────
+    // A single replay: `--schema` schemas, project files (same construction
+    // as the LSP), then targets outside the project. Each statement is
+    // checked as it applies, against the catalog state at that point; a
+    // PL/pgSQL body is checked against the final state (`pgweave-sema`).
     let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    // Même classement que le LSP : un fichier du projet hors des répertoires
-    // de schéma et de migrations s'exécute sur le schéma final.
+    // Same classification as the LSP: a project file outside the schema and
+    // migrations directories runs on the final schema.
     let is_query_file = |file: &str| {
         project.as_ref().is_some_and(|(root, cfg)| {
             cfg.classify_file(Path::new(file), root) == pgweave_schema::FileRole::Query
@@ -408,21 +408,21 @@ fn cmd_check(
     }
     let catalog = std::sync::Arc::new(builder.finish());
 
-    // Un statement illisible dans un fichier du scope retire ses objets du
-    // catalogue, ce qui produit ensuite des `does not exist` qui sont des faux
-    // positifs. On le dit plutôt que de laisser croire à un catalogue complet.
+    // An unreadable statement in a file in scope removes its objects from the
+    // catalog, which then produces `does not exist` false positives. Say so
+    // rather than pretend the catalog is complete.
     if parse_cfg.unparsable != pgweave_schema::SkipLevel::Ignore {
         for (path, sk) in &catalog.skipped {
             eprintln!(
-                "warning: {}: statement non indexé, les objets qu'il définit \
-                 seront introuvables ({:?})",
+                "warning: {}: statement not indexed, the objects it defines \
+                 will not be found ({:?})",
                 path.display(),
                 sk.reason
             );
         }
     }
 
-    // Règles des plugins : elles voient le schéma par `SchemaProvider`.
+    // Plugin rules: they see the schema through `SchemaProvider`.
     let has_external_schema = !schemas.is_empty();
     let mut composite = pgweave_schema::provider::CompositeSchemaProvider::new();
     composite.add(Box::new(SharedCatalog(catalog.clone())));
@@ -434,7 +434,7 @@ fn cmd_check(
     for rule in registry.collect_rules(&builtin_plugins) {
         checker.add_rule(rule);
     }
-    // Plugins WASM listés dans [plugins] wasm, relatifs au fichier de config.
+    // WASM plugins listed in [plugins] wasm, relative to the config file.
     let wasm_paths: Vec<std::path::PathBuf> = project
         .as_ref()
         .map(|(root, c)| c.plugins.wasm.iter().map(|p| root.join(p)).collect())
@@ -460,20 +460,20 @@ fn cmd_check(
     let mut has_errors = false;
     let show_filename = parsed_targets.len() > 1 || has_external_schema;
 
-    // Surcharges de sévérité de [rules], checker comme lint.
+    // Severity overrides from [rules], for checker and lint alike.
     let rule_overrides = project
         .as_ref()
         .map(|(_, c)| c.rule_overrides())
         .unwrap_or_default();
 
-    // Requêtes de chaque répertoire de requêtes, par module : une requête
-    // peut reprendre les lignes d'une autre (`-> a::b::autre`).
+    // Queries of each query directory, per module: a query may reuse the
+    // rows of another (`-> a::b::other`).
     let mut query_trees: std::collections::HashMap<
         std::path::PathBuf,
         Vec<pgweave_query::QueryModule>,
     > = std::collections::HashMap::new();
     for (file, sql, stmts, skipped, macro_diags) in &parsed_targets {
-        // Contexte des règles de plugins : les triggers des autres fichiers.
+        // Plugin rule context: the triggers of the other files.
         let all_other_stmts: Vec<Statement> = context_stmts
             .iter()
             .chain(
@@ -486,8 +486,8 @@ fn cmd_check(
             .collect();
         let mut diagnostics = checker.run_with_context(stmts, &all_other_stmts, &composite);
 
-        // Vérification sémantique : un fichier de requêtes s'exécute sur le
-        // schéma final ; un fichier rejoué porte ses diagnostics du rejeu.
+        // Semantic check: a query file runs on the final schema; a replayed
+        // file carries its replay diagnostics.
         let this_file = canonical(Path::new(file));
         if is_query_file(file) {
             diagnostics.extend(pgweave_checker::check_statements(stmts, &catalog));
@@ -518,9 +518,9 @@ fn cmd_check(
             );
         }
 
-        // Statements écartés par le parser → diagnostics selon la config.
+        // Statements skipped by the parser → diagnostics per the config.
         let mut all = macro_diags.clone();
-        // Fichier de requêtes nommées : son format est vérifié en plus.
+        // Named query file: its format is checked as well.
         if let Some((root, cfg)) = &project
             && cfg.is_query_file(Path::new(file), root)
         {
@@ -539,9 +539,9 @@ fn cmd_check(
 
         pgweave_diagnostics::apply_rule_overrides(&mut diagnostics, &rule_overrides);
 
-        // Directives en commentaire (-- pgweave-disable-next-line, …).
+        // Comment directives (-- pgweave-disable-next-line, …).
         pgweave_diagnostics::Suppressions::scan(sql).apply(&mut diagnostics);
-        // Dans l'ordre du fichier.
+        // In file order.
         diagnostics.sort_by_key(|d| d.span.as_ref().map_or(0, |s| s.start));
 
         for diag in &diagnostics {
@@ -597,15 +597,15 @@ fn cmd_lint(file: &str) -> i32 {
     let config = pgweave_lint::LintConfig::default();
     let mut diagnostics = pgweave_lint::lint_statements(&stmts, &config).diagnostics;
 
-    // Mêmes surcharges de sévérité que `check` et le LSP : une règle mise à
-    // "off" dans [rules] doit être muette partout.
+    // Same severity overrides as `check` and the LSP: a rule set to "off"
+    // in [rules] must be silent everywhere.
     if let Some((_, project)) = discover_project_or_exit() {
         pgweave_diagnostics::apply_rule_overrides(&mut diagnostics, &project.rule_overrides());
     }
 
-    // Mêmes directives en commentaire que `check` : une règle tue là-bas doit
-    // l'être ici aussi, sinon `-- pgweave-disable-next-line L001` marcherait dans
-    // l'éditeur et pas en CLI.
+    // Same comment directives as `check`: a rule silenced there must be
+    // silenced here too, otherwise `-- pgweave-disable-next-line L001` would
+    // work in the editor and not in the CLI.
     pgweave_diagnostics::Suppressions::scan(&sql).apply(&mut diagnostics);
 
     let mut has_errors = false;
@@ -756,10 +756,10 @@ fn main() {
 
 // ── Macros ────────────────────────────────────────────────────────────────────
 
-/// Jeu de macros du projet : celles fournies, plus celles de `[macros] directory`.
+/// The project's macro set: the shipped ones, plus those of `[macros] directory`.
 ///
-/// Les erreurs de définition sont rapportées mais ne bloquent pas : les autres
-/// macros restent utilisables.
+/// Definition errors are reported but do not block: the other macros remain
+/// usable.
 fn load_macros(
     project: Option<&(std::path::PathBuf, pgweave_schema::ProjectConfig)>,
 ) -> (pgweave_macro::MacroSet, Vec<String>) {
@@ -775,10 +775,10 @@ fn load_macros(
     (set, errors)
 }
 
-/// Projet découvert en remontant depuis le répertoire courant.
+/// Project discovered by walking up from the current directory.
 ///
-/// `Ok(None)` : pas de `pgweave.toml`. `Err` : un fichier existe mais est
-/// invalide — à signaler, jamais à remplacer par la config par défaut.
+/// `Ok(None)`: no `pgweave.toml`. `Err`: a file exists but is invalid — to
+/// be reported, never replaced by the default config.
 fn discover_project() -> Result<Option<(std::path::PathBuf, pgweave_schema::ProjectConfig)>, String>
 {
     let cwd = std::path::Path::new(".")
@@ -787,8 +787,8 @@ fn discover_project() -> Result<Option<(std::path::PathBuf, pgweave_schema::Proj
     pgweave_schema::ProjectConfig::find_and_load(&cwd).map_err(|e| e.to_string())
 }
 
-/// Comme [`discover_project`], pour les commandes qui sortent en erreur
-/// plutôt que de continuer sur une config invalide.
+/// Like [`discover_project`], for commands that exit with an error rather
+/// than continue on an invalid config.
 fn discover_project_or_exit() -> Option<(std::path::PathBuf, pgweave_schema::ProjectConfig)> {
     match discover_project() {
         Ok(p) => p,
@@ -806,11 +806,11 @@ fn cmd_macros(verbose: bool) -> i32 {
         eprintln!("warning: {e}");
     }
 
-    println!("{} macros disponibles :\n", set.len());
+    println!("{} macros available:\n", set.len());
     for name in set.names() {
-        let def = set.get(name).expect("nom listé");
+        let def = set.get(name).expect("listed name");
         let origin = if def.origin.starts_with("<builtin>") {
-            "fournie".to_string()
+            "builtin".to_string()
         } else {
             def.origin.clone()
         };
@@ -823,18 +823,18 @@ fn cmd_macros(verbose: bool) -> i32 {
                     .iter()
                     .map(|(n, k)| format!("{n}:{}", k.as_str()))
                     .collect();
-                println!("      trous   : {}", rendered.join(", "));
+                println!("      slots   : {}", rendered.join(", "));
             }
             if !def.flags.is_empty() {
                 let f: Vec<&str> = def.flags.iter().map(|f| f.keyword.as_str()).collect();
-                println!("      drapeaux: {}", f.join(", "));
+                println!("      flags   : {}", f.join(", "));
             }
             if !def.options.is_empty() {
                 let o: Vec<String> = def
                     .options
                     .iter()
                     .map(|o| match &o.default {
-                        Some(d) => format!("{} (défaut {d})", o.keyword),
+                        Some(d) => format!("{} (default {d})", o.keyword),
                         None => o.keyword.clone(),
                     })
                     .collect();
@@ -845,8 +845,8 @@ fn cmd_macros(verbose: bool) -> i32 {
     }
 
     if !verbose {
-        println!("\n`pgweave macros --verbose` détaille chaque macro.");
-        println!("Pour en ajouter : un `*.pgmacro` dans le répertoire `[macros] directory`.");
+        println!("\n`pgweave macros --verbose` details each macro.");
+        println!("To add one: a `*.pgmacro` in the `[macros] directory` directory.");
     }
     if errors.is_empty() { 0 } else { 1 }
 }
@@ -880,7 +880,7 @@ fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
                 Severity::Warning => "warning",
                 Severity::Info => "info",
             };
-            // Les spans des diagnostics de macro sont déjà dans le repère source.
+            // Macro diagnostic spans are already in the source frame.
             let (line, col) = d
                 .span
                 .as_ref()
@@ -906,7 +906,7 @@ fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
                 }
                 match std::fs::write(&target, &expansion.sql) {
                     Ok(()) => println!(
-                        "{} → {} ({} macro(s) désucrée(s))",
+                        "{} → {} ({} macro(s) desugared)",
                         path,
                         target.display(),
                         expansion.expanded
@@ -922,7 +922,7 @@ fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
     if failed { 1 } else { 0 }
 }
 
-/// Catalogue partagé vu comme un `SchemaProvider` (règles de plugins).
+/// Shared catalog seen as a `SchemaProvider` (plugin rules).
 struct SharedCatalog(std::sync::Arc<pgweave_catalog::ProjectCatalog>);
 
 impl pgweave_schema::provider::SchemaProvider for SharedCatalog {

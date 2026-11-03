@@ -1,5 +1,5 @@
-//! Rejeu de DDL sur le catalogue : chaque cas reproduit ce que PostgreSQL 18
-//! fait du même script (noms choisis, colonnes, contraintes, extensions).
+//! DDL replay on the catalog: each case reproduces what PostgreSQL 18 does
+//! with the same script (chosen names, columns, constraints, extensions).
 
 use pgweave_catalog::model::{ConstraintKind, TypeKind, TypeRef};
 use pgweave_catalog::{Catalog, QName, Replay};
@@ -27,11 +27,11 @@ fn constraint_names(r: &Replay, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn noms_de_contraintes_choisis_comme_postgres() {
+fn constraint_names_chosen_like_postgres() {
     let (r, d) = replay(
         "CREATE TABLE org (id SERIAL PRIMARY KEY, code TEXT UNIQUE, CHECK (code <> ''));\n\
          CREATE TABLE member (id BIGINT, org_id INT REFERENCES org, email TEXT,\n\
-           UNIQUE (org_id, email), CONSTRAINT nom_explicite CHECK (id > 0));",
+           UNIQUE (org_id, email), CONSTRAINT explicit_name CHECK (id > 0));",
     );
     assert!(d.is_empty(), "{d:?}");
     assert_eq!(
@@ -43,10 +43,10 @@ fn noms_de_contraintes_choisis_comme_postgres() {
         [
             "member_org_id_fkey",
             "member_org_id_email_key",
-            "nom_explicite"
+            "explicit_name"
         ]
     );
-    // La FK sans colonnes référencées vise la clé primaire.
+    // The FK without referenced columns targets the primary key.
     let fk = &r.catalog.relations[&q("member")].constraints[0];
     assert!(
         matches!(&fk.kind, ConstraintKind::ForeignKey { ref_columns, .. } if ref_columns == &["id"])
@@ -54,7 +54,7 @@ fn noms_de_contraintes_choisis_comme_postgres() {
 }
 
 #[test]
-fn serial_cree_sa_sequence() {
+fn serial_creates_its_sequence() {
     let (r, _) = replay("CREATE TABLE t (id SERIAL, n BIGSERIAL);");
     let t = &r.catalog.relations[&q("t")];
     assert_eq!(t.columns[0].ty, TypeRef::named(QName::pg_catalog("int4")));
@@ -67,8 +67,8 @@ fn serial_cree_sa_sequence() {
 }
 
 #[test]
-fn default_null_stocke_seulement_si_la_coercion_laisse_un_noeud() {
-    // Mesuré sur PostgreSQL 18 (`pg_attrdef`).
+fn default_null_stored_only_if_coercion_leaves_a_node() {
+    // Measured on PostgreSQL 18 (`pg_attrdef`).
     let (r, d) = replay(
         "CREATE DOMAIN dd AS int;\n\
          CREATE TABLE t (a int DEFAULT NULL, b varchar(1) DEFAULT NULL, c text DEFAULT NULL,\n\
@@ -90,7 +90,7 @@ fn default_null_stocke_seulement_si_la_coercion_laisse_un_noeud() {
 }
 
 #[test]
-fn alter_table_suit_postgres() {
+fn alter_table_follows_postgres() {
     let (r, d) = replay(
         "CREATE TABLE t (a INT, b TEXT);\n\
          ALTER TABLE t ADD COLUMN c INT NOT NULL DEFAULT 0, ALTER COLUMN b SET NOT NULL;\n\
@@ -107,13 +107,13 @@ fn alter_table_suit_postgres() {
         .map(|c| (c.name.as_str(), c.not_null))
         .collect();
     assert_eq!(cols, [("id", true), ("b", true)]);
-    // La contrainte garde le nom choisi à sa création.
+    // The constraint keeps the name chosen at its creation.
     assert_eq!(constraint_names(&r, "u"), ["t_pkey"]);
     assert!(!r.catalog.relations.contains_key(&q("t")));
 }
 
 #[test]
-fn enum_et_tableaux() {
+fn enum_and_arrays() {
     let (r, d) = replay(
         "CREATE TYPE mood AS ENUM ('sad', 'ok');\n\
          ALTER TYPE mood ADD VALUE 'happy';\n\
@@ -134,7 +134,7 @@ fn enum_et_tableaux() {
 }
 
 #[test]
-fn un_type_inconnu_est_signale_pas_devine() {
+fn unknown_type_is_reported_not_guessed() {
     let (r, d) = replay("CREATE TABLE t (a citext);");
     assert_eq!(d.len(), 1, "{d:?}");
     assert_eq!(d[0].code, "type-not-found");
@@ -145,7 +145,7 @@ fn un_type_inconnu_est_signale_pas_devine() {
 }
 
 #[test]
-fn une_extension_apporte_ses_types_dans_son_schema() {
+fn extension_brings_its_types_into_its_schema() {
     let (r, d) = replay(
         "CREATE SCHEMA ext;\n\
          CREATE EXTENSION citext SCHEMA ext;\n\
@@ -162,7 +162,7 @@ fn une_extension_apporte_ses_types_dans_son_schema() {
 }
 
 #[test]
-fn drop_et_dependances() {
+fn drop_and_dependencies() {
     let (r, d) = replay(
         "CREATE TABLE a (id INT PRIMARY KEY);\n\
          CREATE TABLE b (a_id INT REFERENCES a);\n\
@@ -183,7 +183,7 @@ fn drop_et_dependances() {
 }
 
 #[test]
-fn surcharges_et_drop_function() {
+fn overloads_and_drop_function() {
     let (r, d) = replay(
         "CREATE FUNCTION f(a INT) RETURNS INT LANGUAGE sql AS 'SELECT a';\n\
          CREATE FUNCTION f(a TEXT) RETURNS TEXT LANGUAGE sql AS 'SELECT a';\n\
@@ -201,7 +201,7 @@ fn surcharges_et_drop_function() {
 }
 
 #[test]
-fn tables_temporaires_dans_pg_temp() {
+fn temporary_tables_in_pg_temp() {
     let (r, _) = replay("CREATE TEMP TABLE tmp (a INT);");
     assert!(
         r.catalog
@@ -211,7 +211,7 @@ fn tables_temporaires_dans_pg_temp() {
 }
 
 #[test]
-fn blocs_do_gardes_par_le_catalogue() {
+fn do_blocks_guarded_by_the_catalog() {
     let (r, d) = replay(
         "CREATE TABLE a (id INT PRIMARY KEY);\n\
          CREATE TABLE b (a_id INT);\n\
@@ -223,7 +223,7 @@ fn blocs_do_gardes_par_le_catalogue() {
          END $$;\n\
          DO $$ BEGIN\n\
            IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'citext') THEN RETURN; END IF;\n\
-           BEGIN CREATE EXTENSION citext; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'non'; END;\n\
+           BEGIN CREATE EXTENSION citext; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'no'; END;\n\
          END $$;\n\
          CREATE TYPE e AS ENUM ('X', 'OLD');\n\
          DO $$ BEGIN\n\
@@ -232,7 +232,7 @@ fn blocs_do_gardes_par_le_catalogue() {
              ALTER TYPE e RENAME VALUE 'OLD' TO 'NEW';\n\
            END IF;\n\
            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'e') THEN\n\
-             CREATE TYPE e AS ENUM ('jamais');\n\
+             CREATE TYPE e AS ENUM ('never');\n\
            END IF;\n\
          END $$;",
     );
@@ -246,7 +246,7 @@ fn blocs_do_gardes_par_le_catalogue() {
 }
 
 #[test]
-fn une_condition_non_evaluable_est_signalee() {
+fn non_evaluable_condition_is_reported() {
     let (r, d) = replay(
         "DO $$ BEGIN\n\
            IF current_setting('x') = 'y' THEN CREATE TABLE t (a INT); END IF;\n\

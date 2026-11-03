@@ -1,35 +1,35 @@
-//! Directives en commentaire, à la ESLint, pour débrayer les checks localement.
+//! ESLint-style comment directives to switch checks off locally.
 //!
-//! Syntaxe reconnue, en commentaire ligne (`--`) ou bloc (`/* */`) :
+//! Recognized syntax, in a line comment (`--`) or a block comment (`/* */`):
 //!
 //! ```sql
-//! -- pgweave-disable-next-line                        -- toutes les règles
-//! -- pgweave-disable-next-line column-not-found       -- une règle
-//! -- pgweave-disable-next-line column-not-found, L001 -- plusieurs
-//! -- pgweave-enable-next-line L001                    -- réactive ponctuellement
-//! -- pgweave-disable                                  -- début de bloc
-//! -- pgweave-enable                                   -- fin de bloc
-//! -- pgweave-disable-file                             -- tout le fichier
+//! -- pgweave-disable-next-line                        -- all rules
+//! -- pgweave-disable-next-line column-not-found       -- one rule
+//! -- pgweave-disable-next-line column-not-found, L001 -- several
+//! -- pgweave-enable-next-line L001                    -- re-enable for one line
+//! -- pgweave-disable                                  -- start of block
+//! -- pgweave-enable                                   -- end of block
+//! -- pgweave-disable-file                             -- whole file
 //! ```
 //!
-//! Un `-- pgweave-disable` sans `-- pgweave-enable` porte jusqu'à la fin du fichier.
+//! A `-- pgweave-disable` without `-- pgweave-enable` extends to the end of the file.
 //!
-//! Une raison peut être accolée après `--` et est ignorée par le parseur de
-//! directives, ce qui permet de documenter la suppression :
-//! `-- pgweave-disable-next-line column-not-found -- colonne créée par la migration 42`
+//! A reason may be appended after `--`; the directive parser ignores it, which
+//! lets the suppression be documented:
+//! `-- pgweave-disable-next-line column-not-found -- column created by migration 42`
 //!
-//! ## Limite
+//! ## Limitation
 //!
-//! La suppression est positionnelle : elle a besoin du `span` du diagnostic.
-//! Un diagnostic sans span (certaines règles ne les remplissent pas encore) ne
-//! peut être supprimé que par `pgweave-disable-file` ou un bloc couvrant tout le
-//! fichier. Voir [`Suppressions::is_suppressed`].
+//! Suppression is positional: it needs the diagnostic's `span`.
+//! A diagnostic without a span (some rules do not fill it yet) can only be
+//! suppressed by `pgweave-disable-file` or by a block covering the whole
+//! file. See [`Suppressions::is_suppressed`].
 
 use std::collections::HashMap;
 
 use crate::Diagnostic;
 
-// ── Modèle ────────────────────────────────────────────────────────────────────
+// ── Model ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirectiveKind {
@@ -56,19 +56,19 @@ impl DirectiveKind {
 #[derive(Debug, Clone)]
 pub struct Directive {
     pub kind: DirectiveKind,
-    /// Règles visées. Vide = toutes les règles.
+    /// Targeted rules. Empty = all rules.
     pub rules: Vec<String>,
-    /// Ligne (0-indexée) où la directive apparaît.
+    /// Line (0-indexed) where the directive appears.
     pub line: usize,
 }
 
-/// Une liste de règles vide vaut « toutes les règles ».
+/// An empty rule list means "all rules".
 fn rules_match(rules: &[String], code: &str) -> bool {
     rules.is_empty() || rules.iter().any(|r| r == code)
 }
 
 impl Directive {
-    /// Cette directive vise-t-elle `code` ?
+    /// Does this directive target `code`?
     pub fn targets(&self, code: &str) -> bool {
         rules_match(&self.rules, code)
     }
@@ -76,26 +76,26 @@ impl Directive {
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
 
-/// Ensemble des suppressions actives pour une source donnée.
+/// Set of active suppressions for a given source.
 #[derive(Debug, Clone, Default)]
 pub struct Suppressions {
-    /// Décalages cumulés de début de ligne, pour mapper offset octet → ligne.
+    /// Cumulative line start offsets, to map byte offset → line.
     line_starts: Vec<usize>,
-    /// `pgweave-disable-file` présent (règles visées ; vide = toutes).
+    /// `pgweave-disable-file` present (targeted rules; empty = all).
     file_disabled: Option<Vec<String>>,
-    /// Par ligne : règles désactivées via `disable-next-line`.
+    /// Per line: rules disabled via `disable-next-line`.
     next_line: HashMap<usize, Vec<String>>,
-    /// Par ligne : règles réactivées via `enable-next-line`.
+    /// Per line: rules re-enabled via `enable-next-line`.
     next_line_enabled: HashMap<usize, Vec<String>>,
-    /// Plages `[début, fin)` en lignes issues des blocs disable/enable.
+    /// `[start, end)` line ranges coming from disable/enable blocks.
     blocks: Vec<(usize, usize, Vec<String>)>,
-    /// Toutes les directives trouvées, dans l'ordre — utile pour diagnostiquer
-    /// une directive inutile ou mal orthographiée.
+    /// All directives found, in order — useful to diagnose a useless or
+    /// misspelled directive.
     pub directives: Vec<Directive>,
 }
 
 impl Suppressions {
-    /// Scanne la source et collecte les directives.
+    /// Scans the source and collects the directives.
     pub fn scan(source: &str) -> Self {
         let line_starts = compute_line_starts(source);
         let mut out = Self {
@@ -115,7 +115,7 @@ impl Suppressions {
                 });
                 match kind {
                     DirectiveKind::DisableFile => {
-                        // Le plus permissif gagne : « toutes les règles » écrase une liste.
+                        // The most permissive wins: "all rules" overrides a list.
                         match (&mut out.file_disabled, rules.is_empty()) {
                             (_, true) => out.file_disabled = Some(Vec::new()),
                             (Some(existing), false) if !existing.is_empty() => {
@@ -148,7 +148,7 @@ impl Suppressions {
             }
         }
 
-        // Un bloc laissé ouvert court jusqu'à la fin du fichier.
+        // A block left open runs to the end of the file.
         if let Some((start, rules)) = open_block {
             out.blocks.push((start, total_lines + 1, rules));
         }
@@ -156,7 +156,7 @@ impl Suppressions {
         out
     }
 
-    /// Ligne (0-indexée) contenant l'offset octet donné.
+    /// Line (0-indexed) containing the given byte offset.
     fn line_of(&self, offset: usize) -> usize {
         match self.line_starts.binary_search(&offset) {
             Ok(i) => i,
@@ -164,10 +164,10 @@ impl Suppressions {
         }
     }
 
-    /// Le diagnostic `code` situé à `offset` est-il supprimé ?
+    /// Is the diagnostic `code` located at `offset` suppressed?
     ///
-    /// `offset` à `None` (diagnostic sans span) : seules les suppressions
-    /// couvrant tout le fichier s'appliquent, faute de position à comparer.
+    /// `offset` is `None` (diagnostic without a span): only suppressions
+    /// covering the whole file apply, for lack of a position to compare.
     pub fn is_suppressed(&self, code: &str, offset: Option<usize>) -> bool {
         if let Some(rules) = &self.file_disabled
             && rules_match(rules, code)
@@ -180,7 +180,7 @@ impl Suppressions {
         };
         let line = self.line_of(offset);
 
-        // `enable-next-line` est plus spécifique que le bloc : il gagne.
+        // `enable-next-line` is more specific than the block: it wins.
         if let Some(rules) = self.next_line_enabled.get(&line)
             && rules_match(rules, code)
         {
@@ -198,19 +198,19 @@ impl Suppressions {
             .any(|(start, end, rules)| line > *start && line < *end && rules_match(rules, code))
     }
 
-    /// Retire de `diags` tout ce qui est couvert par une directive.
+    /// Removes from `diags` everything covered by a directive.
     pub fn apply(&self, diags: &mut Vec<Diagnostic>) {
         diags.retain(|d| !self.is_suppressed(d.code, d.span.as_ref().map(|s| s.start)));
     }
 
-    /// Vrai si la source ne contient aucune directive — permet d'éviter le
-    /// travail de filtrage dans le cas courant.
+    /// True if the source contains no directive — lets the common case skip
+    /// the filtering work.
     pub fn is_empty(&self) -> bool {
         self.directives.is_empty()
     }
 }
 
-// ── Parsing d'une ligne ───────────────────────────────────────────────────────
+// ── Parsing a line ────────────────────────────────────────────────────────────
 
 fn compute_line_starts(source: &str) -> Vec<usize> {
     let mut starts = vec![0usize];
@@ -222,8 +222,8 @@ fn compute_line_starts(source: &str) -> Vec<usize> {
     starts
 }
 
-/// Extrait les directives d'une ligne. Une ligne peut en porter plusieurs si
-/// elle contient plusieurs commentaires.
+/// Extracts the directives of a line. A line may carry several if it
+/// contains several comments.
 fn directives_in_line(line: &str) -> Vec<(DirectiveKind, Vec<String>)> {
     let mut found = Vec::new();
 
@@ -235,8 +235,8 @@ fn directives_in_line(line: &str) -> Vec<(DirectiveKind, Vec<String>)> {
             continue;
         };
 
-        // Le reste = liste de règles, séparées par virgule et/ou espace.
-        // Un `--` termine la liste : ce qui suit est une justification libre.
+        // The rest = rule list, separated by commas and/or spaces.
+        // A `--` ends the list: what follows is a free-form justification.
         let rest: Vec<&str> = parts.take_while(|t| *t != "--").collect();
         let rules: Vec<String> = rest
             .join(" ")
@@ -252,7 +252,7 @@ fn directives_in_line(line: &str) -> Vec<(DirectiveKind, Vec<String>)> {
     found
 }
 
-/// Corps des commentaires présents dans une ligne (`-- …` et `/* … */`).
+/// Bodies of the comments present in a line (`-- …` and `/* … */`).
 fn comment_bodies(line: &str) -> Vec<&str> {
     let mut out = Vec::new();
 
@@ -292,13 +292,13 @@ mod tests {
         })
     }
 
-    /// Offset du début de la ligne `n` (0-indexée).
+    /// Offset of the start of line `n` (0-indexed).
     fn line_offset(src: &str, n: usize) -> usize {
         compute_line_starts(src)[n]
     }
 
     #[test]
-    fn disable_next_line_toutes_regles() {
+    fn disable_next_line_all_rules() {
         let src = "-- pgweave-disable-next-line\nSELECT bad;\nSELECT other;";
         let s = Suppressions::scan(src);
         assert!(s.is_suppressed("column-not-found", Some(line_offset(src, 1))));
@@ -306,19 +306,19 @@ mod tests {
     }
 
     #[test]
-    fn disable_next_line_regle_ciblee() {
+    fn disable_next_line_targeted_rule() {
         let src = "-- pgweave-disable-next-line column-not-found\nSELECT bad;";
         let s = Suppressions::scan(src);
         let off = Some(line_offset(src, 1));
         assert!(s.is_suppressed("column-not-found", off));
         assert!(
             !s.is_suppressed("table-not-found", off),
-            "autre règle intacte"
+            "other rule untouched"
         );
     }
 
     #[test]
-    fn plusieurs_regles_separees_par_virgule() {
+    fn several_rules_separated_by_comma() {
         let src = "-- pgweave-disable-next-line column-not-found, L001\nSELECT bad;";
         let s = Suppressions::scan(src);
         let off = Some(line_offset(src, 1));
@@ -328,31 +328,31 @@ mod tests {
     }
 
     #[test]
-    fn justification_apres_double_tiret_ignoree() {
-        let src = "-- pgweave-disable-next-line L001 -- ajouté par la migration 42\nSELECT *;";
+    fn justification_after_double_dash_ignored() {
+        let src = "-- pgweave-disable-next-line L001 -- added by migration 42\nSELECT *;";
         let s = Suppressions::scan(src);
         let off = Some(line_offset(src, 1));
         assert!(s.is_suppressed("L001", off));
         assert!(
             !s.is_suppressed("migration", off),
-            "la justification ne doit pas devenir une règle"
+            "the justification must not become a rule"
         );
     }
 
     #[test]
-    fn bloc_disable_enable() {
+    fn disable_enable_block() {
         let src = "-- pgweave-disable\nSELECT a;\nSELECT b;\n-- pgweave-enable\nSELECT c;";
         let s = Suppressions::scan(src);
         assert!(s.is_suppressed("x", Some(line_offset(src, 1))));
         assert!(s.is_suppressed("x", Some(line_offset(src, 2))));
         assert!(
             !s.is_suppressed("x", Some(line_offset(src, 4))),
-            "après enable, plus de suppression"
+            "after enable, no more suppression"
         );
     }
 
     #[test]
-    fn bloc_non_ferme_court_jusqua_la_fin() {
+    fn unclosed_block_runs_to_the_end() {
         let src = "SELECT a;\n-- pgweave-disable\nSELECT b;\nSELECT c;";
         let s = Suppressions::scan(src);
         assert!(!s.is_suppressed("x", Some(line_offset(src, 0))));
@@ -361,46 +361,46 @@ mod tests {
     }
 
     #[test]
-    fn disable_file_couvre_tout_meme_sans_span() {
+    fn disable_file_covers_everything_even_without_span() {
         let src = "-- pgweave-disable-file\nSELECT a;";
         let s = Suppressions::scan(src);
         assert!(s.is_suppressed("x", Some(line_offset(src, 1))));
         assert!(
             s.is_suppressed("x", None),
-            "un diagnostic sans span doit être couvert par disable-file"
+            "a diagnostic without a span must be covered by disable-file"
         );
     }
 
     #[test]
-    fn sans_span_non_supprime_par_disable_next_line() {
+    fn without_span_not_suppressed_by_disable_next_line() {
         let src = "-- pgweave-disable-next-line\nSELECT a;";
         let s = Suppressions::scan(src);
         assert!(
             !s.is_suppressed("x", None),
-            "limite assumée : pas de position, pas de suppression ciblée"
+            "accepted limitation: no position, no targeted suppression"
         );
     }
 
     #[test]
-    fn enable_next_line_gagne_sur_le_bloc() {
+    fn enable_next_line_wins_over_the_block() {
         let src = "-- pgweave-disable\nSELECT a;\n-- pgweave-enable-next-line L001\nSELECT b;";
         let s = Suppressions::scan(src);
         assert!(s.is_suppressed("L001", Some(line_offset(src, 1))));
         assert!(
             !s.is_suppressed("L001", Some(line_offset(src, 3))),
-            "enable-next-line est plus spécifique que le bloc"
+            "enable-next-line is more specific than the block"
         );
     }
 
     #[test]
-    fn commentaire_bloc_reconnu() {
+    fn block_comment_recognized() {
         let src = "/* pgweave-disable-next-line L001 */\nSELECT *;";
         let s = Suppressions::scan(src);
         assert!(s.is_suppressed("L001", Some(line_offset(src, 1))));
     }
 
     #[test]
-    fn apply_filtre_la_liste() {
+    fn apply_filters_the_list() {
         let src = "-- pgweave-disable-next-line L001\nSELECT *;\nSELECT *;";
         let s = Suppressions::scan(src);
         let mut diags = vec![
@@ -408,19 +408,19 @@ mod tests {
             diag("L001", line_offset(src, 2)),
         ];
         s.apply(&mut diags);
-        assert_eq!(diags.len(), 1, "seul le second doit survivre");
+        assert_eq!(diags.len(), 1, "only the second one must survive");
     }
 
     #[test]
-    fn source_sans_directive_est_vide() {
-        let s = Suppressions::scan("SELECT 1;\n-- juste un commentaire\n");
+    fn source_without_directive_is_empty() {
+        let s = Suppressions::scan("SELECT 1;\n-- just a comment\n");
         assert!(s.is_empty());
         assert!(!s.is_suppressed("x", Some(0)));
     }
 
     #[test]
-    fn directive_mal_orthographiee_ignoree() {
+    fn misspelled_directive_ignored() {
         let s = Suppressions::scan("-- pgweave-disbale-next-line\nSELECT a;");
-        assert!(s.is_empty(), "une faute de frappe ne doit rien supprimer");
+        assert!(s.is_empty(), "a typo must not suppress anything");
     }
 }

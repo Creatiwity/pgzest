@@ -1,90 +1,89 @@
-# 0001 — salsa comme moteur incrémental du catalogue
+# 0001 — salsa as the catalog's incremental engine
 
-- **Statut** : acceptée (GO), 2026-11-01
-- **Contexte** : PLAN.md, décision D3 et item P0 « spike salsa »
-- **Preuve** : `spikes/salsa-catalog` (jetable, supprimé en P2 — voir l'historique git)
+- **Status**: accepted (GO), 2026-11-01
+- **Context**: PLAN.md, decision D3 and P0 item "salsa spike"
+- **Evidence**: `spikes/salsa-catalog` (throwaway, removed in P2 — see git history)
 
 ## Question
 
-Le catalogue (D2) doit être : indexé à moindre coût, résolu **à la demande**
-(seuls les objets référencés sont analysés), organisé en **portées** (projet,
-routine, bloc) et **incrémental** pour le LSP. salsa — utilisé par
-rust-analyzer et `ty` — convient-il, ou faut-il un cache maison ?
+The catalog (D2) must be: cheap to index, resolved **on demand** (only
+referenced objects are analyzed), organized in **scopes** (project,
+routine, block) and **incremental** for the LSP. Is salsa — used by
+rust-analyzer and `ty` — a good fit, or is a custom cache needed?
 
-Critères d'abandon fixés à l'avance (D3) : impossibilité d'exprimer la
-portée « routine » proprement, ou surcoût d'indexation > 2× sur Mesalia.
+Abandonment criteria set in advance (D3): inability to express the
+"routine" scope cleanly, or indexing overhead > 2× on Mesalia.
 
-## Ce que le spike construit
+## What the spike builds
 
 ```text
 SourceFile (input) ──► file_declarations ──► table_index ─┐
-       │               (scan de tokens,       (nom → fichiers,
-       │                pas de parse)          dans l'ordre)
-       └──────────► parse_file ◄──────────────────────────┴─ resolve_table(nom)
-                    (parse complet,                         (DDL appliqués dans
-                     seulement si demandé)                   l'ordre des fichiers)
+       │               (token scan,           (name → files,
+       │                no parse)              in order)
+       └──────────► parse_file ◄──────────────────────────┴─ resolve_table(name)
+                    (full parse,                            (DDL applied in
+                     only on demand)                         file order)
 
-routine_scope(nom) : paramètres, variables, tables temporaires du corps
-resolve_in_routine(routine, nom) : table temporaire d'abord, puis globale
+routine_scope(name): parameters, variables, temporary tables of the body
+resolve_in_routine(routine, name): temporary table first, then global
 ```
 
-La sémantique d'application des DDL reproduit celle du `SchemaResolver`
-actuel, pour comparer les deux à l'identique.
+The DDL application semantics reproduce those of the current
+`SchemaResolver`, so that both can be compared exactly.
 
-## Résultats
+## Results
 
-### Propriétés (tests `spikes/salsa-catalog/tests/spike.rs`)
+### Properties (tests `spikes/salsa-catalog/tests/spike.rs`)
 
-| Propriété | Résultat |
+| Property | Result |
 |---|---|
-| L'index se construit **sans parser** aucun fichier | ✅ |
-| Résoudre une table ne parse **que** les fichiers qui la touchent, et applique `CREATE` puis `ALTER` dans l'ordre | ✅ |
-| Modifier un fichier sans changer ses déclarations : seules ses déclarations sont relues, **rien d'autre n'est recalculé** (l'index et les tables sont réutilisés) | ✅ |
-| Ajouter une colonne ne recalcule que la table concernée | ✅ |
-| Portée de routine : paramètres, variables `DECLARE`, tables temporaires du corps ; une table temporaire masque la table globale et n'existe pas hors de la routine | ✅ |
+| The index is built **without parsing** any file | ✅ |
+| Resolving a table parses **only** the files that touch it, and applies `CREATE` then `ALTER` in order | ✅ |
+| Editing a file without changing its declarations: only its declarations are re-read, **nothing else is recomputed** (the index and tables are reused) | ✅ |
+| Adding a column recomputes only the table concerned | ✅ |
+| Routine scope: parameters, `DECLARE` variables, temporary tables of the body; a temporary table shadows the global table and does not exist outside the routine | ✅ |
 
-### Mesalia (220 migrations, build `--release`)
+### Mesalia (220 migrations, `--release` build)
 
-| Mesure | Valeur |
+| Measure | Value |
 |---|--:|
 | Tables | 134 |
-| Équivalence avec `SchemaResolver` (colonnes, types, nullabilité) | **134/134 identiques** |
-| `SchemaResolver::from_chunks` actuel (eager) | 51,5 ms |
-| salsa : index seul | 4,3 ms |
-| salsa : index + résolution de **toutes** les tables | 23,4 ms |
-| salsa : après modification d'un fichier, résolution de toutes les tables | 0,07 ms |
-| Requêtes ré-exécutées après cette modification | 3 (déclarations et parse du fichier, la seule table qu'il touche) |
+| Equivalence with `SchemaResolver` (columns, types, nullability) | **134/134 identical** |
+| Current `SchemaResolver::from_chunks` (eager) | 51.5 ms |
+| salsa: index only | 4.3 ms |
+| salsa: index + resolution of **all** tables | 23.4 ms |
+| salsa: after editing a file, resolution of all tables | 0.07 ms |
+| Queries re-executed after that edit | 3 (declarations and parse of the file, the only table it touches) |
 
-Le critère « surcoût < 2× » est largement tenu : salsa est **plus rapide**
-que l'existant même en résolvant tout (l'existant fait aussi le
-désucrage des macros et un second index ; la comparaison reste
-favorable à périmètre comparable), et une modification coûte des
-microsecondes.
+The "overhead < 2×" criterion is comfortably met: salsa is **faster** than
+the existing code even when resolving everything (the existing code also
+does macro desugaring and a second index; the comparison stays favorable at
+comparable scope), and an edit costs microseconds.
 
-## Décision
+## Decision
 
-**GO.** `pgweave-project` (P2) est construit sur salsa, version **épinglée**
-(`=0.28.5`), montée de version délibérée et isolée.
+**GO.** `pgweave-project` (P2) is built on salsa, with a **pinned** version
+(`=0.28.5`); version bumps are deliberate and isolated.
 
-## Ce que le spike a appris, à reprendre en P2
+## What the spike taught us, to carry into P2
 
-1. **L'AST n'implémente pas `Eq`** : `parse_file` est donc `no_eq`, et tout
-   changement de texte ré-exécute les requêtes qui lisent ce parse (elles
-   s'arrêtent ensuite si leur résultat est identique). Pour une granularité
-   plus fine : AST comparable, ou parse **par statement** (clé = texte du
-   statement), de sorte qu'éditer une fonction ne relise pas les autres
-   statements du fichier.
-2. **Le scan de déclarations duplique une connaissance du parser** (forme
-   des têtes de statements). Garde-fou : un test d'équivalence systématique
-   scan ↔ parse complet, comme celui fait ici sur Mesalia. Le scan devra
-   couvrir tout ce que P1 modélise (types, vues, extensions, `DROP`…).
-3. **API salsa mouvante** : le trait `Update` est devenu `SalsaValue` entre
-   versions. D'où l'épinglage exact et l'isolement de salsa dans
-   `pgweave-project` : les autres crates manipulent des types à nous.
-4. **Pas encore évalués** : requêtes parallèles et annulation (le LSP
-   annule une analyse obsolète), persistance sur disque (fonctionnalité
-   `persistence`, utile pour le cache des macros Rust en P5). À valider au
-   démarrage de P2 et de P5.
-5. **Casse des identifiants** : le spike reproduit la mise en minuscules du
-   code actuel pour comparer ; le catalogue de P2 appliquera le principe 8
-   (identifiants quotés conservés).
+1. **The AST does not implement `Eq`**: `parse_file` is therefore `no_eq`,
+   and any text change re-executes the queries that read this parse (they
+   then stop if their result is identical). For finer granularity:
+   comparable AST, or parse **per statement** (key = statement text), so
+   that editing a function does not re-read the other statements of the
+   file.
+2. **The declaration scan duplicates knowledge from the parser** (shape of
+   statement heads). Safeguard: a systematic scan ↔ full parse equivalence
+   test, like the one done here on Mesalia. The scan will have to cover
+   everything P1 models (types, views, extensions, `DROP`…).
+3. **Moving salsa API**: the `Update` trait became `SalsaValue` between
+   versions. Hence the exact pinning and the isolation of salsa inside
+   `pgweave-project`: other crates manipulate our own types.
+4. **Not yet evaluated**: parallel queries and cancellation (the LSP
+   cancels an obsolete analysis), on-disk persistence (`persistence`
+   feature, useful for the Rust macro cache in P5). To be validated at the
+   start of P2 and P5.
+5. **Identifier case**: the spike reproduces the lowercasing of the current
+   code for comparison; the P2 catalog will apply principle 8 (quoted
+   identifiers preserved).

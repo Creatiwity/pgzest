@@ -1,8 +1,8 @@
-//! Tests du serveur LSP à travers le protocole, en pilotant le binaire.
+//! Tests of the LSP server through the protocol, driving the binary.
 //!
-//! Le LSP est ce que l'utilisateur voit dans son éditeur, et il n'avait aucun
-//! test : toutes les vérifications passaient par la CLI, dont le chemin est
-//! différent. Ces tests parlent JSON-RPC sur stdio, comme VS Code.
+//! The LSP is what the user sees in their editor, and it had no tests: all
+//! checks went through the CLI, whose path is different. These tests speak
+//! JSON-RPC over stdio, like VS Code.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -11,16 +11,16 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_pgweave-lsp");
 
-/// Délai maximal d'attente d'un message. Large : la CI exécute les tests en
-/// parallèle et le serveur peut être lent à démarrer. Ce n'est qu'un garde-fou
-/// contre un blocage, pas une hypothèse de timing.
+/// Maximum wait for a message. Generous: CI runs tests in parallel and the
+/// server may be slow to start. It is only a guard against a hang, not a
+/// timing assumption.
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 struct Lsp {
     child: Child,
     stdin: ChildStdin,
-    /// Messages lus par un thread dédié : une lecture bloquante sur stdout
-    /// gèlerait le test pour toujours si le serveur ne répondait jamais.
+    /// Messages read by a dedicated thread: a blocking read on stdout would
+    /// freeze the test forever if the server never answered.
     messages: Receiver<serde_json::Value>,
     next_id: i64,
 }
@@ -32,7 +32,7 @@ impl Lsp {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("le binaire pgweave-lsp doit démarrer");
+            .expect("the pgweave-lsp binary must start");
         let stdin = child.stdin.take().expect("stdin");
         let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
         let (tx, messages) = std::sync::mpsc::channel();
@@ -52,9 +52,9 @@ impl Lsp {
     }
 
     fn send(&mut self, msg: &serde_json::Value) {
-        let body = serde_json::to_vec(msg).expect("sérialisation");
-        write!(self.stdin, "Content-Length: {}\r\n\r\n", body.len()).expect("en-tête");
-        self.stdin.write_all(&body).expect("corps");
+        let body = serde_json::to_vec(msg).expect("serialization");
+        write!(self.stdin, "Content-Length: {}\r\n\r\n", body.len()).expect("header");
+        self.stdin.write_all(&body).expect("body");
         self.stdin.flush().expect("flush");
     }
 
@@ -73,39 +73,39 @@ impl Lsp {
         }));
     }
 
-    /// Prochain message du serveur, ou panique si rien n'arrive avant
-    /// `deadline` ou si le serveur a fermé son flux.
+    /// Next message from the server, or panics if nothing arrives before
+    /// `deadline` or if the server closed its stream.
     fn next_message(&self, deadline: Instant, waiting_for: &str) -> serde_json::Value {
         let remaining = deadline.saturating_duration_since(Instant::now());
         match self.messages.recv_timeout(remaining) {
             Ok(msg) => msg,
-            Err(RecvTimeoutError::Timeout) => panic!("délai dépassé en attendant {waiting_for}"),
+            Err(RecvTimeoutError::Timeout) => panic!("timed out waiting for {waiting_for}"),
             Err(RecvTimeoutError::Disconnected) => {
-                panic!("le serveur a fermé son flux en attendant {waiting_for}")
+                panic!("the server closed its stream while waiting for {waiting_for}")
             }
         }
     }
 
-    /// Lit jusqu'à la réponse portant `id`. Les autres messages sont ignorés.
+    /// Reads up to the response carrying `id`. Other messages are ignored.
     fn await_response(&mut self, id: i64) -> serde_json::Value {
         let deadline = Instant::now() + TIMEOUT;
         loop {
-            let msg = self.next_message(deadline, &format!("la réponse à la requête {id}"));
+            let msg = self.next_message(deadline, &format!("the response to request {id}"));
             if msg.get("id").and_then(|v| v.as_i64()) == Some(id) {
                 return msg;
             }
         }
     }
 
-    /// Lit jusqu'à une publication de diagnostics pour `uri`.
+    /// Reads up to a diagnostics publication for `uri`.
     ///
-    /// Le serveur traite `didOpen` de façon asynchrone : rien ne garantit
-    /// l'ordre entre cette publication et la réponse à une requête envoyée
-    /// ensuite. Il faut donc attendre la publication elle-même.
+    /// The server handles `didOpen` asynchronously: nothing guarantees the
+    /// order between this publication and the response to a request sent
+    /// afterwards. So the publication itself must be awaited.
     fn await_diagnostics(&mut self, uri: &str) -> Vec<serde_json::Value> {
         let deadline = Instant::now() + TIMEOUT;
         loop {
-            let msg = self.next_message(deadline, &format!("des diagnostics pour {uri}"));
+            let msg = self.next_message(deadline, &format!("diagnostics for {uri}"));
             if msg.get("method").and_then(|v| v.as_str()) == Some("textDocument/publishDiagnostics")
                 && msg.pointer("/params/uri").and_then(|v| v.as_str()) == Some(uri)
             {
@@ -118,7 +118,7 @@ impl Lsp {
         }
     }
 
-    /// initialize + initialized, avec la racine donnée.
+    /// initialize + initialized, with the given root.
     fn init(&mut self, root: &std::path::Path) {
         let uri = format!("file://{}", root.display());
         let id = self.request(
@@ -130,15 +130,15 @@ impl Lsp {
                 "workspaceFolders": [{ "uri": uri, "name": "test" }],
             }),
         );
-        // tower-lsp refuse tout avant d'avoir répondu à initialize.
+        // tower-lsp refuses everything before answering initialize.
         let resp = self.await_response(id);
-        assert!(resp.get("result").is_some(), "initialize a échoué : {resp}");
+        assert!(resp.get("result").is_some(), "initialize failed: {resp}");
         self.notify("initialized", serde_json::json!({}));
     }
 
     fn open(&mut self, path: &std::path::Path, language: &str) -> String {
         let uri = format!("file://{}", path.display());
-        let text = std::fs::read_to_string(path).expect("lecture");
+        let text = std::fs::read_to_string(path).expect("read");
         self.notify(
             "textDocument/didOpen",
             serde_json::json!({
@@ -151,7 +151,7 @@ impl Lsp {
     }
 }
 
-/// Lit un message LSP (en-têtes + corps JSON), ou `None` si le flux est clos.
+/// Reads an LSP message (headers + JSON body), or `None` if the stream is closed.
 fn read_message(stdout: &mut impl BufRead) -> Option<serde_json::Value> {
     let mut len = 0usize;
     loop {
@@ -178,7 +178,7 @@ impl Drop for Lsp {
     }
 }
 
-/// Projet jetable avec une macro maison et un schéma en `.pgsql`.
+/// Throwaway project with a custom macro and a `.pgsql` schema.
 fn scaffold(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("pgweave-lsp-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -203,7 +203,7 @@ end
 ";
 
 #[test]
-fn un_pgsql_propre_ne_produit_aucun_diagnostic() {
+fn a_clean_pgsql_produces_no_diagnostic() {
     let root = scaffold(
         "clean",
         &[
@@ -222,12 +222,12 @@ fn un_pgsql_propre_ne_produit_aucun_diagnostic() {
     let diags = lsp.await_diagnostics(&uri);
     assert!(
         diags.is_empty(),
-        "aucun diagnostic attendu sur un .pgsql valide, obtenu : {diags:?}"
+        "no diagnostic expected on a valid .pgsql, got: {diags:?}"
     );
 }
 
 #[test]
-fn une_erreur_dans_un_corps_de_macro_est_signalee_a_la_bonne_ligne() {
+fn an_error_in_a_macro_body_is_reported_at_the_right_line() {
     let root = scaffold(
         "diag",
         &[
@@ -255,18 +255,18 @@ fn une_erreur_dans_un_corps_de_macro_est_signalee_a_la_bonne_ligne() {
     let found = diags
         .iter()
         .find(|d| d.get("code").and_then(|c| c.as_str()) == Some("column-not-found"));
-    let d = found.unwrap_or_else(|| panic!("column-not-found attendu, obtenu : {diags:?}"));
+    let d = found.unwrap_or_else(|| panic!("column-not-found expected, got: {diags:?}"));
 
-    // Ligne 2 en 0-indexé = la 3e ligne du fichier, celle du SELECT.
+    // Line 2 zero-based = the 3rd line of the file, the SELECT's.
     assert_eq!(
         d.pointer("/range/start/line").and_then(|v| v.as_i64()),
         Some(2),
-        "le diagnostic doit viser la ligne du SELECT dans le .pgsql : {d}"
+        "the diagnostic must target the SELECT line in the .pgsql: {d}"
     );
 }
 
 #[test]
-fn expand_macro_rend_le_sql_desucre() {
+fn expand_macro_returns_the_desugared_sql() {
     let root = scaffold(
         "expand",
         &[
@@ -282,7 +282,7 @@ fn expand_macro_rend_le_sql_desucre() {
     lsp.init(&root);
     let uri = lsp.open(&root.join("schema/t.pgsql"), "pgsql");
 
-    // Curseur dans le corps de la macro.
+    // Cursor in the macro body.
     let id = lsp.request(
         "pgweave/expandMacro",
         serde_json::json!({
@@ -294,12 +294,12 @@ fn expand_macro_rend_le_sql_desucre() {
     let sql = resp
         .pointer("/result/sql")
         .and_then(|v| v.as_str())
-        .unwrap_or_else(|| panic!("sql attendu dans la réponse : {resp}"));
+        .unwrap_or_else(|| panic!("sql expected in the response: {resp}"));
 
-    assert!(sql.contains("CREATE TABLE widgets"), "obtenu :\n{sql}");
+    assert!(sql.contains("CREATE TABLE widgets"), "got:\n{sql}");
     assert!(
         sql.contains("created_at"),
-        "la colonne injectée par la macro doit apparaître :\n{sql}"
+        "the column injected by the macro must appear:\n{sql}"
     );
     assert_eq!(
         resp.pointer("/result/expanded").and_then(|v| v.as_i64()),
@@ -308,7 +308,7 @@ fn expand_macro_rend_le_sql_desucre() {
 }
 
 #[test]
-fn expand_macro_le_dit_quand_il_ny_a_pas_de_macro() {
+fn expand_macro_says_so_when_there_is_no_macro() {
     let root = scaffold(
         "nomacro",
         &[
@@ -329,18 +329,18 @@ fn expand_macro_le_dit_quand_il_ny_a_pas_de_macro() {
     assert_eq!(
         resp.pointer("/result/sql").and_then(|v| v.as_str()),
         Some(""),
-        "rien à développer"
+        "nothing to expand"
     );
     assert!(
         resp.pointer("/result/note")
             .and_then(|v| v.as_str())
-            .is_some_and(|n| n.contains("aucune macro")),
-        "une note explicative est attendue : {resp}"
+            .is_some_and(|n| n.contains("no macro")),
+        "an explanatory note is expected: {resp}"
     );
 }
 
 #[test]
-fn le_format_des_requetes_nommees_est_verifie_comme_en_cli() {
+fn named_query_format_is_checked_as_in_the_cli() {
     let root = scaffold(
         "queries",
         &[
@@ -368,12 +368,12 @@ fn le_format_des_requetes_nommees_est_verifie_comme_en_cli() {
         diags
             .iter()
             .any(|d| d.get("code").and_then(|c| c.as_str()) == Some("query-mixed-parameters")),
-        "query-mixed-parameters attendu, obtenu : {diags:?}"
+        "query-mixed-parameters expected, got: {diags:?}"
     );
 }
 
 #[test]
-fn le_schema_non_sauvegarde_fait_foi_jusqu_a_sa_fermeture() {
+fn the_unsaved_schema_is_authoritative_until_closed() {
     let root = scaffold(
         "buffer",
         &[
@@ -410,16 +410,16 @@ fn le_schema_non_sauvegarde_fait_foi_jusqu_a_sa_fermeture() {
         "{diags:?}"
     );
 
-    // La colonne est ajoutée dans l'éditeur, sans sauvegarde.
+    // The column is added in the editor, without saving.
     let t = lsp.open(&root.join("schema/t.sql"), "sql");
     lsp.await_diagnostics(&t);
-    // Les autres documents ouverts sont revérifiés sans y toucher.
+    // The other open documents are rechecked without touching them.
     change(&mut lsp, &t, 2, "CREATE TABLE t (a INT, b INT);\n");
     lsp.await_diagnostics(&t);
     let diags = lsp.await_diagnostics(&q);
     assert!(codes(&diags).is_empty(), "{diags:?}");
 
-    // Fermé sans sauvegarde : le disque refait foi.
+    // Closed without saving: the disk is authoritative again.
     lsp.notify(
         "textDocument/didClose",
         serde_json::json!({ "textDocument": { "uri": t } }),
@@ -432,9 +432,9 @@ fn le_schema_non_sauvegarde_fait_foi_jusqu_a_sa_fermeture() {
 }
 
 #[test]
-fn le_survol_donne_le_type_du_nom_sous_le_curseur() {
-    // `id` existe dans les deux tables avec des types différents : seul le
-    // statement analysé dit lequel est désigné.
+fn hover_gives_the_type_of_the_name_under_the_cursor() {
+    // `id` exists in both tables with different types: only the analyzed
+    // statement tells which one is designated.
     let root = scaffold(
         "hover",
         &[
@@ -470,7 +470,7 @@ fn le_survol_donne_le_type_du_nom_sous_le_curseur() {
 }
 
 #[test]
-fn le_survol_d_un_en_tete_donne_le_descripteur() {
+fn hovering_a_header_gives_the_descriptor() {
     let root = scaffold(
         "hover-query",
         &[
@@ -507,14 +507,14 @@ fn le_survol_d_un_en_tete_donne_le_descripteur() {
         .to_string();
     assert_eq!(
         value,
-        "(requête) **page_by_id** — `optional`\n\nParamètres :\n- `$id` `pg_catalog.int8`\n\n\
-         Colonnes :\n- `title` `pg_catalog.text` NOT NULL\n- `note` `pg_catalog.text` NULL",
+        "(query) **page_by_id** — `optional`\n\nParameters:\n- `$id` `pg_catalog.int8`\n\n\
+         Columns:\n- `title` `pg_catalog.text` NOT NULL\n- `note` `pg_catalog.text` NULL",
         "{response:?}"
     );
 }
 
 #[test]
-fn modifier_le_schema_revérifie_les_autres_documents() {
+fn changing_the_schema_rechecks_the_other_documents() {
     let root = scaffold(
         "refresh",
         &[
@@ -530,7 +530,7 @@ fn modifier_le_schema_revérifie_les_autres_documents() {
     let mut lsp = Lsp::spawn();
     lsp.init(&root);
     let q = lsp.open(&root.join("queries/q.sql"), "sql");
-    assert_eq!(lsp.await_diagnostics(&q).len(), 1, "colonne b absente");
+    assert_eq!(lsp.await_diagnostics(&q).len(), 1, "column b missing");
     let t = lsp.open(&root.join("schema/t.sql"), "sql");
     lsp.await_diagnostics(&t);
     lsp.notify(
@@ -540,16 +540,16 @@ fn modifier_le_schema_revérifie_les_autres_documents() {
             "contentChanges": [{ "text": "CREATE TABLE t (a INT, b INT);\n" }]
         }),
     );
-    // La requête n'a pas été touchée : ses diagnostics sont republiés.
+    // The query was not touched: its diagnostics are republished.
     lsp.await_diagnostics(&t);
     let diags = lsp.await_diagnostics(&q);
     assert!(diags.is_empty(), "{diags:?}");
 }
 
 #[test]
-fn mode_declaratif_schema_et_migrations_rejoues_a_part() {
+fn declarative_mode_replays_schema_and_migrations_separately() {
     let root = scaffold(
-        "declaratif",
+        "declarative",
         &[
             (
                 "pgweave.toml",
@@ -574,11 +574,11 @@ fn mode_declaratif_schema_et_migrations_rejoues_a_part() {
     };
     let mut lsp = Lsp::spawn();
     lsp.init(&root);
-    // Le schéma n'entre pas en conflit avec la migration qui crée la même table.
+    // The schema does not conflict with the migration creating the same table.
     let schema = lsp.open(&root.join("schema/t.sql"), "sql");
     let diags = lsp.await_diagnostics(&schema);
     assert!(codes(&diags).is_empty(), "{diags:?}");
-    // L'écart (colonne `b`) est signalé sur la dernière migration.
+    // The drift (column `b`) is reported on the last migration.
     let m = lsp.open(&root.join("migrations/0001_init.sql"), "sql");
     let diags = lsp.await_diagnostics(&m);
     assert!(
@@ -588,9 +588,9 @@ fn mode_declaratif_schema_et_migrations_rejoues_a_part() {
 }
 
 #[test]
-fn migration_creee_apres_le_demarrage() {
+fn migration_created_after_startup() {
     let root = scaffold(
-        "migration-nouvelle",
+        "migration-new",
         &[
             (
                 "pgweave.toml",
@@ -636,9 +636,9 @@ fn migration_creee_apres_le_demarrage() {
 }
 
 #[test]
-fn migration_ouverte_avant_tout_rechargement() {
+fn migration_opened_before_any_reload() {
     let root = scaffold(
-        "migration-ouverte",
+        "migration-opened",
         &[
             (
                 "pgweave.toml",
@@ -662,7 +662,7 @@ fn migration_ouverte_avant_tout_rechargement() {
 }
 
 #[test]
-fn requete_sql_dans_un_fichier_rust() {
+fn sql_query_in_a_rust_file() {
     let root = scaffold(
         "rust",
         &[
@@ -676,8 +676,8 @@ fn requete_sql_dans_un_fichier_rust() {
             ),
             (
                 "src/q.rs",
-                "pgweave_macros::sql! {\n    pub par_id: optional,\n    r#\"SELECT a, nope FROM t WHERE id = $id\"#\n}\n\
-                 fn f() { let _ = \"SELECT nope FROM rien\"; }\n",
+                "pgweave_macros::sql! {\n    pub by_id: optional,\n    r#\"SELECT a, nope FROM t WHERE id = $id\"#\n}\n\
+                 fn f() { let _ = \"SELECT nope FROM nothing\"; }\n",
             ),
         ],
     );
@@ -685,8 +685,8 @@ fn requete_sql_dans_un_fichier_rust() {
     lsp.init(&root);
     let uri = lsp.open(&root.join("src/q.rs"), "rust");
     let diags = lsp.await_diagnostics(&uri);
-    // Une seule erreur : celle de la requête, sur `nope` dans le littéral ;
-    // la chaîne ordinaire hors macro n'est pas analysée.
+    // A single error: the query's, on `nope` in the literal; the ordinary
+    // string outside the macro is not analyzed.
     assert_eq!(diags.len(), 1, "{diags:?}");
     assert_eq!(diags[0]["code"], "column-not-found");
     assert_eq!(diags[0]["range"]["start"]["line"], 2);
@@ -694,9 +694,9 @@ fn requete_sql_dans_un_fichier_rust() {
 }
 
 #[test]
-fn le_survol_d_un_parametre_donne_son_type_pas_une_colonne() {
-    // `restaurant` est aussi le nom d'une colonne d'une autre relation : le
-    // survol de `$restaurant` doit donner le paramètre.
+fn hovering_a_parameter_gives_its_type_not_a_column() {
+    // `restaurant` is also the name of a column of another relation: hovering
+    // `$restaurant` must give the parameter.
     let root = scaffold(
         "param",
         &[
@@ -733,7 +733,7 @@ fn le_survol_d_un_parametre_donne_son_type_pas_une_colonne() {
         .unwrap_or_default()
         .to_string();
     assert!(
-        value.starts_with("(paramètre) **$restaurant** : `pg_catalog.int8`"),
+        value.starts_with("(parameter) **$restaurant**: `pg_catalog.int8`"),
         "{value}"
     );
 }

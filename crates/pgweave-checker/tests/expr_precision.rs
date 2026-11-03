@@ -1,9 +1,9 @@
-//! Les diagnostics visent l'expression fautive, pas le début du statement.
+//! Diagnostics target the faulty expression, not the start of the statement.
 
 use pgweave_checker::check_sql_self_contained;
 use pgweave_diagnostics::{Diagnostic, codes};
 
-/// (ligne, colonne) 1-basées d'un diagnostic, comme les affiche la CLI.
+/// 1-based (line, column) of a diagnostic, as the CLI displays them.
 fn line_col(sql: &str, d: &Diagnostic) -> (usize, usize) {
     let Some(sp) = d.span.as_ref().filter(|s| s.start > 0 || s.end > 0) else {
         return (1, 1);
@@ -17,7 +17,7 @@ fn line_col(sql: &str, d: &Diagnostic) -> (usize, usize) {
     (line, col)
 }
 
-/// Texte que le span du diagnostic découpe dans la source.
+/// Text the diagnostic's span cuts out of the source.
 fn slice<'a>(sql: &'a str, d: &Diagnostic) -> Option<&'a str> {
     d.span
         .as_ref()
@@ -28,15 +28,13 @@ fn slice<'a>(sql: &'a str, d: &Diagnostic) -> Option<&'a str> {
 fn only(sql: &str, code: &str) -> Diagnostic {
     let diags = check_sql_self_contained(sql);
     let mut it = diags.into_iter().filter(|d| d.code == code);
-    let d = it
-        .next()
-        .unwrap_or_else(|| panic!("aucun {code} pour {sql:?}"));
-    assert!(it.next().is_none(), "un seul {code} attendu");
+    let d = it.next().unwrap_or_else(|| panic!("no {code} for {sql:?}"));
+    assert!(it.next().is_none(), "exactly one {code} expected");
     d
 }
 
 #[test]
-fn le_diagnostic_vise_la_colonne_fautive_dans_le_select() {
+fn the_diagnostic_targets_the_faulty_column_in_select() {
     let sql = "CREATE TABLE users (id UUID, email TEXT);\nSELECT id, nope, email FROM users;";
     let d = only(sql, codes::COLUMN_NOT_FOUND);
     assert_eq!(slice(sql, &d), Some("nope"));
@@ -44,7 +42,7 @@ fn le_diagnostic_vise_la_colonne_fautive_dans_le_select() {
 }
 
 #[test]
-fn le_diagnostic_vise_la_colonne_fautive_dans_le_where() {
+fn the_diagnostic_targets_the_faulty_column_in_where() {
     let sql =
         "CREATE TABLE users (id UUID, email TEXT);\nSELECT email FROM users WHERE missing = 'x';";
     let d = only(sql, codes::COLUMN_NOT_FOUND);
@@ -53,48 +51,47 @@ fn le_diagnostic_vise_la_colonne_fautive_dans_le_where() {
 }
 
 #[test]
-fn la_precision_survit_a_un_accent_en_amont() {
-    // Régression combinée : colonne sqlparser en caractères + offsets en octets.
-    let sql =
-        "CREATE TABLE users (id UUID);\n-- commentaire accentué : é à ù\nSELECT nope FROM users;";
+fn precision_survives_an_accent_upstream() {
+    // Combined regression: sqlparser column in characters + offsets in bytes.
+    let sql = "CREATE TABLE users (id UUID);\n-- accented comment: é à ù\nSELECT nope FROM users;";
     let d = only(sql, codes::COLUMN_NOT_FOUND);
     assert_eq!(
         slice(sql, &d),
         Some("nope"),
-        "un accent en amont ne doit pas décaler le span"
+        "an accent upstream must not shift the span"
     );
 }
 
 #[test]
-fn une_expression_imbriquee_est_visee_precisement() {
+fn a_nested_expression_is_targeted_precisely() {
     let sql = "CREATE TABLE t (a INT);\nSELECT a FROM t WHERE (a + bad) > 1;";
     let d = only(sql, codes::COLUMN_NOT_FOUND);
     assert_eq!(
         slice(sql, &d),
         Some("bad"),
-        "le nœud le plus fin doit gagner, pas l'expression englobante"
+        "the finest node must win, not the enclosing expression"
     );
 }
 
 #[test]
-fn une_colonne_qualifiee_absente_est_visee() {
+fn a_missing_qualified_column_is_targeted() {
     let sql = "CREATE TABLE users (id UUID);\nSELECT users.nope FROM users;";
     let d = only(sql, codes::COLUMN_NOT_FOUND);
     assert_eq!(slice(sql, &d), Some("users.nope"));
 }
 
 #[test]
-fn le_span_statement_reste_le_repli() {
-    // `table-not-found` porte sur le statement, pas sur une expression :
-    // le backfill statement doit continuer de s'appliquer.
+fn the_statement_span_remains_the_fallback() {
+    // `table-not-found` is about the statement, not an expression:
+    // the statement backfill must keep applying.
     let sql = "CREATE TABLE t (a INT);\nSELECT a FROM nonexistent;";
     let d = only(sql, codes::TABLE_NOT_FOUND);
     let (line, _) = line_col(sql, &d);
-    assert_eq!(line, 2, "au moins la bonne ligne");
+    assert_eq!(line, 2, "at least the right line");
 }
 
 #[test]
-fn plusieurs_erreurs_visent_chacune_leur_colonne() {
+fn several_errors_each_target_their_column() {
     let sql = "CREATE TABLE t (a INT);\nSELECT bad1 FROM t;\nSELECT bad2 FROM t;";
     let diags = check_sql_self_contained(sql);
     let cols: Vec<_> = diags

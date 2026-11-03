@@ -1,21 +1,21 @@
-//! Identifiants de nœuds déterministes.
+//! Deterministic node identifiers.
 //!
-//! Chaque parse numérote ses nœuds à partir de 1, dans l'ordre de leur
-//! construction : le même texte donne toujours les mêmes `NodeId`, quel que
-//! soit ce qui a été parsé avant ou en parallèle. Un `NodeId` est donc unique
-//! **dans un parse**, pas entre deux : c'est le couple (fichier, `NodeId`) qui
-//! identifie un nœud du projet.
+//! Each parse numbers its nodes starting from 1, in the order of their
+//! construction: the same text always yields the same `NodeId`s, whatever
+//! was parsed before or in parallel. A `NodeId` is therefore unique
+//! **within a parse**, not across two: the pair (file, `NodeId`) is what
+//! identifies a project node.
 //!
-//! Auparavant un compteur atomique global numérotait tous les parses du
-//! processus à la suite : les identifiants dépendaient de l'historique (ordre
-//! d'ouverture des fichiers dans l'éditeur, tests exécutés avant), ce qui
-//! interdit tout cache ou instantané reproductible (PLAN.md, principe 5).
+//! Previously a global atomic counter numbered all the process's parses
+//! in sequence: identifiers depended on history (order in which files
+//! were opened in the editor, tests run before), which precluded any
+//! cache or reproducible snapshot (PLAN.md, principle 5).
 //!
-//! Mise en œuvre : une session de numérotation par thread, ouverte par chaque
-//! point d'entrée public. Les sessions s'imbriquent : un corps PL/pgSQL parsé
-//! pendant le parse de son fichier continue la numérotation du fichier au
-//! lieu de la recommencer, sinon deux nœuds du même AST partageraient un
-//! identifiant.
+//! Implementation: one numbering session per thread, opened by each
+//! public entry point. Sessions nest: a PL/pgSQL body parsed
+//! during the parse of its file continues the file's numbering instead
+//! of restarting it, otherwise two nodes of the same AST would share an
+//! identifier.
 
 use std::cell::Cell;
 
@@ -26,13 +26,13 @@ thread_local! {
     static DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
-/// Garde de session : la numérotation recommence à 1 à l'ouverture de la
-/// session la plus externe.
+/// Session guard: numbering restarts at 1 when the outermost session
+/// is opened.
 pub(crate) struct Session {
     _not_send: std::marker::PhantomData<*const ()>,
 }
 
-/// Ouvre une session de numérotation (ou rejoint la session en cours).
+/// Opens a numbering session (or joins the current one).
 pub(crate) fn session() -> Session {
     DEPTH.with(|d| {
         if d.get() == 0 {
@@ -51,12 +51,12 @@ impl Drop for Session {
     }
 }
 
-/// Identifiant suivant de la session en cours.
+/// Next identifier of the current session.
 pub(crate) fn next_node_id() -> NodeId {
     debug_assert!(
         DEPTH.with(Cell::get) > 0,
-        "NodeId demandé hors d'une session de parse : un point d'entrée public \
-         n'ouvre pas de session"
+        "NodeId requested outside a parse session: a public entry point \
+         does not open a session"
     );
     NEXT.with(|n| {
         let id = n.get();

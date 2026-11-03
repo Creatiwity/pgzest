@@ -48,7 +48,7 @@ fn destructive_migration_is_written_with_a_review_header() {
             ("pgweave.toml", CONFIG),
             (
                 "migrations/0001_init.sql",
-                "CREATE TABLE t (id INT PRIMARY KEY, nom TEXT);\n",
+                "CREATE TABLE t (id INT PRIMARY KEY, label TEXT);\n",
             ),
             (
                 "schema/t.sql",
@@ -59,8 +59,8 @@ fn destructive_migration_is_written_with_a_review_header() {
     let (code, out) = migrate(&root, &["create", "rename"]);
     assert_eq!(code, 0, "{out}");
     let sql = fs::read_to_string(root.join("migrations/0002_rename.sql")).unwrap();
-    let header = sql.find("À ADAPTER").expect(&sql);
-    let drop = sql.find("DROP COLUMN nom").expect(&sql);
+    let header = sql.find("TO ADAPT").expect(&sql);
+    let drop = sql.find("DROP COLUMN label").expect(&sql);
     assert!(header < drop, "{sql}");
     // Both risks are listed in the header, before any statement.
     let first_statement = sql.find("ALTER TABLE").unwrap();

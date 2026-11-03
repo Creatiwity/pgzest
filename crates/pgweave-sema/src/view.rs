@@ -1,4 +1,4 @@
-//! Typage des vues pour le rejeu du catalogue ([`QueryTyper`]).
+//! View typing for the catalog replay ([`QueryTyper`]).
 
 use std::sync::Arc;
 
@@ -8,18 +8,18 @@ use pgweave_catalog::{Catalog, QueryTyper, SearchPath, TypeRef};
 use crate::expr::Analyzer;
 use crate::types::{Ty, TypeSystem};
 
-/// Typeur des requêtes de vues par l'analyse sémantique.
+/// Typer of view queries through semantic analysis.
 pub struct ViewTyper;
 
 impl ViewTyper {
-    /// À passer au rejeu (`ProjectBuilder::with_typer`).
+    /// To pass to the replay (`ProjectBuilder::with_typer`).
     pub fn shared() -> Arc<dyn QueryTyper> {
         Arc::new(ViewTyper)
     }
 }
 
-/// Référence de catalogue d'un type : `élément[]` pour le tableau attitré
-/// d'un élément, comme dans les packs.
+/// Catalog reference of a type: `element[]` for the designated array type
+/// of an element, as in the packs.
 fn type_ref(ts: &TypeSystem, ty: &Ty, modifiers: Vec<String>) -> TypeRef {
     match ts.element(ty) {
         Some(e) if ts.array_of(&e).as_ref() == Some(ty) => {
@@ -44,7 +44,7 @@ impl QueryTyper for ViewTyper {
             .select(query, None, true)
             .map_err(|e| format!("[{}] {}", e.code, e.message))?;
         if !analyzer.params.is_empty() {
-            return Err("une vue ne peut pas contenir de paramètre".into());
+            return Err("a view cannot contain a parameter".into());
         }
         let ts = TypeSystem::new(catalog);
         Ok(cols

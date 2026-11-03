@@ -1,14 +1,14 @@
-//! Le silence est un bug : rien ne doit disparaître sans le dire.
+//! Silence is a bug: nothing must disappear without saying so.
 //!
-//! Trois défaillances étaient muettes, chacune vérifiée ici.
+//! Three failures were silent, each checked here.
 //!
-//! 1. Un corps PL/pgSQL non parsé retombait sur un repli textuel presque
-//!    aveugle, sans un mot. Il est désormais signalé — et le parser couvre
-//!    la grammaire de PL/pgSQL, donc seul un corps invalide l'est.
-//! 2. Un statement non modélisé était retiré de l'AST avec `unsupported`
-//!    à `ignore` par défaut — donc invisible.
-//! 3. Une expression non modélisée devenait `Literal(Null)`, ce qui affirmait
-//!    quelque chose de faux au lieu de se taire. Traité dans expr_coverage.rs.
+//! 1. An unparsed PL/pgSQL body fell back to an almost blind textual
+//!    fallback, without a word. It is now reported — and the parser covers
+//!    the PL/pgSQL grammar, so only an invalid body is.
+//! 2. A statement not modeled was removed from the AST with `unsupported`
+//!    set to `ignore` by default — hence invisible.
+//! 3. An expression not modeled became `Literal(Null)`, which asserted
+//!    something false instead of staying silent. Handled in expr_coverage.rs.
 
 use pgweave_analysis::{AnalysisOptions, analyze_source_self_contained};
 use pgweave_diagnostics::{Diagnostic, Severity, codes};
@@ -26,10 +26,10 @@ fn of<'a>(diags: &'a [Diagnostic], code: &str) -> &'a Diagnostic {
     diags
         .iter()
         .find(|d| d.code == code)
-        .unwrap_or_else(|| panic!("{code} attendu, obtenu : {diags:?}"))
+        .unwrap_or_else(|| panic!("{code} expected, got: {diags:?}"))
 }
 
-/// Fonction PL/pgSQL avec `body` comme corps.
+/// PL/pgSQL function with `body` as its body.
 fn func(body: &str) -> String {
     format!(
         "CREATE TABLE users (id UUID PRIMARY KEY);\n\
@@ -44,27 +44,27 @@ fn func(body: &str) -> String {
     )
 }
 
-// ── 1. Corps non parsé : signalé ──────────────────────────────────────────────
+// ── 1. Unparsed body: reported ────────────────────────────────────────────────
 
-/// Corps dont le PL/pgSQL est invalide : il ne peut être analysé.
+/// Body whose PL/pgSQL is invalid: it cannot be analyzed.
 const UNPARSABLE: &str = "    IF n THEN n := 1;";
 
-/// Les constructions qui faisaient retomber le corps entier en `Raw` avec
-/// l'ancien parser sont désormais analysées : aucun signalement.
+/// The constructs that made the whole body fall back to `Raw` with the old
+/// parser are now analyzed: nothing reported.
 #[test]
-fn les_constructions_autrefois_perdues_sont_analysees() {
+fn formerly_lost_constructs_are_analyzed() {
     let cases = [
-        ("FOR IN entier", "    FOR i IN 1..3 LOOP n := i; END LOOP;"),
+        ("integer FOR IN", "    FOR i IN 1..3 LOOP n := i; END LOOP;"),
         ("ASSERT", "    ASSERT n IS NOT NULL;"),
         (
             "CASE statement",
             "    CASE n WHEN 1 THEN n := 2; ELSE n := 3; END CASE;",
         ),
         (
-            "bloc DECLARE imbriqué",
+            "nested DECLARE block",
             "    DECLARE m INTEGER; BEGIN m := 1; END;",
         ),
-        ("label de boucle", "    <<lbl>> LOOP EXIT lbl; END LOOP;"),
+        ("loop label", "    <<lbl>> LOOP EXIT lbl; END LOOP;"),
         (
             "GET STACKED DIAGNOSTICS",
             "    GET STACKED DIAGNOSTICS n = ROW_COUNT;",
@@ -78,31 +78,31 @@ fn les_constructions_autrefois_perdues_sont_analysees() {
         let d = diags(&func(body));
         assert!(
             !has(&d, codes::UNPARSED_FUNCTION_BODY),
-            "{label} : le corps doit être analysé — {d:?}"
+            "{label}: the body must be analyzed — {d:?}"
         );
     }
 }
 
 #[test]
-fn un_corps_non_parse_est_signale() {
+fn an_unparsed_body_is_reported() {
     let d = diags(&func(UNPARSABLE));
     assert!(has(&d, codes::UNPARSED_FUNCTION_BODY), "{d:?}");
 }
 
 #[test]
-fn le_diagnostic_nomme_la_fonction_et_la_cause() {
+fn the_diagnostic_names_the_function_and_the_cause() {
     let d = diags(&func(UNPARSABLE));
     let msg = &of(&d, codes::UNPARSED_FUNCTION_BODY).message;
-    assert!(msg.contains("'fn'"), "la fonction doit être nommée : {msg}");
+    assert!(msg.contains("'fn'"), "the function must be named: {msg}");
     assert!(
         msg.contains("RETURN") || msg.contains("Variables"),
-        "la conséquence doit être explicite : {msg}"
+        "the consequence must be explicit: {msg}"
     );
 }
 
 #[test]
-fn un_corps_non_parse_est_un_warning_pas_une_erreur() {
-    // Visible sans casser le build : c'est une lacune de l'outil, pas du SQL.
+fn an_unparsed_body_is_a_warning_not_an_error() {
+    // Visible without breaking the build: it is a gap of the tool, not of the SQL.
     let d = diags(&func(UNPARSABLE));
     assert_eq!(
         of(&d, codes::UNPARSED_FUNCTION_BODY).severity,
@@ -111,17 +111,17 @@ fn un_corps_non_parse_est_un_warning_pas_une_erreur() {
 }
 
 #[test]
-fn un_corps_qui_parse_ne_produit_rien() {
+fn a_body_that_parses_produces_nothing() {
     let d = diags(&func("    n := 1;"));
     assert!(
         !has(&d, codes::UNPARSED_FUNCTION_BODY),
-        "aucun signalement sur un corps valide : {d:?}"
+        "nothing reported on a valid body: {d:?}"
     );
 }
 
 #[test]
-fn plusieurs_handlers_exception_sont_analyses() {
-    // Cas très courant, longtemps perdu en silence puis signalé.
+fn several_exception_handlers_are_analyzed() {
+    // Very common case, long lost silently, then reported.
     let sql = "CREATE OR REPLACE FUNCTION fn() RETURNS INTEGER LANGUAGE plpgsql AS $$\n\
                BEGIN\n\
                \x20   RETURN 1;\n\
@@ -135,7 +135,7 @@ fn plusieurs_handlers_exception_sont_analyses() {
 }
 
 #[test]
-fn le_niveau_est_configurable_comme_les_autres() {
+fn the_level_is_configurable_like_the_others() {
     let sql = func(UNPARSABLE);
     for (level, expected) in [
         (SkipLevel::Ignore, None),
@@ -153,42 +153,42 @@ fn le_niveau_est_configurable_comme_les_autres() {
             .iter()
             .find(|x| x.code == codes::UNPARSED_FUNCTION_BODY)
             .map(|x| x.severity.clone());
-        assert_eq!(found, expected, "niveau {level:?}");
+        assert_eq!(found, expected, "level {level:?}");
     }
 }
 
 #[test]
-fn une_directive_peut_taire_le_signalement() {
-    // Utile quand on sait que la construction n'est pas supportée et qu'on
-    // assume de ne pas analyser ce corps.
+fn a_directive_can_silence_the_report() {
+    // Useful when the construct is known to be unsupported and not analyzing
+    // this body is accepted.
     let sql = format!(
         "-- pgweave-disable-file unparsed-function-body\n{}",
         func(UNPARSABLE)
     );
     assert!(
         !has(&diags(&sql), codes::UNPARSED_FUNCTION_BODY),
-        "la directive doit fonctionner comme pour les autres codes"
+        "the directive must work as for the other codes"
     );
 }
 
-// ── 2. Statement non modélisé : visible par défaut ────────────────────────────
+// ── 2. Statement not modeled: visible by default ──────────────────────────────
 
 #[test]
-fn un_statement_non_modelise_est_visible_par_defaut() {
-    // Le défaut est passé de `ignore` à `warn` : un statement jeté n'existe
-    // pour aucun autre fichier, autant le dire. Les rôles sont hors du
-    // périmètre modélisé (PLAN.md, §6).
+fn a_statement_not_modeled_is_visible_by_default() {
+    // The default moved from `ignore` to `warn`: a dropped statement exists
+    // for no other file, so better say it. Roles are outside the modeled
+    // scope (PLAN.md, §6).
     let d = diags("CREATE ROLE app_reader;\n");
-    assert!(has(&d, codes::UNSUPPORTED_STATEMENT), "obtenu : {d:?}");
+    assert!(has(&d, codes::UNSUPPORTED_STATEMENT), "got: {d:?}");
     assert_eq!(
         of(&d, codes::UNSUPPORTED_STATEMENT).severity,
         Severity::Warning,
-        "warning et non erreur : ça ne doit pas casser un build"
+        "warning, not error: it must not break a build"
     );
 }
 
 #[test]
-fn le_silence_reste_possible_pour_migrer() {
+fn silence_remains_possible_for_migration() {
     let opts = AnalysisOptions {
         parse: ParseConfig {
             unparsable: SkipLevel::Ignore,
@@ -198,18 +198,18 @@ fn le_silence_reste_possible_pour_migrer() {
     let d = analyze_source_self_contained("CREATE ROLE app_reader;\n", &opts).diagnostics;
     assert!(
         !has(&d, codes::UNSUPPORTED_STATEMENT),
-        "l'opt-out doit rester disponible : {d:?}"
+        "the opt-out must remain available: {d:?}"
     );
 }
 
 #[test]
-fn du_sql_entierement_couvert_ne_produit_aucun_bruit() {
-    // Garde-fou contre la sur-signalisation : ces formes doivent rester muettes.
+fn fully_covered_sql_produces_no_noise() {
+    // Guard against over-reporting: these forms must stay silent.
     let sql = "CREATE TABLE t (a INT, b TEXT);\n\
                SELECT a, b || 'x' FROM t WHERE a IN (1,2);\n\
                INSERT INTO t (a) VALUES (1) ON CONFLICT (a) DO NOTHING;\n\
                UPDATE t SET b = 'y' WHERE a = 1;\n\
                DELETE FROM t WHERE a = 2;\n";
     let d = diags(sql);
-    assert!(d.is_empty(), "aucun diagnostic attendu, obtenu : {d:?}");
+    assert!(d.is_empty(), "no diagnostic expected, got: {d:?}");
 }

@@ -1,5 +1,5 @@
-//! Requêtes nommées de `queries/`, un module par fichier, générées à la
-//! compilation : `queries/menu.sql` → `menu`, `queries/promotions/deals.sql`
-//! → `promotions::deals`. Les enums PostgreSQL sont ici, à la racine.
+//! Named queries from `queries/`, one module per file, generated at compile
+//! time: `queries/menu.sql` → `menu`, `queries/promotions/deals.sql`
+//! → `promotions::deals`. PostgreSQL enums live here, at the root.
 
 pgweave_macros::queries!("queries");

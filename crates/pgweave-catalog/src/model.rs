@@ -1,16 +1,16 @@
-//! Objets du catalogue (PLAN.md, D2 et D11).
+//! Catalog objects (PLAN.md, D2 and D11).
 //!
-//! L'identité de tout objet comprend son schéma : [`QName`]. Les noms sont
-//! conservés avec leur casse exacte (principe 8) — la casse est fixée au
-//! parse, le catalogue ne la touche plus. Les expressions (défauts,
-//! `CHECK`, colonnes générées) sont gardées sous forme de SQL émis : le
-//! catalogue décrit des objets, il n'analyse pas leur contenu.
+//! The identity of every object includes its schema: [`QName`]. Names are
+//! kept with their exact case (principle 8) — case is fixed at parse time,
+//! the catalog no longer touches it. Expressions (defaults, `CHECK`,
+//! generated columns) are kept as emitted SQL: the catalog describes
+//! objects, it does not analyze their contents.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// Nom qualifié : `(schéma, nom)`. Sérialisé sous sa forme SQL
+/// Qualified name: `(schema, name)`. Serialized in its SQL form
 /// (`pg_catalog.int4`, `public."Menu"`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QName {
@@ -31,8 +31,8 @@ impl QName {
     }
 }
 
-/// Rendu SQL : chaque partie quotée si PostgreSQL ne la relirait pas à
-/// l'identique.
+/// SQL rendering: each part quoted if PostgreSQL would not read it back
+/// identically.
 impl fmt::Display for QName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -44,9 +44,9 @@ impl fmt::Display for QName {
     }
 }
 
-/// Forme textuelle d'un nom du catalogue : quoté si sa forme l'exige.
-/// (Pour du SQL à exécuter, voir [`quote_sql_ident`], qui quote aussi les
-/// mots-clés.)
+/// Textual form of a catalog name: quoted if its shape requires it.
+/// (For SQL to execute, see [`quote_sql_ident`], which also quotes
+/// keywords.)
 pub fn quote_ident(s: &str) -> String {
     if pgweave_ast::emit::has_plain_shape(s) {
         s.to_string()
@@ -55,8 +55,8 @@ pub fn quote_ident(s: &str) -> String {
     }
 }
 
-/// Identifiant pour du SQL exécutable : quoté si sa forme l'exige ou si
-/// c'est un mot-clé (`default`, `user`), comme `quote_ident` de PostgreSQL.
+/// Identifier for executable SQL: quoted if its shape requires it or if it
+/// is a keyword (`default`, `user`), like PostgreSQL's `quote_ident`.
 pub fn quote_sql_ident(s: &str) -> String {
     if pgweave_ast::emit::is_plain_identifier(s) {
         s.to_string()
@@ -67,23 +67,23 @@ pub fn quote_sql_ident(s: &str) -> String {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-/// Référence à un type, telle qu'un objet l'utilise. Sérialisée sous sa
-/// forme SQL : `pg_catalog.varchar(20)`, `pg_catalog.int4[]`, et `?écrit`
-/// pour un nom non résolu.
+/// Reference to a type, as an object uses it. Serialized in its SQL form:
+/// `pg_catalog.varchar(20)`, `pg_catalog.int4[]`, and `?written` for an
+/// unresolved name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TypeRef {
-    /// Type résolu, avec ses modificateurs tels qu'écrits (`varchar(20)` :
+    /// Resolved type, with its modifiers as written (`varchar(20)`:
     /// `["20"]`).
     Named {
         name: QName,
         modifiers: Vec<String>,
     },
     Array(Box<TypeRef>),
-    /// Nom écrit que la résolution n'a pas trouvé. Jamais deviné : il est
-    /// conservé tel qu'écrit, et signalé.
+    /// Written name that resolution did not find. Never guessed: it is kept
+    /// as written, and reported.
     Unresolved(String),
-    /// Type qu'aucune analyse n'a encore établi (colonne de vue avant
-    /// l'analyse sémantique) : inconnu, pas supposé.
+    /// Type no analysis has established yet (view column before semantic
+    /// analysis): unknown, not assumed.
     Unknown,
 }
 
@@ -108,9 +108,9 @@ impl fmt::Display for TypeRef {
     }
 }
 
-// ── Formes textuelles ─────────────────────────────────────────────────────────
+// ── Textual forms ─────────────────────────────────────────────────────────────
 
-/// Lit un identifiant (quoté ou non) en tête de `s` ; rend le reste.
+/// Reads an identifier (quoted or not) at the start of `s`; returns the rest.
 fn read_ident(s: &str) -> Option<(String, &str)> {
     if let Some(rest) = s.strip_prefix('"') {
         let mut out = String::new();
@@ -134,7 +134,7 @@ fn read_ident(s: &str) -> Option<(String, &str)> {
     }
 }
 
-/// `schéma.nom` en tête de `s`.
+/// `schema.name` at the start of `s`.
 fn read_qname(s: &str) -> Option<(QName, &str)> {
     let (schema, rest) = read_ident(s)?;
     let rest = rest.strip_prefix('.')?;
@@ -147,7 +147,7 @@ impl std::str::FromStr for QName {
     fn from_str(s: &str) -> Result<Self, String> {
         match read_qname(s) {
             Some((q, "")) => Ok(q),
-            _ => Err(format!("nom qualifié invalide : {s}")),
+            _ => Err(format!("invalid qualified name: {s}")),
         }
     }
 }
@@ -161,7 +161,7 @@ impl std::str::FromStr for TypeRef {
         if let Some(written) = s.strip_prefix('?') {
             return Ok(TypeRef::Unresolved(written.to_string()));
         }
-        let bad = || format!("référence de type invalide : {s}");
+        let bad = || format!("invalid type reference: {s}");
         let (name, mut rest) = read_qname(s).ok_or_else(bad)?;
         let mut modifiers = Vec::new();
         if let Some(r) = rest.strip_prefix('(') {
@@ -202,7 +202,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formes_textuelles_reversibles() {
+    fn textual_forms_round_trip() {
         for s in [
             "pg_catalog.int4",
             "public.\"Menu\"",
@@ -211,7 +211,7 @@ mod tests {
             "public.geometry(Point,4326)",
             "pg_catalog.int4[][]",
             "\"@extschema@\".citext",
-            "?mon_type",
+            "?my_type",
             "?",
         ] {
             let t: TypeRef = s.parse().unwrap();
@@ -223,17 +223,17 @@ mod tests {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypeDef {
     pub name: QName,
-    /// OID dans le PostgreSQL d'où le pack a été généré ; absent pour un type
-    /// déclaré par le projet.
+    /// OID in the PostgreSQL the pack was generated from; absent for a type
+    /// declared by the project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oid: Option<u32>,
     pub kind: TypeKind,
-    /// `typcategory` (règles de conversion implicite) : `N` numérique, `S`
-    /// chaîne, `D` date/heure, `U` utilisateur…
+    /// `typcategory` (implicit conversion rules): `N` numeric, `S` string,
+    /// `D` date/time, `U` user…
     pub category: char,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub preferred: bool,
-    /// Type tableau associé (`pg_catalog._int4` pour `int4`).
+    /// Associated array type (`pg_catalog._int4` for `int4`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub array: Option<QName>,
 }
@@ -279,7 +279,7 @@ pub struct CheckConstraint {
     pub expr: String,
 }
 
-// ── Fonctions, opérateurs, conversions ────────────────────────────────────────
+// ── Functions, operators, casts ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RoutineKind {
@@ -295,7 +295,7 @@ pub enum ArgMode {
     Out,
     InOut,
     Variadic,
-    /// Colonne d'un `RETURNS TABLE`.
+    /// Column of a `RETURNS TABLE`.
     Table,
 }
 
@@ -316,7 +316,7 @@ pub struct Arg {
     pub has_default: bool,
 }
 
-/// Une surcharge de fonction, d'agrégat ou de procédure.
+/// One overload of a function, aggregate or procedure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Routine {
     pub name: QName,
@@ -324,7 +324,7 @@ pub struct Routine {
     pub oid: Option<u32>,
     pub kind: RoutineKind,
     pub args: Vec<Arg>,
-    /// Absent pour une procédure.
+    /// Absent for a procedure.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub returns: Option<TypeRef>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -335,25 +335,25 @@ pub struct Routine {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub security_definer: bool,
     pub language: String,
-    /// `CREATE …` émis, pour une routine du projet.
+    /// Emitted `CREATE …`, for a project routine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<String>,
-    /// Rang de création dans le rejeu (dépendances à l'export).
+    /// Creation rank in the replay (dependencies on export).
     #[serde(default, skip_serializing)]
     pub order: u64,
-    /// Le corps peut modifier le catalogue (DDL, SQL dynamique) : un appel
-    /// a des effets que le rejeu ne reproduit pas.
+    /// The body may modify the catalog (DDL, dynamic SQL): a call has effects
+    /// the replay does not reproduce.
     #[serde(default, skip_serializing)]
     pub catalog_effects: bool,
-    /// Texte du `CREATE …` tel qu'écrit, quand il est conservé
-    /// ([`crate::project::ProjectBuilder::keep_sources`]) : PostgreSQL garde
-    /// le corps d'une routine à la lettre, une migration doit le reprendre.
+    /// Text of the `CREATE …` as written, when kept
+    /// ([`crate::project::ProjectBuilder::keep_sources`]): PostgreSQL keeps a
+    /// routine body verbatim, a migration must reuse it.
     #[serde(default, skip_serializing)]
     pub source: Option<String>,
 }
 
 impl Routine {
-    /// Types des arguments d'entrée : ceux qui forment la signature.
+    /// Input argument types: those that form the signature.
     pub fn input_types(&self) -> impl Iterator<Item = &TypeRef> {
         self.args
             .iter()
@@ -367,7 +367,7 @@ pub struct Operator {
     pub name: QName,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oid: Option<u32>,
-    /// Absent pour un opérateur préfixe.
+    /// Absent for a prefix operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub left: Option<TypeRef>,
     pub right: TypeRef,
@@ -381,14 +381,14 @@ pub enum CastContext {
     Explicit,
 }
 
-/// Mise en œuvre d'une conversion (`castmethod`).
+/// Implementation of a cast (`castmethod`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CastMethod {
-    /// Par une fonction.
+    /// Through a function.
     Function,
-    /// Même représentation binaire : simple ré-étiquetage.
+    /// Same binary representation: simple relabeling.
     Binary,
-    /// Par les fonctions d'entrée-sortie (texte).
+    /// Through the input/output functions (text).
     InOut,
 }
 
@@ -400,8 +400,8 @@ pub struct Cast {
     pub method: CastMethod,
 }
 
-/// Classe d'opérateurs d'une méthode d'index (`gist`, `btree`…) : ce qui
-/// rend un type indexable par cette méthode (`btree_gist` en ajoute).
+/// Operator class of an index method (`gist`, `btree`…): what makes a type
+/// indexable by that method (`btree_gist` adds some).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpClass {
     pub name: QName,
@@ -438,11 +438,11 @@ pub struct Relation {
     pub constraints: Vec<Constraint>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub row_level_security: bool,
-    /// Colonnes non établies (vue dont la requête n'a pas pu être
-    /// développée) : leur absence ne prouve rien.
+    /// Columns not established (view whose query could not be expanded):
+    /// their absence proves nothing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub opaque: bool,
-    /// `CREATE VIEW …` émis, pour une vue du projet.
+    /// Emitted `CREATE VIEW …`, for a project view.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<String>,
     #[serde(default, skip_serializing)]
@@ -464,7 +464,7 @@ pub enum IdentityKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Generated {
     pub expr: String,
-    /// `STORED` ; sinon `VIRTUAL` (défaut de PostgreSQL 18).
+    /// `STORED`; otherwise `VIRTUAL` (PostgreSQL 18 default).
     pub stored: bool,
 }
 
@@ -485,10 +485,10 @@ pub struct Column {
 pub struct Constraint {
     pub name: String,
     pub kind: ConstraintKind,
-    /// Texte complet émis (actions de FK comprises), pour l'export.
+    /// Full emitted text (FK actions included), for export.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<String>,
-    /// `NOT VALID` : les lignes existantes ne sont pas garanties.
+    /// `NOT VALID`: existing rows are not guaranteed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub not_valid: bool,
 }
@@ -508,7 +508,7 @@ pub enum ConstraintKind {
     },
     Check {
         expr: String,
-        /// Colonnes citées : la contrainte disparaît avec l'une d'elles.
+        /// Referenced columns: the constraint goes away with any of them.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         columns: Vec<String>,
     },
@@ -524,10 +524,10 @@ pub struct Index {
     pub name: QName,
     pub table: QName,
     pub unique: bool,
-    /// Définition émise (`CREATE INDEX …`), pour le diff de migration.
+    /// Emitted definition (`CREATE INDEX …`), for the migration diff.
     pub definition: String,
-    /// Colonnes indexées ou citées par une expression ou le prédicat :
-    /// l'index disparaît avec l'une d'elles.
+    /// Columns indexed or referenced by an expression or the predicate: the
+    /// index goes away with any of them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub columns: Vec<String>,
 }
@@ -535,11 +535,11 @@ pub struct Index {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sequence {
     pub name: QName,
-    /// Colonne qui la possède (`OWNED BY`, `serial`, identité).
+    /// Owning column (`OWNED BY`, `serial`, identity).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owned_by: Option<(QName, String)>,
-    /// `CREATE SEQUENCE …` émis (paramètres compris), pour une séquence créée
-    /// explicitement.
+    /// Emitted `CREATE SEQUENCE …` (parameters included), for an explicitly
+    /// created sequence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<String>,
 }
@@ -554,7 +554,7 @@ pub struct Trigger {
     /// `INSERT`, `UPDATE [OF …]`, `DELETE`, `TRUNCATE`.
     pub events: Vec<String>,
     pub for_each_row: bool,
-    /// Tables de transition `REFERENCING OLD TABLE AS … NEW TABLE AS …`.
+    /// Transition tables `REFERENCING OLD TABLE AS … NEW TABLE AS …`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub old_table: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

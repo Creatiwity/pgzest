@@ -1,4 +1,4 @@
-//! Format des requêtes nommées (`docs/named-queries.md`).
+//! Named-query format (`docs/named-queries.md`).
 
 use pgweave_query::{Cardinality, Params, QueryFile, parse_query_file};
 
@@ -10,19 +10,19 @@ fn ok(src: &str) -> QueryFile {
     let f = parse_query_file(src);
     assert!(
         f.diagnostics.is_empty(),
-        "aucun diagnostic attendu, obtenu : {:?}",
+        "no diagnostic expected, got: {:?}",
         f.diagnostics
     );
     f
 }
 
 #[test]
-fn un_fichier_se_decoupe_en_requetes() {
+fn a_file_splits_into_queries() {
     let f = ok("\
--- Requêtes sur les pages.
+-- Queries on pages.
 
 -- name: page_by_id :optional
--- Une page par son identifiant.
+-- A page by its identifier.
 SELECT id, title FROM pages WHERE id = $id;
 
 -- name: rename_page
@@ -33,7 +33,7 @@ UPDATE pages SET title = $title WHERE id = $id RETURNING id;
     let q = &f.queries[0];
     assert_eq!(q.name, "page_by_id");
     assert_eq!(q.cardinality, Some(Cardinality::Optional));
-    assert_eq!(q.doc, vec!["Une page par son identifiant."]);
+    assert_eq!(q.doc, vec!["A page by its identifier."]);
     assert_eq!(q.sql, "SELECT id, title FROM pages WHERE id = $id");
     assert_eq!(
         q.positional_sql(),
@@ -44,10 +44,10 @@ UPDATE pages SET title = $title WHERE id = $id RETURNING id;
     assert_eq!(q.name, "rename_page");
     assert_eq!(q.cardinality, None);
     let Params::Named(params) = &q.params else {
-        panic!("paramètres nommés attendus : {:?}", q.params)
+        panic!("named parameters expected: {:?}", q.params)
     };
     let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
-    assert_eq!(names, ["title", "id"], "ordre de première apparition");
+    assert_eq!(names, ["title", "id"], "order of first appearance");
     assert_eq!(
         q.positional_sql(),
         "UPDATE pages SET title = $1 WHERE id = $2 RETURNING id"
@@ -55,7 +55,7 @@ UPDATE pages SET title = $title WHERE id = $id RETURNING id;
 }
 
 #[test]
-fn les_plages_visent_le_fichier() {
+fn ranges_target_the_file() {
     let src = "-- name: q\nSELECT $id;\n";
     let f = ok(src);
     let q = &f.queries[0];
@@ -68,7 +68,7 @@ fn les_plages_visent_le_fichier() {
 }
 
 #[test]
-fn un_parametre_repete_est_un_seul_parametre() {
+fn a_repeated_parameter_is_a_single_parameter() {
     let f = ok("-- name: q\nSELECT * FROM t WHERE a = $x OR b = $x OR c = $y;\n");
     assert_eq!(
         f.queries[0].positional_sql(),
@@ -77,7 +77,8 @@ fn un_parametre_repete_est_un_seul_parametre() {
 }
 
 #[test]
-fn cast_et_accents_ne_decalent_pas_la_reecriture() {
+fn casts_and_accents_do_not_shift_the_rewrite() {
+    // Non-ASCII on purpose: positions are byte offsets.
     let f = ok("-- name: q\nSELECT 'éèà' AS x, $id::bigint, $name;\n");
     assert_eq!(
         f.queries[0].positional_sql(),
@@ -86,21 +87,21 @@ fn cast_et_accents_ne_decalent_pas_la_reecriture() {
 }
 
 #[test]
-fn chaines_et_corps_dollar_ne_sont_ni_en_tetes_ni_parametres() {
+fn strings_and_dollar_bodies_are_neither_headers_nor_parameters() {
     let f = ok("\
 -- name: q
-SELECT '-- name: piege', '$pas_un_param', $tag$ $non plus $tag$, $vrai;
+SELECT '-- name: trap', '$not_a_param', $tag$ $not_either $tag$, $real;
 ");
     assert_eq!(f.queries.len(), 1);
     let Params::Named(p) = &f.queries[0].params else {
         panic!()
     };
     assert_eq!(p.len(), 1);
-    assert_eq!(p[0].name, "vrai");
+    assert_eq!(p[0].name, "real");
 }
 
 #[test]
-fn les_parametres_positionnels_sont_acceptes_sans_trou() {
+fn positional_parameters_are_accepted_without_gaps() {
     let f = ok("-- name: q\nSELECT $2, $1;\n");
     assert_eq!(f.queries[0].params, Params::Positional { count: 2 });
     assert_eq!(f.queries[0].positional_sql(), "SELECT $2, $1");
@@ -109,19 +110,19 @@ fn les_parametres_positionnels_sont_acceptes_sans_trou() {
     assert_eq!(codes(&f), ["query-parameter-gap"]);
     assert!(
         f.queries.is_empty(),
-        "requête aux paramètres invalides non rendue"
+        "query with invalid parameters not returned"
     );
 }
 
 #[test]
-fn melanger_nomme_et_positionnel_est_une_erreur() {
+fn mixing_named_and_positional_is_an_error() {
     let f = parse_query_file("-- name: q\nSELECT $id, $1;\n");
     assert_eq!(codes(&f), ["query-mixed-parameters"]);
     assert!(f.queries.is_empty());
 }
 
 #[test]
-fn parametres_mal_formes() {
+fn malformed_parameters() {
     let f = parse_query_file("-- name: q\nSELECT $pageId;\n");
     assert_eq!(codes(&f), ["query-parameter-invalid"]);
 
@@ -130,27 +131,27 @@ fn parametres_mal_formes() {
 }
 
 #[test]
-fn sans_parametre() {
+fn without_parameters() {
     let f = ok("-- name: q\nSELECT 1\n");
     assert_eq!(f.queries[0].params, Params::None);
-    assert_eq!(f.queries[0].sql, "SELECT 1", "le `;` final est optionnel");
+    assert_eq!(f.queries[0].sql, "SELECT 1", "the trailing `;` is optional");
 }
 
 #[test]
-fn sql_hors_requete_signale_une_fois() {
+fn sql_outside_a_query_reported_once() {
     let f = parse_query_file("SELECT 1;\nSELECT 2;\n-- name: q\nSELECT 3;\n");
     assert_eq!(codes(&f), ["query-without-name"]);
-    assert_eq!(f.queries.len(), 1, "la requête nommée reste utilisable");
+    assert_eq!(f.queries.len(), 1, "the named query remains usable");
 }
 
 #[test]
-fn un_seul_statement_par_requete() {
+fn a_single_statement_per_query() {
     let f = parse_query_file("-- name: q\nSELECT 1;\nSELECT 2;\nSELECT 3;\n");
     assert_eq!(codes(&f), ["query-multiple-statements"]);
 }
 
 #[test]
-fn requete_vide() {
+fn empty_query() {
     let f = parse_query_file("-- name: a\n-- name: b\nSELECT 1;\n");
     assert_eq!(codes(&f), ["query-empty"]);
     assert_eq!(f.queries.len(), 1);
@@ -158,40 +159,37 @@ fn requete_vide() {
 }
 
 #[test]
-fn noms_en_double() {
+fn duplicate_names() {
     let src = "-- name: q\nSELECT 1;\n-- name: q\nSELECT 2;\n";
     let f = parse_query_file(src);
     assert_eq!(codes(&f), ["query-duplicate-name"]);
     assert_eq!(f.queries.len(), 1);
-    assert_eq!(
-        f.queries[0].sql, "SELECT 1",
-        "la première définition est gardée"
-    );
+    assert_eq!(f.queries[0].sql, "SELECT 1", "the first definition is kept");
     let at = f.diagnostics[0].span.as_ref().unwrap().start;
-    assert_eq!(at, src.rfind("q\n").unwrap(), "la seconde est signalée");
+    assert_eq!(at, src.rfind("q\n").unwrap(), "the second one is reported");
 }
 
 #[test]
-fn en_tetes_invalides() {
+fn invalid_headers() {
     for (src, why) in [
-        ("-- name: PageById\nSELECT 1;\n", "casse"),
-        ("-- name: 2pages\nSELECT 1;\n", "chiffre initial"),
-        ("-- name:\nSELECT 1;\n", "sans nom"),
-        ("-- name: q :first\nSELECT 1;\n", "cardinalité inconnue"),
-        ("-- name: q :one extra\nSELECT 1;\n", "texte en trop"),
-        ("SELECT 1; -- name: q\n", "pas en début de ligne"),
+        ("-- name: PageById\nSELECT 1;\n", "case"),
+        ("-- name: 2pages\nSELECT 1;\n", "leading digit"),
+        ("-- name:\nSELECT 1;\n", "no name"),
+        ("-- name: q :first\nSELECT 1;\n", "unknown cardinality"),
+        ("-- name: q :one extra\nSELECT 1;\n", "extra text"),
+        ("SELECT 1; -- name: q\n", "not at line start"),
     ] {
         let f = parse_query_file(src);
         assert!(
             codes(&f).contains(&"query-header-invalid"),
-            "{why} : {:?}",
+            "{why}: {:?}",
             f.diagnostics
         );
     }
 }
 
 #[test]
-fn toutes_les_cardinalites() {
+fn all_cardinalities() {
     for c in Cardinality::ALL {
         let f = ok(&format!("-- name: q :{}\nSELECT 1;\n", c.as_str()));
         assert_eq!(f.queries[0].cardinality, Some(c));
@@ -199,13 +197,13 @@ fn toutes_les_cardinalites() {
 }
 
 #[test]
-fn un_fichier_illisible_est_signale() {
-    let f = parse_query_file("-- name: q\nSELECT 'non terminée;\n");
+fn an_unreadable_file_is_reported() {
+    let f = parse_query_file("-- name: q\nSELECT 'unterminated;\n");
     assert_eq!(codes(&f), ["parse-error"]);
 }
 
 #[test]
-fn en_tete_avec_ligne_de_reference() {
+fn header_with_row_reference() {
     let src = "-- name: a :many -> card\nSELECT 1 AS x;\n-- name: b -> card\nSELECT 1 AS x;\n";
     let f = parse_query_file(src);
     assert!(f.diagnostics.is_empty(), "{:?}", f.diagnostics);
@@ -218,16 +216,16 @@ fn en_tete_avec_ligne_de_reference() {
 }
 
 #[test]
-fn ligne_de_reference_invalide() {
-    for (src, attendu) in [
-        ("-- name: a ->\nSELECT 1;\n", "sans nom"),
-        ("-- name: a -> Card\nSELECT 1;\n", "nom de requête invalide"),
-        ("-- name: a -> card en_trop\nSELECT 1;\n", "texte inattendu"),
+fn invalid_row_reference() {
+    for (src, expected) in [
+        ("-- name: a ->\nSELECT 1;\n", "without a query name"),
+        ("-- name: a -> Card\nSELECT 1;\n", "invalid query name"),
+        ("-- name: a -> card extra\nSELECT 1;\n", "unexpected text"),
     ] {
         let f = parse_query_file(src);
         assert!(
-            f.diagnostics.iter().any(|d| d.message.contains(attendu)),
-            "{src:?} : {:?}",
+            f.diagnostics.iter().any(|d| d.message.contains(expected)),
+            "{src:?}: {:?}",
             f.diagnostics
         );
     }

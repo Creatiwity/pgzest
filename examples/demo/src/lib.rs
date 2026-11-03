@@ -1,20 +1,19 @@
-//! Démo pgweave : les requêtes de `queries/` deviennent le module
-//! [`queries`] (`src/queries.rs`), généré à la compilation par la macro
-//! `queries!` : un sous-module par fichier (`queries::menu`,
-//! `queries::promotions::deals`).
+//! pgweave demo: the queries in `queries/` become the [`queries`] module
+//! (`src/queries.rs`), generated at compile time by the `queries!` macro:
+//! one submodule per file (`queries::menu`, `queries::promotions::deals`).
 //!
-//! Pour voir le code généré : `pgweave describe --rust queries/*.sql`, ou
-//! « Go to Definition » sur une fonction de `queries` dans VS Code.
+//! To see the generated code: `pgweave describe --rust queries/*.sql`, or
+//! "Go to Definition" on a function of `queries` in VS Code.
 
-pub mod carte;
-/// Enums des types énumérés du projet (`dish_kind`, `order_status`…),
-/// générés une fois : `[rust] types = "crate::db"` dans pgweave.toml.
+pub mod inline;
+/// Enums for the project's enumerated types (`dish_kind`, `order_status`…),
+/// generated once: `[rust] types = "crate::db"` in pgweave.toml.
 #[pgweave_macros::types]
 pub mod db {}
 pub mod queries;
 
-/// Plat le plus cher d'un restaurant : requête écrite en ligne, analysée à
-/// la compilation comme les autres (essayez d'y introduire une faute).
+/// A restaurant's most expensive dish: a query written inline, analyzed at
+/// compile time like the others (try introducing a mistake into it).
 pub async fn priciest_dish<C: pgweave_runtime::GenericClient + ?Sized>(
     client: &C,
     restaurant: i64,

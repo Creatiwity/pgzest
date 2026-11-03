@@ -4,9 +4,9 @@ use crate::stmt::SelectStmt;
 use crate::types::DataType;
 use serde::{Deserialize, Serialize};
 
-// Même arbitrage que pour `Statement` (voir stmt.rs) : boxer les variants
-// casserait le filtrage par motif dans tous les crates consommateurs, pour un
-// gain négligeable sur des nœuds manipulés par référence.
+// Same trade-off as for `Statement` (see stmt.rs): boxing the variants
+// would break pattern matching in every consumer crate, for a negligible
+// gain on nodes handled by reference.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DdlStatement {
@@ -37,29 +37,29 @@ pub struct CreateTable {
     pub name: ObjectName,
     pub if_not_exists: bool,
     pub temporary: bool,
-    /// `UNLOGGED` : non journalisée (perdue après un crash).
+    /// `UNLOGGED`: not WAL-logged (lost after a crash).
     pub unlogged: bool,
-    /// `ON COMMIT …`, tables temporaires seulement.
+    /// `ON COMMIT …`, temporary tables only.
     pub on_commit: Option<OnCommit>,
     pub columns: Vec<ColumnDef>,
     pub constraints: Vec<TableConstraint>,
-    /// Éléments `LIKE` : colonnes copiées d'une autre table.
+    /// `LIKE` elements: columns copied from another table.
     pub likes: Vec<TableLike>,
-    /// `CREATE TABLE … AS requête` : les colonnes sont celles de la requête
-    /// (`columns` n'en donne alors que les noms, s'il n'est pas vide).
+    /// `CREATE TABLE … AS query`: the columns are those of the query
+    /// (`columns` then only gives their names, if not empty).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_query: Option<Box<crate::stmt::SelectStmt>>,
 }
 
-/// `LIKE source [{INCLUDING | EXCLUDING} option …]` parmi les éléments d'un
+/// `LIKE source [{INCLUDING | EXCLUDING} option …]` among the elements of a
 /// `CREATE TABLE`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableLike {
     pub source: ObjectName,
-    /// Nombre de colonnes déclarées avant cet élément : les colonnes copiées
-    /// s'insèrent à cette position, comme dans PostgreSQL.
+    /// Number of columns declared before this element: the copied columns
+    /// are inserted at this position, as in PostgreSQL.
     pub position: usize,
-    /// Options dans l'ordre d'écriture (la dernière l'emporte).
+    /// Options in writing order (the last one wins).
     pub options: Vec<LikeOption>,
 }
 
@@ -69,7 +69,7 @@ pub struct LikeOption {
     pub feature: LikeFeature,
 }
 
-/// Ce que copie `LIKE` en plus des noms, types et `NOT NULL`.
+/// What `LIKE` copies in addition to names, types and `NOT NULL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LikeFeature {
     Comments,
@@ -121,17 +121,17 @@ pub struct ColumnDef {
     pub constraints: Vec<ColumnConstraint>,
 }
 
-/// Colonne calculée. Elle n'accepte aucune valeur en `INSERT`/`UPDATE`.
+/// Generated column. It accepts no value in `INSERT`/`UPDATE`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeneratedColumn {
     pub expr: Expr,
-    /// `STORED` : calculée à l'écriture. `VIRTUAL` (défaut de PostgreSQL 18) :
-    /// calculée à la lecture.
+    /// `STORED`: computed on write. `VIRTUAL` (PostgreSQL 18 default):
+    /// computed on read.
     pub stored: bool,
 }
 
-/// Colonne identité : valeur tirée d'une séquence implicite. `Always`
-/// refuse une valeur explicite en `INSERT` (sauf `OVERRIDING SYSTEM VALUE`).
+/// Identity column: value drawn from an implicit sequence. `Always`
+/// rejects an explicit value in `INSERT` (unless `OVERRIDING SYSTEM VALUE`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Identity {
     Always,
@@ -162,8 +162,8 @@ pub enum ReferentialAction {
     NoAction,
 }
 
-/// Contrainte de table. `name` est le nom donné par `CONSTRAINT nom`, absent
-/// quand PostgreSQL en génère un.
+/// Table constraint. `name` is the name given by `CONSTRAINT name`, absent
+/// when PostgreSQL generates one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TableConstraint {
     PrimaryKey {
@@ -186,7 +186,7 @@ pub enum TableConstraint {
         name: Option<Ident>,
         expr: Expr,
     },
-    /// `EXCLUDE [USING méthode] (élément WITH opérateur, …) [WHERE (…)]`.
+    /// `EXCLUDE [USING method] (element WITH operator, …) [WHERE (…)]`.
     Exclude {
         name: Option<Ident>,
         using: Option<String>,
@@ -210,7 +210,7 @@ impl TableConstraint {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExclusionElement {
     pub element: IndexElement,
-    /// Opérateur de comparaison (`=`, `&&`, …).
+    /// Comparison operator (`=`, `&&`, …).
     pub operator: String,
 }
 
@@ -221,19 +221,19 @@ pub struct CreateIndex {
     pub span: Span,
     pub name: Option<Ident>,
     pub table: ObjectName,
-    /// Éléments indexés, dans l'ordre : colonnes ou expressions, avec leur
-    /// classe d'opérateurs et leur ordre.
+    /// Indexed elements, in order: columns or expressions, with their
+    /// operator class and ordering.
     pub elements: Vec<IndexColumn>,
-    /// `INCLUDE (…)` : colonnes portées sans être indexées.
+    /// `INCLUDE (…)`: columns carried without being indexed.
     pub include: Vec<Ident>,
-    /// `NULLS NOT DISTINCT` : un index unique refuse deux NULL.
+    /// `NULLS NOT DISTINCT`: a unique index rejects two NULLs.
     pub nulls_not_distinct: bool,
     pub unique: bool,
     pub if_not_exists: bool,
     pub concurrently: bool,
-    /// Méthode d'accès (`btree`, `gin`, `gist`…), absente = btree.
+    /// Access method (`btree`, `gin`, `gist`…), absent = btree.
     pub using: Option<String>,
-    /// Index partiel.
+    /// Partial index.
     pub where_clause: Option<Expr>,
 }
 
@@ -243,16 +243,16 @@ pub enum IndexElement {
     Expr(Expr),
 }
 
-/// Un élément d'index et ses options.
+/// An index element and its options.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IndexColumn {
     pub element: IndexElement,
-    /// Classe d'opérateurs (`gin_trgm_ops`) ; absente = celle par défaut du
-    /// type pour la méthode.
+    /// Operator class (`gin_trgm_ops`); absent = the type's default one for
+    /// the method.
     pub opclass: Option<ObjectName>,
-    /// `DESC` ; sinon croissant.
+    /// `DESC`; otherwise ascending.
     pub descending: bool,
-    /// `NULLS FIRST` (`Some(true)`) ou `NULLS LAST` (`Some(false)`) écrit.
+    /// `NULLS FIRST` (`Some(true)`) or `NULLS LAST` (`Some(false)`) written.
     pub nulls_first: Option<bool>,
 }
 
@@ -268,7 +268,7 @@ impl IndexColumn {
 }
 
 impl CreateIndex {
-    /// Colonnes indexées directement (hors expressions).
+    /// Directly indexed columns (expressions excluded).
     pub fn columns(&self) -> impl Iterator<Item = &Ident> {
         self.elements.iter().filter_map(|e| match &e.element {
             IndexElement::Column(c) => Some(c),
@@ -306,17 +306,17 @@ pub enum FunctionLanguage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FunctionBody {
-    /// Corps non analysé : langage externe (`C`, `internal` — le corps est un
-    /// symbole), ou corps dont l'analyse a échoué (signalé à part).
+    /// Unanalyzed body: external language (`C`, `internal` — the body is a
+    /// symbol), or body whose analysis failed (reported separately).
     Raw(String),
-    /// Corps `LANGUAGE sql` réduit à un seul SELECT.
+    /// `LANGUAGE sql` body reduced to a single SELECT.
     SqlQuery(Box<SelectStmt>),
-    /// Corps `LANGUAGE sql` de plusieurs statements, ou `BEGIN ATOMIC … END`.
-    /// Le résultat de la routine est celui du dernier statement.
+    /// `LANGUAGE sql` body with several statements, or `BEGIN ATOMIC … END`.
+    /// The routine's result is that of the last statement.
     Sql(Vec<crate::stmt::Statement>),
-    /// Corps SQL standard `RETURN expr`.
+    /// Standard SQL body `RETURN expr`.
     SqlReturn(Expr),
-    /// Corps LANGUAGE plpgsql parsé en AST structuré
+    /// LANGUAGE plpgsql body parsed into a structured AST
     Parsed(Box<crate::plpgsql::PlpgsqlBody>),
 }
 
@@ -328,10 +328,10 @@ pub enum Parallel {
     Safe,
 }
 
-/// Clause `SET param { TO | = } valeur [, …]` ou `SET param FROM CURRENT`
-/// d'une routine : la valeur s'applique pendant l'exécution du corps.
-/// Indispensable pour `search_path` (résolution des noms du corps, et règle
-/// `SECURITY DEFINER` sans `search_path` fixé).
+/// `SET param { TO | = } value [, …]` or `SET param FROM CURRENT` clause
+/// of a routine: the value applies while the body executes.
+/// Essential for `search_path` (name resolution in the body, and the
+/// `SECURITY DEFINER` without a fixed `search_path` rule).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionSetting {
     pub name: String,
@@ -340,17 +340,17 @@ pub struct FunctionSetting {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingValue {
-    /// Valeurs, telles qu'écrites (identifiants sans guillemets, chaînes sans
-    /// délimiteurs). `DEFAULT` donne une liste vide.
+    /// Values, as written (identifiers without quotes, strings without
+    /// delimiters). `DEFAULT` gives an empty list.
     Values(Vec<String>),
     FromCurrent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ReturnType {
-    /// Pas de clause `RETURNS` : le résultat est défini par les paramètres
-    /// `OUT`/`INOUT` — le type du seul paramètre, ou `record` s'il y en a
-    /// plusieurs. Une seule ligne (pas `SETOF`).
+    /// No `RETURNS` clause: the result is defined by the `OUT`/`INOUT`
+    /// parameters — the type of the single parameter, or `record` if there
+    /// are several. A single row (not `SETOF`).
     OutParams,
     Scalar(DataType),
     Table(Vec<(Ident, DataType)>),
@@ -374,8 +374,8 @@ pub struct CreateFunction {
     pub body: FunctionBody,
     pub security_definer: bool,
     pub volatility: Volatility,
-    /// `STRICT` / `RETURNS NULL ON NULL INPUT` : renvoie NULL dès qu'un
-    /// argument est NULL. Compte pour l'inférence de nullabilité.
+    /// `STRICT` / `RETURNS NULL ON NULL INPUT`: returns NULL as soon as an
+    /// argument is NULL. Counts for nullability inference.
     pub strict: bool,
     pub leakproof: bool,
     pub parallel: Option<Parallel>,
@@ -416,8 +416,8 @@ pub struct CreateTrigger {
     pub timing: TriggerTiming,
     pub events: Vec<TriggerEvent>,
     pub for_each: TriggerForEach,
-    /// `REFERENCING { OLD | NEW } TABLE AS nom` : tables de transition, visibles
-    /// dans le corps d'un trigger niveau statement.
+    /// `REFERENCING { OLD | NEW } TABLE AS name`: transition tables, visible
+    /// in the body of a statement-level trigger.
     pub referencing: Vec<TransitionTable>,
     pub when: Option<Expr>,
     pub function: ObjectName,
@@ -425,7 +425,7 @@ pub struct CreateTrigger {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransitionTable {
-    /// `NEW TABLE` (lignes insérées ou nouvelles valeurs) ou `OLD TABLE`.
+    /// `NEW TABLE` (inserted rows or new values) or `OLD TABLE`.
     pub new: bool,
     pub name: Ident,
 }
@@ -481,7 +481,7 @@ pub enum PolicyCommand {
 pub struct AlterTable {
     pub name: ObjectName,
     pub if_exists: bool,
-    /// `ONLY` : la table seule, sans ses tables filles (héritage,
+    /// `ONLY`: the table alone, without its child tables (inheritance,
     /// partitions).
     pub only: bool,
     pub operations: Vec<AlterTableOp>,
@@ -499,7 +499,7 @@ pub enum AlterTableOp {
     DropColumn {
         name: Ident,
         if_exists: bool,
-        /// `CASCADE` : supprime aussi les objets qui en dépendent.
+        /// `CASCADE`: also drops the objects that depend on it.
         cascade: bool,
     },
     AlterColumn {
@@ -508,7 +508,7 @@ pub enum AlterTableOp {
     },
     AddConstraint {
         constraint: TableConstraint,
-        /// `NOT VALID` : les lignes existantes ne sont pas vérifiées (voir
+        /// `NOT VALID`: existing rows are not checked (see
         /// `ValidateConstraint`).
         not_valid: bool,
     },
@@ -521,9 +521,9 @@ pub enum AlterTableOp {
         from: Ident,
         to: Ident,
     },
-    /// `RENAME TO` : nouveau nom, dans le même schéma.
+    /// `RENAME TO`: new name, in the same schema.
     RenameTo(Ident),
-    /// `SET SCHEMA` : déplacement, pas suppression puis création.
+    /// `SET SCHEMA`: a move, not a drop followed by a create.
     SetSchema(Ident),
     ValidateConstraint(Ident),
 }
@@ -534,8 +534,8 @@ pub enum AlterColumnAction {
     DropDefault,
     SetNotNull,
     DropNotNull,
-    /// `[SET DATA] TYPE t [USING expr]` : `using` convertit les valeurs
-    /// existantes.
+    /// `[SET DATA] TYPE t [USING expr]`: `using` converts the existing
+    /// values.
     SetDataType {
         data_type: DataType,
         using: Option<Expr>,
@@ -552,10 +552,10 @@ pub struct CreateType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TypeDefinition {
-    /// `AS ENUM ('a', 'b')` : valeurs dans l'ordre de déclaration (qui est
-    /// l'ordre de tri).
+    /// `AS ENUM ('a', 'b')`: values in declaration order (which is the
+    /// sort order).
     Enum(Vec<String>),
-    /// `AS (champ type, …)`.
+    /// `AS (field type, …)`.
     Composite(Vec<(Ident, DataType)>),
 }
 
@@ -570,7 +570,7 @@ pub enum AlterTypeOp {
     AddValue {
         value: String,
         if_not_exists: bool,
-        /// Position relative à une valeur existante ; absente = à la fin.
+        /// Position relative to an existing value; absent = at the end.
         position: Option<EnumValuePosition>,
     },
     RenameValue {
@@ -595,7 +595,7 @@ pub struct CreateDomain {
     pub data_type: DataType,
     pub not_null: bool,
     pub default: Option<Expr>,
-    /// `CHECK (expr)` où `VALUE` désigne la valeur testée.
+    /// `CHECK (expr)` where `VALUE` denotes the tested value.
     pub checks: Vec<DomainCheck>,
 }
 
@@ -605,13 +605,13 @@ pub struct DomainCheck {
     pub expr: Expr,
 }
 
-// ── Extensions et schémas ─────────────────────────────────────────────────────
+// ── Extensions and schemas ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateExtension {
     pub name: Ident,
     pub if_not_exists: bool,
-    /// Schéma où ranger les objets de l'extension (PLAN.md, D11).
+    /// Schema where the extension's objects are placed (PLAN.md, D11).
     pub schema: Option<Ident>,
     pub version: Option<String>,
     pub cascade: bool,
@@ -625,7 +625,7 @@ pub struct AlterExtension {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AlterExtensionOp {
-    /// `UPDATE [TO version]` : sans version, la version par défaut installée.
+    /// `UPDATE [TO version]`: without a version, the default version is installed.
     Update(Option<String>),
     SetSchema(Ident),
 }
@@ -634,11 +634,11 @@ pub enum AlterExtensionOp {
 pub struct CreateSchema {
     pub name: Ident,
     pub if_not_exists: bool,
-    /// `AUTHORIZATION rôle` : propriétaire du schéma.
+    /// `AUTHORIZATION role`: owner of the schema.
     pub authorization: Option<Ident>,
 }
 
-// ── Vues et séquences ─────────────────────────────────────────────────────────
+// ── Views and sequences ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateView {
@@ -646,7 +646,7 @@ pub struct CreateView {
     pub or_replace: bool,
     pub materialized: bool,
     pub temporary: bool,
-    /// Noms de colonnes explicites `CREATE VIEW v (a, b) AS …`.
+    /// Explicit column names `CREATE VIEW v (a, b) AS …`.
     pub columns: Vec<Ident>,
     pub query: SelectStmt,
 }
@@ -656,7 +656,7 @@ pub struct CreateSequence {
     pub name: ObjectName,
     pub if_not_exists: bool,
     pub temporary: bool,
-    /// `AS type` : `bigint` par défaut.
+    /// `AS type`: `bigint` by default.
     pub data_type: Option<DataType>,
     pub increment: Option<i64>,
     pub min_value: Option<i64>,
@@ -664,7 +664,7 @@ pub struct CreateSequence {
     pub start: Option<i64>,
     pub cache: Option<i64>,
     pub cycle: bool,
-    /// `OWNED BY table.colonne`.
+    /// `OWNED BY table.column`.
     pub owned_by: Option<ObjectName>,
 }
 
@@ -676,12 +676,12 @@ pub struct DropObject {
     pub names: Vec<ObjectName>,
     pub if_exists: bool,
     pub cascade: bool,
-    /// Table portant l'objet : `DROP TRIGGER t ON table`, `DROP POLICY p ON
+    /// Table carrying the object: `DROP TRIGGER t ON table`, `DROP POLICY p ON
     /// table`.
     pub on_table: Option<ObjectName>,
-    /// Fonctions et procédures : types des arguments d'entrée de chaque nom
-    /// (`DROP FUNCTION f(int)`), `None` sans parenthèses. Parallèle à `names`
-    /// pour ces types d'objet, vide sinon.
+    /// Functions and procedures: input argument types of each name
+    /// (`DROP FUNCTION f(int)`), `None` without parentheses. Parallel to `names`
+    /// for these object kinds, empty otherwise.
     pub signatures: Vec<Option<Vec<DataType>>>,
 }
 

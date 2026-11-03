@@ -1,31 +1,31 @@
-//! Types polymorphes : `anyelement` et sa famille, `anycompatible` et la
-//! sienne (`check_generic_type_consistency`,
+//! Polymorphic types: `anyelement` and its family, `anycompatible` and
+//! its own (`check_generic_type_consistency`,
 //! `enforce_generic_type_consistency`).
 
 use crate::types::{Ty, TypeSystem, is_polymorphic, pg};
 
-/// Ce que les arguments réels disent des deux familles polymorphes.
+/// What the actual arguments say about the two polymorphic families.
 #[derive(Default)]
 struct Deduced {
-    /// Famille `anyelement` : élément, tableau, intervalle, multi-intervalle.
+    /// `anyelement` family: element, array, range, multirange.
     elem: Option<Ty>,
     array: Option<Ty>,
     range: Option<Ty>,
     multirange: Option<Ty>,
     nonarray: bool,
     is_enum: bool,
-    /// Un argument de la famille `anyelement` est un littéral sans type.
+    /// An argument of the `anyelement` family is an untyped literal.
     elem_family_unknown: bool,
-    /// Famille `anycompatible` : types réels à unifier.
+    /// `anycompatible` family: actual types to unify.
     compatible: Vec<Ty>,
     compatible_nonarray: bool,
     compatible_range: Option<Ty>,
     compatible_range_elem: Option<Ty>,
-    /// Un argument de la famille `anycompatible` est présent.
+    /// An argument of the `anycompatible` family is present.
     compatible_family: bool,
 }
 
-/// Échec de la résolution polymorphe : le message de PostgreSQL.
+/// Polymorphic resolution failure: the PostgreSQL message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PolymorphicError(pub String);
 
@@ -38,7 +38,7 @@ fn name(t: &Ty) -> &str {
 }
 
 impl TypeSystem<'_> {
-    /// Collecte et vérifie ; `Err` porte la raison de l'incohérence.
+    /// Collects and checks; `Err` carries the reason of the inconsistency.
     fn deduce(&self, actual: &[Ty], declared: &[Ty]) -> Result<Deduced, PolymorphicError> {
         let unknown = pg("unknown");
         let mut d = Deduced::default();
@@ -123,13 +123,13 @@ impl TypeSystem<'_> {
                             d.compatible_range = Some(r);
                             d.compatible_range_elem = Some(sub);
                         }
-                        _ => unreachable!("type polymorphe inconnu : {kind}"),
+                        _ => unreachable!("unknown polymorphic type: {kind}"),
                     }
                 }
             }
         }
 
-        // L'élément déduit du tableau, du multi-intervalle, de l'intervalle.
+        // The element deduced from the array, the multirange, the range.
         let mut agree = |from: Ty, what: &str| -> Result<(), PolymorphicError> {
             match &d.elem {
                 Some(e) if *e != from => Err(PolymorphicError(format!(
@@ -188,8 +188,8 @@ impl TypeSystem<'_> {
         Ok(d)
     }
 
-    /// Type commun de la famille `anycompatible` (`text` si tout est
-    /// littéral), vérifié contre ses contraintes.
+    /// Common type of the `anycompatible` family (`text` if everything is
+    /// a literal), checked against its constraints.
     fn compatible_common(&self, d: &Deduced) -> Result<Option<Ty>, PolymorphicError> {
         if !d.compatible_family {
             return Ok(None);
@@ -214,22 +214,22 @@ impl TypeSystem<'_> {
                 "anycompatiblerange type {} does not match anycompatible type {common}",
                 d.compatible_range
                     .as_ref()
-                    .expect("intervalle déduit avec son sous-type")
+                    .expect("range deduced with its subtype")
             )));
         }
         Ok(Some(common))
     }
 
-    /// `check_generic_type_consistency` : les arguments réels sont-ils
-    /// compatibles avec les types polymorphes déclarés ?
+    /// `check_generic_type_consistency`: are the actual arguments
+    /// compatible with the declared polymorphic types?
     pub fn generic_consistent(&self, actual: &[Ty], declared: &[Ty]) -> bool {
         self.deduce(actual, declared)
             .and_then(|d| self.compatible_common(&d))
             .is_ok()
     }
 
-    /// `enforce_generic_type_consistency` : remplace les types polymorphes
-    /// des arguments et du résultat par les types réels.
+    /// `enforce_generic_type_consistency`: replaces the polymorphic types
+    /// of the arguments and of the result with the actual types.
     pub fn resolve_generic(
         &self,
         actual: &[Ty],

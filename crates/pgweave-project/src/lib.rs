@@ -1,26 +1,25 @@
-//! Base de projet incrémentale (PLAN.md, D3 ; décision 0001).
+//! Incremental project database (PLAN.md, D3; decision 0001).
 //!
 //! ```text
 //! SourceFile ─┐
 //!             ├► parse_file ──┬──────────────────────────► check_file(f)
 //! Project ────┘ (macros)      │                                  ▲
 //!   └─────────► project_replay ─► project_catalog ───────────────┘
-//!               (rejeu ordonné et   (comparé par contenu)
-//!                vérifié, diagnostics)
+//!               (ordered, checked   (compared by content)
+//!                replay, diagnostics)
 //! ```
 //!
-//! - `parse_file` relit un fichier dont le texte change, ou tous les
-//!   fichiers si les macros du projet changent (`no_eq` : l'AST n'est pas
-//!   comparable) ;
-//! - `project_replay` ne lit que les fichiers de schéma et les migrations, et
-//!   garde les diagnostics du rejeu avec leurs spans ;
-//! - `project_catalog` n'en retient que le catalogue et le `search_path` :
-//!   s'il retrouve les mêmes (un commentaire modifié), salsa s'arrête là et
-//!   aucune vérification n'est relancée ;
-//! - `check_file` d'un fichier de requêtes ne dépend que de son fichier et
-//!   du catalogue ; un fichier de schéma ou de migration est vérifié pendant
-//!   le rejeu (chaque statement contre l'état du catalogue à ce point), et
-//!   `check_file` en rend les diagnostics.
+//! - `parse_file` re-reads a file whose text changes, or every file when
+//!   the project macros change (`no_eq`: the AST is not comparable);
+//! - `project_replay` only reads schema files and migrations, and keeps the
+//!   replay diagnostics with their spans;
+//! - `project_catalog` keeps only the catalog and the `search_path`: if it
+//!   finds the same ones again (an edited comment), salsa stops there and no
+//!   check is rerun;
+//! - `check_file` of a query file only depends on that file and the catalog;
+//!   a schema or migration file is checked during the replay (each statement
+//!   against the catalog state at that point), and `check_file` returns those
+//!   diagnostics.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,9 +34,9 @@ use pgweave_parser::{ParseError, ParseOutcome};
 use pgweave_schema::{FileRole, SqlChunk};
 use salsa::Setter;
 
-// ── Entrées ───────────────────────────────────────────────────────────────────
+// ── Inputs ────────────────────────────────────────────────────────────────────
 
-/// Un fichier du projet : son texte est ce qui change.
+/// A project file: its text is what changes.
 #[salsa::input(debug)]
 pub struct SourceFile {
     #[returns(ref)]
@@ -46,20 +45,20 @@ pub struct SourceFile {
     pub text: String,
     #[returns(ref)]
     pub role: FileRole,
-    /// Position du texte dans son document (fragment SQL d'un `.ts`, d'un
-    /// Markdown…) ; 0 pour un fichier SQL.
+    /// Position of the text in its document (SQL fragment of a `.ts`, of a
+    /// Markdown file…); 0 for a SQL file.
     pub offset: usize,
 }
 
-/// Le projet : ses fichiers, dans l'ordre d'application (schéma, puis
-/// migrations par séquence), et les macros reconnues.
+/// The project: its files, in application order (schema, then migrations by
+/// sequence), and the recognized macros.
 #[salsa::input]
 pub struct Project {
     #[returns(ref)]
     pub files: Vec<SourceFile>,
     #[returns(ref)]
     pub macros: Arc<MacroSet>,
-    /// `[schema] declarative` : les migrations sont rejouées à part (D10).
+    /// `[schema] declarative`: migrations are replayed separately (D10).
     pub declarative: bool,
 }
 
@@ -67,7 +66,7 @@ pub struct Project {
 
 #[salsa::db]
 pub trait Db: salsa::Database {
-    /// Trace des requêtes exécutées (tests d'incrémentalité, diagnostic).
+    /// Trace of executed queries (incrementality tests, diagnostics).
     fn log_execution(&self, what: String);
 }
 
@@ -79,9 +78,9 @@ pub struct Database {
 }
 
 impl Database {
-    /// Requêtes exécutées depuis le dernier appel, dans l'ordre.
+    /// Queries executed since the last call, in order.
     pub fn take_executions(&self) -> Vec<String> {
-        std::mem::take(&mut *self.executions.lock().expect("journal"))
+        std::mem::take(&mut *self.executions.lock().expect("execution log"))
     }
 }
 
@@ -91,7 +90,7 @@ impl salsa::Database for Database {}
 #[salsa::db]
 impl Db for Database {
     fn log_execution(&self, what: String) {
-        self.executions.lock().expect("journal").push(what);
+        self.executions.lock().expect("execution log").push(what);
     }
 }
 
@@ -104,13 +103,13 @@ fn label(db: &dyn Db, file: SourceFile) -> String {
 
 // ── Parse ─────────────────────────────────────────────────────────────────────
 
-/// Parse d'un fichier, macros désucrées : statements compris et écartés, ou
-/// l'erreur qui a empêché toute lecture.
+/// Parse of a file, macros desugared: understood and skipped statements, or
+/// the error that prevented any reading.
 #[derive(Clone)]
 pub struct ParsedFile(pub Arc<Result<ParseOutcome, ParseError>>);
 
 impl ParsedFile {
-    /// Statements compris (aucun si le fichier est illisible).
+    /// Understood statements (none if the file is unreadable).
     pub fn statements(&self) -> &[Statement] {
         match &*self.0 {
             Ok(o) => &o.statements,
@@ -130,10 +129,10 @@ fn defines_schema(role: &FileRole) -> bool {
     matches!(role, FileRole::Schema | FileRole::Migration { .. })
 }
 
-// ── Catalogue ─────────────────────────────────────────────────────────────────
+// ── Catalog ───────────────────────────────────────────────────────────────────
 
-/// Rejeu des fichiers de schéma et des migrations, dans l'ordre du projet :
-/// catalogue, statements écartés et diagnostics de rejeu par fichier.
+/// Replay of the schema files and migrations, in project order: catalog,
+/// skipped statements and replay diagnostics per file.
 #[salsa::tracked(returns(ref), no_eq)]
 pub fn project_replay(db: &dyn Db, project: Project) -> Arc<ProjectCatalog> {
     db.log_execution("project_replay".into());
@@ -156,9 +155,9 @@ pub fn project_replay(db: &dyn Db, project: Project) -> Arc<ProjectCatalog> {
     Arc::new(builder.finish())
 }
 
-/// Catalogue du projet, comparé par contenu (catalogue et `search_path`) :
-/// un rejeu qui retrouve le même catalogue n'invalide rien en aval, même si
-/// les spans de ses diagnostics ont bougé.
+/// Project catalog, compared by content (catalog and `search_path`): a replay
+/// that yields the same catalog invalidates nothing downstream, even if the
+/// spans of its diagnostics moved.
 #[derive(Clone)]
 pub struct CatalogState(pub Arc<ProjectCatalog>);
 
@@ -175,14 +174,13 @@ pub fn project_catalog(db: &dyn Db, project: Project) -> CatalogState {
     CatalogState(project_replay(db, project).clone())
 }
 
-// ── Vérification ──────────────────────────────────────────────────────────────
+// ── Checking ──────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct FileDiagnostics(pub Arc<Vec<Diagnostic>>);
 
-/// Diagnostics de vérification d'un fichier : ceux de son rejeu pour un
-/// fichier de schéma ou de migration, sinon ses statements vérifiés contre
-/// le catalogue du projet.
+/// Check diagnostics of a file: those of its replay for a schema or migration
+/// file, otherwise its statements checked against the project catalog.
 #[salsa::tracked(returns(ref), no_eq)]
 pub fn check_file(db: &dyn Db, project: Project, file: SourceFile) -> FileDiagnostics {
     db.log_execution(format!("check_file({})", label(db, file)));
@@ -205,30 +203,29 @@ pub fn check_file(db: &dyn Db, project: Project, file: SourceFile) -> FileDiagno
     )))
 }
 
-// ── Espace de travail ─────────────────────────────────────────────────────────
+// ── Workspace ─────────────────────────────────────────────────────────────────
 
-/// Projet chargé en mémoire : la base et ses entrées, indexées par chemin.
+/// Project loaded in memory: the database and its inputs, indexed by path.
 ///
-/// C'est ce que tient le serveur de langage : les fragments du projet lus
-/// sur disque au chargement, puis le texte des documents ouverts à mesure
-/// qu'ils sont modifiés. Seul ce qui dépend d'un fichier modifié est
-/// recalculé.
+/// This is what the language server holds: the project fragments read from
+/// disk at load time, then the text of open documents as they are edited.
+/// Only what depends on an edited file is recomputed.
 pub struct Workspace {
     db: Database,
     project: Project,
-    /// Fragments par document. Un document hôte (`.ts`, Markdown) peut en
-    /// porter plusieurs : son texte n'est alors pas un fragment, et il n'est
-    /// pas mis à jour depuis l'éditeur.
+    /// Fragments per document. A host document (`.ts`, Markdown) may carry
+    /// several: its text is then not a fragment, and it is not updated from
+    /// the editor.
     by_path: HashMap<PathBuf, Vec<SourceFile>>,
 }
 
 impl Workspace {
-    /// Projet formé des fragments `chunks`, dans l'ordre d'application.
+    /// Project made of the `chunks` fragments, in application order.
     pub fn new(chunks: &[SqlChunk], macros: Arc<MacroSet>) -> Self {
         Self::with_mode(chunks, macros, false)
     }
 
-    /// Comme [`Self::new`], en mode déclaratif si `declarative` (D10).
+    /// Like [`Self::new`], in declarative mode if `declarative` (D10).
     pub fn with_mode(chunks: &[SqlChunk], macros: Arc<MacroSet>, declarative: bool) -> Self {
         let db = Database::default();
         let mut by_path: HashMap<PathBuf, Vec<SourceFile>> = HashMap::new();
@@ -254,9 +251,9 @@ impl Workspace {
         }
     }
 
-    /// Remplace le texte d'un fichier du projet par celui de l'éditeur.
-    /// Renvoie `false` si `path` n'est pas un fichier SQL du projet (inconnu,
-    /// ou document hôte de plusieurs fragments).
+    /// Replaces the text of a project file with the editor's one.
+    /// Returns `false` if `path` is not a SQL file of the project (unknown,
+    /// or host document of several fragments).
     pub fn set_text(&mut self, path: &Path, text: &str) -> bool {
         let Some(&[file]) = self.by_path.get(path).map(Vec::as_slice) else {
             return false;
@@ -270,22 +267,22 @@ impl Workspace {
         true
     }
 
-    /// Remplace les macros du projet : tous les fichiers sont relus.
+    /// Replaces the project macros: every file is re-read.
     pub fn set_macros(&mut self, macros: Arc<MacroSet>) {
         self.project.set_macros(&mut self.db).to(macros);
     }
 
-    /// `path` est un fichier du projet.
+    /// `path` is a project file.
     pub fn contains(&self, path: &Path) -> bool {
         self.by_path.contains_key(path)
     }
 
-    /// Catalogue du projet à jour (rejeu mémorisé).
+    /// Up-to-date project catalog (memoized replay).
     pub fn catalog(&self) -> Arc<ProjectCatalog> {
         project_replay(&self.db, self.project).clone()
     }
 
-    /// Diagnostics du rejeu rattachés à `path`.
+    /// Replay diagnostics attached to `path`.
     pub fn replay_diagnostics(&self, path: &Path) -> Vec<Diagnostic> {
         project_replay(&self.db, self.project)
             .diagnostics
@@ -295,7 +292,7 @@ impl Workspace {
             .collect()
     }
 
-    /// Requêtes exécutées depuis le dernier appel.
+    /// Queries executed since the last call.
     pub fn take_executions(&self) -> Vec<String> {
         self.db.take_executions()
     }

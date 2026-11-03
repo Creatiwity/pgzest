@@ -1,4 +1,4 @@
--- Pages d'un statut, les plus récentes d'abord.
+-- Pages with a given status, most recent first.
 SELECT id, title
 FROM pages
 WHERE status = 'live'

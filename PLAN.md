@@ -1,341 +1,341 @@
-# pgweave — Plan directeur
+# pgweave — Master plan
 
-> Rédigé le 2026-10-31. Remplace `ROADMAP.md` comme référence de pilotage.
-> `SPECS.md`, `ARCHITECTURE.md`, `PLPGSQL_SPEC.md` et `SPECS-schema-plpgsql.md`
-> restent des documents de contexte ; en cas de contradiction, ce plan fait foi.
+> Written on 2026-10-31. Replaces `ROADMAP.md` as the steering reference.
+> `SPECS.md`, `ARCHITECTURE.md`, `PLPGSQL_SPEC.md` and `SPECS-schema-plpgsql.md`
+> remain context documents; in case of contradiction, this plan prevails.
 >
-> **Nom du projet : `pgweave`** (anciennement `pgsql-tools`).
+> **Project name: `pgweave`** (formerly `pgsql-tools`).
 
 ---
 
-## 0. Pourquoi ce plan
+## 0. Why this plan
 
-Le dépôt contient un socle d'analyse réel (parser SQL + PL/pgSQL, index de
-projet, macros, lint, LSP, tests verts), mais la `ROADMAP.md` déclare livrées
-des phases qui ne le sont qu'en surface, et **la couche qui justifie le projet
-n'existe pas** : appeler du SQL typé depuis le code, sans coût à l'exécution.
+The repository contains a real analysis foundation (SQL + PL/pgSQL parser, project
+index, macros, lint, LSP, green tests), but `ROADMAP.md` declares phases delivered
+that are only delivered on the surface, and **the layer that justifies the project
+does not exist**: calling typed SQL from code, with no runtime cost.
 
-Besoins concrets qui cadrent les priorités :
+Concrete needs that frame the priorities:
 
-- **Mesalia** — une nouvelle brique centrale gRPC en Rust démarre sous 1 à 2
-  semaines (à partir du 2026-10-31) et **remplacera Prisma par ce projet**.
-  Constructions utilisées : procédures, triggers, tables temporaires, `CHECK`,
-  `GENERATED ALWAYS AS … STORED`, enums (retouchés par `ALTER TYPE`),
-  extensions `citext` et `btree_gist`. Identifiants entre guillemets en
-  PascalCase (`"MenuComponent"`), hérités de Prisma. Historique de 224
-  migrations Prisma.
-- **Sherpa** — projet personnel servant de terrain d'essai ; schéma en cours
-  de reconception, pas de schéma de référence existant. Même périmètre que
+- **Mesalia** — a new central gRPC component in Rust starts within 1 to 2
+  weeks (from 2026-10-31) and **will replace Prisma with this project**.
+  Constructs used: procedures, triggers, temporary tables, `CHECK`,
+  `GENERATED ALWAYS AS … STORED`, enums (modified via `ALTER TYPE`),
+  `citext` and `btree_gist` extensions. Quoted PascalCase identifiers
+  (`"MenuComponent"`), inherited from Prisma. History of 224
+  Prisma migrations.
+- **Sherpa** — a personal project used as a testing ground; schema being
+  redesigned, no existing reference schema. Same scope as
   Mesalia.
-- **Rust d'abord**, sur `tokio-postgres` brut. TypeScript ensuite.
-- **PostgreSQL 18** comme version cible initiale (Mesalia en production).
-  Conséquence notable : en PG 18, `GENERATED ALWAYS AS (…)` sans mot-clé
-  produit une colonne **virtuelle** — les deux variantes sont modélisées.
-- Ce projet est le successeur de `kysely-procedures` : retour au SQL standard,
-  avec le « sucre » nécessaire pour le rendre moderne et maintenable.
-- **COPY FROM** en flux depuis un CSV (cas siren : table de staging, 50+
-  colonnes listées à la main, sans vérification) — à couvrir nativement.
-- **Extensibilité** pour les extensions PostgreSQL (PostGIS d'abord).
-- **Reporté volontairement** : RLS et JSONB. Les deux méritent un travail de DX
-  dédié avant d'être outillés (cf. §6).
+- **Rust first**, on raw `tokio-postgres`. TypeScript next.
+- **PostgreSQL 18** as the initial target version (Mesalia in production).
+  Notable consequence: in PG 18, `GENERATED ALWAYS AS (…)` without a keyword
+  produces a **virtual** column — both variants are modeled.
+- This project is the successor of `kysely-procedures`: back to standard SQL,
+  with the "sugar" needed to make it modern and maintainable.
+- **COPY FROM** streamed from a CSV (siren case: staging table, 50+
+  columns listed by hand, unchecked) — to be covered natively.
+- **Extensibility** for PostgreSQL extensions (PostGIS first).
+- **Deliberately postponed**: RLS and JSONB. Both deserve dedicated DX work
+  before being tooled (see §6).
 
-Exigence transverse : robuste, clair, maintenable. Pas de raccourci qui crée
-de la dette à rembourser avant même d'avoir servi.
+Cross-cutting requirement: robust, clear, maintainable. No shortcut that creates
+debt to be repaid before it has even been used.
 
 ---
 
-## 1. Principes
+## 1. Principles
 
-Ils tranchent les arbitrages futurs ; une PR qui en viole un doit le justifier.
+They settle future trade-offs; a PR that violates one must justify it.
 
-1. **Fidélité à PostgreSQL, pas approximation.** Les règles de résolution de
-   types (surcharges, casts implicites, littéraux `unknown`, `UNION`/`CASE`)
-   suivent le chapitre *Type Conversion* de la documentation PG. Le catalogue
-   des fonctions/opérateurs/types intégrés est **généré depuis un vrai
-   PostgreSQL**, jamais écrit à la main.
-2. **Ne jamais deviner.** Un type ou une nullabilité inconnus sont représentés
-   comme tels (`Unknown`), propagés sans cascade d'erreurs, et la cause racine
-   est diagnostiquée. Un descripteur de requête (§4) **refuse** d'être produit
-   s'il contient un inconnu : pas de `any`, pas de `unknown`, pas de cast
-   silencieux côté code appelant.
-3. **Le silence est un bug** (déjà en place, à conserver) : tout ce qui n'est
-   pas analysé est signalé.
-4. **Une seule source de vérité par préoccupation.** Un catalogue, un
-   résolveur, un descripteur de requête consommé par toutes les cibles (Rust,
+1. **Fidelity to PostgreSQL, not approximation.** Type resolution rules
+   (overloads, implicit casts, `unknown` literals, `UNION`/`CASE`)
+   follow the *Type Conversion* chapter of the PG documentation. The catalog
+   of built-in functions/operators/types is **generated from a real
+   PostgreSQL**, never written by hand.
+2. **Never guess.** An unknown type or nullability is represented
+   as such (`Unknown`), propagated without cascading errors, and the root cause
+   is diagnosed. A query descriptor (§4) **refuses** to be produced
+   if it contains an unknown: no `any`, no `unknown`, no silent
+   cast on the calling-code side.
+3. **Silence is a bug** (already in place, to be kept): everything that is not
+   analyzed is reported.
+4. **A single source of truth per concern.** One catalog, one
+   resolver, one query descriptor consumed by all targets (Rust,
    TS, LSP).
-5. **Déterminisme.** Même entrée → même sortie, octet pour octet (ordre des
-   maps, identifiants de nœuds, code généré). Condition des caches et des
+5. **Determinism.** Same input → same output, byte for byte (map
+   order, node identifiers, generated code). A prerequisite for caches and
    snapshots.
-6. **Le mécanisme d'extension est celui des intégrés.** `pg_catalog` est
-   chargé comme une extension parmi d'autres ; les macros fournies sont
-   écrites dans le format public (déjà le cas).
-7. **Validé contre le réel.** Tout ce qui prétend imiter PostgreSQL est testé
-   contre PostgreSQL (oracle différentiel, §7) et contre des corpus réels.
-8. **Identifiants fidèles.** Un identifiant non quoté est replié en
-   minuscules, un identifiant quoté est conservé tel quel — exactement comme
-   PostgreSQL. `"MenuComponent"` et `menucomponent` sont deux objets
-   distincts. (Le code actuel met tout en minuscules : c'est un bug pour
-   Mesalia, corrigé en P1/P2.)
-9. **Tout nom est qualifié par son schéma** une fois résolu. Aucun objet du
-   catalogue n'existe « sans schéma » (cf. D11).
+6. **The extension mechanism is the one used by built-ins.** `pg_catalog` is
+   loaded as one extension among others; the provided macros are
+   written in the public format (already the case).
+7. **Validated against reality.** Everything that claims to mimic PostgreSQL is tested
+   against PostgreSQL (differential oracle, §7) and against real corpora.
+8. **Faithful identifiers.** An unquoted identifier is folded to
+   lowercase, a quoted identifier is kept as is — exactly like
+   PostgreSQL. `"MenuComponent"` and `menucomponent` are two distinct
+   objects. (The current code lowercases everything: this is a bug for
+   Mesalia, fixed in P1/P2.)
+9. **Every name is qualified by its schema** once resolved. No catalog
+   object exists "without a schema" (see D11).
 
 ---
 
-## 2. Décisions d'architecture
+## 2. Architecture decisions
 
-Format court : décision, raison, alternative écartée.
+Short format: decision, reason, rejected alternative.
 
-### D1 — Parser : dialecte wrapper sur `sqlparser-rs`, fork en dernier recours
+### D1 — Parser: wrapper dialect over `sqlparser-rs`, fork as a last resort
 
-Aujourd'hui `PostgreSqlDialect` est utilisé tel quel et ce qu'il ne gère pas
-est contourné par **réécriture textuelle avant parse** (`PROCEDURE` →
-`FUNCTION … RETURNS VOID`, suppression de `RETURNS TABLE`, `SECURITY DEFINER`,
-`COST`, `ROWS`). Ces réécritures sont fragiles (commentaires, chaînes, casse),
-décalent les spans et ne passent pas à l'échelle.
+Today `PostgreSqlDialect` is used as is, and what it does not handle
+is worked around by **textual rewriting before parsing** (`PROCEDURE` →
+`FUNCTION … RETURNS VOID`, removal of `RETURNS TABLE`, `SECURITY DEFINER`,
+`COST`, `ROWS`). These rewrites are fragile (comments, strings, case),
+shift spans and do not scale.
 
-**Décision** : un `PgsqlDialect` qui délègue à `PostgreSqlDialect` et
-intercepte via les hooks `parse_statement` / `parse_prefix` / `parse_infix` /
-`get_next_precedence` (pattern recommandé par sqlparser-rs). Les manques
-génériques sont contribués upstream ; un fork n'est envisagé que si un manque
-bloquant ne peut être traité ni par hook ni upstream dans un délai acceptable,
-et il est alors documenté (patch minimal, rebase suivi).
+**Decision**: a `PgsqlDialect` that delegates to `PostgreSqlDialect` and
+intercepts through the `parse_statement` / `parse_prefix` / `parse_infix` /
+`get_next_precedence` hooks (pattern recommended by sqlparser-rs). Generic
+gaps are contributed upstream; a fork is considered only if a blocking gap
+can be handled neither by a hook nor upstream within an acceptable time,
+and it is then documented (minimal patch, tracked rebase).
 
-Plusieurs réécritures datent de sqlparser 0.54 ; la 0.62 en couvre peut-être
-nativement une partie — à inventorier en premier.
+Several rewrites date from sqlparser 0.54; 0.62 may cover some of them
+natively — to be inventoried first.
 
-L'AST maison `pgweave-ast` est conservé : il isole le reste du code des
-changements d'AST de sqlparser.
+The in-house AST `pgweave-ast` is kept: it isolates the rest of the code from
+sqlparser AST changes.
 
-### D2 — Catalogue unique, en couches, résolu à la demande
+### D2 — Single, layered catalog, resolved on demand
 
-Remplace `SchemaProvider`, `SchemaResolver` (aujourd'hui eager), `SchemaIndex`,
-le `TypeContext` du checker et la `SymbolTable` de `pgweave-semantic`.
+Replaces `SchemaProvider`, `SchemaResolver` (eager today), `SchemaIndex`,
+the checker's `TypeContext` and the `SymbolTable` of `pgweave-semantic`.
 
-Couches, de la plus externe à la plus interne, chacune pouvant masquer la
-précédente :
+Layers, from outermost to innermost, each able to shadow the
+previous one:
 
 ```
-contributeurs globaux (D9) : version majeure PG + extensions activées
-  └─ projet (fichiers de schéma du dépôt, organisés par schéma PG — D11)
-          └─ routine (paramètres, DECLARE, tables temporaires, NEW/OLD, FOUND…)
-              └─ bloc PL/pgSQL (variables locales, curseurs, labels)
-                  └─ statement (CTE, alias, colonnes de sortie)
+global contributors (D9): PG major version + enabled extensions
+  └─ project (schema files of the repository, organized by PG schema — D11)
+          └─ routine (parameters, DECLARE, temporary tables, NEW/OLD, FOUND…)
+              └─ PL/pgSQL block (local variables, cursors, labels)
+                  └─ statement (CTE, aliases, output columns)
 ```
 
-Résolution des noms non qualifiés selon `search_path` (config projet, surcharge
-par fichier/routine via `SET search_path`).
+Unqualified names are resolved according to `search_path` (project config, overridden
+per file/routine via `SET search_path`).
 
-Modèle d'objet complet dès le départ pour ce qui est dans le périmètre :
-schémas, tables (permanentes/temporaires, `ON COMMIT`), colonnes (type,
-nullabilité, défaut, **identity**, **generated** `STORED` ou `VIRTUAL` + expression),
-contraintes nommées (PK, UNIQUE, FK, **CHECK** + expression), types (base,
-enum, domaine + contraintes, composite, tableau), fonctions (surcharges,
-modes IN/OUT/INOUT/VARIADIC, défauts, volatilité, `STRICT`, `SETOF`,
-`RETURNS TABLE`), procédures, triggers, opérateurs, casts, séquences, vues,
-extensions. Les policies RLS sont **modélisées** (pour le diff de migration)
-mais pas outillées côté DX (§6).
+Complete object model from the start for what is in scope:
+schemas, tables (permanent/temporary, `ON COMMIT`), columns (type,
+nullability, default, **identity**, **generated** `STORED` or `VIRTUAL` + expression),
+named constraints (PK, UNIQUE, FK, **CHECK** + expression), types (base,
+enum, domain + constraints, composite, array), functions (overloads,
+IN/OUT/INOUT/VARIADIC modes, defaults, volatility, `STRICT`, `SETOF`,
+`RETURNS TABLE`), procedures, triggers, operators, casts, sequences, views,
+extensions. RLS policies are **modeled** (for migration diffing)
+but not tooled on the DX side (§6).
 
-### D3 — Moteur incrémental : `salsa`
+### D3 — Incremental engine: `salsa`
 
-Le besoin « index léger + résolution lazy de ce qui est référencé + LSP
-incrémental » est exactement celui de rust-analyzer et de `ty` (Astral), qui
-s'appuient sur `salsa`. Un cache maison reproduirait salsa, en moins testé.
+The need for "lightweight index + lazy resolution of what is referenced + incremental
+LSP" is exactly that of rust-analyzer and `ty` (Astral), which
+rely on `salsa`. A home-made cache would reproduce salsa, less tested.
 
-**Décision** : `salsa` pour la base de projet (fichiers, révisions, requêtes
-mémoïsées : parse d'un fichier, déclarations d'un fichier, objet de catalogue
-par nom, analyse d'une requête). Bonus direct : chaque requête analysée connaît
-**l'ensemble exact des objets dont elle dépend**, ce qui sert l'invalidation
-du cache de descripteurs (§4) et la recompilation Rust (§5).
+**Decision**: `salsa` for the project database (files, revisions, memoized
+queries: parse of a file, declarations of a file, catalog object
+by name, analysis of a query). Direct bonus: each analyzed query knows
+**the exact set of objects it depends on**, which serves the invalidation
+of the descriptor cache (§4) and Rust recompilation (§5).
 
-Garde-fou : un spike de 2–3 jours valide l'API salsa (version épinglée) sur
-parse + déclarations + une résolution de table avant d'engager la migration.
-Critère d'abandon : impossibilité d'exprimer la portée « routine » proprement
-ou surcoût mesuré > 2× sur l'indexation de Mesalia.
+Safeguard: a 2–3 day spike validates the salsa API (pinned version) on
+parse + declarations + one table resolution before committing to the migration.
+Abandon criterion: inability to express the "routine" scope cleanly,
+or a measured overhead > 2× on Mesalia indexing.
 
-**Résultat (2026-11-01) : GO** — `docs/decisions/0001-salsa.md`. Index sans
-parse en 4 ms, toutes les tables de Mesalia en 23 ms (contre 52 ms pour
-l'existant), 134/134 tables identiques à l'existant, 0,07 ms après une
-modification ; portée de routine exprimée sans difficulté.
+**Result (2026-11-01): GO** — `docs/decisions/0001-salsa.md`. Index without
+parsing in 4 ms, all Mesalia tables in 23 ms (versus 52 ms for
+the existing code), 134/134 tables identical to the existing code, 0.07 ms after a
+modification; routine scope expressed without difficulty.
 
-### D4 — Un seul analyseur sémantique, sur une représentation résolue
+### D4 — A single semantic analyzer, on a resolved representation
 
-`pgweave-semantic` et le checker font aujourd'hui de la résolution chacun de
-leur côté. **Décision** : un crate `pgweave-sema` produit une représentation
-résolue (HIR) — chaque référence pointe vers un objet du catalogue ou une
-entrée de portée, chaque expression porte `(type, nullabilité)`. La
-normalisation en ordre logique (FROM → … → ORDER BY) reste l'étape d'entrée,
-conformément à `CLAUDE.md`. Checker, lint, codegen et LSP deviennent des
-consommateurs en lecture seule de ce HIR.
+`pgweave-semantic` and the checker each do their own resolution today.
+**Decision**: a `pgweave-sema` crate produces a resolved representation
+(HIR) — each reference points to a catalog object or a
+scope entry, each expression carries `(type, nullability)`. The
+normalization into logical order (FROM → … → ORDER BY) remains the entry step,
+as stated in `CLAUDE.md`. Checker, lint, codegen and LSP become
+read-only consumers of this HIR.
 
-### D5 — Nullabilité : un attribut de premier ordre
+### D5 — Nullability: a first-class attribute
 
-Treillis `NonNull | Nullable | Unknown`. Sources : `NOT NULL`, PK, identity,
-generated (selon l'expression), domaines `NOT NULL`, jointures externes (côté
-optionnel devient `Nullable`), agrégats (`count` NonNull, `sum`/`max`
-Nullable), fonctions `STRICT`, `COALESCE`, `CASE` sans `ELSE`, sous-requêtes
-scalaires (toujours Nullable), `RETURNING`. Le raffinement par `WHERE x IS NOT
-NULL` est une amélioration ultérieure, pas un prérequis.
+Lattice `NonNull | Nullable | Unknown`. Sources: `NOT NULL`, PK, identity,
+generated (depending on the expression), `NOT NULL` domains, outer joins (the
+optional side becomes `Nullable`), aggregates (`count` NonNull, `sum`/`max`
+Nullable), `STRICT` functions, `COALESCE`, `CASE` without `ELSE`, scalar
+subqueries (always Nullable), `RETURNING`. Refinement through `WHERE x IS NOT
+NULL` is a later improvement, not a prerequisite.
 
-Côté paramètres : un paramètre est requis non-null s'il est comparé par un
-opérateur strict ; optionnel s'il alimente une colonne nullable. Surcharge
-explicite toujours possible.
+On the parameter side: a parameter is required non-null if it is compared by a
+strict operator; optional if it feeds a nullable column. Explicit
+override always possible.
 
-### D6 — Paramètres nommés : `$name`
+### D6 — Named parameters: `$name`
 
-`$1…$n` (natif PG) et `$name` sont acceptés, sans mélange dans une même
-requête. Choix de `$name` plutôt que `:name` :
+`$1…$n` (PG native) and `$name` are accepted, without mixing them within the same
+query. Why `$name` rather than `:name`:
 
-- prolonge naturellement la notation native `$n` ;
-- `:name` a déjà un sens en `psql` (interpolation côté client) et cohabite mal
-  avec `::cast` et les slices `a[1:2]` ;
-- précédent : pgtyped.
+- it naturally extends the native `$n` notation;
+- `:name` already has a meaning in `psql` (client-side interpolation) and coexists poorly
+  with `::cast` and `a[1:2]` slices;
+- precedent: pgtyped.
 
-Contrainte lexicale : `$name` immédiatement suivi de `$` est un début de
-dollar-quote, pas un paramètre. Le SQL envoyé au serveur est toujours
-réécrit en positionnel.
+Lexical constraint: `$name` immediately followed by `$` is the start of a
+dollar-quote, not a parameter. The SQL sent to the server is always
+rewritten to positional form.
 
-### D7 — Descripteur de requête : contrat unique entre analyse et cibles
+### D7 — Query descriptor: single contract between analysis and targets
 
-Toute génération (macro Rust, `.d.ts`, LSP) passe par un descripteur
-sérialisé, stable et versionné (§4). Les cibles ne rappellent jamais
-l'analyseur à leur façon.
+All generation (Rust macro, `.d.ts`, LSP) goes through a serialized,
+stable and versioned descriptor (§4). Targets never call back
+the analyzer in their own way.
 
-### D8 — Runtime Rust : `tokio-postgres`, types connus statiquement
+### D8 — Rust runtime: `tokio-postgres`, statically known types
 
-- Exécution via `query_typed` (types de paramètres envoyés avec la requête :
-  Parse/Bind/Execute pipelinés, **pas d'aller-retour de `Prepare`**) ou via
-  cache de statements préparés par connexion pour les requêtes chaudes.
-- Décodage par index de colonne, via `FromSql`, dans des structs générées —
-  pas de `Row` dynamique, pas de lookup par nom.
-- Générique sur `GenericClient` : pool (`deadpool-postgres`), transaction ou
-  client nu.
-- Aucune connexion à une base au moment de la compilation (différence
-  structurante avec sqlx et cornucopia/clorinde).
+- Execution via `query_typed` (parameter types sent with the query:
+  pipelined Parse/Bind/Execute, **no `Prepare` round trip**) or via a
+  per-connection prepared-statement cache for hot queries.
+- Decoding by column index, via `FromSql`, into generated structs —
+  no dynamic `Row`, no lookup by name.
+- Generic over `GenericClient`: pool (`deadpool-postgres`), transaction or
+  bare client.
+- No database connection at compile time (a structural difference
+  from sqlx and cornucopia/clorinde).
 
-### D9 — Contributeurs du contexte global : version PG et extensions, même mécanisme
+### D9 — Global-context contributors: PG version and extensions, same mechanism
 
-La version majeure de PostgreSQL et chaque extension sont des
-**contributeurs** du contexte global, décrits par un même format de pack :
+The PostgreSQL major version and each extension are
+**contributors** to the global context, described by a single pack format:
 
-- fragment de catalogue (types, fonctions, opérateurs, casts, agrégats,
-  méthodes d'index et classes d'opérateurs — nécessaires pour `btree_gist`) ;
-- **généré** depuis un PostgreSQL réel (`xtask catalog-gen --pg 18
-  [--extension citext]`), jamais écrit à la main ; un pack d'extension est le
-  *delta* entre le catalogue avant et après `CREATE EXTENSION` ;
-- identifié par `(nom, version)` : `postgres@18`, `citext@1.6`,
-  `btree_gist@1.7`… La version majeure PG est un contributeur comme un autre ;
-- table de correspondance de types par cible (`citext` → `String`,
-  `geometry` → type choisi par le projet) ;
-- règles optionnelles. Données, pas code. Les plugins WASM restent le canal
-  pour des **règles** personnalisées, pas pour décrire un catalogue.
+- catalog fragment (types, functions, operators, casts, aggregates,
+  index access methods and operator classes — needed for `btree_gist`);
+- **generated** from a real PostgreSQL (`xtask catalog-gen --pg 18
+  [--extension citext]`), never written by hand; an extension pack is the
+  *delta* between the catalog before and after `CREATE EXTENSION`;
+- identified by `(name, version)`: `postgres@18`, `citext@1.6`,
+  `btree_gist@1.7`… The PG major version is a contributor like any other;
+- per-target type mapping table (`citext` → `String`,
+  `geometry` → type chosen by the project);
+- optional rules. Data, not code. WASM plugins remain the channel
+  for custom **rules**, not for describing a catalog.
 
-**D'où vient la liste des contributeurs actifs ?**
+**Where does the list of active contributors come from?**
 
-- **Version majeure** : `[postgres] version` de `pgweave.toml`, seule source.
-- **Extensions** : déduites de l'état du schéma, pas déclarées à part. Les
-  `CREATE EXTENSION` / `DROP EXTENSION` / `ALTER EXTENSION … UPDATE` du
-  schéma déclaratif définissent l'état cible ; le rejeu des migrations
-  définit l'état déployé. Une extension vit dans un schéma
-  (`CREATE EXTENSION citext SCHEMA extensions`) : ses objets y sont rangés
-  et résolus via `search_path` (D11).
-- **Les deux sont analysés à chaque point du rejeu** : une migration est
-  vérifiée contre la version PG et les extensions actives *à ce moment-là*.
+- **Major version**: `[postgres] version` in `pgweave.toml`, the only source.
+- **Extensions**: deduced from the schema state, not declared separately. The
+  `CREATE EXTENSION` / `DROP EXTENSION` / `ALTER EXTENSION … UPDATE` of the
+  declarative schema define the target state; replaying the migrations
+  defines the deployed state. An extension lives in a schema
+  (`CREATE EXTENSION citext SCHEMA extensions`): its objects are placed there
+  and resolved via `search_path` (D11).
+- **Both are analyzed at each point of the replay**: a migration is
+  checked against the PG version and the extensions active *at that point*.
 
-**Diagnostics associés** :
+**Associated diagnostics**:
 
-- utilisation d'un objet fourni par une extension non activée → erreur avec
-  suggestion (« `citext` provient de l'extension `citext`, absente ; ajouter
-  `CREATE EXTENSION citext` ») ;
-- extension activée mais jamais utilisée → avertissement (lint) ;
-- objet absent ou modifié dans la version PG cible (fonction retirée, type
-  renommé) → erreur contextualisée par version ;
-- pack demandé mais non disponible pour cette version → erreur explicite,
-  jamais de repli silencieux sur une autre version.
+- use of an object provided by an extension that is not enabled → error with
+  suggestion ("`citext` comes from the `citext` extension, which is missing; add
+  `CREATE EXTENSION citext`");
+- extension enabled but never used → warning (lint);
+- object missing or changed in the target PG version (function removed, type
+  renamed) → error contextualized by version;
+- pack requested but not available for this version → explicit error,
+  never a silent fallback to another version.
 
-Chaque migration générée porte un en-tête machine-lisible indiquant le
-contexte contre lequel elle a été générée et vérifiée :
+Each generated migration carries a machine-readable header stating the
+context against which it was generated and verified:
 
 ```sql
 -- pgweave: postgres=18 extensions=btree_gist@1.7,citext@1.6
 ```
 
-Le rejeu vérifie la cohérence de cet en-tête avec l'état reconstruit
-(extension annoncée mais jamais créée → erreur ; version PG de la config
-différente de celle de la migration → information, et la migration est
-analysée avec **sa** version). Les migrations héritées sans en-tête sont
-analysées avec la version de la config et signalées une fois.
+The replay checks the consistency of this header with the reconstructed state
+(extension announced but never created → error; PG version in the config
+different from the migration's → information, and the migration is
+analyzed with **its** version). Legacy migrations without a header are
+analyzed with the config version and reported once.
 
-### D10 — Schéma déclaratif comme source de vérité, migrations générées
+### D10 — Declarative schema as source of truth, generated migrations
 
-Les fichiers de schéma du dépôt décrivent l'état cible ; les migrations sont
-produites par diff, revues, puis figées. Les migrations existantes servent à
-vérifier qu'on sait reproduire l'état (et à l'import brownfield), pas de
-source de vérité concurrente.
+The repository's schema files describe the target state; migrations are
+produced by diff, reviewed, then frozen. Existing migrations serve to
+verify that the state can be reproduced (and for brownfield import), not as a
+competing source of truth.
 
-Le diff couvre aussi les contributeurs (D9) et les schémas (D11) : il émet
+The diff also covers contributors (D9) and schemas (D11): it emits
 `CREATE SCHEMA`, `CREATE EXTENSION [SCHEMA …]`, `ALTER EXTENSION … UPDATE`,
-`DROP EXTENSION` et leurs symétriques, ordonnés avant les objets qui en
-dépendent (et après pour les suppressions). Un `DROP EXTENSION` alors que des
-objets du schéma en dépendent encore est une erreur, pas une migration.
+`DROP EXTENSION` and their counterparts, ordered before the objects that
+depend on them (and after for drops). A `DROP EXTENSION` while
+schema objects still depend on it is an error, not a migration.
 
-### D11 — Schémas PostgreSQL de premier ordre
+### D11 — First-class PostgreSQL schemas
 
-Le schéma (namespace) fait partie de l'identité de chaque objet, partout :
+The schema (namespace) is part of every object's identity, everywhere:
 
-- **Catalogue** : clé = `(schéma, nom)`, et `(schéma, nom, types
-  d'arguments)` pour les fonctions et procédures. `pg_catalog` et `pg_temp`
-  sont des schémas comme les autres ; les tables temporaires vivent dans
-  `pg_temp` et sont prioritaires dans la résolution, comme dans PG.
-- **Résolution** : `search_path` effectif = config projet → `SET search_path`
-  dans un fichier ou une migration → clause `SET search_path` d'une fonction
-  (qui s'applique à son corps). `pg_catalog` implicite en tête quand il
-  n'est pas listé, comme dans PG. Ambiguïtés et masquages signalés.
-- **Fichiers de schéma** : un fichier ou répertoire peut déclarer son schéma
-  par défaut ; la convention recommandée est `schema/<nom_du_schéma>/…`.
-- **Migrations** : `CREATE SCHEMA` / `DROP SCHEMA` gérés par le diff ; un
-  objet déplacé (`ALTER … SET SCHEMA`) est un déplacement, pas un
+- **Catalog**: key = `(schema, name)`, and `(schema, name, argument
+  types)` for functions and procedures. `pg_catalog` and `pg_temp`
+  are schemas like any other; temporary tables live in
+  `pg_temp` and take priority in resolution, as in PG.
+- **Resolution**: effective `search_path` = project config → `SET search_path`
+  in a file or a migration → `SET search_path` clause of a function
+  (which applies to its body). `pg_catalog` implicitly first when it
+  is not listed, as in PG. Ambiguities and shadowing are reported.
+- **Schema files**: a file or directory can declare its default
+  schema; the recommended convention is `schema/<schema_name>/…`.
+- **Migrations**: `CREATE SCHEMA` / `DROP SCHEMA` handled by the diff; a
+  moved object (`ALTER … SET SCHEMA`) is a move, not a
   drop + create.
-- **Lint** : `SECURITY DEFINER` sans `SET search_path` → avertissement
-  (faille classique) ; objet créé sans qualification dans un fichier sans
-  schéma par défaut → avertissement configurable.
-- **Code généré** : le schéma fait partie du nom généré (module Rust par
-  schéma, sauf pour le schéma par défaut configuré) — deux tables `users`
-  dans `public` et `auth` ne doivent jamais entrer en collision.
-- **Descripteur** (§4) : tous les types et dépendances y sont qualifiés.
+- **Lint**: `SECURITY DEFINER` without `SET search_path` → warning
+  (classic vulnerability); object created without qualification in a file with no
+  default schema → configurable warning.
+- **Generated code**: the schema is part of the generated name (one Rust module per
+  schema, except for the configured default schema) — two `users` tables
+  in `public` and `auth` must never collide.
+- **Descriptor** (§4): all types and dependencies in it are qualified.
 
 ---
 
-## 3. Inventaire : on garde, on refond, on retire
+## 3. Inventory: keep, rework, remove
 
-| Élément | Sort | Note |
+| Item | Fate | Note |
 |---|---|---|
-| `pgweave-ast` | Garder, étendre | DDL manquants (§P1), spans sur tous les nœuds, IDs déterministes par fichier |
-| Parser PL/pgSQL (lexer + parser) | Garder, étendre | Cas restants de `SPECS-schema-plpgsql.md` §6 |
-| Réécritures textuelles du parser | **Retirer** | Remplacées par D1 |
-| `pgweave-diagnostics`, directives `pgweave-disable…` | Garder | |
-| `pgweave-macro`, source maps, `build`/expansion | Garder, étendre | Fragments d'expression (§P6) |
-| `SchemaProvider`/`SchemaResolver`/`SchemaIndex` | **Refondre** → `pgweave-catalog` | D2, D3 |
-| `pgweave-semantic` + `TypeContext` du checker | **Fusionner** → `pgweave-sema` | D4 |
-| `builtins.rs` écrit à la main | **Retirer** | Généré (D9, principe 1) |
-| Règles checker/lint | Garder, porter sur le HIR | |
-| `pgweave-codegen::diff`, sûreté de migration | Garder, étendre | Modèle complet D2 |
-| `pgweave-codegen::ts_types` | **Retirer** | Bug d'ordre `HashMap` ; remplacé par le descripteur (§P8) |
-| LSP + extension VS Code | Garder | Rebranché sur salsa/HIR, pas de nouvelle feature avant P4 |
-| `npm/pgweave` (`db.query<T>` = cast) | **Geler** | Repris en §P8 sur le descripteur |
-| Bindings WASM/Node | Geler | Repris en §P8 |
-| `ROADMAP.md` | Archiver | Bandeau renvoyant ici |
+| `pgweave-ast` | Keep, extend | Missing DDL (§P1), spans on all nodes, deterministic per-file IDs |
+| PL/pgSQL parser (lexer + parser) | Keep, extend | Remaining cases from `SPECS-schema-plpgsql.md` §6 |
+| Parser textual rewrites | **Remove** | Replaced by D1 |
+| `pgweave-diagnostics`, `pgweave-disable…` directives | Keep | |
+| `pgweave-macro`, source maps, `build`/expansion | Keep, extend | Expression fragments (§P6) |
+| `SchemaProvider`/`SchemaResolver`/`SchemaIndex` | **Rework** → `pgweave-catalog` | D2, D3 |
+| `pgweave-semantic` + the checker's `TypeContext` | **Merge** → `pgweave-sema` | D4 |
+| Hand-written `builtins.rs` | **Remove** | Generated (D9, principle 1) |
+| Checker/lint rules | Keep, port to the HIR | |
+| `pgweave-codegen::diff`, migration safety | Keep, extend | Full D2 model |
+| `pgweave-codegen::ts_types` | **Remove** | `HashMap` ordering bug; replaced by the descriptor (§P8) |
+| LSP + VS Code extension | Keep | Rewired onto salsa/HIR, no new feature before P4 |
+| `npm/pgweave` (`db.query<T>` = cast) | **Freeze** | Resumed in §P8 on top of the descriptor |
+| WASM/Node bindings | Freeze | Resumed in §P8 |
+| `ROADMAP.md` | Archive | Banner pointing here |
 
 ---
 
-## 4. Le descripteur de requête
+## 4. The query descriptor
 
-Contrat entre l'analyse et toutes les cibles. Format JSON stable, versionné
-(`"version": 1`), ordonné de façon déterministe.
+Contract between the analysis and all targets. Stable JSON format, versioned
+(`"version": 1`), deterministically ordered.
 
 ```jsonc
 {
   "version": 1,
-  "name": "page_by_id",                  // requête nommée, ou dérivé du hash
+  "name": "page_by_id",                  // named query, or derived from the hash
   "sql": "SELECT id, title, creation_date FROM pages WHERE id = $1",
   "command": "select",                   // select | insert | update | delete | call | copy_in
   "params": [
@@ -347,681 +347,681 @@ Contrat entre l'analyse et toutes les cibles. Format JSON stable, versionné
     { "name": "creation_date", "type": { "pg": "pg_catalog.timestamptz", "oid": 1184 }, "nullable": "nullable" }
   ],
   "cardinality": "optional",             // many | one | optional | none
-  "depends_on": ["public.pages"],        // objets de catalogue, pour l'invalidation
-  "fingerprint": "…"                     // hash(sql normalisé + définitions de depends_on)
+  "depends_on": ["public.pages"],        // catalog objects, for invalidation
+  "fingerprint": "…"                     // hash(normalized sql + definitions of depends_on)
 }
 ```
 
-- **Cardinalité** inférée de façon conservatrice : égalité sur une clé
-  unique/PK → `optional` ; `INSERT … VALUES (une ligne) RETURNING` →
-  `one` ; agrégat sans `GROUP BY` → `one` ; statement sans `RETURNING` →
-  `none`. Sinon `many`. Surchargeable explicitement, jamais devinée au-delà.
-- Nullabilité à trois états (D5) : `non_null`, `nullable`, `unknown`. Un
-  paramètre est `non_null` ou `nullable` quand il est affecté à une colonne
-  (`INSERT … VALUES`, `SET`), `unknown` sinon : la cible décide (P5).
-- Les types sont des références au catalogue (y compris enums, domaines,
-  composites, types d'extension) ; la correspondance vers un type de langage
-  est faite par la cible, via la table de correspondance (D9).
-- Cache sur disque (`.pgweave/queries/<fingerprint>.json`), utilisable hors
-  ligne en CI et par les outils qui ne veulent pas embarquer l'analyseur.
+- **Cardinality** inferred conservatively: equality on a
+  unique key/PK → `optional`; `INSERT … VALUES (one row) RETURNING` →
+  `one`; aggregate without `GROUP BY` → `one`; statement without `RETURNING` →
+  `none`. Otherwise `many`. Can be overridden explicitly, never guessed beyond that.
+- Three-state nullability (D5): `non_null`, `nullable`, `unknown`. A
+  parameter is `non_null` or `nullable` when it is assigned to a column
+  (`INSERT … VALUES`, `SET`), `unknown` otherwise: the target decides (P5).
+- Types are references to the catalog (including enums, domains,
+  composites, extension types); the mapping to a language type
+  is done by the target, via the mapping table (D9).
+- On-disk cache (`.pgweave/queries/<fingerprint>.json`), usable offline
+  in CI and by tools that do not want to embed the analyzer.
 
 ---
 
-## 5. DX visée côté Rust
+## 5. Target DX on the Rust side
 
-Illustratif — les noms définitifs sont fixés en P5.
+Illustrative — final names are set in P5.
 
 ```rust
-// Requête inline : analysée à la compilation, erreurs SQL au bon span Rust.
+// Inline query: analyzed at compile time, SQL errors at the right Rust span.
 let page = pgweave::query!(
     "SELECT id, title, creation_date FROM pages WHERE id = $id",
     id = page_id,
 )
-.fetch_optional(&client)        // cardinalité optional → Option<Row>
+.fetch_optional(&client)        // optional cardinality → Option<Row>
 .await?;
 // page: Option<PageByIdRow { id: i64, title: String, creation_date: Option<OffsetDateTime> }>
 
-// Requête nommée, définie dans queries/pages.sql, réutilisable et
-// servant de type de référence :
+// Named query, defined in queries/pages.sql, reusable and
+// serving as a reference type:
 let rows = queries::pages::list_recent(&client, ListRecentParams { limit: 20 }).await?;
 
-// COPY typé : liste de colonnes vérifiée contre le catalogue, flux CSV ou binaire.
+// Typed COPY: column list checked against the catalog, CSV or binary stream.
 let n = pgweave::copy_in!("etablissement_staging", columns = @etablissement_columns, format = csv(header))
     .from_reader(&client, csv_stream)
     .await?;
 ```
 
-Points de conception :
+Design points:
 
-- **Recompilation correcte** : la macro émet un `include_bytes!` des fichiers
-  dont dépend la requête (connus via `depends_on`), pour que rustc recompile
-  quand le schéma change — sans dépendre d'API instables.
-- **Performance de compilation** : un catalogue salsa par processus de macro,
-  chargement lazy ; budget mesuré en P5 (cf. §7).
-- **Requêtes nommées** : générées par `build.rs` (code inspectable, pas de
-  magie de macro) à partir du même descripteur que `query!`.
-- **Types** : enums PG → enums Rust générées ; domaines → newtypes optionnels ;
-  types d'extension → via le pack (D9) ; dates via `time` ou `chrono` au
-  choix du projet (feature).
-
----
-
-## 6. Hors périmètre volontaire (phases de design ultérieures)
-
-- **RLS et privilèges** (`GRANT`/`REVOKE`, rôles) : le parse, le modèle de
-  catalogue et le diff restent assurés (une migration ne doit perdre ni une
-  policy ni un droit). La DX d'écriture lisible fera l'objet d'une phase de
-  design dédiée.
-- **JSONB** : typé `jsonb` opaque (→ `serde_json::Value` ou type utilisateur
-  explicite). Le typage structurel des chemins JSON est une phase de design.
-- **Instrumentation runtime** (`SPECS-schema-plpgsql.md` §3) : conservée
-  comme idée, non planifiée.
-- **Marqueurs de hash dans les migrations** (§4 de la même spec) : après P7.
-- **Introspection d'une base live** comme source de schéma : non nécessaire à
-  la cible (D10) ; utile pour l'import brownfield, réévaluée en P7.
-- **Extension JetBrains**, polish LSP au-delà de l'existant.
+- **Correct recompilation**: the macro emits an `include_bytes!` of the files
+  the query depends on (known via `depends_on`), so that rustc recompiles
+  when the schema changes — without relying on unstable APIs.
+- **Compilation performance**: one salsa catalog per macro process,
+  lazy loading; budget measured in P5 (see §7).
+- **Named queries**: generated by `build.rs` (inspectable code, no
+  macro magic) from the same descriptor as `query!`.
+- **Types**: PG enums → generated Rust enums; domains → optional newtypes;
+  extension types → via the pack (D9); dates via `time` or `chrono`, at
+  the project's choice (feature).
 
 ---
 
-## 7. Stratégie de qualité
+## 6. Deliberately out of scope (later design phases)
 
-Mise en place dès P0 ; chaque phase l'enrichit.
+- **RLS and privileges** (`GRANT`/`REVOKE`, roles): parsing, the catalog
+  model and the diff remain covered (a migration must lose neither a
+  policy nor a privilege). The DX for writing them readably will be the subject of a dedicated
+  design phase.
+- **JSONB**: typed as opaque `jsonb` (→ `serde_json::Value` or an explicit user
+  type). Structural typing of JSON paths is a design phase.
+- **Runtime instrumentation** (`SPECS-schema-plpgsql.md` §3): kept
+  as an idea, not planned.
+- **Hash markers in migrations** (§4 of the same spec): after P7.
+- **Introspection of a live database** as a schema source: not needed for
+  the target (D10); useful for brownfield import, reassessed in P7.
+- **JetBrains extension**, LSP polish beyond what exists.
 
-- **Oracle différentiel PostgreSQL** (CI, conteneur PG épinglé sur la
-  version cible) : pour chaque requête du corpus de test, comparer les types
-  de paramètres et de colonnes que nous inférons avec ceux renvoyés par le
-  `Prepare` de PostgreSQL. Tout écart est un bug ou une divergence documentée.
-  Les migrations générées sont appliquées puis le catalogue réel introspecté
-  est comparé au catalogue attendu.
-- **Corpus réels** : migrations Mesalia, schéma siren, schéma Sherpa — lus
-  depuis un chemin fourni par variable d'environnement, **jamais copiés dans
-  le dépôt**. Critère : zéro faux positif, zéro statement non analysé non
-  justifié.
-- **Snapshots** (`insta`) pour diagnostics, HIR, descripteurs, code généré.
-- **Fuzzing** du parser et du lexer PL/pgSQL : aucune panique.
-- **Benchmarks** (`divan` ou `criterion`) avec budgets suivis en CI :
-  indexation Mesalia, analyse d'une requête à froid / à chaud, temps de
-  compilation d'un crate de 200 `query!`.
-- `make ci` reste la porte d'entrée unique ; zéro warning clippy.
+---
+
+## 7. Quality strategy
+
+Set up from P0; each phase enriches it.
+
+- **PostgreSQL differential oracle** (CI, PG container pinned to the
+  target version): for each query of the test corpus, compare the parameter
+  and column types we infer with those returned by PostgreSQL's
+  `Prepare`. Any gap is a bug or a documented divergence.
+  Generated migrations are applied, then the real introspected catalog
+  is compared with the expected catalog.
+- **Real corpora**: Mesalia migrations, siren schema, Sherpa schema — read
+  from a path given by an environment variable, **never copied into
+  the repository**. Criterion: zero false positives, zero unjustified unanalyzed
+  statements.
+- **Snapshots** (`insta`) for diagnostics, HIR, descriptors, generated code.
+- **Fuzzing** of the parser and the PL/pgSQL lexer: no panics.
+- **Benchmarks** (`divan` or `criterion`) with budgets tracked in CI:
+  Mesalia indexing, cold / warm analysis of a query, compile time
+  of a crate with 200 `query!`.
+- `make ci` remains the single entry point; zero clippy warnings.
 
 ---
 
 ## 8. Phases
 
-Chaque phase a des critères de sortie vérifiables. On ne démarre pas la
-suivante sur une phase non terminée, sauf parallélisation explicitement notée.
+Each phase has verifiable exit criteria. The next one is not started
+on an unfinished phase, except where parallelization is explicitly noted.
 
-### P0 — Remise à plat (fondations de travail) — ✅ terminée (2026-11-01)
+### P0 — Reset (working foundations) — ✅ done (2026-11-01)
 
-- ✅ Documentation alignée sur la réalité (`CLAUDE.md`, bandeau `ROADMAP.md`,
+- ✅ Documentation aligned with reality (`CLAUDE.md`, `ROADMAP.md` banner,
   README).
-- ✅ Oracle différentiel PG 18 : crate `pgweave-oracle`, corpus
-  `crates/pgweave-oracle/cases`, rapport instantané (`insta`), `make oracle`
-  (Docker) et job CI `postgres:18`. Base : 65 % des colonnes conformes, 0 %
-  des paramètres (aucune inférence de paramètre).
-- ✅ Rapport « taux d'analyse » sur Mesalia : `cargo xtask corpus` (corpus
-  par variable d'environnement, agrégats sans noms), `docs/baselines/`.
-  87 % des statements analysés, 220/220 migrations valides sur PG 18,
-  27 faux positifs tous dus au repli textuel des corps PL/pgSQL.
-- ✅ Identifiants de nœuds déterministes : numérotation par parse
-  (`crates/pgweave-parser/src/ids.rs`), le couple (fichier, `NodeId`)
-  identifie un nœud.
-- ✅ Spike salsa (D3) : GO, `docs/decisions/0001-salsa.md`.
-- ✅ Format des requêtes nommées figé : `docs/named-queries.md` (en-tête
-  `-- name: x [:one|:optional|:many|:none]`, `$name`, vérifié par `check`
-  et le LSP).
-- ✅ Format de config projet figé : `docs/config.md` (`[postgres] version`
-  obligatoire, fichier unique `pgweave.toml`, clés strictes). `search_path`
-  et schéma par défaut par répertoire y sont décrits comme évolutions P2.
-- ✅ Renommage en `pgweave` (crates `pgweave-*`, binaires `pgweave` /
-  `pgweave-lsp`, config `pgweave.toml`, directives `pgweave-disable…`,
-  extension VS Code, CI). Les extensions de fichier `.pgsql` / `.pgmacro` et
-  l'identifiant de langage `pgsql` sont conservés : ils nomment le langage,
-  pas l'outil. Aucun alias de compatibilité.
+- ✅ PG 18 differential oracle: `pgweave-oracle` crate, corpus
+  `crates/pgweave-oracle/cases`, snapshot report (`insta`), `make oracle`
+  (Docker) and `postgres:18` CI job. Baseline: 65 % of columns conformant, 0 %
+  of parameters (no parameter inference).
+- ✅ "Analysis rate" report on Mesalia: `cargo xtask corpus` (corpus
+  via environment variable, aggregates without names), `docs/baselines/`.
+  87 % of statements analyzed, 220/220 migrations valid on PG 18,
+  27 false positives, all due to the textual fallback for PL/pgSQL bodies.
+- ✅ Deterministic node identifiers: numbering per parse
+  (`crates/pgweave-parser/src/ids.rs`), the (file, `NodeId`) pair
+  identifies a node.
+- ✅ salsa spike (D3): GO, `docs/decisions/0001-salsa.md`.
+- ✅ Named-query format frozen: `docs/named-queries.md` (header
+  `-- name: x [:one|:optional|:many|:none]`, `$name`, checked by `check`
+  and the LSP).
+- ✅ Project config format frozen: `docs/config.md` (`[postgres] version`
+  required, single `pgweave.toml` file, strict keys). `search_path`
+  and per-directory default schema are described there as P2 evolutions.
+- ✅ Renamed to `pgweave` (`pgweave-*` crates, `pgweave` /
+  `pgweave-lsp` binaries, `pgweave.toml` config, `pgweave-disable…` directives,
+  VS Code extension, CI). The `.pgsql` / `.pgmacro` file extensions and
+  the `pgsql` language identifier are kept: they name the language,
+  not the tool. No compatibility alias.
 
-**Sortie** : CI avec oracle opérationnel ; rapport de base Mesalia publié
-dans `docs/` ; décision salsa actée ; formats requêtes nommées et config
-publiés.
+**Exit**: CI with a working oracle; Mesalia baseline report published
+in `docs/`; salsa decision recorded; named-query and config formats
+published.
 
-### P1 — Parser fidèle — ✅ terminée (2026-11-01, `e1c6b1f`)
+### P1 — Faithful parser — ✅ done (2026-11-01, `e1c6b1f`)
 
-Bilan : Mesalia 1740/1740 statements et 28/28 corps analysés, siren
-294/294 et 10/10 ; aucune réécriture textuelle (dialecte enveloppe +
-grammaire pgweave sur les tokens) ; parser PL/pgSQL réécrit sur les tokens
-du dialecte (expressions SQL ordinaires, spans) ; identifiants fidèles
-(principe 8) ; en-tête `-- pgweave:` lu ; fuzzing déterministe sans panique
-(`crates/pgweave-analysis/tests/no_panic.rs`). Un audit des champs
-sqlparser ignorés a supprimé une série de pertes silencieuses (fenêtres,
-`FILTER`, arguments nommés, `NOT VALID`, `USING`, `DEFAULT VALUES`…).
-Sherpa : pas de corpus de schéma exploitable (bac à sable), sans objet.
-Restent pour P2 : 10 faux positifs `column-not-found` Mesalia (vérification
-contre l'état final, résolus par le rejeu) et les `function-not-found` sur
-des fonctions intégrées ou d'extensions (catalogue généré, packs D9).
+Summary: Mesalia 1740/1740 statements and 28/28 bodies analyzed, siren
+294/294 and 10/10; no textual rewriting (wrapper dialect +
+pgweave grammar over tokens); PL/pgSQL parser rewritten over the dialect's
+tokens (ordinary SQL expressions, spans); faithful identifiers
+(principle 8); `-- pgweave:` header read; deterministic fuzzing without panics
+(`crates/pgweave-analysis/tests/no_panic.rs`). An audit of ignored sqlparser
+fields removed a series of silent losses (windows,
+`FILTER`, named arguments, `NOT VALID`, `USING`, `DEFAULT VALUES`…).
+Sherpa: no usable schema corpus (sandbox), not applicable.
+Left for P2: 10 Mesalia `column-not-found` false positives (checked
+against the final state, resolved by the replay) and `function-not-found` on
+built-in or extension functions (generated catalog, D9 packs).
 
-- `PgsqlDialect` wrapper ; suppression de toutes les réécritures textuelles.
-- Couverture DDL du périmètre : `CREATE TYPE` (enum, composite), `CREATE
+- `PgsqlDialect` wrapper; removal of all textual rewrites.
+- DDL coverage of the scope: `CREATE TYPE` (enum, composite), `CREATE
   DOMAIN`, `CREATE VIEW`, `CREATE SEQUENCE`, `CREATE SCHEMA`, `CREATE
-  EXTENSION`, colonnes `GENERATED ALWAYS AS (…) [STORED | VIRTUAL]` (en
-  PG 18, sans mot-clé = `VIRTUAL`) et `IDENTITY`, `RETURNING OLD/NEW`
+  EXTENSION`, `GENERATED ALWAYS AS (…) [STORED | VIRTUAL]` columns (in
+  PG 18, no keyword = `VIRTUAL`) and `IDENTITY`, `RETURNING OLD/NEW`
   (PG 18),
-  contraintes nommées, contraintes `EXCLUDE USING gist` (Mesalia, via
-  `btree_gist`), `CREATE TEMP TABLE … ON COMMIT`, `CREATE PROCEDURE` natif,
-  `CALL`, `COPY … FROM STDIN`, `CREATE/ALTER/DROP EXTENSION` (avec `SCHEMA`
-  et `VERSION`), `ALTER TYPE … ADD VALUE / RENAME`, `ALTER … SET SCHEMA`,
-  `SET search_path`, variantes `ALTER` utilisées par les corpus, `COMMENT ON`.
-- Identifiants quotés conservés avec leur casse dans l'AST (principe 8).
-- En-tête `-- pgweave: postgres=… extensions=…` reconnu (D9).
-- PL/pgSQL : cas restants de `SPECS-schema-plpgsql.md` §6 (`RETURNING …
-  INTO`, variables record, `VALUES` avec variables, `FOR … IN`, `RETURN
-  QUERY`, `GET DIAGNOSTICS`, `EXCEPTION`), suppression du repli textuel
-  (tout corps non parsé = diagnostic, pas d'analyse dégradée).
-- Spans sur tous les nœuds d'expression et de DDL.
+  named constraints, `EXCLUDE USING gist` constraints (Mesalia, via
+  `btree_gist`), `CREATE TEMP TABLE … ON COMMIT`, native `CREATE PROCEDURE`,
+  `CALL`, `COPY … FROM STDIN`, `CREATE/ALTER/DROP EXTENSION` (with `SCHEMA`
+  and `VERSION`), `ALTER TYPE … ADD VALUE / RENAME`, `ALTER … SET SCHEMA`,
+  `SET search_path`, `ALTER` variants used by the corpora, `COMMENT ON`.
+- Quoted identifiers kept with their case in the AST (principle 8).
+- `-- pgweave: postgres=… extensions=…` header recognized (D9).
+- PL/pgSQL: remaining cases from `SPECS-schema-plpgsql.md` §6 (`RETURNING …
+  INTO`, record variables, `VALUES` with variables, `FOR … IN`, `RETURN
+  QUERY`, `GET DIAGNOSTICS`, `EXCEPTION`), removal of the textual fallback
+  (any unparsed body = diagnostic, no degraded analysis).
+- Spans on all expression and DDL nodes.
 
-**Sortie** : corpus Mesalia/siren/Sherpa parsés à 100 % ou chaque échec
-justifié par un ticket ; fuzzing sans panique ; aucune réécriture textuelle
-restante.
+**Exit**: Mesalia/siren/Sherpa corpora 100 % parsed, or each failure
+justified by a ticket; fuzzing without panics; no textual rewriting
+left.
 
-### P2 — Catalogue — ✅ terminée (2026-11-01, `26e08b8`)
+### P2 — Catalog — ✅ done (2026-11-01, `26e08b8`)
 
-Fait : crate `pgweave-catalog` (modèle D2/D11, casse exacte), packs générés
-(`cargo xtask catalog-gen` : postgres@18, citext, btree_gist, btree_gin,
-pg_trgm, unaccent, fuzzystrmatch, postgis@3.6.4), rejeu ordonné des DDL
-(`Replay`, blocs `DO` évalués sur tables virtuelles, `ddl-not-replayed`
-sinon), `ProjectCatalog` qui remplace `SchemaResolver`/`DdlSchemaProvider`/
-`builtins.rs` (supprimés) pour checker, analyse, CLI et LSP, résolution
-exacte partout, diagnostics D9 (extension manquante suggérée, en-têtes de
-migration), import brownfield `pgweave schema import`, base salsa
-`pgweave-project` avec test d'incrémentalité. Mesalia : catalogue reconstruit
-identique au réel, 0 diagnostic de `check`, import vérifié (schéma exporté →
-base vierge → catalogue identique).
+Done: `pgweave-catalog` crate (D2/D11 model, exact case), generated packs
+(`cargo xtask catalog-gen`: postgres@18, citext, btree_gist, btree_gin,
+pg_trgm, unaccent, fuzzystrmatch, postgis@3.6.4), ordered DDL replay
+(`Replay`, `DO` blocks evaluated over virtual tables, `ddl-not-replayed`
+otherwise), `ProjectCatalog` replacing `SchemaResolver`/`DdlSchemaProvider`/
+`builtins.rs` (removed) for checker, analysis, CLI and LSP, exact
+resolution everywhere, D9 diagnostics (missing extension suggested, migration
+headers), brownfield import `pgweave schema import`, salsa database
+`pgweave-project` with an incrementality test. Mesalia: reconstructed catalog
+identical to the real one, 0 `check` diagnostics, import verified (exported schema →
+empty database → identical catalog).
 
 siren (`cargo xtask corpus siren --path ~/dev/creat/siren/migrations
 --layout diesel --pg-url postgres://postgres:pgweave@localhost:54319/postgres
---details`, conteneur `pgweave-postgis`, image `postgis/postgis:18-3.6` en
-amd64) : catalogue et import identiques au réel, sauf les 2 triggers posés
-par `diesel_manage_updated_at` (SQL dynamique : `ddl-not-replayed`).
-Exécuter ce helper Diesel, très courant, demanderait d'évaluer `EXECUTE
-format(…)` : à reprendre avec l'interprétation des corps (P3+).
+--details`, `pgweave-postgis` container, `postgis/postgis:18-3.6` image on
+amd64): catalog and import identical to the real one, except the 2 triggers created
+by `diesel_manage_updated_at` (dynamic SQL: `ddl-not-replayed`).
+Executing this very common Diesel helper would require evaluating `EXECUTE
+format(…)`: to be picked up with body interpretation (P3+).
 
-LSP sur `pgweave-project` : `Workspace` salsa (macros du projet en entrée,
-texte de l'éditeur prioritaire sur le disque jusqu'à fermeture, diagnostics
-de rejeu par fichier comme `pgweave check`), `ProjectBuilder` partagé avec
-la CLI. Baselines régénérées (`docs/baselines/`).
+LSP on `pgweave-project`: salsa `Workspace` (project macros as input,
+editor text taking priority over disk until closed, per-file replay
+diagnostics like `pgweave check`), `ProjectBuilder` shared with
+the CLI. Baselines regenerated (`docs/baselines/`).
 
-Critères de sortie : atteints. Reporté en P3, explicitement :
-- types des colonnes de vues (24 colonnes Mesalia « non établies ») : ils
-  demandent le typage des requêtes ;
-- portées routine/bloc dans le catalogue, avec le HIR (le `TypeContext` du
-  checker les porte en attendant) ;
-- exécution du SQL dynamique des corps (`EXECUTE format(…)`, cas
-  `diesel_manage_updated_at`), aujourd'hui signalé `ddl-not-replayed`.
+Exit criteria: met. Explicitly postponed to P3:
+- view column types (24 Mesalia columns "not established"): they
+  require query typing;
+- routine/block scopes in the catalog, with the HIR (the checker's
+  `TypeContext` carries them in the meantime);
+- execution of dynamic SQL in bodies (`EXECUTE format(…)`, the
+  `diesel_manage_updated_at` case), currently reported as `ddl-not-replayed`.
 
-- Crate `pgweave-catalog` : modèle D2, couches, schémas et `search_path`
-  (D11), clés sensibles à la casse (principe 8).
-- Générateur (`xtask catalog-gen`) : extrait `pg_namespace`, `pg_type`,
+- `pgweave-catalog` crate: D2 model, layers, schemas and `search_path`
+  (D11), case-sensitive keys (principle 8).
+- Generator (`xtask catalog-gen`): extracts `pg_namespace`, `pg_type`,
   `pg_proc`, `pg_operator`, `pg_cast`, `pg_aggregate`, `pg_opclass`,
-  `pg_am` d'un PG épinglé → pack `postgres@<major>` versionné dans le dépôt.
-  Packs d'extension par delta avant/après `CREATE EXTENSION` : `citext` et
-  `btree_gist` d'abord (Mesalia), puis PostGIS (siren).
-- Contributeurs actifs (D9) : version PG depuis la config, extensions depuis
-  l'état reconstruit ; diagnostics d'extension manquante / inutilisée /
-  indisponible ; vérification des en-têtes de migration.
-- Base de projet salsa : fichiers → déclarations → objets résolus à la
-  demande ; application ordonnée des DDL (`ALTER` incluses).
-- Portées routine/bloc : paramètres, variables, tables temporaires créées
-  dans le corps (visibles après leur création), `NEW`/`OLD` selon timing,
-  événements et niveau (row/statement), variables spéciales (`FOUND`,
+  `pg_am` from a pinned PG → `postgres@<major>` pack versioned in the repository.
+  Extension packs as a before/after `CREATE EXTENSION` delta: `citext` and
+  `btree_gist` first (Mesalia), then PostGIS (siren).
+- Active contributors (D9): PG version from the config, extensions from
+  the reconstructed state; diagnostics for missing / unused /
+  unavailable extensions; migration header checks.
+- salsa project database: files → declarations → objects resolved on
+  demand; ordered application of DDL (`ALTER` included).
+- Routine/block scopes: parameters, variables, temporary tables created
+  in the body (visible after their creation), `NEW`/`OLD` depending on timing,
+  events and level (row/statement), special variables (`FOUND`,
   `TG_OP`…).
-- Migration du LSP et de la CLI sur cette base ; suppression de
+- Migration of the LSP and the CLI onto this database; removal of
   `SchemaProvider`/`SchemaResolver`/`SchemaIndex`/`builtins.rs`.
 
-- **Import brownfield** (avancé depuis P7, chemin critique Mesalia) :
-  rejouer les migrations Prisma → fichiers de schéma déclaratifs organisés
-  par schéma PG (`pgweave schema import`) + migration baseline avec en-tête.
-  L'import ne fait qu'émettre le catalogue reconstruit ; il ne demande pas le
-  diff de P7.
+- **Brownfield import** (brought forward from P7, Mesalia critical path):
+  replay the Prisma migrations → declarative schema files organized
+  by PG schema (`pgweave schema import`) + baseline migration with header.
+  The import only emits the reconstructed catalog; it does not require the
+  P7 diff.
 
-**Sortie** : catalogue de Mesalia reconstruit identique (à l'oracle) au
-catalogue réel obtenu en appliquant ses migrations sur un PG vierge, y
-compris extensions et schémas ; schéma déclaratif de Mesalia importé et
-relu ; modification d'un fichier → seules les requêtes dépendantes sont
-recalculées (test).
+**Exit**: Mesalia catalog reconstructed identical (per the oracle) to the
+real catalog obtained by applying its migrations to an empty PG,
+including extensions and schemas; Mesalia declarative schema imported and
+reviewed; modifying a file → only dependent queries are
+recomputed (test).
 
-### P3 — Analyse sémantique unifiée — ✅ terminée (2026-11-02)
+### P3 — Unified semantic analysis — ✅ done (2026-11-02)
 
-Fait (2026-11-01) :
-- `pgweave-sema`, système de types tiré du catalogue :
-  - coercions, type commun, polymorphisme ;
-  - résolution des surcharges de fonctions et d'opérateurs ;
-  - balayage différentiel : 19 032/19 032 résolutions identiques à PostgreSQL.
-- Typage des expressions et des requêtes sur l'AST normalisé :
-  - paramètres typés par leur premier usage ;
-  - nullabilité D5 ;
-  - noms de colonnes de `FigureColname`.
-- Oracle de requêtes : 243 requêtes, 749/751 colonnes (`ROWS FROM (…)`,
-  illisible pour sqlparser, reste à lire), 146/146 paramètres ; précédence
-  des opérateurs confrontée à PostgreSQL (`make oracle`).
-- Colonnes de vues typées pendant le rejeu (`QueryTyper`) : Mesalia identique au réel, 1 622/1 622 colonnes.
-- (2026-11-02) `check` passe par sema (`pgweave_sema::check`) : chaque
-  statement est vérifié quand il s'applique, contre l'état du catalogue à ce
-  point (`StatementChecker` du rejeu) ; un corps PL/pgSQL l'est contre l'état
-  final s'il est encore en vigueur. CLI, LSP, base incrémentale et corpus
-  partagent ce mécanisme. Mesalia : 0 diagnostic (faute injectée : détectée) ;
-  siren : inchangé.
+Done (2026-11-01):
+- `pgweave-sema`, type system drawn from the catalog:
+  - coercions, common type, polymorphism;
+  - function and operator overload resolution;
+  - differential sweep: 19,032/19,032 resolutions identical to PostgreSQL.
+- Expression and query typing on the normalized AST:
+  - parameters typed by their first use;
+  - D5 nullability;
+  - column names from `FigureColname`.
+- Query oracle: 243 queries, 749/751 columns (`ROWS FROM (…)`,
+  unreadable for sqlparser, still to be read), 146/146 parameters; operator
+  precedence checked against PostgreSQL (`make oracle`).
+- View columns typed during replay (`QueryTyper`): Mesalia identical to the real one, 1,622/1,622 columns.
+- (2026-11-02) `check` goes through sema (`pgweave_sema::check`): each
+  statement is checked when it applies, against the catalog state at that
+  point (the replay's `StatementChecker`); a PL/pgSQL body is checked against the final
+  state if it is still in effect. CLI, LSP, incremental database and corpus
+  share this mechanism. Mesalia: 0 diagnostics (injected fault: detected);
+  siren: unchanged.
 
-Reste, dans l'ordre :
-1. Corpus : ✅ 183 requêtes écrites à la main (`make oracle`), plus les
-   sondes générées depuis les catalogues réels de `cargo xtask corpus`
-   (`SELECT *`, `= $1`, `INSERT … VALUES ($1)`) : Mesalia 3 342/3 342,
-   siren 476/476 ; et les requêtes des corps des routines en vigueur,
-   préparées par PostgreSQL avec leurs variables en paramètres typés (tables
-   temporaires et de transition recréées) : Mesalia 58/58, siren 10/10, aucune
-   non sondée. Reste : le parser accepte `default` non quoté comme nom de
-   colonne, ce que PostgreSQL refuse.
-2. Références résolues : ✅ ce que P4 et le LSP consomment — objets du
-   catalogue résolus (`TypeSystem::depends`), références de colonnes et de
-   variables avec position, type et nullabilité (`column_refs`,
-   `var_refs`). Un HIR complet (arbre typé autonome) reste à faire quand un
-   consommateur en aura besoin (lints, P6).
-3. ✅ Arguments nommés (`MatchNamedCall`), CTE modifiantes, `GROUPING SETS`,
-   listes de définition de colonnes, `RETURNING old/new`. Les lints de
-   requête ne visitent que les corps `SELECT` des CTE.
-4. ✅ Portées routine/bloc dans sema (`routine.rs`) : paramètres nommés et
-   positionnels, blocs étiquetés, `variable_conflict = error` en PL/pgSQL,
-   colonne avant paramètre en SQL, records dont la structure suit les
-   affectations, curseurs, `NEW`/`OLD`/`TG_*` par table du trigger, tables de
-   transition, tables temporaires du corps.
-5. ✅ Checker porté sur `pgweave-sema` (l'ancien `TypeContext` et ses règles
-   sont supprimés ; `pgweave-checker` n'héberge plus que les règles de
-   plugins) ; diagnostic de compatibilité (`WHERE text_col = 42`).
-   `pgweave-semantic` est supprimé : survol LSP positionnel (références
-   résolues par sema), codegen TypeScript typé par sema (nullabilité D5,
-   enums, plus d'heuristique d'ordre). Reste : lints portés sur sema.
-6. Exécution du SQL dynamique des corps : reportée de P2.
-7. ✅ Expressions de table dans leur contexte : `DEFAULT` (sans colonne,
-   convertible vers la colonne), expression générée (colonnes non générées),
-   `CHECK` booléen, `ALTER … SET DEFAULT`, `CREATE DOMAIN … CHECK (VALUE …)`
-   — messages de PostgreSQL 18, vérifiés.
+Remaining, in order:
+1. Corpus: ✅ 183 hand-written queries (`make oracle`), plus
+   probes generated from the real catalogs of `cargo xtask corpus`
+   (`SELECT *`, `= $1`, `INSERT … VALUES ($1)`): Mesalia 3,342/3,342,
+   siren 476/476; and the queries in bodies of routines in effect,
+   prepared by PostgreSQL with their variables as typed parameters (temporary
+   and transition tables recreated): Mesalia 58/58, siren 10/10, none
+   unprobed. Remaining: the parser accepts unquoted `default` as a column
+   name, which PostgreSQL rejects.
+2. Resolved references: ✅ what P4 and the LSP consume — resolved catalog
+   objects (`TypeSystem::depends`), column and variable references
+   with position, type and nullability (`column_refs`,
+   `var_refs`). A full HIR (standalone typed tree) remains to be done when a
+   consumer needs it (lints, P6).
+3. ✅ Named arguments (`MatchNamedCall`), data-modifying CTEs, `GROUPING SETS`,
+   column definition lists, `RETURNING old/new`. Query lints
+   only visit the `SELECT` bodies of CTEs.
+4. ✅ Routine/block scopes in sema (`routine.rs`): named and
+   positional parameters, labeled blocks, `variable_conflict = error` in PL/pgSQL,
+   column before parameter in SQL, records whose structure follows
+   assignments, cursors, `NEW`/`OLD`/`TG_*` per trigger table, transition
+   tables, temporary tables of the body.
+5. ✅ Checker ported to `pgweave-sema` (the old `TypeContext` and its rules
+   are removed; `pgweave-checker` now only hosts plugin
+   rules); compatibility diagnostic (`WHERE text_col = 42`).
+   `pgweave-semantic` is removed: positional LSP hover (references
+   resolved by sema), TypeScript codegen typed by sema (D5 nullability,
+   enums, no more ordering heuristic). Remaining: lints ported to sema.
+6. Execution of dynamic SQL in bodies: postponed from P2.
+7. ✅ Table expressions in their context: `DEFAULT` (without columns,
+   convertible to the column), generated expression (non-generated columns),
+   boolean `CHECK`, `ALTER … SET DEFAULT`, `CREATE DOMAIN … CHECK (VALUE …)`
+   — PostgreSQL 18 messages, verified.
 
-Critères de sortie atteints : 311 requêtes représentatives confrontées à
-PostgreSQL (243 écrites, 68 de corps de routines Mesalia et siren), zéro
-faux positif sur les corpus, `WHERE text_col = 42` diagnostiqué. Reportés,
-sans bloquer P4 : lints portés sur sema, HIR complet, SQL dynamique des
-corps, `ROWS FROM (…)` (illisible pour sqlparser). (`DEFAULT` hors
-affectation : refusé comme par PostgreSQL depuis le 2026-11-02.)
+Exit criteria met: 311 representative queries checked against
+PostgreSQL (243 written, 68 from Mesalia and siren routine bodies), zero
+false positives on the corpora, `WHERE text_col = 42` diagnosed. Postponed,
+without blocking P4: lints ported to sema, full HIR, dynamic SQL in
+bodies, `ROWS FROM (…)` (unreadable for sqlparser). (`DEFAULT` outside
+assignment: rejected as PostgreSQL does since 2026-11-02.)
 
-- Crate `pgweave-sema` : normalisation → résolution → HIR typé.
-- Système de types fidèle : catégories, casts implicites/assignation,
-  résolution de surcharges d'opérateurs et fonctions, littéraux `unknown`,
-  `UNION`/`CASE`/`COALESCE`/`VALUES`, tableaux, enums, domaines.
-- Nullabilité (D5). Inférence des paramètres `$n`/`$name` (D6).
-- Sémantique des constructions du périmètre : insertion/mise à jour interdite
-  d'une colonne generated ; expressions `CHECK` et `GENERATED` typées dans le
-  contexte de leur table ; `DEFAULT` ; `ON CONFLICT` ; `RETURNING` ; `CALL`
-  vérifié contre la signature de procédure ; corps de trigger vérifié par
-  table (existant, porté).
-- Checker et lint portés sur le HIR ; suppression de `pgweave-semantic` et du
+- `pgweave-sema` crate: normalization → resolution → typed HIR.
+- Faithful type system: categories, implicit/assignment casts,
+  operator and function overload resolution, `unknown` literals,
+  `UNION`/`CASE`/`COALESCE`/`VALUES`, arrays, enums, domains.
+- Nullability (D5). Inference of `$n`/`$name` parameters (D6).
+- Semantics of in-scope constructs: forbidden insert/update
+  of a generated column; `CHECK` and `GENERATED` expressions typed in the
+  context of their table; `DEFAULT`; `ON CONFLICT`; `RETURNING`; `CALL`
+  checked against the procedure signature; trigger body checked per
+  table (existing, ported).
+- Checker and lint ported to the HIR; removal of `pgweave-semantic` and of
   `TypeContext`.
 
-**Sortie** : oracle différentiel vert sur le corpus de requêtes (≥ 300
-requêtes représentatives, dont les corps de Mesalia) ; zéro faux positif sur
-les corpus ; compatibilité de types vérifiée (`WHERE text_col = 42` →
+**Exit**: differential oracle green on the query corpus (≥ 300
+representative queries, including Mesalia bodies); zero false positives on
+the corpora; type compatibility checked (`WHERE text_col = 42` →
 diagnostic).
 
-### P4 — Descripteur de requête — ✅ terminée (2026-11-02)
+### P4 — Query descriptor — ✅ done (2026-11-02)
 
-Fait (2026-11-02) :
-- `pgweave_query::descriptor` : types (références au catalogue, OID des
-  types intégrés), nullabilité à trois états des paramètres (établie par
-  affectation à une colonne) et des colonnes, cardinalité inférée de façon
-  conservatrice (clé primaire/unique fixée par des égalités, agrégat sans
-  `GROUP BY`, `LIMIT 1`, `INSERT … VALUES` d'une ligne, fonctions renvoyant
-  un ensemble), `depends_on` (relations, types, routines et opérateurs du
-  projet résolus par sema), empreinte SHA-256 du SQL réémis et des
-  définitions des dépendances, cache `.pgweave/queries/<empreinte>.json`.
-- Paramètres dans l'ordre de la réécriture positionnelle (première
-  apparition), pas dans l'ordre d'analyse.
-- Cardinalité déclarée (`-- name: x :one`) : restreint l'inférence (contrat
-  vérifié à l'exécution), ne la contredit pas (`none` contre des lignes
-  renvoyées, ou l'inverse : erreur).
-- `pgweave describe` (fichiers de requêtes, `--sql`, `--cache`), JSON.
-- L'oracle passe désormais par le descripteur : 749/751 colonnes, 146/146
-  paramètres.
-- `pgweave check` et le LSP signalent sur un fichier de requêtes ce qui
-  empêche de le décrire (paramètre non typé, cardinalité contredite).
+Done (2026-11-02):
+- `pgweave_query::descriptor`: types (catalog references, OIDs of
+  built-in types), three-state nullability of parameters (established by
+  assignment to a column) and columns, cardinality inferred
+  conservatively (primary/unique key fixed by equalities, aggregate without
+  `GROUP BY`, `LIMIT 1`, single-row `INSERT … VALUES`, set-returning
+  functions), `depends_on` (project relations, types, routines and operators
+  resolved by sema), SHA-256 fingerprint of the re-emitted SQL and of the
+  dependency definitions, `.pgweave/queries/<fingerprint>.json` cache.
+- Parameters in the order of the positional rewrite (first
+  appearance), not in analysis order.
+- Declared cardinality (`-- name: x :one`): narrows inference (contract
+  checked at runtime), does not contradict it (`none` against returned
+  rows, or the reverse: error).
+- `pgweave describe` (query files, `--sql`, `--cache`), JSON.
+- The oracle now goes through the descriptor: 749/751 columns, 146/146
+  parameters.
+- `pgweave check` and the LSP report, on a query file, what
+  prevents describing it (untyped parameter, contradicted cardinality).
 
-- Crate `pgweave-query` : descripteur §4, cardinalité, `depends_on`,
-  fingerprint, cache disque.
-- Requêtes nommées en fichiers (`queries/*.sql`, en-tête `-- name: …` ou
-  macro dédiée), réécriture `$name` → positionnel.
-- CLI `pgweave describe <fichier|requête>` et sortie JSON.
+- `pgweave-query` crate: §4 descriptor, cardinality, `depends_on`,
+  fingerprint, disk cache.
+- Named queries in files (`queries/*.sql`, `-- name: …` header or
+  dedicated macro), `$name` → positional rewrite.
+- CLI `pgweave describe <file|query>` and JSON output.
 
-**Sortie** : descripteurs déterministes (snapshots) ; refus explicite quand
-un type est inconnu ; oracle vert sur types de paramètres et colonnes.
+**Exit**: deterministic descriptors (snapshots); explicit refusal when
+a type is unknown; oracle green on parameter and column types.
 
-### P5 — Intégration Rust — 🚧 sortie atteinte sauf la comparaison à sqlx
+### P5 — Rust integration — 🚧 exit reached except the comparison with sqlx
 
-Fait (2026-11-02) :
-- `pgweave-runtime` : `Query` (SQL positionnel, OID des paramètres),
-  `fetch_one`/`fetch_optional`/`fetch_all`/`execute` alignés sur la
-  cardinalité, sur `GenericClient` (client, transaction, pool) ;
-  `query_typed` quand les OID sont fixes, préparation par le serveur pour un
-  type du projet (enum) ; décodage par index ; erreurs `Db`/`RowCount`/
-  `Decode`.
-- `pgweave_codegen::rust` : une fonction par requête, struct de paramètres
-  (empruntés) et de ligne, nullabilité D5 (`Option` sauf non-nullité
-  établie ; paramètre de nullabilité inconnue attendu non nul), enums
-  générés (libellés), domaines par leur type de base, tableaux en
-  `Vec<Option<T>>`, `time` ou `chrono` ; table de correspondance du projet ;
-  refus explicite d'un type sans correspondance ou d'une colonne sans nom
-  Rust.
-- `pgweave-build` : génération depuis `build.rs` (projet de `pgweave.toml`,
-  aucune connexion), `rerun-if-changed` sur le schéma, les migrations, les
-  requêtes et les macros ; une requête non décrite fait échouer la
-  compilation avec sa position.
-- `examples/rust-service` : schéma (enum, domaine, tableau, uuid, dates),
-  requêtes nommées, test de bout en bout contre PostgreSQL 18 (`make
+Done (2026-11-02):
+- `pgweave-runtime`: `Query` (positional SQL, parameter OIDs),
+  `fetch_one`/`fetch_optional`/`fetch_all`/`execute` aligned with the
+  cardinality, over `GenericClient` (client, transaction, pool);
+  `query_typed` when OIDs are fixed, server-side preparation for a
+  project type (enum); decoding by index; `Db`/`RowCount`/
+  `Decode` errors.
+- `pgweave_codegen::rust`: one function per query, parameter struct
+  (borrowed) and row struct, D5 nullability (`Option` unless non-nullness is
+  established; parameter of unknown nullability expected non-null), generated
+  enums (labels), domains as their base type, arrays as
+  `Vec<Option<T>>`, `time` or `chrono`; project mapping table;
+  explicit refusal of a type without a mapping or of a column without a Rust
+  name.
+- `pgweave-build`: generation from `build.rs` (project from `pgweave.toml`,
+  no connection), `rerun-if-changed` on the schema, the migrations, the
+  queries and the macros; an undescribable query fails the
+  compilation with its position.
+- `examples/rust-service`: schema (enum, domain, array, uuid, dates),
+  named queries, end-to-end test against PostgreSQL 18 (`make
   oracle`, CI).
 
-- `pgweave-macros` : `query!` (requête inline, paramètres `$nom` liés par
-  `nom = expr` et vérifiés au type attendu, `fetch` aligné sur la
-  cardinalité, `execute` sans ligne ; erreur SQL = erreur de compilation sur
-  la chaîne ; `include_bytes!` des fichiers du projet pour la
-  recompilation ; projet mis en cache par le serveur de macros, invalidé
-  par date de modification). Enums refusés en inline : requête nommée.
+- `pgweave-macros`: `query!` (inline query, `$name` parameters bound by
+  `name = expr` and checked against the expected type, `fetch` aligned with the
+  cardinality, `execute` without rows; SQL error = compile error on
+  the string; `include_bytes!` of the project files for
+  recompilation; project cached by the macro server, invalidated
+  by modification time). Enums refused inline: use a named query.
 
-- `COPY … FROM STDIN` comme requête nommée : descripteur `copy_in`
-  (colonnes alimentées, générées exclues ou refusées comme par PostgreSQL),
-  fonction générée sur enregistrements typés (binaire) ou flux d'octets
-  (texte, CSV), sur client ou transaction ; l'exemple reproduit le motif
-  siren (staging + COPY binaire et CSV + bascule) contre PostgreSQL 18.
+- `COPY … FROM STDIN` as a named query: `copy_in` descriptor
+  (fed columns, generated ones excluded or refused as PostgreSQL does),
+  function generated over typed records (binary) or a byte stream
+  (text, CSV), on a client or a transaction; the example reproduces the siren
+  pattern (staging + binary and CSV COPY + swap) against PostgreSQL 18.
 
-- Lignes en flux (`_stream`) pour les requêtes de cardinalité `many`.
-- `make bench` : `page_by_id` généré face à `tokio-postgres` écrit à la
-  main, 145,0 contre 145,7 µs par requête (rapport 0,995, garde-fou à 1,25).
+- Streamed rows (`_stream`) for queries of `many` cardinality.
+- `make bench`: generated `page_by_id` against hand-written `tokio-postgres`,
+  145.0 vs 145.7 µs per query (ratio 0.995, guardrail at 1.25).
 
-- Budget de compilation (exemple, machine de dev) : schéma modifié → 1,5 s
-  de reconstruction en debug (génération `build.rs` et `query!` comprises),
-  code seul modifié → 1,05 s. À l'échelle de Mesalia (220 migrations),
-  catalogue + description + génération : 0,29 s en debug.
-- Guide : [`docs/rust.md`](docs/rust.md).
+- Compile budget (example, dev machine): schema modified → 1.5 s
+  rebuild in debug (`build.rs` generation and `query!` included),
+  code only modified → 1.05 s. At Mesalia scale (220 migrations),
+  catalog + description + generation: 0.29 s in debug.
+- Guide: [`docs/rust.md`](docs/rust.md).
 
-- `query_file!` : requête lue dans un fichier du crate, erreurs
-  positionnées dans ce fichier.
-- LSP : survol d'un en-tête `-- name:` → descripteur de la requête.
-- Rejeu du catalogue de Mesalia : 4,4 s → 76 ms en debug (filtrage avant
-  jointure dans l'évaluation des conditions de blocs `DO`).
+- `query_file!`: query read from a file of the crate, errors
+  positioned in that file.
+- LSP: hover on a `-- name:` header → the query's descriptor.
+- Mesalia catalog replay: 4.4 s → 76 ms in debug (filtering before
+  joining in the evaluation of `DO` block conditions).
 
-- Migrations Prisma et Diesel lues telles quelles (`[migrations]
-  directory`) : un projet Prisma comme Mesalia se branche sans conversion.
+- Prisma and Diesel migrations read as is (`[migrations]
+  directory`): a Prisma project like Mesalia plugs in without conversion.
 
-Reste : correspondance de types par pack (PostGIS), en-tête
-CSV vérifié (`HEADER MATCH`), comparaison à sqlx (crate indisponible hors
-ligne), budget mesuré sur un projet de la taille de Mesalia.
+Remaining: per-pack type mapping (PostGIS), checked CSV
+header (`HEADER MATCH`), comparison with sqlx (crate unavailable
+offline), budget measured on a Mesalia-sized project.
 
-- `pgweave-runtime` : exécution D8, `fetch_one`/`fetch_optional`/`fetch_all`/
-  `execute` alignés sur la cardinalité, flux (`RowStream`), transactions,
-  `copy_in` typé (CSV avec validation d'en-tête optionnelle, binaire avec
+- `pgweave-runtime`: D8 execution, `fetch_one`/`fetch_optional`/`fetch_all`/
+  `execute` aligned with the cardinality, streams (`RowStream`), transactions,
+  typed `copy_in` (CSV with optional header validation, binary with
   structs).
-- `pgweave-macros` : `query!`, `query_file!`, `copy_in!` ; diagnostics SQL
-  re-situés dans le source Rust ; recompilation correcte (§5).
-- Génération `build.rs` des requêtes nommées.
-- Correspondance de types Rust, extensible par pack (PostGIS).
-- Exemple de bout en bout reproduisant le chargement siren (staging + COPY +
-  swap) sur `tokio-postgres`.
+- `pgweave-macros`: `query!`, `query_file!`, `copy_in!`; SQL diagnostics
+  relocated into the Rust source; correct recompilation (§5).
+- `build.rs` generation of named queries.
+- Rust type mapping, extensible per pack (PostGIS).
+- End-to-end example reproducing the siren load (staging + COPY +
+  swap) on `tokio-postgres`.
 
-**Sortie** : un service d'exemple compile et tourne contre PG en CI ;
-budget de compilation respecté ; benchmark d'exécution comparé à
-`tokio-postgres` écrit à la main (écart cible : négligeable) et à sqlx.
+**Exit**: an example service compiles and runs against PG in CI;
+compile budget met; execution benchmark compared with
+hand-written `tokio-postgres` (target gap: negligible) and with sqlx.
 
-### P6 — Fragments et macros d'expression — ✅ sortie atteinte (2026-11-03)
+### P6 — Fragments and expression macros — ✅ exit reached (2026-11-03)
 
-Fait (2026-11-03) :
-- Fragments : `.sql` de `[macros] directory`, en-têtes `-- fragment: nom`
-  ou `nom(t, …)`, corps en SQL ordinaire documenté par ses commentaires.
-  `@nom` les insère partout où du code est recopié (schéma, migrations,
-  requêtes nommées, `query!`, corps de macros), uniquement pour un nom de
-  fragment déclaré (`@` reste sinon la valeur absolue). Paramètres =
-  qualificatifs de relation (`@f(e)` : `t.` → `e.` ; `@f` : retiré), rien
-  d'autre n'est substitué. Corps d'expression non atomique parenthésé (nature
-  lue par le parser) ; imbrication, cycle refusé. Lexer qui distingue
-  chaînes, `$$…$$`, commentaires et identifiants quotés.
-- Source-map : segments opaques, le texte inséré est rapporté à
-  l'invocation entière ; une erreur venue d'un fragment est soulignée sur
-  `@nom(x)` ; paramètres `$nom` apportés par un fragment rattachés à la
-  requête, dans l'ordre d'apparition après insertion.
-- Requêtes nommées : fragments insérés requête par requête dans le repère
-  du fichier (`NamedQuery::expanded`), descripteur et code générés sur le
-  SQL inséré ; `-> autre` (ajout additif au format figé) : lignes de la
-  forme de la requête `autre`, vérifiées (noms, ordre, types, nullabilité
-  non relâchée), struct reprise par le code généré ; `query-row-mismatch`
-  dans `check` et l'éditeur, références entre fichiers comprises.
-- Éditeur : survol d'un `@nom` (doc, SQL inséré), fichiers de fragments
-  vérifiés (format) et pris en compte non sauvegardés, revérification des
-  autres documents à leur modification ; rôle `Fragments` (jamais schéma ni
-  requêtes).
-- **Sortie** : `examples/rust-service` (motif siren) — liste de colonnes du
-  chargement écrite une fois (COPY, `INSERT … SELECT`, `ON CONFLICT … SET
-  (…) = ROW(…)`), expression plein texte écrite une fois pour l'index et la
-  requête, l'oracle vérifiant sur PostgreSQL que le plan utilise l'index ;
-  `examples/demo` — projection « fiche de plat » écrite une fois, trois
-  requêtes et une struct `DishCardRow`.
+Done (2026-11-03):
+- Fragments: `.sql` files in `[macros] directory`, `-- fragment: name`
+  or `name(t, …)` headers, body in ordinary SQL documented by its comments.
+  `@name` inserts them wherever code is copied (schema, migrations,
+  named queries, `query!`, macro bodies), only for a declared fragment
+  name (`@` otherwise remains absolute value). Parameters =
+  relation qualifiers (`@f(e)`: `t.` → `e.`; `@f`: removed), nothing
+  else is substituted. Non-atomic expression body parenthesized (nature
+  read by the parser); nesting, cycles refused. Lexer that distinguishes
+  strings, `$$…$$`, comments and quoted identifiers.
+- Source map: opaque segments, inserted text is mapped back to
+  the whole invocation; an error coming from a fragment is underlined on
+  `@name(x)`; `$name` parameters brought by a fragment attached to the
+  query, in order of appearance after insertion.
+- Named queries: fragments inserted query by query in the file's
+  coordinate frame (`NamedQuery::expanded`), descriptor and code generated on the
+  inserted SQL; `-> other` (additive change to the frozen format): rows with the
+  shape of query `other`, checked (names, order, types, nullability
+  not relaxed), struct reused by the generated code; `query-row-mismatch`
+  in `check` and the editor, cross-file references included.
+- Editor: hover on an `@name` (doc, inserted SQL), fragment files
+  checked (format) and taken into account unsaved, rechecking of the
+  other documents when they change; `Fragments` role (never schema nor
+  queries).
+- **Exit**: `examples/rust-service` (siren pattern) — column list of the
+  load written once (COPY, `INSERT … SELECT`, `ON CONFLICT … SET
+  (…) = ROW(…)`), full-text expression written once for the index and the
+  query, with the oracle verifying on PostgreSQL that the plan uses the index;
+  `examples/demo` — "dish card" projection written once, three
+  queries and a `DishCardRow` struct.
 
-Ajouts (2026-11-03, après la sortie) :
-- Un module Rust par fichier de requêtes (`queries/order/book.sql` →
-  `queries::order::book`), enums à la racine de l'arbre ; références
-  qualifiées `-> order::book::card` (chemin relatif dans le code généré) ;
-  la promesse de `docs/named-queries.md` est tenue.
-- `pgweave_macros::queries!("queries")` : l'arbre d'un répertoire, ou les
-  requêtes d'un fichier, générés à l'endroit de l'appel (un `src/queries.rs`
-  d'une ligne) ; même génération que `pgweave-build`
+Additions (2026-11-03, after exit):
+- One Rust module per query file (`queries/order/book.sql` →
+  `queries::order::book`), enums at the root of the tree; qualified
+  references `-> order::book::card` (relative path in the generated code);
+  the promise of `docs/named-queries.md` is kept.
+- `pgweave_macros::queries!("queries")`: the tree of a directory, or the
+  queries of a file, generated at the call site (a one-line
+  `src/queries.rs`); same generation as `pgweave-build`
   (`pgweave_build::generate_path`).
-- `[queries] include` : répertoires de requêtes près du code, chacun racine
-  de son arbre ; un fichier de requêtes hors de ces répertoires (bac à
-  sable) est rattaché à la racine principale.
-- `examples/demo` en mode déclaratif : schéma complet écrit à la main, la
-  migration de la vue générée par `migrate create`, `src/queries.rs` par la
-  macro, un sous-module `promotions::deals`.
+- `[queries] include`: query directories next to the code, each the root
+  of its own tree; a query file outside these directories (sandbox)
+  is attached to the main root.
+- `examples/demo` in declarative mode: full schema written by hand, the
+  view's migration generated by `migrate create`, `src/queries.rs` by the
+  macro, a `promotions::deals` submodule.
 
-- `sql!` : une requête par macro, nom, cardinalité, doc et visibilité en
-  paramètres, chaîne réduite au SQL ; `-> Chemin` (struct Rust d'une autre
-  requête, `sql!` ou fichier) vérifié par assertions constantes sur
-  `PGWEAVE_COLUMNS`. Rafraîchie à la frappe dans rust-analyzer (mesuré :
-  0,1 s), là où `queries!` ne l'est qu'au redémarrage du serveur (limite de
-  rust-analyzer, mesurée : ni `rebuildProcMacros` ni `reloadWorkspace` ne
-  relancent une macro dont l'entrée est inchangée).
-- `#[pgweave_macros::types] mod db {}` et `[rust] types` : enums générés
-  une fois, référencés par `sql!`, `queries!` et `build.rs`.
-- Positions : tokens générés situés sur l'appel (plus de panique de
-  rust-analyzer), noms sur le nom écrit, lien vers la ligne SQL au survol.
-- Coloration SQL des chaînes de `sql!`/`query!` (grammaire d'injection,
-  vérifiée avec la grammaire Rust de VS Code), `pgweave-lsp` sur les `.rs`
-  (requêtes extraites par balayage lexical, positions exactes échappements
-  compris : diagnostics, survol, complétion), jetons sémantiques réservés
-  aux documents SQL ; survol d'un `$paramètre` (type établi, pas une
-  colonne homonyme).
-- Paramètre optionnel `$nom?` (nullable, `Option` en Rust) ; requêtes à
-  variantes : blocs `[[ … ]]` (un paramètre chacun) et choix `{{ nom: a = … |
-  b = … }}` (enum Rust), chaque combinaison décrite à la compilation (≤ 256,
-  mêmes colonnes exigées), choisie à l'exécution par un `match` exhaustif.
-  Variantes obtenues par effacement à longueur égale : positions du fichier
-  conservées.
+- `sql!`: one query per macro, name, cardinality, doc and visibility as
+  parameters, string reduced to the SQL; `-> Path` (Rust struct of another
+  query, `sql!` or file) checked by constant assertions on
+  `PGWEAVE_COLUMNS`. Refreshed as you type in rust-analyzer (measured:
+  0.1 s), whereas `queries!` only refreshes when the server restarts (a
+  rust-analyzer limitation, measured: neither `rebuildProcMacros` nor `reloadWorkspace`
+  rerun a macro whose input is unchanged).
+- `#[pgweave_macros::types] mod db {}` and `[rust] types`: enums generated
+  once, referenced by `sql!`, `queries!` and `build.rs`.
+- Positions: generated tokens located on the call (no more rust-analyzer
+  panics), names on the written name, link to the SQL line on hover.
+- SQL highlighting of `sql!`/`query!` strings (injection grammar,
+  verified with VS Code's Rust grammar), `pgweave-lsp` on `.rs` files
+  (queries extracted by lexical scan, exact positions including
+  escapes: diagnostics, hover, completion), semantic tokens reserved
+  for SQL documents; hover on a `$parameter` (established type, not a
+  homonymous column).
+- Optional parameter `$name?` (nullable, `Option` in Rust); variant
+  queries: `[[ … ]]` blocks (one parameter each) and `{{ name: a = … |
+  b = … }}` choices (Rust enum), each combination described at compile time (≤ 256,
+  same columns required), chosen at runtime by an exhaustive `match`.
+  Variants obtained by equal-length erasure: file positions
+  preserved.
 
-Reste :
-- Fragments dans un `CREATE FUNCTION … AS $$…$$` écrit à la main : non
-  insérés (une chaîne dollar n'est pas interprétée) ; passer par `@function`.
-- `pgweave build` n'éjecte pas encore un fichier de requêtes (les
-  descripteurs portent le SQL inséré, le code généré aussi).
-- Une projection Mesalia réelle : la brique Rust de Mesalia n'existe pas
-  encore ; le motif est montré dans la démo.
+Remaining:
+- Fragments in a hand-written `CREATE FUNCTION … AS $$…$$`: not
+  inserted (a dollar string is not interpreted); use `@function`.
+- `pgweave build` does not yet eject a query file (the
+  descriptors carry the inserted SQL, and so does the generated code).
+- A real Mesalia projection: Mesalia's Rust component does not exist
+  yet; the pattern is shown in the demo.
 
-- Fragments nommés réutilisables (liste de colonnes, prédicats), typés dans
-  leur contexte d'utilisation, avec source maps (mécanisme existant étendu).
-- Une requête nommée utilisable comme type de référence par d'autres
-  (vérification de compatibilité, jamais de cast forcé).
-- Expansion visible (LSP) et éjectable (`pgweave build`), comme les macros
-  actuelles.
+- Reusable named fragments (column list, predicates), typed in
+  their context of use, with source maps (existing mechanism extended).
+- A named query usable as a reference type by others
+  (compatibility check, never a forced cast).
+- Visible (LSP) and ejectable (`pgweave build`) expansion, like the current
+  macros.
 
-**Sortie** : la liste de colonnes siren et les projections récurrentes de
-Mesalia/Sherpa exprimées une seule fois.
+**Exit**: the siren column list and the recurring projections of
+Mesalia/Sherpa expressed only once.
 
-### P7 — Migrations — ✅ sortie atteinte (2026-11-03)
+### P7 — Migrations — ✅ exit reached (2026-11-03)
 
-Fait (2026-11-03) :
-- `pgweave_catalog::diff` : deux catalogues comparés objet par objet
-  (schémas, extensions, enums avec `ADD VALUE` à sa place, types,
-  domaines, séquences, tables, colonnes, contraintes, vues, routines,
-  index, triggers, policies, sécurité par ligne, commentaires) ; ordre par
-  dépendances (suppressions préalables, créations triées ensemble par le
-  graphe de l'export, suppressions définitives en dernier) ; vues
-  reconstruites par fermeture transitive (vue citant une vue, une routine
-  recréée ou une table dont une colonne change de type ou disparaît),
-  remplacées quand leurs colonnes typées le permettent ; routines
-  remplacées, ou supprimées puis recréées si leur signature de sortie
-  change. Ce qui ne s'exprime pas sans perte est rendu non pris en charge,
-  jamais approché.
+Done (2026-11-03):
+- `pgweave_catalog::diff`: two catalogs compared object by object
+  (schemas, extensions, enums with `ADD VALUE` at its position, types,
+  domains, sequences, tables, columns, constraints, views, routines,
+  indexes, triggers, policies, row-level security, comments); ordering by
+  dependencies (preliminary drops, creations sorted together by the
+  export graph, definitive drops last); views
+  rebuilt by transitive closure (view citing a view, a recreated routine
+  or a table one of whose columns changes type or disappears),
+  replaced when their typed columns allow it; routines
+  replaced, or dropped then recreated if their output signature
+  changes. What cannot be expressed without loss is reported as unsupported,
+  never approximated.
 - Safety rules M001 to M007 carried by each statement. The migration is
   always written, as simple as possible: data loss and likely failures are
   listed in its header for the developer to adapt (no `--allow-destructive`
   refusal); changes pgweave cannot express are left as `TODO`, and
   `migrate check` fails until they are written.
-- Mode déclaratif (`[schema] declarative = true`, D10) : l'analyse ne
-  rejoue que le schéma, les migrations sont rejouées à part (leurs
-  diagnostics et l'en-tête de contexte vérifiés sur leur propre état),
-  l'écart est signalé (`schema-drift`).
-- `pgweave migrate create` (format du répertoire : plat, Prisma, Diesel ;
-  en-tête `-- pgweave:` ; vérifiée par rejeu avant écriture), `migrate
-  check` (CI), `migrate diff` sur le catalogue. L'ancien diff sur l'AST et
-  `.schema-snapshots` sont retirés.
-- Fidélité : le corps d'une routine est repris tel qu'écrit (export et
-  migrations) ; index : ordre, `NULLS`, classe d'opérateurs, `INCLUDE`,
-  `NULLS NOT DISTINCT` modélisés (`WITH (…)` refusé) ; défaut littéral
-  gardant son type quand la colonne change de type, comme PostgreSQL ;
-  `CREATE INDEX` vérifié (colonnes, expressions, prédicat, classe
-  d'opérateurs connue pour la méthode).
-- Oracle (`pgweave_oracle::schema`, `make oracle`) : migrations appliquées
-  et schéma déclaratif donnent deux bases identiques selon PostgreSQL
-  (`format_type`, `pg_get_*def`) — évolution de test en quatre versions ;
-  `cargo xtask migrate-oracle <projet>` sur un projet réel ; rapports de
-  corpus enrichis de la confrontation au texte près.
-- **Sortie** : Mesalia importé (220 migrations ↔ schéma déclaratif :
-  3 864 lignes identiques), puis une évolution (extension `pg_trgm`, index
-  GIN `gin_trgm_ops`, colonne, valeur d'enum) produite par `migrate
-  create` : 221 migrations ↔ schéma, 3 868 lignes identiques.
+- Declarative mode (`[schema] declarative = true`, D10): the analysis
+  replays only the schema, migrations are replayed separately (their
+  diagnostics and context header checked against their own state),
+  the gap is reported (`schema-drift`).
+- `pgweave migrate create` (directory format: flat, Prisma, Diesel;
+  `-- pgweave:` header; verified by replay before writing), `migrate
+  check` (CI), `migrate diff` on the catalog. The old AST-based diff and
+  `.schema-snapshots` are removed.
+- Fidelity: a routine's body is kept as written (export and
+  migrations); indexes: order, `NULLS`, operator class, `INCLUDE`,
+  `NULLS NOT DISTINCT` modeled (`WITH (…)` refused); literal default
+  keeping its type when the column changes type, as PostgreSQL does;
+  `CREATE INDEX` checked (columns, expressions, predicate, operator
+  class known for the method).
+- Oracle (`pgweave_oracle::schema`, `make oracle`): applied migrations
+  and declarative schema yield two databases identical according to PostgreSQL
+  (`format_type`, `pg_get_*def`) — test evolution across four versions;
+  `cargo xtask migrate-oracle <project>` on a real project; corpus
+  reports enriched with the text-exact comparison.
+- **Exit**: Mesalia imported (220 migrations ↔ declarative schema:
+  3,864 identical lines), then an evolution (`pg_trgm` extension, GIN index
+  `gin_trgm_ops`, column, enum value) produced by `migrate
+  create`: 221 migrations ↔ schema, 3,868 identical lines.
 
-Reste :
-- `ALTER DOMAIN`, `ALTER TYPE … ATTRIBUTE`, `ALTER SEQUENCE`, identité et
-  expression générée modifiées, `SET LOGGED` : rendus non pris en charge.
-- Privilèges (`GRANT`/`REVOKE`) : ni modélisés ni comparés.
-- Noms des contraintes NOT NULL (PostgreSQL 18) non modélisés : un
-  renommage de colonne laisse l'ancien nom, l'import ne le reproduit pas
-  (sans effet sur le comportement ; l'oracle compare ces contraintes sans
-  leur nom).
-- `CREATE INDEX` : compatibilité de la classe d'opérateurs avec le type,
-  classe par défaut et immutabilité des expressions non vérifiées.
-- Vue reconstruite dès qu'une colonne de sa table change ou disparaît,
-  même non citée (correct, plus large que PostgreSQL).
+Remaining:
+- `ALTER DOMAIN`, `ALTER TYPE … ATTRIBUTE`, `ALTER SEQUENCE`, modified identity and
+  generated expression, `SET LOGGED`: reported as unsupported.
+- Privileges (`GRANT`/`REVOKE`): neither modeled nor compared.
+- Names of NOT NULL constraints (PostgreSQL 18) not modeled: a
+  column rename leaves the old name, the import does not reproduce it
+  (no behavioral effect; the oracle compares these constraints without
+  their name).
+- `CREATE INDEX`: compatibility of the operator class with the type,
+  default class and immutability of expressions not checked.
+- View rebuilt as soon as a column of its table changes or disappears,
+  even if not cited (correct, broader than PostgreSQL).
 - Renames: not detected (drop + add, flagged in the header for the
   developer to turn into `RENAME`).
 
-- Diff sur le modèle complet D2 (schémas, extensions, types, domaines, enums
-  y compris `ADD VALUE`, fonctions/procédures avec ordre de dépendances,
-  triggers, generated, checks, exclusions, policies, privilèges).
-- Émission automatique de `CREATE/ALTER/DROP EXTENSION` et `CREATE/DROP
-  SCHEMA` (D9, D10, D11) ; en-tête de contexte sur chaque migration.
-- Règles de sûreté étendues (existant M001–M003).
-- Vérification par oracle : migration appliquée sur PG → catalogue
-  introspecté == schéma déclaratif.
+- Diff on the full D2 model (schemas, extensions, types, domains, enums
+  including `ADD VALUE`, functions/procedures with dependency ordering,
+  triggers, generated, checks, exclusions, policies, privileges).
+- Automatic emission of `CREATE/ALTER/DROP EXTENSION` and `CREATE/DROP
+  SCHEMA` (D9, D10, D11); context header on each migration.
+- Extended safety rules (existing M001–M003).
+- Oracle verification: migration applied on PG → introspected
+  catalog == declarative schema.
 
-**Sortie** : une évolution réelle du schéma Mesalia produite par `pgweave
-migrate create` et validée par l'oracle, dont un ajout d'extension.
+**Exit**: a real evolution of the Mesalia schema produced by `pgweave
+migrate create` and validated by the oracle, including an extension addition.
 
 ### P8 — TypeScript
 
-- Extraction des requêtes dans les fichiers TS (parser oxc), descripteurs →
-  `.d.ts`, plugin Vite + mode watch, runtime fin sur `pg`/`postgres`.
-- Contrainte à assumer : un *tagged template* perd le type littéral de sa
-  chaîne en TypeScript. Le typage passe donc par des surcharges générées
-  indexées par la chaîne exacte (modèle du « client preset » de
-  graphql-codegen) ou par un plugin du language service — choix à trancher
-  en ouverture de phase.
-- Reprise ou remplacement de `npm/pgweave` et des bindings.
+- Extraction of queries in TS files (oxc parser), descriptors →
+  `.d.ts`, Vite plugin + watch mode, thin runtime on `pg`/`postgres`.
+- Constraint to accept: a *tagged template* loses the literal type of its
+  string in TypeScript. Typing therefore goes through generated overloads
+  indexed by the exact string (the graphql-codegen "client preset"
+  model) or through a language service plugin — choice to be made
+  when the phase opens.
+- Resumption or replacement of `npm/pgweave` and the bindings.
 
-**Sortie** : l'exemple `getPage` de la DX cible typé de bout en bout, sans
+**Exit**: the `getPage` example of the target DX typed end to end, without
 cast.
 
-### Parallélisation possible
+### Possible parallelization
 
-- P1 (parser) et le générateur de catalogue de P2 sont indépendants.
-- P6 peut démarrer dès P4.
-- P7 peut démarrer dès P3 (le diff ne dépend pas du descripteur).
+- P1 (parser) and the P2 catalog generator are independent.
+- P6 can start as soon as P4 is done.
+- P7 can start as soon as P3 is done (the diff does not depend on the descriptor).
 
-### Trajectoire Mesalia (transition sans raccourci)
+### Mesalia trajectory (transition without shortcuts)
 
-La brique gRPC démarre avant que P5 soit livrée. Plutôt que d'accélérer les
-phases au prix de leur robustesse, on organise la transition pour que le
-code écrit d'ici là **migre mécaniquement** vers le code généré :
+The gRPC component starts before P5 is delivered. Rather than rushing the
+phases at the cost of their robustness, the transition is organized so that the
+code written in the meantime **migrates mechanically** to the generated code:
 
-1. **Dès le démarrage de la brique** : requêtes écrites dans des fichiers
-   `queries/*.sql` au format des requêtes nommées (P4) et avec la syntaxe
-   `$name` (D6) ; exécution via `tokio-postgres` et une fine couche écrite à
-   la main qui respecte la forme du futur runtime (une fonction par requête,
-   struct de paramètres, struct de ligne). `pgweave check` (existant) vérifie
-   déjà l'existence des tables/colonnes en CI.
-2. **Le format des requêtes nommées est donc figé en P0**, pas en P4 — c'est
-   la seule avance de phase demandée par Mesalia.
-3. **Prisma reste propriétaire des migrations** jusqu'à la fin de P2 (import
-   relu). Ensuite, plus aucune migration Prisma : les nouvelles migrations
-   sont écrites en SQL dans le dépôt, vérifiées par `pgweave check`, puis
-   générées par `pgweave migrate create` à partir de P7.
-4. **À la livraison de P5** : la couche manuelle est remplacée requête par
-   requête par le code généré ; la compilation signale chaque écart de type
-   ou de nullabilité que la couche manuelle masquait.
+1. **From the component's start**: queries written in
+   `queries/*.sql` files in the named-query format (P4) and with the
+   `$name` syntax (D6); execution via `tokio-postgres` and a thin hand-written
+   layer that follows the shape of the future runtime (one function per query,
+   parameter struct, row struct). `pgweave check` (existing) already
+   checks table/column existence in CI.
+2. **The named-query format is therefore frozen in P0**, not in P4 — this is
+   the only phase advance requested by Mesalia.
+3. **Prisma remains the owner of migrations** until the end of P2 (import
+   reviewed). After that, no more Prisma migrations: new migrations
+   are written in SQL in the repository, checked by `pgweave check`, then
+   generated by `pgweave migrate create` from P7 on.
+4. **When P5 is delivered**: the manual layer is replaced query by
+   query with generated code; compilation reports every type or
+   nullability gap the manual layer was hiding.
 
-État au 2026-11-02 : la brique peut démarrer directement sur le code
-généré (`pgweave-build`, `pgweave-runtime`, guide `docs/rust.md`), son
-`pgweave.toml` pointant sur les migrations Prisma existantes ; la couche
-manuelle de l'étape 1 n'est plus nécessaire.
+Status as of 2026-11-02: the component can start directly on generated
+code (`pgweave-build`, `pgweave-runtime`, `docs/rust.md` guide), its
+`pgweave.toml` pointing to the existing Prisma migrations; the manual
+layer from step 1 is no longer needed.
 
 ---
 
-## 9. Organisation cible des crates
+## 9. Target crate organization
 
 ```
 crates/
-  pgweave-ast/          AST syntaxique, spans, IDs déterministes
+  pgweave-ast/          syntactic AST, spans, deterministic IDs
   pgweave-parser/       PgsqlDialect + PL/pgSQL
   pgweave-macro/        macros, fragments, source maps
-  pgweave-catalog/      modèle d'objets, couches, search_path, données générées
-  pgweave-project/      base salsa : fichiers, révisions, requêtes mémoïsées
-  pgweave-sema/         normalisation, résolution, types, nullabilité → HIR
-  pgweave-checker/      règles de correction sur le HIR
-  pgweave-lint/         règles de style / perf / sûreté de migration
-  pgweave-query/        descripteur de requête, cache
-  pgweave-codegen/      émission SQL, diff de migrations
+  pgweave-catalog/      object model, layers, search_path, generated data
+  pgweave-project/      salsa database: files, revisions, memoized queries
+  pgweave-sema/         normalization, resolution, types, nullability → HIR
+  pgweave-checker/      correctness rules on the HIR
+  pgweave-lint/         style / perf / migration-safety rules
+  pgweave-query/        query descriptor, cache
+  pgweave-codegen/      SQL emission, migration diff
   pgweave-diagnostics/  diagnostics, directives
   pgweave-lsp/  pgweave-cli/
 rust/
-  pgweave-runtime/      exécution tokio-postgres
+  pgweave-runtime/      tokio-postgres execution
   pgweave-macros/       proc-macros
-contributors/         packs générés (D9) : catalogue + correspondances de types
+contributors/         generated packs (D9): catalog + type mappings
   postgres-18/
   citext/  btree_gist/  postgis/
 xtask/                catalog-gen, corpus, bench
 ```
 
-`pgweave-analysis` (pipeline partagé CLI/LSP aujourd'hui) est absorbé par
+`pgweave-analysis` (pipeline shared by CLI/LSP today) is absorbed by
 `pgweave-project`.
 
 ---
 
-## 10. Questions ouvertes
+## 10. Open questions
 
-À trancher au plus tard à l'ouverture de la phase indiquée.
+To be settled at the latest when the indicated phase opens.
 
 | Question | Phase |
 |---|---|
-| Quelles versions majeures PG générer et maintenir en packs | P2 |
-| Date de bascule « plus de migration Prisma » pour Mesalia | P2 |
-| `time` ou `chrono` par défaut | P5 |
-| Surcharges générées vs plugin language service pour TS | P8 |
+| Which PG major versions to generate and maintain as packs | P2 |
+| Cut-over date for "no more Prisma migrations" for Mesalia | P2 |
+| `time` or `chrono` by default | P5 |
+| Generated overloads vs language service plugin for TS | P8 |

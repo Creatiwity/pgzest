@@ -1,5 +1,5 @@
-//! Le scope d'indexation du projet doit être cohérent avec la classification
-//! des fichiers, et couvrir les sous-répertoires.
+//! The project indexing scope must be consistent with file classification,
+//! and cover subdirectories.
 
 use std::fs;
 use std::path::Path;
@@ -7,7 +7,7 @@ use std::path::Path;
 use pgweave_catalog::ProjectCatalog;
 use pgweave_schema::{FileRole, ProjectConfig, SchemaProvider, SchemaSource};
 
-/// Crée une arborescence de projet jetable et renvoie sa racine.
+/// Creates a throwaway project tree and returns its root.
 fn scaffold(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("pgweave-scope-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
@@ -21,15 +21,15 @@ fn scaffold(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
 
 fn load(root: &Path) -> ProjectConfig {
     ProjectConfig::find_and_load(root)
-        .expect("config valide")
-        .expect("pgweave.toml présent")
+        .expect("valid config")
+        .expect("pgweave.toml present")
         .1
 }
 
 #[test]
-fn les_sous_repertoires_sont_indexes() {
-    // Régression : le scan était `read_dir` sans récursion, donc
-    // schema/tables/users.sql était invisible.
+fn subdirectories_are_indexed() {
+    // Regression: the scan was `read_dir` without recursion, so
+    // schema/tables/users.sql was invisible.
     let root = scaffold(
         "recursive",
         &[
@@ -49,17 +49,17 @@ fn les_sous_repertoires_sont_indexes() {
 
     assert!(
         resolver.get_table("users").is_some(),
-        "schema/tables/users.sql doit être indexé"
+        "schema/tables/users.sql must be indexed"
     );
     assert!(
         resolver.get_table("helper").is_some(),
-        "schema/functions/f.sql doit être indexé"
+        "schema/functions/f.sql must be indexed"
     );
 }
 
 #[test]
-fn sans_schema_directory_la_racine_est_le_scope() {
-    // Cohérence avec classify_file, qui traite tout non-migration comme Schema.
+fn without_schema_directory_the_root_is_the_scope() {
+    // Consistent with classify_file, which treats every non-migration as Schema.
     let root = scaffold(
         "rootscope",
         &[
@@ -74,9 +74,9 @@ fn sans_schema_directory_la_racine_est_le_scope() {
     assert!(resolver.get_table("users").is_some());
     assert!(
         resolver.get_table("deep").is_some(),
-        "sans schema.directory, tout le projet est indexé"
+        "without schema.directory, the whole project is indexed"
     );
-    // Et la classification concorde.
+    // And the classification agrees.
     assert_eq!(
         cfg.classify_file(&root.join("db/users.sql"), &root),
         FileRole::Schema
@@ -84,9 +84,9 @@ fn sans_schema_directory_la_racine_est_le_scope() {
 }
 
 #[test]
-fn les_migrations_ne_sont_pas_indexees_deux_fois() {
-    // Sans exclusion, le scan de la racine reprendrait migrations/ comme
-    // Schema en plus de Migration, rejouant ses ALTER.
+fn migrations_are_not_indexed_twice() {
+    // Without exclusion, the root scan would pick up migrations/ as Schema on
+    // top of Migration, replaying its ALTERs.
     let root = scaffold(
         "nodouble",
         &[
@@ -104,7 +104,7 @@ fn les_migrations_ne_sont_pas_indexees_deux_fois() {
     assert_eq!(
         from_migrations.len(),
         1,
-        "le fichier de migration doit apparaître une seule fois, obtenu {:?}",
+        "the migration file must appear only once, got {:?}",
         from_migrations
             .iter()
             .map(|c| &c.origin.path)
@@ -112,12 +112,12 @@ fn les_migrations_ne_sont_pas_indexees_deux_fois() {
     );
     assert!(
         from_migrations[0].role.is_migration(),
-        "et avec le rôle Migration"
+        "and with the Migration role"
     );
 }
 
 #[test]
-fn node_modules_et_target_sont_ignores() {
+fn node_modules_and_target_are_ignored() {
     let root = scaffold(
         "ignored",
         &[
@@ -138,13 +138,13 @@ fn node_modules_et_target_sont_ignores() {
     for junk in ["junk_a", "junk_b", "junk_c"] {
         assert!(
             resolver.get_table(junk).is_none(),
-            "{junk} ne devrait pas être indexé"
+            "{junk} should not be indexed"
         );
     }
 }
 
 #[test]
-fn schema_include_ajoute_des_repertoires() {
+fn schema_include_adds_directories() {
     let root = scaffold(
         "include",
         &[
@@ -154,7 +154,7 @@ fn schema_include_ajoute_des_repertoires() {
             ),
             ("schema/a.sql", "CREATE TABLE a_t (a INT);"),
             ("extra/b.sql", "CREATE TABLE b_t (b INT);"),
-            ("ailleurs/c.sql", "CREATE TABLE c_t (c INT);"),
+            ("elsewhere/c.sql", "CREATE TABLE c_t (c INT);"),
         ],
     );
     let cfg = load(&root);
@@ -164,14 +164,14 @@ fn schema_include_ajoute_des_repertoires() {
     assert!(resolver.get_table("b_t").is_some(), "extra/ via include");
     assert!(
         resolver.get_table("c_t").is_none(),
-        "hors scope quand schema.directory est explicite"
+        "out of scope when schema.directory is explicit"
     );
 }
 
 #[test]
-fn les_requetes_nommees_ne_sont_pas_indexees_comme_schema() {
-    // Sans schema.directory, la racine est le scope : le répertoire des
-    // requêtes doit en être exclu, et ses fichiers classés Query.
+fn named_queries_are_not_indexed_as_schema() {
+    // Without schema.directory, the root is the scope: the queries directory
+    // must be excluded from it, and its files classified as Query.
     let root = scaffold(
         "queries",
         &[
@@ -192,7 +192,7 @@ fn les_requetes_nommees_ne_sont_pas_indexees_comme_schema() {
     assert!(resolver.get_table("t").is_some());
     assert!(
         resolver.get_table("decoy").is_none(),
-        "un fichier de requêtes ne déclare pas d'objets de schéma"
+        "a query file does not declare schema objects"
     );
     assert_eq!(
         cfg.classify_file(&root.join("queries/pages.sql"), &root),
@@ -201,9 +201,9 @@ fn les_requetes_nommees_ne_sont_pas_indexees_comme_schema() {
 }
 
 #[test]
-fn schema_include_est_classe_schema() {
-    // Régression : avec schema.directory présent, un fichier de
-    // schema.include était indexé comme schéma mais classé Query.
+fn schema_include_is_classified_schema() {
+    // Regression: with schema.directory present, a schema.include file was
+    // indexed as schema but classified as Query.
     let root = scaffold(
         "include-role",
         &[
@@ -223,11 +223,11 @@ fn schema_include_est_classe_schema() {
 }
 
 #[test]
-fn une_config_invalide_est_une_erreur_et_pas_un_defaut() {
+fn invalid_config_is_an_error_not_a_default() {
     let root = scaffold(
         "invalid",
         &[("pgweave.toml", "[postgres]\nversion = 18\n[shema]\n")],
     );
-    let err = ProjectConfig::find_and_load(&root).expect_err("clé inconnue");
+    let err = ProjectConfig::find_and_load(&root).expect_err("unknown key");
     assert!(err.to_string().contains("pgweave.toml"), "{err}");
 }

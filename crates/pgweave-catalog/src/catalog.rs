@@ -1,6 +1,6 @@
-//! Le catalogue en mémoire : contributeurs globaux (packs) et objets du
-//! projet, indexés par nom qualifié, avec la résolution des noms non
-//! qualifiés selon un `search_path` (D11).
+//! The in-memory catalog: global contributors (packs) and project objects,
+//! indexed by qualified name, with resolution of unqualified names through a
+//! `search_path` (D11).
 
 use std::collections::BTreeMap;
 
@@ -12,11 +12,11 @@ use crate::pack::{Contributor, Pack, signature};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Catalog {
-    /// Contributeurs chargés, dans l'ordre.
+    /// Loaded contributors, in order.
     pub contributors: Vec<Contributor>,
     pub schemas: BTreeMap<String, Schema>,
     pub types: BTreeMap<QName, TypeDef>,
-    /// Surcharges par nom.
+    /// Overloads per name.
     pub routines: BTreeMap<QName, Vec<Routine>>,
     pub operators: BTreeMap<QName, Vec<Operator>>,
     pub casts: Vec<Cast>,
@@ -24,23 +24,23 @@ pub struct Catalog {
     pub relations: BTreeMap<QName, Relation>,
     pub indexes: BTreeMap<QName, Index>,
     pub sequences: BTreeMap<QName, Sequence>,
-    /// Par table, puis par nom de trigger.
+    /// Per table, then per trigger name.
     pub triggers: BTreeMap<QName, BTreeMap<String, Trigger>>,
     pub policies: BTreeMap<QName, BTreeMap<String, Policy>>,
     pub extensions: BTreeMap<String, Extension>,
-    /// Pack chargé par chaque extension active (dans son schéma), pour la
-    /// décharger à `DROP EXTENSION` ou à une mise à jour.
+    /// Pack loaded by each active extension (in its schema), to unload it on
+    /// `DROP EXTENSION` or on an update.
     pub extension_packs: BTreeMap<String, Pack>,
-    /// Compteur de création (rang des routines et vues, pour l'export).
+    /// Creation counter (rank of routines and views, for export).
     pub next_order: u64,
-    /// `COMMENT ON …` en vigueur, par cible (`TABLE public.t`), sous forme
-    /// de statement émis. Sans effet sur l'analyse, restitué à l'export.
+    /// `COMMENT ON …` in effect, per target (`TABLE public.t`), as the
+    /// emitted statement. No effect on analysis, restored on export.
     pub comments: BTreeMap<String, String>,
 }
 
-/// `search_path` effectif : schémas consultés dans l'ordre pour un nom non
-/// qualifié. `pg_temp` (tables temporaires) précède tout, et `pg_catalog`
-/// est consulté en tête s'il n'est pas listé — comme dans PostgreSQL.
+/// Effective `search_path`: schemas looked up in order for an unqualified
+/// name. `pg_temp` (temporary tables) comes first, and `pg_catalog` is looked
+/// up first if it is not listed — as in PostgreSQL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchPath(Vec<String>);
 
@@ -53,8 +53,8 @@ impl SearchPath {
         SearchPath(schemas.into_iter().map(Into::into).collect())
     }
 
-    /// Schéma de création des objets non qualifiés : le premier listé
-    /// (`pg_catalog` et `pg_temp` exclus).
+    /// Creation schema for unqualified objects: the first one listed
+    /// (`pg_catalog` and `pg_temp` excluded).
     pub fn creation_schema(&self) -> Option<&str> {
         self.0
             .iter()
@@ -62,7 +62,7 @@ impl SearchPath {
             .find(|s| *s != "pg_catalog" && *s != "pg_temp")
     }
 
-    /// Ordre de recherche complet.
+    /// Full lookup order.
     pub fn lookup_order(&self) -> Vec<&str> {
         let mut out = vec!["pg_temp"];
         if !self.0.iter().any(|s| s == "pg_catalog") {
@@ -83,7 +83,7 @@ impl SearchPath {
 }
 
 impl Default for SearchPath {
-    /// `"$user", public` : sans rôle connu, `public`.
+    /// `"$user", public`: with no known role, `public`.
     fn default() -> Self {
         SearchPath::new(["public"])
     }
@@ -94,10 +94,9 @@ impl Catalog {
         Self::default()
     }
 
-    /// Ajoute les objets d'un pack. Une surcharge déjà présente (même nom,
-    /// même signature) est remplacée : un pack d'extension ne redéfinit pas
-    /// le catalogue de base, mais deux chargements du même pack sont
-    /// idempotents.
+    /// Adds the objects of a pack. An overload already present (same name,
+    /// same signature) is replaced: an extension pack does not redefine the
+    /// base catalog, but two loads of the same pack are idempotent.
     pub fn load_pack(&mut self, pack: &Pack) {
         self.contributors.push(pack.contributor.clone());
         for s in &pack.schemas {
@@ -133,7 +132,7 @@ impl Catalog {
         }
     }
 
-    /// Premier schéma du chemin qui contient `name` selon `exists`.
+    /// First schema of the path that contains `name` according to `exists`.
     fn resolve(
         &self,
         path: &SearchPath,
@@ -146,8 +145,8 @@ impl Catalog {
             .find(|q| exists(q))
     }
 
-    /// Relation désignée par un nom écrit : qualifié, il est exact ; sinon
-    /// résolu par le `search_path`.
+    /// Relation designated by a written name: qualified, it is exact;
+    /// otherwise resolved through the `search_path`.
     pub fn resolve_relation(
         &self,
         schema: Option<&str>,
@@ -176,12 +175,12 @@ impl Catalog {
         }
     }
 
-    /// Toutes les surcharges visibles sous ce nom : le premier schéma du
-    /// chemin qui en définit l'emporte pour un nom non qualifié.
+    /// Every overload visible under this name: the first schema of the path
+    /// that defines some wins for an unqualified name.
     ///
-    /// (PostgreSQL considère en réalité les surcharges de tous les schémas
-    /// du chemin, puis départage ; ce choix fin relève de la résolution de
-    /// fonctions, P3.)
+    /// (PostgreSQL actually considers the overloads of every schema in the
+    /// path, then breaks ties; that fine-grained choice belongs to function
+    /// resolution, P3.)
     pub fn resolve_routines(
         &self,
         schema: Option<&str>,
@@ -203,7 +202,7 @@ impl Catalog {
         }
     }
 
-    /// Retire les objets apportés par une extension.
+    /// Removes the objects brought by an extension.
     pub fn unload_extension(&mut self, name: &str) {
         self.extensions.remove(name);
         let Some(pack) = self.extension_packs.remove(name) else {
@@ -237,7 +236,7 @@ impl Catalog {
         }
     }
 
-    /// `DROP SCHEMA … CASCADE` : retire tout ce que le schéma contient.
+    /// `DROP SCHEMA … CASCADE`: removes everything the schema contains.
     pub fn drop_schema_objects(&mut self, schema: &str) {
         self.types.retain(|q, _| q.schema != schema);
         self.routines.retain(|q, _| q.schema != schema);

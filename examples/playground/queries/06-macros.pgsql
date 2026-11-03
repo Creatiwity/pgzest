@@ -1,50 +1,50 @@
--- Les macros. Compile avec :  pgweave build queries/06-macros.pgsql
+-- Macros. Compile with:  pgweave build queries/06-macros.pgsql
 --
--- Ce fichier est en .pgsql : les macros y vivent, et `pgweave build` en produit
--- du .sql standard, lisible par psql et pg_dump.
+-- This file is .pgsql: macros live here, and `pgweave build` turns it into
+-- standard .sql, readable by psql and pg_dump.
 
--- @function : la fonction de schema/functions/user_count.sql, en 5 lignes
--- au lieu de 11. Le DECLARE est écrit près de son usage et remonté à la
--- compilation dans une section avant BEGIN.
+-- @function: the function from schema/functions/user_count.sql, in 5 lines
+-- instead of 11. The DECLARE is written next to where it is used and hoisted
+-- at compile time into a section before BEGIN.
 @function user_count(target_org UUID): INTEGER {
     DECLARE total INTEGER;
     SELECT count(*) INTO total FROM users WHERE org_id = target_org;
     RETURN total;
 }
 
--- Attributs : tout ce que CREATE FUNCTION accepte reste exprimable.
+-- Attributes: everything CREATE FUNCTION accepts can still be expressed.
 @function slugify(txt TEXT): TEXT immutable strict {
     RETURN lower(txt);
 }
 
--- language sql, sans BEGIN/END.
+-- language sql, without BEGIN/END.
 @function add(a INT, b INT): INT language sql {
     SELECT a + b;
 }
 
--- @trigger : la fonction ET le CREATE TRIGGER d'un coup.
+-- @trigger: the function AND the CREATE TRIGGER in one go.
 @trigger touch_one before update on users for each row {
     NEW.last_seen_at = now();
     RETURN NEW;
 }
 
--- Multi-tables : une fonction par table est générée, donc NEW et OLD sont
--- résolubles.
+-- Multi-table: one function per table is generated, so NEW and OLD can be
+-- resolved.
 --
--- C'est le vrai gain. Avec une fonction partagée, le checker ne sait pas
--- résoudre NEW et se contente d'un `trigger-ambiguous-table` — un faux positif
--- inutile (c'est ce qu'on observe sur examples/schema.sql). Ici il vérifie
--- vraiment la colonne sur CHAQUE table.
+-- That is the real gain. With a shared function, the checker cannot
+-- resolve NEW and settles for a `trigger-ambiguous-table` — a useless false
+-- positive (that is what you see on examples/schema.sql). Here it really
+-- checks the column on EACH table.
 --
--- Essaie : remplace `updated_at` par `last_seen_at` ci-dessous. La colonne
--- existe sur `users` mais pas sur `organizations`, et le checker le dira
--- précisément — là où l'ancienne forme ne pouvait rien affirmer.
+-- Try: replace `updated_at` with `last_seen_at` below. The column exists on
+-- `users` but not on `organizations`, and the checker will say so
+-- precisely — where the old form could not assert anything.
 @trigger touch_all before update on (users, organizations) for each row {
     NEW.updated_at = now();
     RETURN NEW;
 }
 
--- @audited vient de macros/audited.pgmacro — une macro du projet, pas fournie.
+-- @audited comes from macros/audited.pgmacro — a project macro, not a bundled one.
 @audited audit_demo {
     id   UUID PRIMARY KEY,
     note TEXT

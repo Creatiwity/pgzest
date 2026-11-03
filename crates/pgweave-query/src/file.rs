@@ -1,10 +1,10 @@
-//! Format de fichier des requêtes nommées (`docs/named-queries.md`).
+//! Named-query file format (`docs/named-queries.md`).
 //!
-//! Le découpage repose sur le tokenizer de sqlparser, pas sur un balayage de
-//! lignes : un `-- name:` à l'intérieur d'une chaîne ou d'un corps `$$…$$`
-//! n'est pas un en-tête, et un `$name` dans une chaîne n'est pas un
-//! paramètre. Le tokenizer émet aussi les espaces et commentaires, donc les
-//! tokens pavent la source : la fin d'un token est le début du suivant.
+//! Splitting relies on the sqlparser tokenizer, not on a line scan: a
+//! `-- name:` inside a string or a `$$…$$` body is not a header, and a
+//! `$name` inside a string is not a parameter. The tokenizer also emits
+//! whitespace and comments, so tokens tile the source: the end of a token is
+//! the start of the next one.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -15,20 +15,20 @@ use sqlparser::tokenizer::{Token, Tokenizer, Whitespace};
 
 use crate::line_index::LineIndex;
 
-/// Nombre de lignes renvoyées, déclaré dans l'en-tête (`-- name: x :one`).
+/// Number of rows returned, declared in the header (`-- name: x :one`).
 ///
-/// Optionnel : à partir de P4, la cardinalité est inférée et la déclaration
-/// sert de contrat vérifié contre l'inférence.
+/// Optional: since P4, cardinality is inferred and the declaration acts as a
+/// contract checked against the inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Cardinality {
-    /// Exactement une ligne.
+    /// Exactly one row.
     One,
-    /// Zéro ou une ligne.
+    /// Zero or one row.
     Optional,
-    /// Zéro, une ou plusieurs lignes.
+    /// Zero, one or more rows.
     Many,
-    /// Aucune ligne renvoyée (statement sans `RETURNING`).
+    /// No row returned (statement without `RETURNING`).
     None,
 }
 
@@ -54,85 +54,85 @@ impl Cardinality {
     }
 }
 
-/// Paramètre nommé et ses occurrences dans le fichier.
+/// Named parameter and its occurrences in the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedParam {
     pub name: String,
-    /// Plages octets de chaque `$name` dans le fichier, dans l'ordre ; une
-    /// occurrence marquée `$name?` inclut le `?`.
+    /// Byte ranges of each `$name` in the file, in order; an occurrence
+    /// marked `$name?` includes the `?`.
     pub occurrences: Vec<Range<usize>>,
-    /// `$name?` : la valeur peut être absente (NULL, `Option` en Rust), et
-    /// la requête est écrite pour (`$name::type IS NULL OR …`).
+    /// `$name?`: the value may be absent (NULL, `Option` in Rust), and the
+    /// query is written for it (`$name::type IS NULL OR …`).
     pub optional: bool,
 }
 
-/// Paramètres d'une requête. Les deux notations ne se mélangent pas.
+/// Parameters of a query. The two notations do not mix.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Params {
     None,
-    /// `$1 … $n`, sans trou.
+    /// `$1 … $n`, without gaps.
     Positional {
         count: u32,
     },
-    /// `$name`, dans l'ordre de première apparition — c'est l'ordre des
-    /// paramètres positionnels après réécriture.
+    /// `$name`, in order of first appearance — this is the order of the
+    /// positional parameters after rewriting.
     Named(Vec<NamedParam>),
 }
 
-/// SQL d'une requête après insertion de ses fragments (P6).
+/// SQL of a query after its fragments are inserted (P6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpandedSql {
     pub sql: String,
-    /// Positions du SQL inséré → positions dans le fichier.
+    /// Positions in the inserted SQL → positions in the file.
     pub map: pgweave_ast::SourceMap,
 }
 
-/// Structure d'une requête à variantes (voir [`crate::dynamic`]).
+/// Structure of a query with variants (see [`crate::dynamic`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dynamic {
-    /// Positions dans [`NamedQuery::text`].
+    /// Positions in [`NamedQuery::text`].
     pub structure: crate::dynamic::Structure,
-    /// Paramètre qui décide de chaque bloc, dans l'ordre des blocs.
+    /// Parameter deciding each block, in block order.
     pub conditions: Vec<String>,
 }
 
-/// Une requête nommée, telle qu'écrite dans le fichier.
+/// A named query, as written in the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedQuery {
     pub name: String,
-    /// Plage du nom dans l'en-tête.
+    /// Range of the name in the header.
     pub name_range: Range<usize>,
     pub cardinality: Option<Cardinality>,
-    /// `-> autre` (même fichier) ou `-> a::b::autre` (depuis la racine du
-    /// répertoire de requêtes) : les lignes ont la forme de celles de cette
-    /// requête (même struct générée), et sa plage dans l'en-tête.
+    /// `-> other` (same file) or `-> a::b::other` (from the root of the
+    /// queries directory): rows have the shape of that query's rows (same
+    /// generated struct), and its range in the header.
     pub row: Option<(String, Range<usize>)>,
-    /// Lignes de commentaire entre l'en-tête et le SQL, sans le `-- `.
+    /// Comment lines between the header and the SQL, without the `-- `.
     pub doc: Vec<String>,
-    /// Le statement, sans le `;` final.
+    /// The statement, without the trailing `;`.
     pub sql: String,
-    /// Plage de `sql` dans le fichier.
+    /// Range of `sql` in the file.
     pub sql_range: Range<usize>,
-    /// Fragments insérés : le SQL analysé et envoyé. `None` sans fragment.
+    /// Fragments inserted: the SQL analyzed and sent. `None` without fragments.
     pub expanded: Option<ExpandedSql>,
-    /// Blocs `[[ … ]]` et choix `{{ … }}` : requête à variantes.
+    /// `[[ … ]]` blocks and `{{ … }}` choices: query with variants.
     pub dynamic: Option<Dynamic>,
-    /// Paramètres du SQL envoyé. Avec des fragments, leurs occurrences sont
-    /// des positions dans [`ExpandedSql::sql`] décalées de
-    /// `sql_range.start` ; sinon, des positions dans le fichier.
+    /// Parameters of the sent SQL. With fragments, their occurrences are
+    /// positions in [`ExpandedSql::sql`] shifted by `sql_range.start`;
+    /// otherwise, positions in the file.
     pub params: Params,
 }
 
 impl NamedQuery {
-    /// SQL analysé : fragments insérés s'il y en a.
+    /// Analyzed SQL: fragments inserted if any.
     pub fn text(&self) -> &str {
         self.expanded.as_ref().map_or(&self.sql, |e| &e.sql)
     }
 
-    /// [`Self::text`], marqueurs `?` des paramètres optionnels remplacés par
-    /// une espace : SQL lisible par le parser, positions inchangées. Pour une
-    /// requête à variantes, la variante de référence (tous les blocs, la
-    /// première possibilité de chaque choix).
+    /// [`Self::text`], with the `?` markers of optional parameters replaced
+    /// by a space: SQL readable by the parser, positions unchanged. For a
+    /// query with variants, the reference variant (all blocks, the first
+    /// option of each choice).
     pub fn analysis_text(&self) -> String {
         match &self.dynamic {
             None => self.unmarked_text(),
@@ -140,8 +140,8 @@ impl NamedQuery {
         }
     }
 
-    /// Variante `sel` : texte analysé (même longueur que [`Self::text`]),
-    /// SQL positionnel envoyé, et noms des paramètres dans l'ordre `$1…$n`.
+    /// Variant `sel`: analyzed text (same length as [`Self::text`]),
+    /// positional SQL sent, and parameter names in `$1…$n` order.
     pub fn variant(&self, sel: &crate::dynamic::Selection) -> (String, String, Vec<String>) {
         let text = match &self.dynamic {
             None => self.unmarked_text(),
@@ -199,12 +199,12 @@ impl NamedQuery {
                 }
             }
         }
-        String::from_utf8(bytes).expect("un `?` remplacé par une espace")
+        String::from_utf8(bytes).expect("a `?` replaced by a space")
     }
 
-    /// Le SQL à envoyer au serveur : chaque `$name` remplacé par `$n`, `n`
-    /// étant le rang de première apparition du nom. Inchangé pour une
-    /// requête positionnelle ou sans paramètre.
+    /// The SQL to send to the server: each `$name` replaced by `$n`, `n`
+    /// being the rank of the name's first appearance. Unchanged for a
+    /// positional query or one without parameters.
     pub fn positional_sql(&self) -> String {
         if let Some(d) = &self.dynamic {
             return self.variant(&reference_selection(&d.structure)).1;
@@ -233,23 +233,23 @@ impl NamedQuery {
     }
 }
 
-/// Résultat du découpage d'un fichier.
+/// Result of splitting a file.
 #[derive(Debug, Clone)]
 pub struct QueryFile {
-    /// Requêtes valides, dans l'ordre du fichier. Une requête dont l'en-tête
-    /// est invalide n'y figure pas (elle produit un diagnostic).
+    /// Valid queries, in file order. A query with an invalid header is not
+    /// included (it produces a diagnostic).
     pub queries: Vec<NamedQuery>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Découpe un fichier de requêtes nommées et vérifie son format. Sans
-/// fragments : un `@nom` reste tel quel (voir [`parse_query_file_with`]).
+/// Splits a named-query file and checks its format. Without fragments: an
+/// `@name` stays as is (see [`parse_query_file_with`]).
 pub fn parse_query_file(source: &str) -> QueryFile {
     parse_query_file_impl(source, None)
 }
 
-/// Comme [`parse_query_file`], les fragments de `macros` insérés dans
-/// chaque requête (P6). Les diagnostics restent positionnés dans le fichier.
+/// Like [`parse_query_file`], with the fragments of `macros` inserted into
+/// each query (P6). Diagnostics stay positioned in the file.
 pub fn parse_query_file_with(source: &str, macros: &pgweave_macro::MacroSet) -> QueryFile {
     parse_query_file_impl(source, Some(macros))
 }
@@ -268,7 +268,7 @@ fn parse_query_file_impl(source: &str, macros: Option<&pgweave_macro::MacroSet>)
             diagnostics.push(
                 Diagnostic::error(
                     codes::PARSE_ERROR,
-                    format!("fichier de requêtes illisible : {}", e.message),
+                    format!("unreadable query file: {}", e.message),
                 )
                 .with_span(span(at..at)),
             );
@@ -316,7 +316,7 @@ fn parse_query_file_impl(source: &str, macros: Option<&pgweave_macro::MacroSet>)
     }
 }
 
-// ── Machine à états ───────────────────────────────────────────────────────────
+// ── State machine ─────────────────────────────────────────────────────────────
 
 struct FileParser<'a> {
     source: &'a str,
@@ -324,14 +324,14 @@ struct FileParser<'a> {
     diagnostics: Vec<Diagnostic>,
     queries: Vec<NamedQuery>,
     current: Option<Builder>,
-    /// Du SQL hors requête n'est signalé qu'une fois par fichier.
+    /// SQL outside a query is reported only once per file.
     outside_reported: bool,
 }
 
-/// Requête en cours de lecture.
+/// Query being read.
 struct Builder {
-    /// `None` si l'en-tête est invalide : le corps est consommé (pour ne pas
-    /// être signalé comme SQL hors requête) mais la requête n'est pas rendue.
+    /// `None` if the header is invalid: the body is consumed (so that it is
+    /// not reported as SQL outside a query) but the query is not returned.
     name: Option<(String, Range<usize>)>,
     header_range: Range<usize>,
     cardinality: Option<Cardinality>,
@@ -356,7 +356,7 @@ impl FileParser<'_> {
                         self.diagnostics.push(
                             Diagnostic::error(
                                 codes::QUERY_HEADER_INVALID,
-                                "un en-tête `-- name:` doit commencer la ligne",
+                                "a `-- name:` header must start the line",
                             )
                             .with_span(span(range)),
                         );
@@ -383,10 +383,10 @@ impl FileParser<'_> {
                         self.diagnostics.push(
                             Diagnostic::error(
                                 codes::QUERY_MULTIPLE_STATEMENTS,
-                                "une requête nommée contient un seul statement",
+                                "a named query contains a single statement",
                             )
                             .with_span(span(range))
-                            .with_hint("ajouter un en-tête `-- name: …` avant ce statement"),
+                            .with_hint("add a `-- name: …` header before this statement"),
                         );
                     }
                     return;
@@ -407,7 +407,7 @@ impl FileParser<'_> {
     fn header(&mut self, payload: &str, range: Range<usize>) {
         self.finish_current();
 
-        // Position du payload dans le fichier, pour viser le nom précisément.
+        // Position of the payload in the file, to target the name precisely.
         let payload_start = range.start + self.source[range.clone()].find(payload).unwrap_or(0);
         let mut words = payload.split_whitespace().peekable();
         let name_word = words.next();
@@ -430,11 +430,9 @@ impl FileParser<'_> {
 
         match name_word {
             None => self.diagnostics.push(
-                Diagnostic::error(codes::QUERY_HEADER_INVALID, "en-tête sans nom de requête")
+                Diagnostic::error(codes::QUERY_HEADER_INVALID, "header without a query name")
                     .with_span(span(range.clone()))
-                    .with_hint(
-                        "forme attendue : `-- name: nom_de_requete [:one|:optional|:many|:none]`",
-                    ),
+                    .with_hint("expected form: `-- name: query_name [:one|:optional|:many|:none]`"),
             ),
             Some(name) => {
                 let start = payload_start + payload.find(name).unwrap_or(0);
@@ -445,10 +443,12 @@ impl FileParser<'_> {
                     self.diagnostics.push(
                         Diagnostic::error(
                             codes::QUERY_HEADER_INVALID,
-                            format!("nom de requête invalide : `{name}`"),
+                            format!("invalid query name: `{name}`"),
                         )
                         .with_span(span(name_range))
-                        .with_hint("snake_case ASCII : lettres minuscules, chiffres, `_`, sans chiffre initial"),
+                        .with_hint(
+                            "ASCII snake_case: lowercase letters, digits, `_`, no leading digit",
+                        ),
                     );
                 }
             }
@@ -460,10 +460,10 @@ impl FileParser<'_> {
                 None => self.diagnostics.push(
                     Diagnostic::error(
                         codes::QUERY_HEADER_INVALID,
-                        format!("cardinalité inconnue : `{m}`"),
+                        format!("unknown cardinality: `{m}`"),
                     )
                     .with_span(span(range.clone()))
-                    .with_hint("valeurs : :one, :optional, :many, :none"),
+                    .with_hint("values: :one, :optional, :many, :none"),
                 ),
             }
         }
@@ -477,14 +477,12 @@ impl FileParser<'_> {
                 Diagnostic::error(
                     codes::QUERY_HEADER_INVALID,
                     match r {
-                        Some(r) => format!("`-> {r}` : nom de requête invalide"),
-                        None => "`->` sans nom de requête".to_string(),
+                        Some(r) => format!("`-> {r}`: invalid query name"),
+                        None => "`->` without a query name".to_string(),
                     },
                 )
                 .with_span(span(range.clone()))
-                .with_hint(
-                    "`-> autre_requete` : les lignes ont la forme de celles de `autre_requete`",
-                ),
+                .with_hint("`-> other_query`: rows have the shape of `other_query`'s rows"),
             ),
             (None, _) => {}
         }
@@ -492,10 +490,10 @@ impl FileParser<'_> {
             self.diagnostics.push(
                 Diagnostic::error(
                     codes::QUERY_HEADER_INVALID,
-                    "texte inattendu à la fin de l'en-tête",
+                    "unexpected text at the end of the header",
                 )
                 .with_span(span(range))
-                .with_hint("forme : `-- name: nom [:cardinalité] [-> requete_de_reference]`"),
+                .with_hint("form: `-- name: name [:cardinality] [-> reference_query]`"),
             );
         }
 
@@ -508,9 +506,9 @@ impl FileParser<'_> {
         }
         self.outside_reported = true;
         self.diagnostics.push(
-            Diagnostic::error(codes::QUERY_WITHOUT_NAME, "SQL hors d'une requête nommée")
+            Diagnostic::error(codes::QUERY_WITHOUT_NAME, "SQL outside a named query")
                 .with_span(span(range))
-                .with_hint("chaque requête commence par un en-tête `-- name: nom_de_requete`"),
+                .with_hint("each query starts with a `-- name: query_name` header"),
         );
     }
 
@@ -523,11 +521,8 @@ impl FileParser<'_> {
         };
         let Some(body) = b.body else {
             self.diagnostics.push(
-                Diagnostic::error(
-                    codes::QUERY_EMPTY,
-                    format!("la requête `{name}` n'a pas de SQL"),
-                )
-                .with_span(span(b.header_range)),
+                Diagnostic::error(codes::QUERY_EMPTY, format!("query `{name}` has no SQL"))
+                    .with_span(span(b.header_range)),
             );
             return;
         };
@@ -546,7 +541,7 @@ impl FileParser<'_> {
                 if failed {
                     return;
                 }
-                // Paramètres du SQL envoyé : un fragment peut en apporter.
+                // Parameters of the sent SQL: a fragment may bring some.
                 let Some(placeholders) = placeholders_of(&e.sql, body.start) else {
                     return;
                 };
@@ -559,8 +554,8 @@ impl FileParser<'_> {
                 )
             }
         };
-        // `$nom?` : paramètre optionnel ; le `?` (collé) fait partie de
-        // l'occurrence, retiré du SQL envoyé.
+        // `$name?`: optional parameter; the (attached) `?` is part of the
+        // occurrence, removed from the sent SQL.
         let text_of = |r: &Range<usize>| -> Option<u8> {
             match &expanded {
                 None => self.source.as_bytes().get(r.end).copied(),
@@ -626,9 +621,9 @@ impl FileParser<'_> {
         });
     }
 
-    /// Classe les paramètres d'une requête. `None` si leur usage est invalide
-    /// (diagnostics émis) : une requête dont les paramètres ne sont pas sûrs
-    /// n'est pas rendue, pour qu'aucun code ne soit généré à partir d'elle.
+    /// Classifies the parameters of a query. `None` if their use is invalid
+    /// (diagnostics emitted): a query whose parameters are not safe is not
+    /// returned, so that no code is generated from it.
     fn params(
         &mut self,
         query: &str,
@@ -646,10 +641,10 @@ impl FileParser<'_> {
                 self.diagnostics.push(
                     Diagnostic::error(
                         codes::QUERY_PARAMETER_INVALID,
-                        format!("paramètre positionnel optionnel : `{text}?`"),
+                        format!("optional positional parameter: `{text}?`"),
                     )
                     .with_span(span(to_file(range.clone())))
-                    .with_hint("seul un paramètre nommé est optionnel (`$statut?`) ; pour l'opérateur jsonb `?`, l'entourer d'espaces"),
+                    .with_hint("only a named parameter can be optional (`$status?`); for the jsonb `?` operator, surround it with spaces"),
                 );
                 continue;
             }
@@ -661,10 +656,10 @@ impl FileParser<'_> {
                         self.diagnostics.push(
                             Diagnostic::error(
                                 codes::QUERY_PARAMETER_INVALID,
-                                format!("paramètre positionnel invalide : `{text}`"),
+                                format!("invalid positional parameter: `{text}`"),
                             )
                             .with_span(span(to_file(range.clone())))
-                            .with_hint("les paramètres positionnels commencent à $1"),
+                            .with_hint("positional parameters start at $1"),
                         );
                     }
                 }
@@ -685,10 +680,10 @@ impl FileParser<'_> {
                 self.diagnostics.push(
                     Diagnostic::error(
                         codes::QUERY_PARAMETER_INVALID,
-                        format!("nom de paramètre invalide : `{text}`"),
+                        format!("invalid parameter name: `{text}`"),
                     )
                     .with_span(span(to_file(range.clone())))
-                    .with_hint("snake_case ASCII : `$page_id`, pas `$pageId`"),
+                    .with_hint("ASCII snake_case: `$page_id`, not `$pageId`"),
                 );
             }
         }
@@ -698,10 +693,10 @@ impl FileParser<'_> {
             self.diagnostics.push(
                 Diagnostic::error(
                     codes::QUERY_MIXED_PARAMETERS,
-                    format!("la requête `{query}` mélange paramètres nommés et positionnels"),
+                    format!("query `{query}` mixes named and positional parameters"),
                 )
                 .with_span(span(to_file(first_positional.clone())))
-                .with_hint("utiliser uniquement `$nom` (recommandé) ou uniquement `$1 … $n`"),
+                .with_hint("use only `$name` (recommended) or only `$1 … $n`"),
             );
             return None;
         }
@@ -725,10 +720,7 @@ impl FileParser<'_> {
                 self.diagnostics.push(
                     Diagnostic::error(
                         codes::QUERY_PARAMETER_GAP,
-                        format!(
-                            "la requête `{query}` utilise ${max} sans {}",
-                            missing.join(", ")
-                        ),
+                        format!("query `{query}` uses ${max} without {}", missing.join(", ")),
                     )
                     .with_span(span(to_file(last))),
                 );
@@ -745,8 +737,8 @@ impl FileParser<'_> {
     }
 }
 
-/// Noms en double dans un même fichier : la seconde occurrence est signalée
-/// et retirée, pour qu'aucune génération ne choisisse arbitrairement.
+/// Duplicate names in the same file: the second occurrence is reported and
+/// removed, so that no generation picks one arbitrarily.
 fn report_duplicates(queries: &mut Vec<NamedQuery>, diagnostics: &mut Vec<Diagnostic>) {
     let mut seen: HashMap<String, Range<usize>> = HashMap::new();
     queries.retain(|q| {
@@ -754,7 +746,7 @@ fn report_duplicates(queries: &mut Vec<NamedQuery>, diagnostics: &mut Vec<Diagno
             diagnostics.push(
                 Diagnostic::error(
                     codes::QUERY_DUPLICATE_NAME,
-                    format!("requête `{}` déjà définie dans ce fichier", q.name),
+                    format!("query `{}` already defined in this file", q.name),
                 )
                 .with_span(span(q.name_range.clone())),
             );
@@ -766,8 +758,8 @@ fn report_duplicates(queries: &mut Vec<NamedQuery>, diagnostics: &mut Vec<Diagno
     });
 }
 
-/// Paramètre de chaque bloc : un seul par bloc, utilisé seulement dans des
-/// blocs, sans marqueur `?` ; variantes en nombre borné.
+/// Parameter of each block: exactly one per block, used only inside blocks,
+/// without a `?` marker; a bounded number of variants.
 fn dynamic_conditions(
     query: &str,
     s: &crate::dynamic::Structure,
@@ -784,7 +776,7 @@ fn dynamic_conditions(
                 .map_or_else(|| s.choices[0].range.clone(), |b| b.range.clone());
             return Err((
                 r,
-                "requête à variantes : paramètres nommés seulement (`$nom`)".into(),
+                "query with variants: named parameters only (`$name`)".into(),
             ));
         }
     };
@@ -805,7 +797,7 @@ fn dynamic_conditions(
                     return Err((
                         b.range.clone(),
                         format!(
-                            "`${}` décide de ce bloc : il ne peut pas servir hors des blocs",
+                            "`${}` decides this block: it cannot be used outside blocks",
                             p.name
                         ),
                     ));
@@ -814,7 +806,7 @@ fn dynamic_conditions(
                     return Err((
                         b.range.clone(),
                         format!(
-                            "`${}?` : un paramètre de bloc est déjà optionnel, sans `?`",
+                            "`${}?`: a block parameter is already optional, drop the `?`",
                             p.name
                         ),
                     ));
@@ -824,13 +816,13 @@ fn dynamic_conditions(
             [] => {
                 return Err((
                     b.range.clone(),
-                    "bloc sans paramètre : rien ne décide de son inclusion".into(),
+                    "block without a parameter: nothing decides whether it is included".into(),
                 ));
             }
             _ => {
                 return Err((
                     b.range.clone(),
-                    "un bloc dépend d'un seul paramètre : écrire un bloc par paramètre".into(),
+                    "a block depends on a single parameter: write one block per parameter".into(),
                 ));
             }
         }
@@ -844,7 +836,7 @@ fn dynamic_conditions(
         return Err((
             r,
             format!(
-                "`{query}` : {n} variantes, au plus {} (chacune est vérifiée)",
+                "`{query}`: {n} variants, at most {} (each one is checked)",
                 crate::dynamic::MAX_VARIANTS
             ),
         ));
@@ -852,10 +844,9 @@ fn dynamic_conditions(
     Ok(conditions)
 }
 
-// ── Utilitaires ───────────────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
-/// Variante de référence : tous les blocs, la première possibilité de chaque
-/// choix.
+/// Reference variant: all blocks, the first option of each choice.
 pub fn reference_selection(s: &crate::dynamic::Structure) -> crate::dynamic::Selection {
     crate::dynamic::Selection {
         blocks: vec![true; s.blocks.len()],
@@ -863,9 +854,9 @@ pub fn reference_selection(s: &crate::dynamic::Structure) -> crate::dynamic::Sel
     }
 }
 
-/// `sql` où chaque marqueur `$nom?` (paramètre optionnel, `?` collé) a son
-/// `?` remplacé par une espace : lisible par le parser, positions
-/// inchangées. Chaînes et commentaires ne sont pas touchés.
+/// `sql` where each `$name?` marker (optional parameter, attached `?`) has
+/// its `?` replaced by a space: readable by the parser, positions unchanged.
+/// Strings and comments are not touched.
 pub fn blank_optional_markers(sql: &str) -> String {
     let index = LineIndex::new(sql);
     let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql)
@@ -886,15 +877,15 @@ pub fn blank_optional_markers(sql: &str) -> String {
         }
     }
     let out = String::from_utf8(bytes).unwrap_or_else(|_| sql.to_string());
-    // Blocs et choix : la variante de référence, de même longueur.
+    // Blocks and choices: the reference variant, same length.
     match crate::dynamic::structure(&out) {
         Ok(s) if !s.is_empty() => crate::dynamic::render(&out, &s, &reference_selection(&s)),
         _ => out,
     }
 }
 
-/// `$…` de `sql` (SQL après insertion des fragments), positions décalées de
-/// `base`. `None` si le tokenizer ne sait pas le lire (le parse le signalera).
+/// `$…` of `sql` (SQL after fragment insertion), positions shifted by
+/// `base`. `None` if the tokenizer cannot read it (parsing will report it).
 fn placeholders_of(sql: &str, base: usize) -> Option<Vec<(String, Range<usize>)>> {
     let index = LineIndex::new(sql);
     let tokens = Tokenizer::new(&PostgreSqlDialect {}, sql)
@@ -915,20 +906,20 @@ fn placeholders_of(sql: &str, base: usize) -> Option<Vec<(String, Range<usize>)>
     )
 }
 
-/// Contenu d'un en-tête si `comment` (texte après `--`) en est un.
+/// Content of a header if `comment` (text after `--`) is one.
 fn header_payload(comment: &str) -> Option<&str> {
     comment.trim_start().strip_prefix("name:").map(str::trim)
 }
 
-/// Ligne de documentation : le texte du commentaire sans l'espace qui suit
-/// `--` ni le saut de ligne.
+/// Documentation line: the comment text without the space following `--`
+/// nor the line break.
 fn doc_line(comment: &str) -> String {
     let text = comment.trim_end_matches(['\n', '\r']);
     text.strip_prefix(' ').unwrap_or(text).to_string()
 }
 
-/// `[a-z_][a-z0-9_]*` : utilisable tel quel comme identifiant Rust, et
-/// convertible sans perte en camelCase pour TypeScript.
+/// `[a-z_][a-z0-9_]*`: usable as is as a Rust identifier, and losslessly
+/// convertible to camelCase for TypeScript.
 fn is_snake_ident(s: &str) -> bool {
     let mut bytes = s.bytes();
     matches!(bytes.next(), Some(b'a'..=b'z' | b'_'))

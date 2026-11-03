@@ -1,5 +1,5 @@
-//! Les `NodeId` sont déterministes : même texte, mêmes identifiants, quoi
-//! qu'on ait parsé avant (PLAN.md, principe 5).
+//! `NodeId`s are deterministic: same text, same identifiers, whatever
+//! was parsed before (PLAN.md, principle 5).
 
 use pgweave_parser::parse;
 
@@ -16,10 +16,10 @@ END;
 $$;
 ";
 
-/// Tous les `id` de l'AST, dans l'ordre du parcours sérialisé.
+/// All `id`s of the AST, in serialized traversal order.
 fn ids(sql: &str) -> Vec<u64> {
     let stmts = parse(sql).expect("parse");
-    let json = serde_json::to_value(&stmts).expect("sérialisation");
+    let json = serde_json::to_value(&stmts).expect("serialization");
     let mut out = Vec::new();
     collect(&json, &mut out);
     out
@@ -43,10 +43,10 @@ fn collect(v: &serde_json::Value, out: &mut Vec<u64>) {
 }
 
 #[test]
-fn meme_texte_memes_identifiants_quel_que_soit_l_historique() {
+fn same_text_same_identifiers_whatever_the_history() {
     let first = ids(SQL);
-    // Parses intermédiaires : avec l'ancien compteur global, ils décalaient
-    // tous les identifiants suivants.
+    // Intermediate parses: with the former global counter, they shifted
+    // all following identifiers.
     ids("SELECT 1; SELECT 2; SELECT 3;");
     ids(SQL);
     assert_eq!(ids(SQL), first);
@@ -54,13 +54,13 @@ fn meme_texte_memes_identifiants_quel_que_soit_l_historique() {
 }
 
 #[test]
-fn la_numerotation_recommence_a_chaque_parse() {
+fn numbering_restarts_at_each_parse() {
     let ids = ids(SQL);
     assert_eq!(ids.iter().min(), Some(&1));
 }
 
 #[test]
-fn les_identifiants_sont_uniques_dans_un_parse_corps_plpgsql_compris() {
+fn identifiers_are_unique_within_a_parse_plpgsql_body_included() {
     let ids = ids(SQL);
     let mut sorted = ids.clone();
     sorted.sort_unstable();
@@ -68,12 +68,12 @@ fn les_identifiants_sont_uniques_dans_un_parse_corps_plpgsql_compris() {
     assert_eq!(
         sorted.len(),
         ids.len(),
-        "un corps PL/pgSQL parsé pendant le fichier continue sa numérotation"
+        "a PL/pgSQL body parsed during the file continues its numbering"
     );
 }
 
 #[test]
-fn deterministe_entre_threads() {
+fn deterministic_across_threads() {
     let expected = ids(SQL);
     let handles: Vec<_> = (0..4).map(|_| std::thread::spawn(|| ids(SQL))).collect();
     for h in handles {

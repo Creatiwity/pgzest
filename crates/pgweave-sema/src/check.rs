@@ -1,17 +1,17 @@
-//! Vérification des statements d'un fichier par l'analyse sémantique : ce
-//! que PostgreSQL refuserait en exécutant le statement, ou en compilant le
-//! corps d'une routine.
+//! Checking the statements of a file through semantic analysis: what
+//! PostgreSQL would refuse when executing the statement, or when compiling
+//! a routine body.
 //!
-//! Deux moments, comme dans PostgreSQL :
+//! Two moments, as in PostgreSQL:
 //!
-//! - [`check_applied`] : ce qui s'exécute ou se valide quand le statement
-//!   est appliqué — requêtes, vues, policies, `COPY`, bloc `DO`, corps
-//!   `LANGUAGE sql` (validés à la création) — contre l'état du catalogue à
-//!   ce point ;
-//! - [`check_deferred`] : un corps PL/pgSQL, dont les requêtes ne sont
-//!   analysées qu'à l'exécution, donc contre l'état final.
+//! - [`check_applied`]: what runs or is validated when the statement
+//!   is applied — queries, views, policies, `COPY`, `DO` block,
+//!   `LANGUAGE sql` bodies (validated at creation) — against the catalog
+//!   state at that point;
+//! - [`check_deferred`]: a PL/pgSQL body, whose queries are only
+//!   analyzed at execution, hence against the final state.
 //!
-//! [`check_statements`] enchaîne les deux contre un même catalogue.
+//! [`check_statements`] chains both against the same catalog.
 
 use std::collections::BTreeMap;
 
@@ -35,8 +35,8 @@ use crate::types::{Ty, TypeSystem, is_polymorphic, pg};
 
 // ── Diagnostics ───────────────────────────────────────────────────────────────
 
-/// Diagnostic d'une erreur d'analyse ; sans position propre, il prend celle
-/// de `fallback` (le statement).
+/// Diagnostic of an analysis error; without its own position, it takes
+/// that of `fallback` (the statement).
 fn diagnostic(e: SemaError, fallback: Span) -> Diagnostic {
     let span = if e.span == Span::DUMMY {
         fallback
@@ -44,7 +44,7 @@ fn diagnostic(e: SemaError, fallback: Span) -> Diagnostic {
         e.span
     };
     let mut d = match e.code {
-        // Ce que l'analyse ne couvre pas est dit, sans être une erreur.
+        // What the analysis does not cover is stated, without being an error.
         "not-analyzed" => Diagnostic::info(e.code, e.message),
         _ => Diagnostic::error(e.code, e.message),
     };
@@ -59,7 +59,7 @@ fn diagnostic(e: SemaError, fallback: Span) -> Diagnostic {
     }
 }
 
-/// Un diagnostic par erreur, rattaché au statement à défaut de mieux.
+/// One diagnostic per error, attached to the statement failing anything better.
 struct Sink<'o> {
     out: &'o mut Vec<Diagnostic>,
 }
@@ -72,9 +72,9 @@ impl Sink<'_> {
     }
 }
 
-// ── Points d'entrée ───────────────────────────────────────────────────────────
+// ── Entry points ──────────────────────────────────────────────────────────────
 
-/// Vérification pendant le rejeu du catalogue ([`StatementChecker`]).
+/// Checking during the catalog replay ([`StatementChecker`]).
 ///
 /// [`StatementChecker`]: pgweave_catalog::StatementChecker
 pub struct SemaChecker;
@@ -111,8 +111,8 @@ impl pgweave_catalog::StatementChecker for SemaChecker {
     }
 }
 
-/// Tous les statements contre un même catalogue (fichier de requêtes,
-/// fichier isolé, état final d'un projet).
+/// All statements against the same catalog (query file,
+/// standalone file, final state of a project).
 pub fn check_statements(
     catalog: &Catalog,
     path: &SearchPath,
@@ -130,7 +130,7 @@ pub fn check_statements(
     out
 }
 
-/// `SET search_path` : le chemin des statements suivants.
+/// `SET search_path`: the path of the following statements.
 pub fn search_path_change(stmt: &Statement) -> Option<SearchPath> {
     let Statement::Utility(u) = stmt else {
         return None;
@@ -147,8 +147,8 @@ pub fn search_path_change(stmt: &Statement) -> Option<SearchPath> {
     }
 }
 
-/// Le corps de ce statement n'est analysé par PostgreSQL qu'à l'exécution :
-/// il est vérifié par [`check_deferred`].
+/// The body of this statement is only analyzed by PostgreSQL at execution:
+/// it is checked by [`check_deferred`].
 pub fn is_deferred(stmt: &Statement) -> bool {
     match stmt {
         Statement::Ddl(DdlStatement::CreateFunction(f)) => {
@@ -161,8 +161,8 @@ pub fn is_deferred(stmt: &Statement) -> bool {
     }
 }
 
-/// Ce que PostgreSQL vérifie en appliquant `stmt`, contre `catalog` (l'état
-/// après application pour un DDL).
+/// What PostgreSQL checks when applying `stmt`, against `catalog` (the
+/// state after application for a DDL).
 pub fn check_applied(
     catalog: &Catalog,
     path: &SearchPath,
@@ -271,7 +271,7 @@ pub fn check_applied(
     }
 }
 
-/// Corps PL/pgSQL de `stmt`, contre l'état du catalogue où il s'exécutera.
+/// PL/pgSQL body of `stmt`, against the catalog state where it will run.
 pub fn check_deferred(
     catalog: &Catalog,
     path: &SearchPath,
@@ -307,23 +307,23 @@ fn deferred(
     }
 }
 
-/// Requête d'un corps de routine, telle que PostgreSQL la prépare à
-/// l'exécution : chaque variable y est un paramètre.
+/// Query of a routine body, as PostgreSQL prepares it at
+/// execution: each variable is a parameter in it.
 #[derive(Debug, Clone)]
 pub struct BodyQuery {
     pub statement: Statement,
-    /// Colonnes décrites, ou l'erreur (code et message).
+    /// Described columns, or the error (code and message).
     pub result: Result<Vec<crate::query::OutputColumn>, String>,
-    /// Références aux variables : position de l'expression et type du
-    /// paramètre qui la remplace.
+    /// References to variables: position of the expression and type of the
+    /// parameter that replaces it.
     pub var_refs: Vec<(Span, Ty)>,
-    /// SQL qui recrée ce que le corps voit en plus du schéma : ses DDL
-    /// (tables temporaires…) et les tables de transition du trigger.
+    /// SQL that recreates what the body sees in addition to the schema: its DDL
+    /// (temporary tables…) and the trigger's transition tables.
     pub setup: Vec<String>,
 }
 
-/// Requêtes du corps de la routine créée par `stmt` (PL/pgSQL ou SQL),
-/// analysées dans sa portée, contre `catalog`.
+/// Queries of the body of the routine created by `stmt` (PL/pgSQL or SQL),
+/// analyzed in its scope, against `catalog`.
 pub fn body_queries(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> Vec<BodyQuery> {
     let mut collect = Some(Vec::new());
     let mut ignored = Vec::new();
@@ -359,7 +359,7 @@ pub fn body_queries(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> V
     collect.unwrap_or_default()
 }
 
-/// Parcourt `body` avec `w`, en recueillant ses requêtes si demandé.
+/// Walks `body` with `w`, collecting its queries if requested.
 fn run(
     mut w: Walker,
     body: &PlpgsqlBody,
@@ -375,10 +375,10 @@ fn run(
     }
 }
 
-// ── Statements simples ────────────────────────────────────────────────────────
+// ── Simple statements ─────────────────────────────────────────────────────────
 
-/// Corps vide : la seule chose certaine qu'on puisse dire d'un corps non
-/// analysé (PL/pgSQL le refuse : « syntax error at end of input »).
+/// Empty body: the only certain thing that can be said about an unanalyzed
+/// body (PL/pgSQL refuses it: "syntax error at end of input").
 fn empty_body(body: &FunctionBody, name: &str, span: Span, out: &mut Vec<Diagnostic>) {
     if let FunctionBody::Raw(raw) = body
         && raw.trim().is_empty()
@@ -400,8 +400,8 @@ fn empty_body(body: &FunctionBody, name: &str, span: Span, out: &mut Vec<Diagnos
 }
 
 impl Analyzer<'_> {
-    /// `COPY table (colonnes)`, `ANALYZE table (colonnes)` : la table et ses
-    /// colonnes existent.
+    /// `COPY table (columns)`, `ANALYZE table (columns)`: the table and its
+    /// columns exist.
     fn table_columns(&mut self, name: &ObjectName, columns: &[Ident]) -> Result<(), SemaError> {
         let (schema, n) = split_name(name);
         let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
@@ -423,17 +423,17 @@ impl Analyzer<'_> {
         Ok(())
     }
 
-    /// Expressions d'une table, dans son contexte (`transformColumnDefinition`,
-    /// `cookDefault`, `cookConstraint`) : `DEFAULT` sans colonne, convertible
-    /// vers la colonne ; expression générée sur les colonnes non générées,
-    /// convertible vers la colonne ; `CHECK` booléen sur les colonnes.
+    /// Expressions of a table, in its context (`transformColumnDefinition`,
+    /// `cookDefault`, `cookConstraint`): `DEFAULT` without columns, convertible
+    /// to the column; generated expression over non-generated columns,
+    /// convertible to the column; boolean `CHECK` over the columns.
     fn table_expressions(
         &mut self,
         table: &ObjectName,
         columns: &[pgweave_ast::ddl::ColumnDef],
         checks: &[&Expr],
     ) -> Result<(), SemaError> {
-        // Table absente : son rejeu a échoué, déjà signalé.
+        // Missing table: its replay failed, already reported.
         let Ok(source) = self.relation_source(table, None) else {
             return Ok(());
         };
@@ -489,16 +489,16 @@ impl Analyzer<'_> {
         Ok(())
     }
 
-    /// `CREATE INDEX` (`DefineIndex`) : colonnes indexées et `INCLUDE`
-    /// existantes, expressions typées dans le contexte de la table,
-    /// prédicat booléen, classe d'opérateurs connue pour la méthode.
+    /// `CREATE INDEX` (`DefineIndex`): indexed and `INCLUDE` columns
+    /// exist, expressions typed in the table's context,
+    /// boolean predicate, operator class known for the method.
     ///
-    /// Non vérifiés : la compatibilité de la classe d'opérateurs avec le
-    /// type, l'existence d'une classe par défaut, l'immutabilité des
-    /// fonctions d'une expression.
+    /// Not checked: compatibility of the operator class with the
+    /// type, existence of a default class, immutability of the
+    /// functions of an expression.
     fn index(&mut self, ci: &pgweave_ast::ddl::CreateIndex) -> Result<(), SemaError> {
         use pgweave_ast::ddl::IndexElement;
-        // Table absente : son rejeu a échoué, déjà signalé.
+        // Missing table: its replay failed, already reported.
         let Ok(source) = self.relation_source(&ci.table, None) else {
             return Ok(());
         };
@@ -575,8 +575,8 @@ impl Analyzer<'_> {
         self.default_expr(column, target.as_ref(), e)
     }
 
-    /// `DEFAULT` : aucune colonne, et une valeur convertible (affectation)
-    /// vers celle de la colonne.
+    /// `DEFAULT`: no column, and a value convertible (assignment)
+    /// to the column's type.
     fn default_expr(
         &mut self,
         column: &str,
@@ -625,8 +625,8 @@ impl Analyzer<'_> {
         ))
     }
 
-    /// `CREATE DOMAIN … CHECK (VALUE …)` : `VALUE` est la valeur du type de
-    /// base.
+    /// `CREATE DOMAIN … CHECK (VALUE …)`: `VALUE` is the value of the base
+    /// type.
     fn domain_checks(&mut self, d: &pgweave_ast::ddl::CreateDomain) -> Result<(), SemaError> {
         if d.checks.is_empty() {
             return Ok(());
@@ -648,8 +648,8 @@ impl Analyzer<'_> {
         Ok(())
     }
 
-    /// Colonnes alimentées par `COPY table [(colonnes)] FROM` : celles
-    /// citées, ou toutes sauf les colonnes générées (`CopyGetAttnums`).
+    /// Columns fed by `COPY table [(columns)] FROM`: those
+    /// listed, or all except generated columns (`CopyGetAttnums`).
     pub fn copy_columns(
         &self,
         table: &ObjectName,
@@ -709,7 +709,7 @@ impl Analyzer<'_> {
                     name: c.name.clone(),
                     ty: c.ty.clone().ok_or_else(|| {
                         SemaError::not_analyzed(
-                            format!("type de la colonne « {} »", c.name),
+                            format!("type of column \"{}\"", c.name),
                             Span::DUMMY,
                         )
                     })?,
@@ -720,8 +720,8 @@ impl Analyzer<'_> {
             .collect()
     }
 
-    /// `CREATE POLICY` : `USING` et `WITH CHECK` sont des conditions sur
-    /// une ligne de la table.
+    /// `CREATE POLICY`: `USING` and `WITH CHECK` are conditions on a row
+    /// of the table.
     fn policy(&mut self, p: &CreatePolicy) -> Result<(), SemaError> {
         let source = self.relation_source(&p.table, None)?;
         let mut scope = Scope::default();
@@ -735,7 +735,7 @@ impl Analyzer<'_> {
 
 // ── Routines ──────────────────────────────────────────────────────────────────
 
-/// Type d'une variable déclarée avec le type écrit `dt`.
+/// Type of a variable declared with the written type `dt`.
 fn var_ty(a: &Analyzer, dt: &pgweave_ast::types::DataType, span: Span) -> Result<VarTy, SemaError> {
     let ty = a.data_type(dt, span)?;
     Ok(classify(&a.ts, ty))
@@ -743,7 +743,7 @@ fn var_ty(a: &Analyzer, dt: &pgweave_ast::types::DataType, span: Span) -> Result
 
 fn classify(ts: &TypeSystem, ty: Ty) -> VarTy {
     if is_polymorphic(&ty) {
-        VarTy::Unknown(format!("type de l'argument polymorphe {}", ty.name))
+        VarTy::Unknown(format!("type of polymorphic argument {}", ty.name))
     } else if ty == pg("record") {
         VarTy::Record(None)
     } else if ts.is_complex(&ts.base_type(&ty)) {
@@ -753,8 +753,8 @@ fn classify(ts: &TypeSystem, ty: Ty) -> VarTy {
     }
 }
 
-/// Portée des paramètres d'une routine : nommés (dans le bloc portant le nom
-/// de la routine) et positionnels.
+/// Scope of a routine's parameters: named (in the block carrying the
+/// routine's name) and positional.
 fn routine_scope(
     a: &mut Analyzer,
     language: Language,
@@ -766,15 +766,15 @@ fn routine_scope(
     let mut r = Routine::new(language, name);
     for p in params {
         let input = !matches!(p.mode, ParamMode::Out);
-        // `$n` : tous les arguments en PL/pgSQL, ceux d'entrée en SQL.
+        // `$n`: all arguments in PL/pgSQL, the input ones in SQL.
         let positional = language == Language::Plpgsql || input;
-        // Un paramètre `OUT` n'est une variable qu'en PL/pgSQL.
+        // An `OUT` parameter is only a variable in PL/pgSQL.
         let named = language == Language::Plpgsql || input;
         let ty = match var_ty(a, &p.data_type, span) {
             Ok(t) => t,
             Err(e) => {
                 out.push(diagnostic(e, span));
-                VarTy::Unknown("type de paramètre introuvable".into())
+                VarTy::Unknown("parameter type not found".into())
             }
         };
         if positional {
@@ -787,7 +787,7 @@ fn routine_scope(
     r
 }
 
-/// Corps `LANGUAGE sql` : chaque statement, les paramètres en portée.
+/// `LANGUAGE sql` body: each statement, with the parameters in scope.
 fn sql_routine(
     catalog: &Catalog,
     path: &SearchPath,
@@ -818,7 +818,7 @@ fn sql_routine(
         }
         FunctionBody::Raw(_) | FunctionBody::Parsed(_) => return,
     };
-    // Tables créées par le corps : visibles des statements suivants.
+    // Tables created by the body: visible to the following statements.
     let overlay = body_overlay(catalog, path, stmts.iter());
     let cat = overlay.as_ref().unwrap_or(catalog);
     for stmt in &stmts {
@@ -864,8 +864,8 @@ fn sql_routine(
     }
 }
 
-/// Catalogue augmenté des DDL d'un corps (tables temporaires…), s'il en
-/// contient.
+/// Catalog extended with the DDL of a body (temporary tables…), if it
+/// contains any.
 fn body_overlay<'s>(
     catalog: &Catalog,
     path: &SearchPath,
@@ -884,16 +884,16 @@ fn body_overlay<'s>(
     Some(replay.catalog)
 }
 
-/// Contexte d'une fonction trigger : la table d'un de ses triggers.
+/// Context of a trigger function: the table of one of its triggers.
 #[derive(Debug, Clone)]
 struct TriggerContext {
     table: QName,
     row_level: bool,
-    /// Tables de transition, visibles comme des relations.
+    /// Transition tables, visible as relations.
     transition: Vec<String>,
 }
 
-/// Contextes d'une fonction trigger, un par table qui la déclenche.
+/// Contexts of a trigger function, one per table that fires it.
 fn trigger_contexts(catalog: &Catalog, function: &QName) -> Vec<TriggerContext> {
     let mut out: BTreeMap<QName, TriggerContext> = BTreeMap::new();
     for (table, triggers) in &catalog.triggers {
@@ -914,7 +914,7 @@ fn trigger_contexts(catalog: &Catalog, function: &QName) -> Vec<TriggerContext> 
     out.into_values().collect()
 }
 
-/// Nom qualifié d'une routine créée sous `name`.
+/// Qualified name of a routine created under `name`.
 fn routine_qname(name: &ObjectName, path: &SearchPath) -> QName {
     let (schema, n) = split_name(name);
     QName::new(
@@ -938,7 +938,7 @@ fn plpgsql_function(
         if let ReturnType::Table(cols) = &f.return_type {
             for (n, dt) in cols {
                 let ty = var_ty(&a, dt, f.span)
-                    .unwrap_or_else(|_| VarTy::Unknown("type de colonne introuvable".into()));
+                    .unwrap_or_else(|_| VarTy::Unknown("column type not found".into()));
                 r.declare(&n.value, ty);
             }
         }
@@ -983,16 +983,16 @@ fn plpgsql_function(
             &mut d,
             collect,
         );
-        // NEW et OLD sans table : ce qui en dépend n'est pas vérifiable, et
-        // vient d'être dit une fois pour la fonction.
+        // NEW and OLD without a table: what depends on them is not checkable, and
+        // has just been said once for the function.
         out.extend(
             d.into_iter()
                 .filter(|d| !(d.code == "not-analyzed" && d.message.contains(NO_TRIGGER_TABLE))),
         );
         return;
     }
-    // Une fonction partagée entre plusieurs tables est vérifiée pour
-    // chacune : NEW et OLD y prennent le type de la table qui déclenche.
+    // A function shared between several tables is checked for each
+    // one: NEW and OLD take the type of the firing table.
     let passes: Vec<(String, Vec<Diagnostic>)> = contexts
         .into_iter()
         .map(|ctx| {
@@ -1012,11 +1012,11 @@ fn plpgsql_function(
     out.extend(merge_per_table_passes(passes));
 }
 
-const NO_TRIGGER_TABLE: &str = "table du trigger inconnue";
+const NO_TRIGGER_TABLE: &str = "unknown trigger table";
 
-/// Fusionne les diagnostics des passes « une par table » : un diagnostic
-/// commun à toutes ne dépend pas de la table et n'est émis qu'une fois ;
-/// les autres nomment les tables concernées.
+/// Merges the diagnostics of the "one per table" passes: a diagnostic
+/// common to all of them does not depend on the table and is emitted only
+/// once; the others name the tables concerned.
 fn merge_per_table_passes(passes: Vec<(String, Vec<Diagnostic>)>) -> Vec<Diagnostic> {
     type Key = (&'static str, String, Option<(usize, usize)>);
     let key = |d: &Diagnostic| -> Key {
@@ -1053,21 +1053,21 @@ fn merge_per_table_passes(passes: Vec<(String, Vec<Diagnostic>)>) -> Vec<Diagnos
 
 // ── PL/pgSQL ──────────────────────────────────────────────────────────────────
 
-/// Parcours d'un corps PL/pgSQL (`pl_comp.c` pour les déclarations, puis
-/// chaque expression et requête analysée comme PostgreSQL le fait à
-/// l'exécution, variables en portée).
+/// Walk of a PL/pgSQL body (`pl_comp.c` for the declarations, then
+/// each expression and query analyzed the way PostgreSQL does at
+/// execution, with variables in scope).
 struct Walker<'c> {
     catalog: &'c Catalog,
     path: SearchPath,
     routine: Routine,
-    /// Fonction trigger : `Some(Some(ctx))` avec sa table, `Some(None)` si
-    /// aucune table n'est connue.
+    /// Trigger function: `Some(Some(ctx))` with its table, `Some(None)` if
+    /// no table is known.
     trigger: Option<Option<TriggerContext>>,
-    /// Colonnes des requêtes de curseurs déclarés, par nom.
+    /// Columns of the queries of declared cursors, by name.
     cursors: BTreeMap<String, Option<Vec<Column>>>,
-    /// Requêtes analysées, si elles sont recueillies ([`body_queries`]).
+    /// Analyzed queries, if they are collected ([`body_queries`]).
     queries: Option<Vec<BodyQuery>>,
-    /// Contexte des requêtes recueillies (voir [`BodyQuery::setup`]).
+    /// Context of the collected queries (see [`BodyQuery::setup`]).
     setup: Vec<String>,
 }
 
@@ -1090,7 +1090,7 @@ impl<'c> Walker<'c> {
     }
 
     fn body(&mut self, body: &PlpgsqlBody, out: &mut Vec<Diagnostic>) {
-        // Les DDL du corps (tables temporaires…) sont visibles de ses requêtes.
+        // The DDL of the body (temporary tables…) is visible to its queries.
         let mut ddl = Vec::new();
         collect_sql(&body.block, &mut ddl);
         if self.queries.is_some() {
@@ -1123,7 +1123,7 @@ impl<'c> Walker<'c> {
         self.block(&body.block, &mut ctx);
     }
 
-    /// Variables d'une fonction trigger (`plpgsql_compile`, `TG_*`).
+    /// Variables of a trigger function (`plpgsql_compile`, `TG_*`).
     fn declare_trigger(&mut self, trigger: &Option<TriggerContext>, catalog: &Catalog) {
         for (n, t) in [
             ("tg_name", "name"),
@@ -1143,19 +1143,19 @@ impl<'c> Walker<'c> {
             Some(ctx) if ctx.row_level && catalog.relations.contains_key(&ctx.table) => {
                 VarTy::Row(ctx.table.clone())
             }
-            // Trigger de niveau instruction : NEW et OLD sont NULL.
+            // Statement-level trigger: NEW and OLD are NULL.
             Some(_) => VarTy::Record(None),
-            None => VarTy::Unknown(format!("NEW/OLD : {NO_TRIGGER_TABLE}")),
+            None => VarTy::Unknown(format!("NEW/OLD: {NO_TRIGGER_TABLE}")),
         };
         self.routine.declare("new", row.clone());
         self.routine.declare("old", row);
     }
 
-    /// Analyseur d'une expression ou requête du corps.
+    /// Analyzer of an expression or query of the body.
     fn analyzer<'a>(&self, catalog: &'a Catalog) -> Analyzer<'a> {
         let mut a = Analyzer::new(TypeSystem::new(catalog), self.path.clone());
         a.routine = Some(self.routine.clone());
-        // Tables de transition d'un trigger : des relations nommées.
+        // Transition tables of a trigger: named relations.
         if let Some(Some(ctx)) = &self.trigger
             && let Some(rel) = catalog.relations.get(&ctx.table)
         {
@@ -1204,7 +1204,7 @@ impl<'c> Walker<'c> {
     fn declaration(&mut self, d: &Declaration, ctx: &mut Ctx) {
         match d {
             Declaration::Variable(v) => {
-                // La valeur initiale voit les variables déjà déclarées.
+                // The initial value sees the variables already declared.
                 if let Some(e) = &v.default {
                     self.expr(e, ctx);
                 }
@@ -1219,7 +1219,7 @@ impl<'c> Walker<'c> {
                 };
                 let ty = ty.unwrap_or_else(|e| {
                     ctx.out.push(diagnostic(e, v.span));
-                    VarTy::Unknown(format!("type de la variable « {} »", v.name.value))
+                    VarTy::Unknown(format!("type of variable \"{}\"", v.name.value))
                 });
                 self.routine.declare(&v.name.value, ty);
             }
@@ -1244,7 +1244,7 @@ impl<'c> Walker<'c> {
                             format!("variable \"{target}\" does not exist"),
                         ));
                         self.routine
-                            .declare(&name.value, VarTy::Unknown("alias invalide".into()));
+                            .declare(&name.value, VarTy::Unknown("invalid alias".into()));
                     }
                 }
             }
@@ -1257,7 +1257,7 @@ impl<'c> Walker<'c> {
                 let mut frame = crate::routine::Frame::default();
                 for (p, dt) in params {
                     let ty = var_ty(&a, dt, query.span)
-                        .unwrap_or_else(|_| VarTy::Unknown("type de paramètre de curseur".into()));
+                        .unwrap_or_else(|_| VarTy::Unknown("cursor parameter type".into()));
                     frame.vars.push(crate::routine::Var {
                         name: p.value.clone(),
                         ty,
@@ -1301,7 +1301,7 @@ impl<'c> Walker<'c> {
         ))
     }
 
-    /// `table.colonne%TYPE` ou `variable%TYPE`.
+    /// `table.column%TYPE` or `variable%TYPE`.
     fn type_of(&self, t: &ObjectName, catalog: &Catalog, span: Span) -> Result<VarTy, SemaError> {
         let parts: Vec<&str> = t.0.iter().map(|i| i.value.as_str()).collect();
         if let [v] = parts.as_slice()
@@ -1320,7 +1320,7 @@ impl<'c> Walker<'c> {
                 ));
             }
         };
-        // `variable.champ%TYPE`.
+        // `variable.field%TYPE`.
         if rel_schema.is_none() && self.routine.var(rel).is_some() {
             let a = self.analyzer(catalog);
             let r = ColumnRef::new(Some(Ident::new(rel)), Ident::new(col));
@@ -1349,9 +1349,7 @@ impl<'c> Walker<'c> {
             })?;
         match ts.of_ref(&column.ty) {
             Some(ty) => Ok(classify(&ts, ty)),
-            None => Ok(VarTy::Unknown(format!(
-                "type de la colonne « {rel}.{col} »"
-            ))),
+            None => Ok(VarTy::Unknown(format!("type of column \"{rel}.{col}\""))),
         }
     }
 
@@ -1372,7 +1370,7 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// Expression du corps : `SELECT expr`, variables en portée.
+    /// Body expression: `SELECT expr`, variables in scope.
     fn expr(&mut self, e: &Expr, ctx: &mut Ctx) -> Option<crate::expr::Typed> {
         let mut a = self.analyzer(ctx.catalog);
         match a.expr(e, &Scope::default()) {
@@ -1384,7 +1382,7 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// Requête du corps : ses colonnes, si elle est valide.
+    /// Body query: its columns, if it is valid.
     fn query(&mut self, q: &SelectStmt, ctx: &mut Ctx) -> Option<Vec<Column>> {
         let mut a = self.analyzer(ctx.catalog);
         let result = a.select(q, None, true);
@@ -1398,7 +1396,7 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// Recueille une requête analysée, si demandé ([`body_queries`]).
+    /// Collects an analyzed query, if requested ([`body_queries`]).
     fn record(
         &mut self,
         statement: impl FnOnce() -> Statement,
@@ -1422,7 +1420,7 @@ impl<'c> Walker<'c> {
             PlStatementKind::Assign { target, value } => {
                 let t = self.expr(value, ctx);
                 self.assign_target(target, s.span, ctx);
-                // Record affecté d'une valeur composite : sa structure.
+                // Record assigned a composite value: its structure.
                 if let ([var], Some(t)) = (target.as_slice(), t) {
                     self.set_shape(&var.value, self.shape_of(&t.ty, ctx.catalog));
                 }
@@ -1453,7 +1451,7 @@ impl<'c> Walker<'c> {
                         }
                         None
                     }
-                    // DDL : appliqué au catalogue du corps (voir `body`).
+                    // DDL: applied to the body's catalog (see `body`).
                     Statement::Ddl(_) => None,
                 };
                 if let Some(into) = into {
@@ -1500,8 +1498,8 @@ impl<'c> Walker<'c> {
                 for o in options {
                     self.expr(&o.value, ctx);
                 }
-                // `pl_gram.y` : le nombre de `%` du format égale celui des
-                // arguments, vérifié à la compilation.
+                // `pl_gram.y`: the number of `%` in the format equals the number of
+                // arguments, checked at compile time.
                 if let Some(m) = message
                     && (!args.is_empty() || m.contains('%'))
                     && let Some(n) = raise_placeholders(m)
@@ -1578,8 +1576,8 @@ impl<'c> Walker<'c> {
                 for e in [Some(from), Some(to), by.as_ref()].into_iter().flatten() {
                     self.expr(e, ctx);
                 }
-                // La variable de boucle est déclarée `integer`, dans un bloc
-                // propre à la boucle.
+                // The loop variable is declared `integer`, in a block of its own
+                // for the loop.
                 self.routine.frames.push(crate::routine::Frame {
                     label: label.clone(),
                     vars: Vec::new(),
@@ -1629,18 +1627,16 @@ impl<'c> Walker<'c> {
                 }
                 let shape = match self.cursors.get(&cursor.value) {
                     Some(Some(cols)) => VarTy::Record(Some(cols.clone())),
-                    Some(None) => {
-                        VarTy::Unknown(format!("requête du curseur « {} »", cursor.value))
-                    }
+                    Some(None) => VarTy::Unknown(format!("query of cursor \"{}\"", cursor.value)),
                     None => {
                         ctx.out.push(Diagnostic::error(
                             "undeclared-variable",
                             format!("cursor \"{}\" does not exist", cursor.value),
                         ));
-                        VarTy::Unknown(format!("curseur « {} »", cursor.value))
+                        VarTy::Unknown(format!("cursor \"{}\"", cursor.value))
                     }
                 };
-                // La variable de boucle est un record déclaré par la boucle.
+                // The loop variable is a record declared by the loop.
                 self.routine.frames.push(crate::routine::Frame {
                     label: label.clone(),
                     vars: Vec::new(),
@@ -1711,8 +1707,8 @@ impl<'c> Walker<'c> {
         self.routine.frames.pop();
     }
 
-    /// Cible d'affectation : une variable visible, ou un champ existant
-    /// d'une variable ligne (`pl_gram.y` refuse le reste à la compilation).
+    /// Assignment target: a visible variable, or an existing field of a row
+    /// variable (`pl_gram.y` refuses the rest at compile time).
     fn assign_target(&mut self, target: &[Ident], span: Span, ctx: &mut Ctx) {
         let r = match target {
             [] => return,
@@ -1752,7 +1748,7 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// Cibles d'un `INTO` : un record unique prend la structure de la ligne.
+    /// Targets of an `INTO`: a single record takes the structure of the row.
     fn into(&mut self, into: &IntoTarget, shape: Shape, span: Span, ctx: &mut Ctx) {
         for t in &into.targets {
             self.assign_target(t, span, ctx);
@@ -1764,7 +1760,7 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// Cibles d'une boucle sur requête : déclarées hors de la boucle.
+    /// Targets of a loop over a query: declared outside the loop.
     fn loop_targets(&mut self, targets: &[Ident], shape: Shape, span: Span, ctx: &mut Ctx) {
         for t in targets {
             self.assign_target(std::slice::from_ref(t), span, ctx);
@@ -1774,7 +1770,7 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// Structure d'un record après affectation d'une ligne.
+    /// Structure of a record after a row is assigned to it.
     fn set_record(&mut self, name: &str, shape: Shape) {
         let Some(var) = self.routine.var(name) else {
             return;
@@ -1785,9 +1781,9 @@ impl<'c> Walker<'c> {
         let ty = match shape {
             Shape::Known(cols) => VarTy::Record(Some(cols)),
             Shape::Dynamic => {
-                VarTy::Unknown(format!("structure du record « {name} » (SQL dynamique)"))
+                VarTy::Unknown(format!("structure of record \"{name}\" (dynamic SQL)"))
             }
-            Shape::Invalid => VarTy::Unknown(format!("structure du record « {name} »")),
+            Shape::Invalid => VarTy::Unknown(format!("structure of record \"{name}\"")),
         };
         self.routine.assign(name, ty);
     }
@@ -1798,7 +1794,7 @@ impl<'c> Walker<'c> {
         }
     }
 
-    /// Attributs d'un type composite.
+    /// Attributes of a composite type.
     fn shape_of(&self, ty: &Ty, catalog: &Catalog) -> Option<Vec<Column>> {
         let ts = TypeSystem::new(catalog);
         let base = ts.base_type(ty);
@@ -1832,12 +1828,12 @@ impl<'c> Walker<'c> {
     }
 }
 
-/// Ligne affectée à des cibles.
+/// Row assigned to targets.
 enum Shape {
     Known(Vec<Column>),
-    /// SQL dynamique : connue à l'exécution seulement.
+    /// Dynamic SQL: known only at execution.
     Dynamic,
-    /// Requête invalide (déjà signalée).
+    /// Invalid query (already reported).
     Invalid,
 }
 
@@ -1846,7 +1842,7 @@ struct Ctx<'c, 'o> {
     out: &'o mut Vec<Diagnostic>,
 }
 
-/// Statements SQL d'un bloc et de ses blocs imbriqués.
+/// SQL statements of a block and of its nested blocks.
 fn collect_sql<'b>(b: &'b Block, out: &mut Vec<&'b Statement>) {
     fn walk<'b>(stmts: &'b [PlStatement], out: &mut Vec<&'b Statement>) {
         for s in stmts {
@@ -1896,7 +1892,7 @@ fn collect_sql<'b>(b: &'b Block, out: &mut Vec<&'b Statement>) {
     }
 }
 
-/// Première référence de colonne d'une expression, hors sous-requêtes.
+/// First column reference of an expression, outside subqueries.
 fn first_column_ref(e: &Expr) -> Option<&ColumnRef> {
     use pgweave_ast::expr::ExprKind;
     match &e.kind {
@@ -1906,7 +1902,7 @@ fn first_column_ref(e: &Expr) -> Option<&ColumnRef> {
     }
 }
 
-/// Nombre de `%` d'un format de `RAISE` (`%%` est un `%` littéral).
+/// Number of `%` in a `RAISE` format (`%%` is a literal `%`).
 fn raise_placeholders(m: &str) -> Option<usize> {
     let mut n = 0;
     let mut chars = m.chars().peekable();
@@ -1923,8 +1919,8 @@ fn raise_placeholders(m: &str) -> Option<usize> {
 }
 
 impl Analyzer<'_> {
-    /// Type d'une variable de routine désignée par `r` (pour `%TYPE` et les
-    /// cibles d'affectation).
+    /// Type of a routine variable designated by `r` (for `%TYPE` and
+    /// assignment targets).
     pub(crate) fn variable_type(&self, r: &ColumnRef, span: Span) -> Result<Ty, SemaError> {
         let v = self
             .routine
@@ -1940,7 +1936,7 @@ impl Analyzer<'_> {
         self.variable(v, span).map(|t| t.ty)
     }
 
-    /// Source de `FROM` formée d'une relation (cible de policy).
+    /// `FROM` source made of a relation (policy target).
     pub(crate) fn relation_source(
         &self,
         name: &ObjectName,

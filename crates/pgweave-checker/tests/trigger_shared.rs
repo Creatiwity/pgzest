@@ -1,13 +1,13 @@
-//! Une fonction trigger partagée entre plusieurs tables.
+//! A trigger function shared between several tables.
 //!
-//! Régression : `set_updated_at` attaché à quatre tables déclenchait une erreur
-//! `trigger-ambiguous-table`, alors que c'est un motif PostgreSQL idiomatique —
-//! NEW et OLD prennent le type de la table qui déclenche. `examples/schema.sql`
-//! ne passait donc pas `check`.
+//! Regression: `set_updated_at` attached to four tables raised a
+//! `trigger-ambiguous-table` error, whereas it is an idiomatic PostgreSQL
+//! pattern — NEW and OLD take the type of the firing table. `examples/schema.sql`
+//! therefore did not pass `check`.
 //!
-//! Le corps est désormais vérifié une fois par table. Un diagnostic qui ne
-//! dépend pas de la table n'est émis qu'une fois ; un diagnostic propre à une
-//! table la nomme.
+//! The body is now checked once per table. A diagnostic that does not
+//! depend on the table is emitted only once; a diagnostic specific to a
+//! table names it.
 
 use pgweave_checker::check_sql_self_contained;
 use pgweave_diagnostics::{Diagnostic, Severity, codes};
@@ -33,41 +33,41 @@ fn with_code<'a>(diags: &'a [Diagnostic], code: &str) -> Vec<&'a Diagnostic> {
 }
 
 #[test]
-fn une_colonne_commune_a_toutes_les_tables_ne_produit_rien() {
+fn a_column_common_to_all_tables_produces_nothing() {
     let d = shared_trigger("    NEW.updated_at = now();\n    RETURN NEW;");
     assert!(
         with_code(&d, codes::TRIGGER_AMBIGUOUS_TABLE).is_empty(),
-        "plus d'ambiguïté signalée : {d:?}"
+        "no more ambiguity reported: {d:?}"
     );
     assert!(
         !d.iter().any(|d| d.severity == Severity::Error),
-        "aucune erreur attendue : {d:?}"
+        "no error expected: {d:?}"
     );
     assert!(
         with_code(&d, codes::TRIGGER_NO_CONTEXT).is_empty(),
-        "le contexte trigger est résolu : {d:?}"
+        "the trigger context is resolved: {d:?}"
     );
 }
 
 #[test]
-fn une_colonne_absente_dune_seule_table_est_signalee_sur_cette_table() {
+fn a_column_missing_from_a_single_table_is_reported_on_that_table() {
     let d = shared_trigger("    NEW.title = 'x';\n    RETURN NEW;");
     let missing = with_code(&d, codes::COLUMN_NOT_FOUND);
-    assert_eq!(missing.len(), 1, "un seul signalement attendu : {d:?}");
+    assert_eq!(missing.len(), 1, "exactly one report expected: {d:?}");
     assert!(
         missing[0].message.contains("users"),
-        "le message doit nommer la table fautive : {}",
+        "the message must name the faulty table: {}",
         missing[0].message
     );
     assert!(
         !missing[0].message.contains("posts"),
-        "posts a bien la colonne : {}",
+        "posts does have the column: {}",
         missing[0].message
     );
 }
 
 #[test]
-fn une_condition_composite_est_verifiee_sur_chaque_table() {
+fn a_composite_condition_is_checked_on_each_table() {
     let d = shared_trigger(
         "    IF OLD.title IS DISTINCT FROM NEW.title THEN\n\
          \x20       NEW.updated_at = now();\n\
@@ -75,31 +75,31 @@ fn une_condition_composite_est_verifiee_sur_chaque_table() {
          \x20   RETURN NEW;",
     );
     let missing = with_code(&d, codes::COLUMN_NOT_FOUND);
-    assert!(!missing.is_empty(), "users n'a pas de title : {d:?}");
+    assert!(!missing.is_empty(), "users has no title: {d:?}");
     assert!(
         missing.iter().all(|m| m.message.contains("users")),
-        "seule users est fautive : {missing:?}"
+        "only users is faulty: {missing:?}"
     );
 }
 
 #[test]
-fn un_diagnostic_independant_de_la_table_nest_emis_quune_fois() {
-    let d = shared_trigger("    RETURN inconnue;");
+fn a_table_independent_diagnostic_is_emitted_only_once() {
+    let d = shared_trigger("    RETURN unknown_var;");
     let undeclared = with_code(&d, codes::UNDECLARED_VARIABLE);
     assert_eq!(
         undeclared.len(),
         1,
-        "pas de doublon par table : {undeclared:?}"
+        "no duplicate per table: {undeclared:?}"
     );
     assert!(
         !undeclared[0].message.contains("trigger on"),
-        "rien de propre à une table : {}",
+        "nothing table-specific: {}",
         undeclared[0].message
     );
 }
 
 #[test]
-fn le_schema_dexemple_ne_produit_plus_dambiguite() {
+fn the_example_schema_no_longer_produces_ambiguity() {
     let sql = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../examples/schema.sql"
@@ -108,6 +108,6 @@ fn le_schema_dexemple_ne_produit_plus_dambiguite() {
     let d = check_sql_self_contained(&sql);
     assert!(
         !d.iter().any(|d| d.severity == Severity::Error),
-        "examples/schema.sql doit passer check : {d:?}"
+        "examples/schema.sql must pass check: {d:?}"
     );
 }

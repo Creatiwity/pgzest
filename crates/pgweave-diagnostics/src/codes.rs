@@ -14,85 +14,85 @@ pub const EMPTY_FUNCTION_BODY: &str = "empty-function-body";
 pub const TRIGGER_NO_CONTEXT: &str = "trigger-no-context";
 pub const UNDECLARED_VARIABLE: &str = "undeclared-variable";
 
-/// Statement que le parser n'a pas su lire : soit du PostgreSQL valide hors
-/// périmètre, soit une faute de syntaxe. Niveau piloté par `[parse] unparsable`.
+/// Statement the parser could not read: either valid PostgreSQL outside the
+/// supported scope, or a syntax error. Level controlled by `[parse] unparsable`.
 pub const UNPARSABLE_STATEMENT: &str = "unparsable-statement";
-/// Statement valide mais volontairement pas modélisé dans l'AST (GRANT, …).
-/// Niveau piloté par `[parse] unsupported`.
+/// Valid statement deliberately not modeled in the AST (GRANT, …).
+/// Level controlled by `[parse] unsupported`.
 pub const UNSUPPORTED_STATEMENT: &str = "unsupported-statement";
 
-/// Corps de fonction ou de procédure PL/pgSQL non parsé : il retombe sur un
-/// repli textuel presque aveugle. Niveau piloté par `[parse] unparsable`.
+/// Unparsed PL/pgSQL function or procedure body: it falls back to an almost
+/// blind textual fallback. Level controlled by `[parse] unparsable`.
 pub const UNPARSED_FUNCTION_BODY: &str = "unparsed-function-body";
-/// Expression que l'AST ne modélise pas. L'analyse la traverse sans conclure.
+/// Expression the AST does not model. Analysis walks through it without concluding.
 pub const UNSUPPORTED_EXPRESSION: &str = "unsupported-expression";
 
-// ── Requêtes nommées (docs/named-queries.md) ─────────────────────────────────
+// ── Named queries (docs/named-queries.md) ────────────────────────────────────
 
-/// En-tête de migration `-- pgweave: postgres=… extensions=…` mal formé,
-/// dupliqué ou mal placé (PLAN.md, D9).
+/// Migration header `-- pgweave: postgres=… extensions=…` malformed,
+/// duplicated or misplaced (PLAN.md, D9).
 pub const MIGRATION_HEADER_INVALID: &str = "migration-header-invalid";
 
-/// En-tête `-- name:` mal formé (nom, cardinalité, position).
+/// Malformed `-- name:` header (name, cardinality, position).
 pub const QUERY_HEADER_INVALID: &str = "query-header-invalid";
-/// SQL placé hors d'une requête nommée dans un fichier de requêtes.
+/// SQL placed outside a named query in a query file.
 pub const QUERY_WITHOUT_NAME: &str = "query-without-name";
-/// En-tête sans SQL.
+/// Header without SQL.
 pub const QUERY_EMPTY: &str = "query-empty";
-/// Plus d'un statement sous un même en-tête.
+/// More than one statement under the same header.
 pub const QUERY_MULTIPLE_STATEMENTS: &str = "query-multiple-statements";
-/// Deux requêtes de même nom dans un fichier.
+/// Two queries with the same name in a file.
 pub const QUERY_DUPLICATE_NAME: &str = "query-duplicate-name";
-/// `$nom` et `$1` dans la même requête.
+/// `$name` and `$1` in the same query.
 pub const QUERY_MIXED_PARAMETERS: &str = "query-mixed-parameters";
-/// Paramètres positionnels avec un trou (`$1`, `$3` sans `$2`).
+/// Positional parameters with a gap (`$1`, `$3` without `$2`).
 pub const QUERY_PARAMETER_GAP: &str = "query-parameter-gap";
-/// Fichier de `[queries] directory` qui n'est pas un `.sql`.
+/// File in `[queries] directory` that is not a `.sql`.
 pub const QUERY_FILE_EXTENSION: &str = "query-file-extension";
-/// Paramètre mal formé (`$0`, `$pageId`).
+/// Malformed parameter (`$0`, `$pageId`).
 pub const QUERY_PARAMETER_INVALID: &str = "query-parameter-invalid";
-/// Requête que le descripteur ne couvre pas (autre que SELECT, INSERT,
+/// Query the describer does not cover (other than SELECT, INSERT,
 /// UPDATE, DELETE, CALL).
 pub const QUERY_NOT_DESCRIBABLE: &str = "query-not-describable";
-/// Paramètre dont aucun usage ne fixe le type.
+/// Parameter whose type no usage determines.
 pub const QUERY_PARAMETER_UNTYPED: &str = "query-parameter-untyped";
-/// Cardinalité déclarée incompatible avec celle de la requête.
+/// Declared cardinality incompatible with the query's.
 pub const QUERY_CARDINALITY_MISMATCH: &str = "query-cardinality-mismatch";
 
-// ── Catalogue (rejeu des DDL) ────────────────────────────────────────────────
+// ── Catalog (DDL replay) ─────────────────────────────────────────────────────
 
-/// Type référencé introuvable dans le catalogue (ni intégré, ni d'extension
-/// active, ni déclaré par le projet).
+/// Referenced type not found in the catalog (neither built-in, nor from an
+/// active extension, nor declared by the project).
 pub const TYPE_NOT_FOUND: &str = "type-not-found";
-/// Objet modifié ou supprimé qui n'existe pas à ce point du rejeu.
+/// Altered or dropped object that does not exist at this point of the replay.
 pub const OBJECT_NOT_FOUND: &str = "object-not-found";
-/// Objet créé alors qu'il existe déjà (sans `IF NOT EXISTS` / `OR REPLACE`).
+/// Object created while it already exists (without `IF NOT EXISTS` / `OR REPLACE`).
 pub const OBJECT_ALREADY_EXISTS: &str = "object-already-exists";
-/// Schéma inexistant.
+/// Nonexistent schema.
 pub const SCHEMA_NOT_FOUND: &str = "schema-not-found";
-/// Extension dont aucun pack n'est disponible pour cette version (PLAN.md, D9).
+/// Extension with no pack available for this version (PLAN.md, D9).
 pub const EXTENSION_UNAVAILABLE: &str = "extension-unavailable";
-/// Nom de routine sans signature qui désigne plusieurs surcharges.
+/// Routine name without a signature that designates several overloads.
 pub const AMBIGUOUS_ROUTINE: &str = "ambiguous-routine";
-/// Suppression refusée par PostgreSQL faute de `CASCADE` (objets dépendants).
+/// Drop refused by PostgreSQL for lack of `CASCADE` (dependent objects).
 pub const DEPENDENT_OBJECTS: &str = "dependent-objects";
-/// DDL d'un bloc `DO` que le rejeu n'a pas pu appliquer : condition non
-/// évaluable sur le catalogue, SQL dynamique, boucle, corps non analysé. Le
-/// catalogue peut alors différer de celui de la base.
+/// DDL in a `DO` block that the replay could not apply: condition not
+/// evaluable on the catalog, dynamic SQL, loop, unanalyzed body. The
+/// catalog may then differ from the database's.
 pub const DDL_NOT_REPLAYED: &str = "ddl-not-replayed";
-/// En-tête de migration incohérent avec l'état rejoué (extension annoncée
-/// mais absente, ou active mais non annoncée) — PLAN.md, D9.
+/// Migration header inconsistent with the replayed state (extension announced
+/// but absent, or active but not announced) — PLAN.md, D9.
 pub const MIGRATION_HEADER_MISMATCH: &str = "migration-header-mismatch";
-/// Migrations sans en-tête `-- pgweave:` : analysées avec la version de la
-/// configuration (signalé une fois).
+/// Migrations without a `-- pgweave:` header: analyzed with the configured
+/// version (reported once).
 pub const MIGRATION_WITHOUT_HEADER: &str = "migration-without-header";
-/// Schéma déclaratif que les migrations n'atteignent pas (D10) : une
-/// migration reste à générer (`pgweave migrate create`), ou un changement
-/// n'est pas exprimable automatiquement.
+/// Declarative schema the migrations do not reach (D10): a migration
+/// remains to be generated (`pgweave migrate create`), or a change cannot
+/// be expressed automatically.
 pub const SCHEMA_DRIFT: &str = "schema-drift";
-/// Requête déclarée renvoyer les lignes d'une autre (`-> autre`) dont les
-/// colonnes ne correspondent pas (nom, type, nullabilité) — P6.
+/// Query declared to return the rows of another one (`-> other`) whose
+/// columns do not match (name, type, nullability) — P6.
 pub const QUERY_ROW_MISMATCH: &str = "query-row-mismatch";
 
-/// Colonnes d'une vue dont l'analyse de la requête n'a pas établi les types.
+/// View columns whose types the query analysis did not establish.
 pub const VIEW_NOT_TYPED: &str = "view-not-typed";

@@ -1,10 +1,10 @@
-//! Requêtes nommées.
+//! Named queries.
 //!
-//! - **Format de fichier**, figé en P0 : découpage d'un fichier en requêtes,
-//!   en-têtes, paramètres `$name` / `$n`, réécriture en paramètres
-//!   positionnels. Spécification : `docs/named-queries.md`.
-//! - **Descripteur** (PLAN.md §4, P4) : types des paramètres et des
-//!   colonnes, nullabilité, cardinalité inférée, dépendances, empreinte.
+//! - **File format**, frozen in P0: splitting a file into queries, headers,
+//!   `$name` / `$n` parameters, rewriting into positional parameters.
+//!   Specification: `docs/named-queries.md`.
+//! - **Descriptor** (PLAN.md §4, P4): parameter and column types,
+//!   nullability, inferred cardinality, dependencies, fingerprint.
 
 pub mod descriptor;
 pub mod dynamic;

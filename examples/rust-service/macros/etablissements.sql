@@ -1,11 +1,11 @@
--- Fragments du chargement SIRENE (motif siren) : écrits une fois, insérés
--- dans le schéma et dans les requêtes.
+-- Fragments for the SIRENE load (siren pattern): written once, inserted
+-- into the schema and into the queries.
 
 -- fragment: etablissement_columns(e)
--- Colonnes chargées depuis le fichier, dans l'ordre du COPY.
+-- Columns loaded from the file, in COPY order.
 e.siret, e.nom, e.effectif, e.ouvert
 
 -- fragment: etablissement_search(e)
--- Expression de l'index plein texte. Une requête qui l'écrit autrement ne
--- l'utilise pas, sans erreur : elle n'est écrite qu'ici.
+-- Full-text index expression. A query that writes it differently silently
+-- misses the index: it is written only here.
 to_tsvector('french'::regconfig, coalesce(e.nom, ''))

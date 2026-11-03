@@ -1,5 +1,5 @@
--- Schéma de couverture : intervalles, recherche plein texte, hiérarchies,
--- mesures, réservations.
+-- Coverage schema: intervals, full-text search, hierarchies,
+-- measurements, bookings.
 
 CREATE TYPE level AS ENUM ('low', 'mid', 'high');
 

@@ -1,22 +1,22 @@
-//! Requêtes à variantes (P6) : blocs conditionnels `[[ … ]]` et choix
-//! `{{ nom: a = … | b = … }}`.
+//! Queries with variants (P6): conditional blocks `[[ … ]]` and choices
+//! `{{ name: a = … | b = … }}`.
 //!
 //! ```sql
 //! SELECT o.id FROM orders o
 //! WHERE o.restaurant_id = $restaurant
 //! [[ AND o.status = $status ]]
-//! ORDER BY {{ tri: recent = o.placed_at DESC | id = o.id }}
+//! ORDER BY {{ sort: recent = o.placed_at DESC | id = o.id }}
 //! ```
 //!
-//! - Un bloc dépend d'un seul paramètre nommé, optionnel en Rust : il est
-//!   inclus si la valeur est fournie.
-//! - Un choix devient un enum Rust (`tri`, variantes `recent`, `id`).
-//! - Chaque combinaison est une variante : un texte de **même longueur** que
-//!   la requête, le texte exclu et les marqueurs remplacés par des espaces.
-//!   Une position d'une variante est donc une position du fichier.
-//! - Toutes les variantes sont décrites à la compilation et doivent renvoyer
-//!   les mêmes colonnes ; à l'exécution, la fonction générée choisit l'une
-//!   d'elles. Aucun SQL n'est composé à l'exécution.
+//! - A block depends on a single named parameter, optional in Rust: it is
+//!   included if the value is provided.
+//! - A choice becomes a Rust enum (`sort`, variants `recent`, `id`).
+//! - Each combination is a variant: a text of the **same length** as the
+//!   query, with excluded text and markers replaced by spaces. A position in
+//!   a variant is therefore a position in the file.
+//! - All variants are described at compile time and must return the same
+//!   columns; at run time, the generated function picks one of them. No SQL
+//!   is composed at run time.
 
 use std::ops::Range;
 
@@ -25,35 +25,35 @@ use sqlparser::tokenizer::{Token, Tokenizer, Whitespace};
 
 use crate::line_index::LineIndex;
 
-/// Nombre maximal de variantes d'une requête.
+/// Maximum number of variants of a query.
 pub const MAX_VARIANTS: usize = 256;
 
 /// Bloc `[[ … ]]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
-    /// Du premier `[` au dernier `]`.
+    /// From the first `[` to the last `]`.
     pub range: Range<usize>,
     pub inner: Range<usize>,
 }
 
-/// Une possibilité d'un choix : `label = corps`.
+/// One option of a choice: `label = body`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alternative {
     pub label: String,
-    /// `label =`, effacé dans toute variante.
+    /// `label =`, blanked in every variant.
     pub head: Range<usize>,
     pub body: Range<usize>,
 }
 
-/// Choix `{{ nom: … | … }}`.
+/// Choice `{{ name: … | … }}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Choice {
     pub name: String,
     pub range: Range<usize>,
-    /// `{{ nom:`, effacé.
+    /// `{{ name:`, blanked.
     pub head: Range<usize>,
     pub alternatives: Vec<Alternative>,
-    /// Séparateurs `|` et `}}` final, effacés.
+    /// `|` separators and the final `}}`, blanked.
     pub marks: Vec<Range<usize>>,
 }
 
@@ -69,7 +69,7 @@ impl Structure {
     }
 }
 
-/// Erreur de structure, positionnée dans le texte analysé.
+/// Structure error, positioned in the analyzed text.
 pub type StructureError = (Range<usize>, String);
 
 fn snake(s: &str) -> bool {
@@ -78,16 +78,16 @@ fn snake(s: &str) -> bool {
         && b.all(|c| matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'_'))
 }
 
-/// Blocs et choix de `sql`. Rien n'est reconnu dans une chaîne ou un
-/// commentaire ; `[[` après une expression (indice de tableau, `ARRAY[[`)
-/// n'ouvre pas de bloc.
+/// Blocks and choices of `sql`. Nothing is recognized inside a string or a
+/// comment; `[[` after an expression (array subscript, `ARRAY[[`) does not
+/// open a block.
 pub fn structure(sql: &str) -> Result<Structure, StructureError> {
     let index = LineIndex::new(sql);
     let Ok(raw) = Tokenizer::new(&PostgreSqlDialect {}, sql)
         .with_unescape(false)
         .tokenize_with_location()
     else {
-        // Illisible : le parse le signalera.
+        // Unreadable: parsing will report it.
         return Ok(Structure::default());
     };
     let toks: Vec<(Token, usize)> = raw
@@ -113,8 +113,8 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
     while i < toks.len() {
         let (tok, at) = (&toks[i].0, toks[i].1);
         if adjacent(i, Token::LBracket, Token::LBracket) {
-            // Indice ou constructeur de tableau : `a[[`, `ARRAY[[`. Le `]]`
-            // qui ferme un bloc précédent n'en est pas un.
+            // Array subscript or constructor: `a[[`, `ARRAY[[`. The `]]`
+            // closing a previous block is not one.
             let prev = toks[..i]
                 .iter()
                 .rev()
@@ -144,12 +144,12 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
                 i += 1;
                 continue;
             }
-            // Fin : `]]` au même niveau de crochets.
+            // End: `]]` at the same bracket depth.
             let mut depth = 0i32;
             let mut j = i + 2;
             let close = loop {
                 let Some((t, _)) = toks.get(j) else {
-                    return Err((at..at + 2, "bloc `[[` sans `]]`".into()));
+                    return Err((at..at + 2, "block `[[` without `]]`".into()));
                 };
                 match t {
                     Token::LBracket
@@ -157,7 +157,7 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
                     {
                         return Err((
                             toks[j].1..toks[j].1 + 2,
-                            "blocs `[[ … ]]` imbriqués : non pris en charge".into(),
+                            "nested `[[ … ]]` blocks: not supported".into(),
                         ));
                     }
                     Token::LBracket => depth += 1,
@@ -170,7 +170,7 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
                     Token::LBrace if adjacent(j, Token::LBrace, Token::LBrace) => {
                         return Err((
                             toks[j].1..toks[j].1 + 2,
-                            "choix `{{` dans un bloc : non pris en charge".into(),
+                            "choice `{{` inside a block: not supported".into(),
                         ));
                     }
                     _ => {}
@@ -207,7 +207,7 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
                 _ => {
                     return Err((
                         at..at + 2,
-                        "choix : `{{ nom: a = … | b = … }}`, nom en snake_case".into(),
+                        "choice: `{{ name: a = … | b = … }}`, name in snake_case".into(),
                     ));
                 }
             };
@@ -216,7 +216,7 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
             if toks.get(j).map(|t| &t.0) != Some(&Token::Colon) {
                 return Err((
                     at..at + 2,
-                    format!("choix `{name}` : `:` attendu après le nom"),
+                    format!("choice `{name}`: `:` expected after the name"),
                 ));
             }
             j += 1;
@@ -224,18 +224,18 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
             let mut alternatives = Vec::new();
             let mut marks = Vec::new();
             let mut depth = 0i32;
-            // Alternative en cours : (début de `label =`).
+            // Current alternative: (start of `label =`).
             let mut alt_start = j;
             let close = loop {
                 let Some((t, tat)) = toks.get(j) else {
-                    return Err((at..at + 2, format!("choix `{name}` sans `}}}}`")));
+                    return Err((at..at + 2, format!("choice `{name}` without `}}}}`")));
                 };
                 let boundary = depth == 0
                     && (matches!(t, Token::Pipe)
                         || (matches!(t, Token::RBrace)
                             && adjacent(j, Token::RBrace, Token::RBrace)));
                 if boundary {
-                    // `label = corps` entre alt_start et j.
+                    // `label = body` between alt_start and j.
                     let mut k = alt_start;
                     skip_ws(&mut k);
                     let label = match toks.get(k) {
@@ -245,7 +245,7 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
                         _ => {
                             return Err((
                                 toks.get(k).map_or(*tat, |t| t.1)..*tat,
-                                format!("choix `{name}` : chaque possibilité s'écrit `nom = SQL`"),
+                                format!("choice `{name}`: each option is written `name = SQL`"),
                             ));
                         }
                     };
@@ -255,7 +255,7 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
                     if toks.get(k).map(|t| &t.0) != Some(&Token::Eq) {
                         return Err((
                             label_at..label_at + label.len(),
-                            format!("choix `{name}` : `=` attendu après `{label}`"),
+                            format!("choice `{name}`: `=` expected after `{label}`"),
                         ));
                     }
                     let body_start = toks.get(k + 1).map_or(*tat, |t| t.1);
@@ -277,7 +277,7 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
                     Token::Placeholder(p) if p.starts_with('$') => {
                         return Err((
                             *tat..*tat + p.len(),
-                            format!("choix `{name}` : pas de paramètre dans une possibilité"),
+                            format!("choice `{name}`: no parameter allowed in an option"),
                         ));
                     }
                     _ => {}
@@ -287,21 +287,18 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
             let end = toks[close].1 + 2;
             marks.push(toks[close].1..end);
             if alternatives.len() < 2 {
-                return Err((
-                    at..end,
-                    format!("choix `{name}` : au moins deux possibilités"),
-                ));
+                return Err((at..end, format!("choice `{name}`: at least two options")));
             }
             for (k, a) in alternatives.iter().enumerate() {
                 if alternatives[..k].iter().any(|b| b.label == a.label) {
                     return Err((
                         a.head.clone(),
-                        format!("choix `{name}` : `{}` en double", a.label),
+                        format!("choice `{name}`: duplicate `{}`", a.label),
                     ));
                 }
             }
             if out.choices.iter().any(|c| c.name == name) {
-                return Err((at..end, format!("choix `{name}` en double")));
+                return Err((at..end, format!("duplicate choice `{name}`")));
             }
             out.choices.push(Choice {
                 name,
@@ -319,15 +316,15 @@ pub fn structure(sql: &str) -> Result<Structure, StructureError> {
     Ok(out)
 }
 
-/// Combinaison : blocs inclus, possibilité retenue de chaque choix.
+/// Combination: included blocks, selected option of each choice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selection {
     pub blocks: Vec<bool>,
     pub choices: Vec<usize>,
 }
 
-/// Texte de la variante `sel` : même longueur que `sql`, le texte exclu et
-/// les marqueurs effacés (sauts de ligne gardés).
+/// Text of variant `sel`: same length as `sql`, with excluded text and
+/// markers blanked (line breaks kept).
 pub fn render(sql: &str, s: &Structure, sel: &Selection) -> String {
     let mut b = sql.as_bytes().to_vec();
     let mut blank = |r: &Range<usize>| {
@@ -357,11 +354,11 @@ pub fn render(sql: &str, s: &Structure, sel: &Selection) -> String {
             }
         }
     }
-    String::from_utf8(b).expect("seuls des octets remplacés par des espaces")
+    String::from_utf8(b).expect("only bytes replaced by spaces")
 }
 
-/// Toutes les combinaisons, dans l'ordre de leur indice : blocs en bits de
-/// poids faible (bloc 0 = bit 0), puis choix en base mixte.
+/// All combinations, in index order: blocks in the low bits (block 0 =
+/// bit 0), then choices in mixed radix.
 pub fn selections(s: &Structure) -> Vec<Selection> {
     let n_blocks = s.blocks.len();
     let radices: Vec<usize> = s.choices.iter().map(|c| c.alternatives.len()).collect();
@@ -383,7 +380,7 @@ pub fn selections(s: &Structure) -> Vec<Selection> {
         .collect()
 }
 
-/// Nombre de variantes, sans les énumérer.
+/// Number of variants, without enumerating them.
 pub fn variant_count(s: &Structure) -> usize {
     s.choices.iter().fold(
         1usize
@@ -397,14 +394,14 @@ pub fn variant_count(s: &Structure) -> usize {
 mod tests {
     use super::*;
 
-    const Q: &str = "SELECT o.id FROM orders o WHERE o.r = $r [[ AND o.s = $s ]]\n[[ AND o.t = $t ]]\nORDER BY {{ tri: recent = o.at DESC | id = o.id }}";
+    const Q: &str = "SELECT o.id FROM orders o WHERE o.r = $r [[ AND o.s = $s ]]\n[[ AND o.t = $t ]]\nORDER BY {{ sort: recent = o.at DESC | id = o.id }}";
 
     #[test]
-    fn structure_et_variantes() {
+    fn structure_and_variants() {
         let s = structure(Q).unwrap();
         assert_eq!(s.blocks.len(), 2);
         assert_eq!(&Q[s.blocks[0].inner.clone()], " AND o.s = $s ");
-        assert_eq!(s.choices[0].name, "tri");
+        assert_eq!(s.choices[0].name, "sort");
         let labels: Vec<_> = s.choices[0]
             .alternatives
             .iter()
@@ -428,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn tableaux_et_chaines_ne_sont_pas_des_blocs() {
+    fn arrays_and_strings_are_not_blocks() {
         for sql in [
             "SELECT ARRAY[[1,2],[3,4]]",
             "SELECT a[[1]] FROM t",
@@ -439,20 +436,20 @@ mod tests {
     }
 
     #[test]
-    fn erreurs_de_structure() {
-        for (sql, attendu) in [
-            ("SELECT 1 WHERE true [[ AND x = $x", "sans `]]`"),
-            ("SELECT 1 ORDER BY {{ tri: a = x }}", "deux possibilités"),
-            ("SELECT 1 ORDER BY {{ tri: a = x | a = y }}", "en double"),
+    fn structure_errors() {
+        for (sql, expected) in [
+            ("SELECT 1 WHERE true [[ AND x = $x", "without `]]`"),
+            ("SELECT 1 ORDER BY {{ sort: a = x }}", "two options"),
+            ("SELECT 1 ORDER BY {{ sort: a = x | a = y }}", "duplicate"),
             (
-                "SELECT 1 ORDER BY {{ tri: a = $x | b = y }}",
-                "pas de paramètre",
+                "SELECT 1 ORDER BY {{ sort: a = $x | b = y }}",
+                "no parameter",
             ),
-            ("SELECT 1 ORDER BY {{ Tri: a = x | b = y }}", "snake_case"),
-            ("SELECT 1 WHERE true [[ AND [[ x ]] ]]", "imbriqués"),
+            ("SELECT 1 ORDER BY {{ Sort: a = x | b = y }}", "snake_case"),
+            ("SELECT 1 WHERE true [[ AND [[ x ]] ]]", "nested"),
         ] {
             let e = structure(sql).unwrap_err();
-            assert!(e.1.contains(attendu), "{sql} : {}", e.1);
+            assert!(e.1.contains(expected), "{sql}: {}", e.1);
         }
     }
 }

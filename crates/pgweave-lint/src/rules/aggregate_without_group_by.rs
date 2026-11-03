@@ -43,7 +43,7 @@ pub fn check(stmt: &Statement, config: &LintConfig) -> Vec<Diagnostic> {
 }
 
 fn check_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>) {
-    // Corps SELECT des CTE (un corps modifiant est un statement à part).
+    // SELECT bodies of CTEs (a data-modifying body is a separate statement).
     for cte_query in sel.with.iter().filter_map(|c| c.select()) {
         check_select(cte_query, config, out);
     }

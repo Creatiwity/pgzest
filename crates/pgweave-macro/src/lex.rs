@@ -1,27 +1,27 @@
-//! Découpage lexical minimal du SQL PostgreSQL, sans perte : chaque octet
-//! appartient à un token. Suffit à distinguer le code des chaînes,
-//! commentaires et identifiants quotés — ce qu'il faut pour reconnaître une
-//! invocation ou un qualificatif sans se tromper de contexte.
+//! Minimal lossless lexing of PostgreSQL SQL: every byte belongs to a token.
+//! Enough to tell code apart from strings, comments and quoted identifiers —
+//! what is needed to recognize an invocation or a qualifier without mistaking
+//! the context.
 
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
     Whitespace,
-    /// `-- …` jusqu'à la fin de ligne (exclue).
+    /// `-- …` up to the end of line (excluded).
     LineComment,
-    /// `/* … */`, imbrications comprises (comme PostgreSQL).
+    /// `/* … */`, nesting included (like PostgreSQL).
     BlockComment,
-    /// `'…'`, `E'…'`, `$tag$…$tag$` : contenu jamais interprété.
+    /// `'…'`, `E'…'`, `$tag$…$tag$`: content never interpreted.
     String,
     /// `"…"`.
     QuotedIdent,
-    /// Mot : identifiant ou mot-clé.
+    /// Word: identifier or keyword.
     Word,
-    /// `$name` ou `$1`.
+    /// `$name` or `$1`.
     Param,
     Number,
-    /// Tout autre caractère, un par token.
+    /// Any other character, one per token.
     Punct,
 }
 
@@ -39,8 +39,8 @@ fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '$'
 }
 
-/// Tokens de `src`, contigus de 0 à `src.len()`. Une chaîne ou un commentaire
-/// non terminé s'étend jusqu'à la fin.
+/// Tokens of `src`, contiguous from 0 to `src.len()`. An unterminated string or
+/// comment extends to the end.
 pub(crate) fn tokenize(src: &str) -> Vec<Token> {
     let b = src.as_bytes();
     let mut out = Vec::new();
@@ -103,7 +103,7 @@ pub(crate) fn tokenize(src: &str) -> Vec<Token> {
             }
             Kind::QuotedIdent
         } else if c == '$' {
-            // `$tag$` ouvre une chaîne ; `$name`, `$1` sont des paramètres.
+            // `$tag$` opens a string; `$name`, `$1` are parameters.
             let rest = &src[i + 1..];
             let tag_len = rest
                 .find(|c: char| !(c.is_alphanumeric() || c == '_'))
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn chaines_commentaires_et_identifiants_quotes() {
+    fn strings_comments_and_quoted_identifiers() {
         let src = "SELECT 'a@b', E'x\\'y', $f$ @c $f$, \"@d\" -- @e\n/* /* @f */ */ @g $p $1";
         assert_eq!(
             kinds(src),
@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn les_tokens_pavent_la_source() {
+    fn tokens_tile_the_source() {
         let src = "a.b, 'x'  -- c\n\"q\"\"r\" $$ z $$";
         let toks = tokenize(src);
         let mut at = 0;

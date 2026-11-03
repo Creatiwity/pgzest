@@ -69,7 +69,7 @@ fn parse_full_schema_plpgsql_functions() {
 
 #[test]
 fn parse_if_not_exists_subquery() {
-    // `NOT EXISTS (...)` reste une expression SQL, pas un nom de variable.
+    // `NOT EXISTS (...)` stays a SQL expression, not a variable name.
     let sql = r#"
         CREATE OR REPLACE PROCEDURE test_proc(p_id UUID)
         LANGUAGE plpgsql AS $$
@@ -84,11 +84,11 @@ fn parse_if_not_exists_subquery() {
         Statement::Ddl(DdlStatement::CreateProcedure(p)) => {
             if let FunctionBody::Parsed(body) = &p.body {
                 let PlStatementKind::If { condition, .. } = &body.block.statements[0].kind else {
-                    panic!("IF attendu");
+                    panic!("IF expected");
                 };
                 assert!(
                     matches!(condition.kind, ExprKind::Exists { negated: true, .. }),
-                    "NOT EXISTS mal lu : {condition:?}"
+                    "NOT EXISTS misread: {condition:?}"
                 );
             }
         }

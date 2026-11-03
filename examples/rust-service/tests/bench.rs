@@ -1,6 +1,6 @@
-//! Coût d'exécution du code généré face à `tokio-postgres` écrit à la main
-//! (PLAN.md P5 : écart cible négligeable). Même requête, même connexion,
-//! passes alternées pour lisser le bruit ; le rapport s'affiche avec
+//! Run-time cost of the generated code versus hand-written `tokio-postgres`
+//! (PLAN.md P5: target gap negligible). Same query, same connection,
+//! alternating rounds to smooth out noise; the report is shown with
 //! `--nocapture`.
 
 use std::time::{Duration, Instant};
@@ -12,43 +12,40 @@ const ITERATIONS: usize = 2_000;
 const ROUNDS: usize = 5;
 
 #[tokio::test]
-#[ignore = "nécessite PostgreSQL 18 : `make bench` (variable PGWEAVE_ORACLE_URL)"]
-async fn code_genere_face_a_tokio_postgres() {
+#[ignore = "requires PostgreSQL 18: `make bench` (PGWEAVE_ORACLE_URL variable)"]
+async fn generated_code_vs_tokio_postgres() {
     let url = std::env::var("PGWEAVE_ORACLE_URL").expect("PGWEAVE_ORACLE_URL");
     let (admin, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
-        .expect("connexion");
+        .expect("connection");
     tokio::spawn(conn);
     let db = format!("pgweave_bench_{}", std::process::id());
     for sql in [
         format!("DROP DATABASE IF EXISTS {db}"),
         format!("CREATE DATABASE {db}"),
     ] {
-        admin.batch_execute(&sql).await.expect("base");
+        admin.batch_execute(&sql).await.expect("database");
     }
     let mut config: tokio_postgres::Config = url.parse().expect("url");
     config.dbname(&db);
     let (client, conn) = config
         .connect(tokio_postgres::NoTls)
         .await
-        .expect("connexion");
+        .expect("connection");
     tokio::spawn(conn);
-    // Schéma désucré (fragments), tel que pgweave l'analyse.
+    // Desugared schema (fragments), as pgweave analyzes it.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let project = pgweave_build::load_project(root).expect("projet");
-    let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schéma");
+    let project = pgweave_build::load_project(root).expect("project");
+    let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schema");
     let schema = pgweave_macro::expand_source(&schema, &project.macros).sql;
-    client
-        .batch_execute(&schema)
-        .await
-        .expect("schéma appliqué");
+    client.batch_execute(&schema).await.expect("schema applied");
     client
         .batch_execute(
             "INSERT INTO pages (slug, title, tags) \
              SELECT 'p-' || i, 'Page ' || i, ARRAY['a', 'b'] FROM generate_series(1, 100) i",
         )
         .await
-        .expect("données");
+        .expect("data");
 
     let generated = || async {
         let start = Instant::now();
@@ -71,7 +68,7 @@ async fn code_genere_face_a_tokio_postgres() {
                     &[(&id, Type::INT8)],
                 )
                 .await
-                .expect("requête");
+                .expect("query");
             let page = row.map(|r| {
                 (
                     r.get::<_, i64>(0),
@@ -88,7 +85,7 @@ async fn code_genere_face_a_tokio_postgres() {
         start.elapsed()
     };
 
-    // Échauffement, puis passes alternées ; on garde la meilleure de chaque.
+    // Warm-up, then alternating rounds; keep the best of each.
     generated().await;
     by_hand().await;
     let (mut best_gen, mut best_hand) = (Duration::MAX, Duration::MAX);
@@ -99,18 +96,18 @@ async fn code_genere_face_a_tokio_postgres() {
     let per = |d: Duration| d.as_secs_f64() * 1e6 / ITERATIONS as f64;
     let ratio = best_gen.as_secs_f64() / best_hand.as_secs_f64();
     println!(
-        "page_by_id, {ITERATIONS} exécutions, meilleure de {ROUNDS} passes :\n  \
-         code généré     {:.1} µs/requête\n  tokio-postgres  {:.1} µs/requête\n  rapport         {ratio:.3}",
+        "page_by_id, {ITERATIONS} executions, best of {ROUNDS} rounds:\n  \
+         generated code  {:.1} µs/query\n  tokio-postgres  {:.1} µs/query\n  ratio           {ratio:.3}",
         per(best_gen),
         per(best_hand)
     );
-    // Garde-fou large : une régression grossière (préparation à chaque
-    // appel, copie superflue) dépasserait nettement ce seuil.
-    assert!(ratio < 1.25, "code généré {ratio:.2}× plus lent");
+    // Loose safeguard: a gross regression (preparing on every call,
+    // needless copying) would clearly exceed this threshold.
+    assert!(ratio < 1.25, "generated code {ratio:.2}× slower");
 
     drop(client);
     admin
         .batch_execute(&format!("DROP DATABASE {db} WITH (FORCE)"))
         .await
-        .expect("nettoyage");
+        .expect("cleanup");
 }

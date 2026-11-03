@@ -1,8 +1,8 @@
-//! Parser PL/pgSQL.
+//! PL/pgSQL parser.
 //!
-//! Le corps est tokenisé par le dialecte de pgweave et lu sur ces tokens, à
-//! leurs positions réelles : les statements SQL qu'il contient passent par le
-//! même chemin que ceux d'un fichier, sans reconstruction de texte.
+//! The body is tokenized by pgweave's dialect and read from those tokens, at
+//! their real positions: the SQL statements it contains go through the
+//! same path as those of a file, without rebuilding any text.
 
 pub mod error;
 mod parser;

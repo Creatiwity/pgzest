@@ -1,16 +1,16 @@
-//! Portée d'une routine : ses paramètres et, en PL/pgSQL, les variables de
-//! ses blocs, visibles des requêtes du corps.
+//! Scope of a routine: its parameters and, in PL/pgSQL, the variables of
+//! its blocks, visible to the queries of the body.
 //!
-//! Résolution des noms reproduite de PostgreSQL :
+//! Name resolution reproduced from PostgreSQL:
 //!
-//! - PL/pgSQL (`pl_comp.c`, `plpgsql_ns_lookup`, `resolve_column_ref`) :
-//!   blocs du plus intérieur au plus extérieur ; `a.b` est la variable `b`
-//!   du bloc étiqueté `a`, ou le champ `b` de la variable ligne `a` ; avec
-//!   `plpgsql.variable_conflict = error` (le défaut), un nom qui désigne à
-//!   la fois une colonne et une variable est une erreur ;
-//! - SQL (`functions.c`, `sql_fn_post_column_ref`) : un paramètre n'est
-//!   cherché que si aucune colonne ne porte ce nom ; `f.p` désigne le
-//!   paramètre `p` de la fonction `f`.
+//! - PL/pgSQL (`pl_comp.c`, `plpgsql_ns_lookup`, `resolve_column_ref`):
+//!   blocks from innermost to outermost; `a.b` is the variable `b`
+//!   of the block labelled `a`, or the field `b` of the row variable `a`; with
+//!   `plpgsql.variable_conflict = error` (the default), a name that designates
+//!   both a column and a variable is an error;
+//! - SQL (`functions.c`, `sql_fn_post_column_ref`): a parameter is only
+//!   looked up if no column has that name; `f.p` designates the
+//!   parameter `p` of function `f`.
 
 use pgweave_ast::expr::ColumnRef;
 
@@ -23,18 +23,18 @@ pub enum Language {
     Plpgsql,
 }
 
-/// Type d'une variable.
+/// Type of a variable.
 #[derive(Debug, Clone, PartialEq)]
 pub enum VarTy {
-    /// Type scalaire établi (`PLPGSQL_NSTYPE_VAR`).
+    /// Established scalar type (`PLPGSQL_NSTYPE_VAR`).
     Scalar(Ty),
-    /// Ligne d'un type composite établi : ses champs sont ses attributs.
+    /// Row of an established composite type: its fields are its attributes.
     Row(Ty),
-    /// `RECORD` : structure fixée par la dernière affectation, `None` tant
-    /// qu'aucune n'est connue.
+    /// `RECORD`: structure fixed by the last assignment, `None` as long
+    /// as none is known.
     Record(Option<Vec<Column>>),
-    /// Type que l'analyse statique ne peut établir (argument polymorphe,
-    /// record affecté différemment selon le chemin…), avec la raison.
+    /// Type static analysis cannot establish (polymorphic argument,
+    /// record assigned differently depending on the path…), with the reason.
     Unknown(String),
 }
 
@@ -44,30 +44,30 @@ pub struct Var {
     pub ty: VarTy,
 }
 
-/// Un bloc et ses déclarations.
+/// A block and its declarations.
 #[derive(Debug, Clone, Default)]
 pub struct Frame {
     pub label: Option<String>,
     pub vars: Vec<Var>,
 }
 
-/// Portée d'une routine en cours d'analyse.
+/// Scope of a routine being analyzed.
 #[derive(Debug, Clone)]
 pub struct Routine {
     pub language: Language,
-    /// Blocs visibles, le plus intérieur en dernier. Le premier porte les
-    /// paramètres, sous le nom de la routine.
+    /// Visible blocks, innermost last. The first one carries the
+    /// parameters, under the routine's name.
     pub frames: Vec<Frame>,
-    /// Types des paramètres `$1`, `$2`…
+    /// Types of the parameters `$1`, `$2`…
     pub positional: Vec<VarTy>,
 }
 
-/// Ce que désigne une référence résolue dans la routine.
+/// What a resolved reference designates in the routine.
 #[derive(Debug, Clone, PartialEq)]
 pub enum VarRef {
-    /// La variable entière.
+    /// The whole variable.
     Whole(Var),
-    /// Un champ d'une variable ligne ou record.
+    /// A field of a row or record variable.
     Field(Var, String),
 }
 
@@ -83,9 +83,9 @@ impl Routine {
         }
     }
 
-    /// Variable `name` déclarée dans le bloc courant (le plus intérieur).
+    /// Variable `name` declared in the current (innermost) block.
     pub fn declare(&mut self, name: &str, ty: VarTy) {
-        let frame = self.frames.last_mut().expect("bloc de la routine");
+        let frame = self.frames.last_mut().expect("routine block");
         frame.vars.retain(|v| v.name != name);
         frame.vars.push(Var {
             name: name.to_string(),
@@ -93,8 +93,8 @@ impl Routine {
         });
     }
 
-    /// Change le type d'une variable visible (structure d'un record après
-    /// affectation).
+    /// Changes the type of a visible variable (structure of a record after
+    /// assignment).
     pub fn assign(&mut self, name: &str, ty: VarTy) {
         for f in self.frames.iter_mut().rev() {
             if let Some(v) = f.vars.iter_mut().find(|v| v.name == name) {
@@ -104,8 +104,8 @@ impl Routine {
         }
     }
 
-    /// Variable visible sous ce nom, du bloc le plus intérieur vers
-    /// l'extérieur.
+    /// Variable visible under this name, from the innermost block
+    /// outwards.
     pub fn var(&self, name: &str) -> Option<&Var> {
         self.frames
             .iter()
@@ -113,7 +113,7 @@ impl Routine {
             .find_map(|f| f.vars.iter().rev().find(|v| v.name == name))
     }
 
-    /// Variable `name` du bloc étiqueté `label`.
+    /// Variable `name` of the block labelled `label`.
     fn labelled(&self, label: &str, name: &str) -> Option<&Var> {
         self.frames
             .iter()
@@ -122,9 +122,9 @@ impl Routine {
             .find_map(|f| f.vars.iter().rev().find(|v| v.name == name))
     }
 
-    /// Résolution d'une référence `a`, `a.b` ou `a.b.c` parmi les variables
-    /// (`plpgsql_ns_lookup` : à chaque bloc, une variable du nom `a` avant
-    /// l'étiquette `a`).
+    /// Resolution of a reference `a`, `a.b` or `a.b.c` among the variables
+    /// (`plpgsql_ns_lookup`: in each block, a variable named `a` before
+    /// the label `a`).
     pub fn lookup(&self, c: &ColumnRef) -> Option<VarRef> {
         let parts: Vec<&str> = [c.schema.as_ref(), c.table.as_ref(), Some(&c.column)]
             .into_iter()
@@ -147,9 +147,9 @@ impl Routine {
     }
 }
 
-/// Variable dont les champs sont accessibles par `v.champ`
-/// (`PLPGSQL_NSTYPE_REC`) : ligne, record, ou type non établi (qui peut en
-/// être une).
+/// Variable whose fields are accessible through `v.field`
+/// (`PLPGSQL_NSTYPE_REC`): row, record, or type not established (which may
+/// be one).
 fn is_row(v: &Var) -> bool {
     !matches!(v.ty, VarTy::Scalar(_))
 }

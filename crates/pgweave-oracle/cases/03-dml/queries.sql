@@ -1,4 +1,4 @@
--- INSERT / UPDATE / DELETE, avec et sans RETURNING.
+-- INSERT / UPDATE / DELETE, with and without RETURNING.
 
 -- name: insert_page :none
 INSERT INTO pages (id, title, body) VALUES ($id, $title, $body);

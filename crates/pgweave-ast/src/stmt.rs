@@ -3,12 +3,12 @@ use crate::node::{NodeId, Span};
 use crate::types::DataType;
 use serde::{Deserialize, Serialize};
 
-// `Statement` fait 448 octets, dominé par `SelectStmt` (240 pour Insert).
-// Boxer les variants réduirait la taille mais casserait le pattern matching
-// dans tous les crates consommateurs (checker, lint, codegen, semantic, lsp).
-// Les Statement sont manipulés par référence et en Vec, jamais copiés en
-// masse : le coût réel est faible. À reconsidérer si le parsing de gros
-// fichiers devient un point chaud mesuré.
+// `Statement` is 448 bytes, dominated by `SelectStmt` (240 for Insert).
+// Boxing the variants would reduce the size but break pattern matching
+// in every consumer crate (checker, lint, codegen, semantic, lsp).
+// Statements are handled by reference and in Vecs, never copied in
+// bulk: the real cost is low. To reconsider if parsing large
+// files becomes a measured hot spot.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Statement {
@@ -27,11 +27,11 @@ pub struct SelectStmt {
     pub id: NodeId,
     pub span: Span,
     pub with: Vec<Cte>,
-    /// `WITH RECURSIVE` : les CTE peuvent se référencer elles-mêmes.
+    /// `WITH RECURSIVE`: CTEs may reference themselves.
     pub with_recursive: bool,
     pub distinct: bool,
-    /// `DISTINCT ON (expr, …)` : une ligne par valeur de ces expressions
-    /// (implique `distinct`).
+    /// `DISTINCT ON (expr, …)`: one row per value of these expressions
+    /// (implies `distinct`).
     pub distinct_on: Vec<Expr>,
     pub columns: Vec<SelectItem>,
     pub from: Vec<TableRef>,
@@ -39,27 +39,27 @@ pub struct SelectStmt {
     pub where_clause: Option<Expr>,
     pub group_by: Vec<Expr>,
     pub having: Option<Expr>,
-    /// Clause `WINDOW nom AS (…)`, dans l'ordre d'écriture.
+    /// `WINDOW name AS (…)` clause, in writing order.
     pub windows: Vec<NamedWindow>,
     pub order_by: Vec<OrderByExpr>,
     pub limit: Option<Expr>,
     pub offset: Option<Expr>,
-    /// `UNION` / `INTERSECT` / `EXCEPT` qui suivent ce SELECT, appliqués de
-    /// gauche à droite ; chaque opérande peut porter ses propres opérations
-    /// (`a UNION b INTERSECT c` = `a UNION (b INTERSECT c)`). Les colonnes
-    /// du résultat sont nommées par ce premier SELECT ; `order_by`, `limit` et
-    /// `offset` s'appliquent alors à l'ensemble.
+    /// `UNION` / `INTERSECT` / `EXCEPT` following this SELECT, applied left
+    /// to right; each operand may carry its own operations
+    /// (`a UNION b INTERSECT c` = `a UNION (b INTERSECT c)`). The result
+    /// columns are named by this first SELECT; `order_by`, `limit` and
+    /// `offset` then apply to the whole.
     pub set_ops: Vec<SetOperation>,
-    /// `VALUES (…), (…)` : corps fait de lignes de valeurs, colonnes nommées
-    /// `column1`, `column2`… Les clauses propres à `SELECT` sont alors
-    /// vides ; `order_by`, `limit`, `offset` et `set_ops` s'appliquent.
+    /// `VALUES (…), (…)`: body made of value rows, columns named
+    /// `column1`, `column2`… The `SELECT`-specific clauses are then
+    /// empty; `order_by`, `limit`, `offset` and `set_ops` apply.
     pub values: Vec<Vec<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetOperation {
     pub op: SetOperator,
-    /// `ALL` : garde les doublons.
+    /// `ALL`: keeps duplicates.
     pub all: bool,
     pub select: SelectStmt,
 }
@@ -78,17 +78,17 @@ pub struct Cte {
     pub query: CteQuery,
 }
 
-/// Corps d'une CTE : une requête, ou un statement de modification dont le
-/// `RETURNING` forme les lignes (`WITH n AS (INSERT … RETURNING id)`).
+/// Body of a CTE: a query, or a data-modifying statement whose
+/// `RETURNING` forms the rows (`WITH n AS (INSERT … RETURNING id)`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CteQuery {
     Select(Box<SelectStmt>),
-    /// `INSERT`, `UPDATE` ou `DELETE`.
+    /// `INSERT`, `UPDATE` or `DELETE`.
     Modify(Box<Statement>),
 }
 
 impl Cte {
-    /// Requête du corps, si c'en est une.
+    /// Body query, if it is one.
     pub fn select(&self) -> Option<&SelectStmt> {
         match &self.query {
             CteQuery::Select(q) => Some(q),
@@ -104,39 +104,39 @@ pub enum SelectItem {
     Expr { expr: Expr, alias: Option<Ident> },
 }
 
-/// Table modifiée par `UPDATE` ou `DELETE` : toujours une table nommée.
+/// Table modified by `UPDATE` or `DELETE`: always a named table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TargetTable {
     pub name: ObjectName,
     pub alias: Option<Ident>,
 }
 
-/// Élément de `FROM` ou de jointure.
+/// `FROM` or join item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableRef {
     pub source: TableSource,
     pub alias: Option<Ident>,
-    /// `AS alias (c1, c2)` : renomme les colonnes de la source, dans l'ordre.
+    /// `AS alias (c1, c2)`: renames the source's columns, in order.
     pub column_aliases: Vec<Ident>,
-    /// Liste de définition de colonnes d'une fonction renvoyant `record` :
-    /// `AS r(a int, b text)`. Un type par alias de colonne, ou vide.
+    /// Column definition list of a function returning `record`:
+    /// `AS r(a int, b text)`. One type per column alias, or empty.
     pub column_types: Vec<DataType>,
-    /// Position de la source (le nom d'une table), `DUMMY` si inconnue.
+    /// Position of the source (the name of a table), `DUMMY` if unknown.
     #[serde(default)]
     pub span: crate::Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TableSource {
-    /// Table, vue ou CTE nommée.
+    /// Named table, view or CTE.
     Table(ObjectName),
-    /// `(SELECT …)`, éventuellement `LATERAL` (voit les sources précédentes).
+    /// `(SELECT …)`, possibly `LATERAL` (sees the preceding sources).
     Subquery {
         lateral: bool,
         query: Box<SelectStmt>,
     },
-    /// Fonction renvoyant des lignes : `generate_series(1, 3)`,
-    /// `unnest(arr)`, fonction `RETURNS TABLE` du projet.
+    /// Set-returning function: `generate_series(1, 3)`,
+    /// `unnest(arr)`, a project function `RETURNS TABLE`.
     Function {
         lateral: bool,
         name: ObjectName,
@@ -146,7 +146,7 @@ pub enum TableSource {
 }
 
 impl TableRef {
-    /// Table nommée, si la source en est une.
+    /// Named table, if the source is one.
     pub fn table_name(&self) -> Option<&ObjectName> {
         match &self.source {
             TableSource::Table(n) => Some(n),
@@ -154,8 +154,8 @@ impl TableRef {
         }
     }
 
-    /// Nom sous lequel la source est visible dans la requête : son alias,
-    /// sinon le dernier segment de son nom (table ou fonction).
+    /// Name under which the source is visible in the query: its alias,
+    /// otherwise the last segment of its name (table or function).
     pub fn visible_name(&self) -> Option<&str> {
         if let Some(a) = &self.alias {
             return Some(&a.value);
@@ -190,13 +190,13 @@ pub enum JoinConstraint {
     On(Expr),
     Using(Vec<Ident>),
     Natural,
-    /// `CROSS JOIN` (ou virgule) : produit cartésien, sans condition.
+    /// `CROSS JOIN` (or comma): Cartesian product, without a condition.
     None,
 }
 
-/// Noms donnés aux lignes avant (`OLD`) et après (`NEW`) modification dans
-/// le `RETURNING` d'un statement de modification (PostgreSQL 18). Absents,
-/// ce sont `old` et `new`.
+/// Names given to the rows before (`OLD`) and after (`NEW`) modification in
+/// the `RETURNING` of a data-modifying statement (PostgreSQL 18). When absent,
+/// they are `old` and `new`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReturningAliases {
     pub old: Option<Ident>,
@@ -209,7 +209,7 @@ impl ReturningAliases {
     }
 }
 
-/// `WINDOW nom AS (spécification)`.
+/// `WINDOW name AS (specification)`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NamedWindow {
     pub name: Ident,
@@ -229,11 +229,11 @@ pub struct OrderByExpr {
 pub struct InsertStmt {
     pub id: NodeId,
     pub span: Span,
-    /// `WITH` en tête du statement : CTE visibles de tout le statement.
+    /// `WITH` at the head of the statement: CTEs visible to the whole statement.
     pub with: Vec<Cte>,
     pub with_recursive: bool,
     pub table: ObjectName,
-    /// `INSERT INTO t AS alias` : nom de la table cible dans `ON CONFLICT` et
+    /// `INSERT INTO t AS alias`: name of the target table in `ON CONFLICT` and
     /// `RETURNING`.
     pub alias: Option<Ident>,
     pub columns: Vec<Ident>,
@@ -248,7 +248,7 @@ pub struct InsertStmt {
 pub enum InsertSource {
     Values(Vec<Vec<Expr>>),
     Select(Box<SelectStmt>),
-    /// `DEFAULT VALUES` : une ligne, chaque colonne à sa valeur par défaut.
+    /// `DEFAULT VALUES`: one row, each column at its default value.
     DefaultValues,
 }
 
@@ -276,11 +276,11 @@ pub enum OnConflictAction {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Assignment {
-    /// Colonnes affectées : une seule (`a = v`), ou plusieurs pour la forme
-    /// multi-colonnes `(a, b) = (v1, v2)` / `(a, b) = (SELECT …)`.
+    /// Assigned columns: a single one (`a = v`), or several for the
+    /// multi-column form `(a, b) = (v1, v2)` / `(a, b) = (SELECT …)`.
     pub columns: Vec<Ident>,
-    /// Champs d'une colonne composite affectée : `SET home.city = …` donne
-    /// `columns = [home]`, `subfields = [city]`. Vide sinon.
+    /// Fields of an assigned composite column: `SET home.city = …` gives
+    /// `columns = [home]`, `subfields = [city]`. Empty otherwise.
     pub subfields: Vec<Ident>,
     pub value: Expr,
 }
@@ -291,13 +291,13 @@ pub struct Assignment {
 pub struct UpdateStmt {
     pub id: NodeId,
     pub span: Span,
-    /// `WITH` en tête du statement : CTE visibles de tout le statement.
+    /// `WITH` at the head of the statement: CTEs visible to the whole statement.
     pub with: Vec<Cte>,
     pub with_recursive: bool,
     pub table: TargetTable,
     pub assignments: Vec<Assignment>,
     pub from: Vec<TableRef>,
-    /// Jointures écrites dans `FROM`.
+    /// Joins written in `FROM`.
     pub joins: Vec<Join>,
     pub where_clause: Option<Expr>,
     pub returning: Vec<SelectItem>,
@@ -311,12 +311,12 @@ pub struct UpdateStmt {
 pub struct DeleteStmt {
     pub id: NodeId,
     pub span: Span,
-    /// `WITH` en tête du statement : CTE visibles de tout le statement.
+    /// `WITH` at the head of the statement: CTEs visible to the whole statement.
     pub with: Vec<Cte>,
     pub with_recursive: bool,
     pub table: TargetTable,
     pub using: Vec<TableRef>,
-    /// Jointures écrites dans `USING`.
+    /// Joins written in `USING`.
     pub joins: Vec<Join>,
     pub where_clause: Option<Expr>,
     pub returning: Vec<SelectItem>,
@@ -328,15 +328,15 @@ pub struct DeleteStmt {
 // and may be needed by consumers of this module.
 const _: Option<DataType> = None;
 
-/// Span du statement, quel que soit son type.
+/// Span of the statement, whatever its kind.
 ///
-/// Seuls les nœuds de niveau statement portent un span : `Expr`, `Ident` et
-/// `ColumnRef` n'en ont pas. C'est donc la granularité maximale disponible
-/// aujourd'hui pour situer un diagnostic, et celle qu'utilise le type-checker.
+/// Only statement-level nodes carry a span: `Expr`, `Ident` and
+/// `ColumnRef` do not. This is therefore the finest granularity available
+/// today to locate a diagnostic, and the one the type-checker uses.
 ///
-/// Renvoie `None` pour les DDL qui n'ont pas de span (les variants autres que
-/// CREATE TABLE / FUNCTION / PROCEDURE / POLICY), et pour un span resté à
-/// [`Span::DUMMY`] — un span nul pointerait en 1:1, ce qu'on cherche à éviter.
+/// Returns `None` for DDL without a span (variants other than
+/// CREATE TABLE / FUNCTION / PROCEDURE / POLICY), and for a span left at
+/// [`Span::DUMMY`] — a null span would point at 1:1, which we want to avoid.
 pub fn stmt_span(stmt: &Statement) -> Option<Span> {
     use crate::ddl::DdlStatement;
 

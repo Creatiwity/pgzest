@@ -80,10 +80,10 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             let ddl = convert_create_index(ci)?;
             Ok(Statement::Ddl(DdlStatement::CreateIndex(ddl)))
         }
-        // Les routines sont lues par la grammaire de pgweave (`grammar::routine`),
-        // jamais par sqlparser : y arriver ici serait une erreur d'aiguillage.
+        // Routines are read by pgweave's grammar (`grammar::routine`),
+        // never by sqlparser: reaching this point would be a dispatch error.
         sp::Statement::CreateFunction(_) | sp::Statement::CreateProcedure { .. } => Err(
-            ParseError::Unsupported("routine hors de la grammaire de pgweave".to_string()),
+            ParseError::Unsupported("routine outside pgweave's grammar".to_string()),
         ),
         sp::Statement::CreateTrigger(ct) => {
             let ddl = convert_create_trigger(ct)?;
@@ -131,10 +131,10 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
                 || with.is_some()
             {
                 return Err(ParseError::Unsupported(
-                    "options de CREATE SCHEMA hors PostgreSQL".to_string(),
+                    "non-PostgreSQL CREATE SCHEMA options".to_string(),
                 ));
             }
-            // `CREATE SCHEMA AUTHORIZATION r` : le schéma prend le nom du rôle.
+            // `CREATE SCHEMA AUTHORIZATION r`: the schema takes the role's name.
             let (name, authorization) = match schema_name {
                 sp::SchemaName::Simple(n) => (last_ident(n)?, None),
                 sp::SchemaName::NamedAuthorization(n, owner) => {
@@ -230,7 +230,7 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
         } => {
             if !values.is_empty() {
                 return Err(ParseError::Unsupported(
-                    "COPY suivi de données en ligne".to_string(),
+                    "COPY followed by inline data".to_string(),
                 ));
             }
             utility(UtilityKind::Copy(convert_copy(
@@ -242,12 +242,12 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             )?))
         }
         sp::Statement::Set(set) => utility(convert_set(set)?),
-        // Modes de transaction (`ISOLATION LEVEL`, `READ ONLY`…) et `AND
-        // CHAIN` : non modélisés, refusés plutôt que perdus.
+        // Transaction modes (`ISOLATION LEVEL`, `READ ONLY`…) and `AND
+        // CHAIN`: not modeled, rejected rather than lost.
         sp::Statement::StartTransaction {
             modes, statements, ..
         } if !modes.is_empty() || !statements.is_empty() => Err(ParseError::Unsupported(
-            "BEGIN avec modes de transaction".to_string(),
+            "BEGIN with transaction modes".to_string(),
         )),
         sp::Statement::StartTransaction { .. } => {
             utility(UtilityKind::Transaction(TransactionCommand::Begin))
@@ -305,7 +305,7 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             objects: g
                 .objects
                 .map(|o| o.to_string())
-                .ok_or_else(|| ParseError::Unsupported("GRANT de rôle".to_string()))?,
+                .ok_or_else(|| ParseError::Unsupported("role GRANT".to_string()))?,
             grantees: g.grantees.iter().map(|x| x.to_string()).collect(),
         }),
         sp::Statement::Revoke(r) => utility(UtilityKind::Privilege {
@@ -314,7 +314,7 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
             objects: r
                 .objects
                 .map(|o| o.to_string())
-                .ok_or_else(|| ParseError::Unsupported("REVOKE de rôle".to_string()))?,
+                .ok_or_else(|| ParseError::Unsupported("role REVOKE".to_string()))?,
             grantees: r.grantees.iter().map(|x| x.to_string()).collect(),
         }),
         sp::Statement::Truncate(t) => utility(UtilityKind::Truncate {
@@ -333,7 +333,7 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
     }
 }
 
-// ── Statements utilitaires ────────────────────────────────────────────────────
+// ── Utility statements ────────────────────────────────────────────────────────
 
 fn utility(kind: UtilityKind) -> Result<Statement, ParseError> {
     Ok(Statement::Utility(Utility {
@@ -382,7 +382,7 @@ fn convert_copy(
             sp::CopyOption::Encoding(e) => CopyOption::Encoding(e),
         })
         .collect();
-    // Ancienne syntaxe `WITH CSV HEADER`, encore très répandue.
+    // Old `WITH CSV HEADER` syntax, still very common.
     for o in legacy {
         match o {
             sp::CopyLegacyOption::Binary => out.push(CopyOption::Format("binary".into())),
@@ -405,7 +405,7 @@ fn convert_copy(
             }
             other => {
                 return Err(ParseError::Unsupported(format!(
-                    "option COPY non PostgreSQL : {other}"
+                    "non-PostgreSQL COPY option: {other}"
                 )));
             }
         }
@@ -418,8 +418,8 @@ fn convert_copy(
     })
 }
 
-/// Valeur d'un paramètre telle qu'écrite : chaînes sans délimiteurs,
-/// identifiants et nombres tels quels.
+/// Value of a parameter as written: strings without delimiters,
+/// identifiers and numbers as is.
 fn setting_value(e: &sp::Expr) -> String {
     match e {
         sp::Expr::Value(v) => match &v.value {
@@ -463,8 +463,8 @@ fn convert_set(set: sp::Set) -> Result<UtilityKind, ParseError> {
 
 // ── Query / SELECT ────────────────────────────────────────────────────────────
 
-/// Statement de premier niveau issu d'une requête : un `SELECT`, ou un
-/// `INSERT`/`UPDATE`/`DELETE` précédé d'un `WITH` (sqlparser les range sous
+/// Top-level statement coming from a query: a `SELECT`, or an
+/// `INSERT`/`UPDATE`/`DELETE` preceded by a `WITH` (sqlparser files them under
 /// `Query`).
 fn convert_query_statement(query: sp::Query) -> Result<Statement, ParseError> {
     let dml = matches!(
@@ -476,7 +476,7 @@ fn convert_query_statement(query: sp::Query) -> Result<Statement, ParseError> {
     }
     if query.order_by.is_some() || query.limit_clause.is_some() {
         return Err(ParseError::Unsupported(
-            "ORDER BY / LIMIT après un statement de modification".into(),
+            "ORDER BY / LIMIT after a data-modifying statement".into(),
         ));
     }
     let (with, with_recursive) = match query.with {
@@ -493,7 +493,7 @@ fn convert_query_statement(query: sp::Query) -> Result<Statement, ParseError> {
         sp::SetExpr::Insert(s) | sp::SetExpr::Update(s) | sp::SetExpr::Delete(s) => {
             convert_statement(s)?
         }
-        _ => unreachable!("vérifié plus haut"),
+        _ => unreachable!("checked above"),
     };
     Ok(match inner {
         Statement::Insert(mut s) => {
@@ -511,7 +511,7 @@ fn convert_query_statement(query: sp::Query) -> Result<Statement, ParseError> {
             s.with_recursive = with_recursive;
             Statement::Delete(s)
         }
-        _ => unreachable!("un corps INSERT/UPDATE/DELETE donne un statement de modification"),
+        _ => unreachable!("an INSERT/UPDATE/DELETE body yields a data-modifying statement"),
     })
 }
 
@@ -568,8 +568,8 @@ pub(crate) fn convert_query(query: sp::Query) -> Result<SelectStmt, ParseError> 
     Ok(stmt)
 }
 
-/// Corps de requête : SELECT simple, ou opérations ensemblistes mises à plat
-/// de gauche à droite (voir `SelectStmt::set_ops`).
+/// Query body: simple SELECT, or set operations flattened
+/// left to right (see `SelectStmt::set_ops`).
 fn convert_set_expr(body: sp::SetExpr) -> Result<SelectStmt, ParseError> {
     match body {
         sp::SetExpr::Select(select) => convert_select(*select),
@@ -586,18 +586,14 @@ fn convert_set_expr(body: sp::SetExpr) -> Result<SelectStmt, ParseError> {
                 sp::SetOperator::Intersect => SetOperator::Intersect,
                 sp::SetOperator::Except => SetOperator::Except,
                 other => {
-                    return Err(ParseError::Unsupported(format!(
-                        "opérateur ensembliste {other}"
-                    )));
+                    return Err(ParseError::Unsupported(format!("set operator {other}")));
                 }
             };
             let all = match set_quantifier {
                 sp::SetQuantifier::All => true,
                 sp::SetQuantifier::None | sp::SetQuantifier::Distinct => false,
                 other => {
-                    return Err(ParseError::Unsupported(format!(
-                        "quantificateur ensembliste {other}"
-                    )));
+                    return Err(ParseError::Unsupported(format!("set quantifier {other}")));
                 }
             };
             stmt.set_ops.push(SetOperation {
@@ -654,7 +650,7 @@ fn convert_cte(cte: sp::Cte) -> Result<Cte, ParseError> {
         .into_iter()
         .map(|c| convert_ident(c.name))
         .collect();
-    // Corps modifiant (`INSERT … RETURNING`…) : un statement, pas une requête.
+    // Data-modifying body (`INSERT … RETURNING`…): a statement, not a query.
     let q = *cte.query;
     let query = match *q.body {
         sp::SetExpr::Insert(s) | sp::SetExpr::Update(s) | sp::SetExpr::Delete(s) => {
@@ -718,7 +714,7 @@ fn convert_select(select: sp::Select) -> Result<SelectStmt, ParseError> {
 
     if select.into.is_some() {
         return Err(ParseError::Unsupported(
-            "SELECT … INTO table (créer une table : CREATE TABLE … AS)".to_string(),
+            "SELECT … INTO table (to create a table: CREATE TABLE … AS)".to_string(),
         ));
     }
     let windows = select
@@ -798,8 +794,8 @@ fn convert_select_item(item: sp::SelectItem) -> Result<SelectItem, ParseError> {
 }
 
 fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError> {
-    // Alias, noms de colonnes et, pour une liste de définition de colonnes
-    // (`AS r(a int, b text)`), leurs types.
+    // Alias, column names and, for a column definition list
+    // (`AS r(a int, b text)`), their types.
     type Aliases = (Option<Ident>, Vec<Ident>, Vec<DataType>);
     let aliases = |alias: Option<sp::TableAlias>| -> Result<Aliases, ParseError> {
         let Some(a) = alias else {
@@ -808,7 +804,7 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
         let typed = a.columns.iter().filter(|c| c.data_type.is_some()).count();
         if typed != 0 && typed != a.columns.len() {
             return Err(ParseError::Unsupported(
-                "liste de définition de colonnes partiellement typée".to_string(),
+                "partially typed column definition list".to_string(),
             ));
         }
         let mut names = Vec::new();
@@ -838,7 +834,7 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
             || !index_hints.is_empty())
     {
         return Err(ParseError::Unsupported(format!(
-            "option de table non modélisée (TABLESAMPLE…) : {factor}"
+            "unmodeled table option (TABLESAMPLE…): {factor}"
         )));
     }
     let factor_span = {
@@ -855,7 +851,7 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
         })
     };
     let (source, alias) = match factor {
-        // `FROM f(…)` : sqlparser le range dans Table, avec des arguments.
+        // `FROM f(…)`: sqlparser files it under Table, with arguments.
         sp::TableFactor::Table {
             name,
             alias,
@@ -945,7 +941,7 @@ fn convert_table_factor(factor: sp::TableFactor) -> Result<TableRef, ParseError>
     })
 }
 
-/// Argument d'une fonction en `FROM` : expression, éventuellement nommée.
+/// Argument of a function in `FROM`: expression, possibly named.
 fn convert_function_arg_expr(arg: sp::FunctionArg) -> Result<Expr, ParseError> {
     match arg {
         sp::FunctionArg::Unnamed(sp::FunctionArgExpr::Expr(e)) => convert_expr(e),
@@ -960,12 +956,12 @@ fn convert_function_arg_expr(arg: sp::FunctionArg) -> Result<Expr, ParseError> {
             ..
         } => convert_named_arg(name, e),
         other => Err(ParseError::Unsupported(format!(
-            "argument de fonction en FROM : {other}"
+            "function argument in FROM: {other}"
         ))),
     }
 }
 
-/// `nom => valeur` (ou l'ancienne forme `nom := valeur`).
+/// `name => value` (or the old form `name := value`).
 fn convert_named_arg(name: sp::Ident, value: sp::Expr) -> Result<Expr, ParseError> {
     use sqlparser::ast::Spanned;
     let sp_span = name.span.union(&value.span());
@@ -1049,11 +1045,11 @@ fn convert_order_by_expr(o: sp::OrderByExpr) -> Result<OrderByExpr, ParseError> 
 
 // ── Expression conversion ─────────────────────────────────────────────────────
 
-/// Convertit une expression sqlparser en [`Expr`], span compris.
+/// Converts a sqlparser expression into an [`Expr`], span included.
 ///
-/// Point de passage unique : le corps produit un [`ExprKind`], et c'est ici
-/// que le span est attaché. Toute expression issue du parse passe par cette
-/// fonction, donc il n'y a qu'un endroit à corriger pour la position.
+/// Single choke point: the body produces an [`ExprKind`], and this is where
+/// the span is attached. Every expression coming from the parse goes through
+/// this function, so there is only one place to fix for the position.
 pub(crate) fn convert_expr(expr: sp::Expr) -> Result<Expr, ParseError> {
     let span = sp_expr_span(&expr);
     let kind = convert_expr_kind(expr)?;
@@ -1086,8 +1082,8 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
                     column,
                 }))
             }
-            // `base.schema.table.colonne` : la base doit être la base courante,
-            // ce que l'analyse ne peut pas vérifier.
+            // `db.schema.table.column`: the database must be the current one,
+            // which the analysis cannot check.
             n => Err(ParseError::Unsupported(format!(
                 "column reference with {n} parts"
             ))),
@@ -1104,7 +1100,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             let overlaps = op == sp::BinaryOperator::Overlaps;
             let l = convert_expr(*left)?;
             let r = convert_expr(*right)?;
-            // `(a, b) OVERLAPS (c, d)` : `overlaps(a, b, c, d)` (`gram.y`).
+            // `(a, b) OVERLAPS (c, d)`: `overlaps(a, b, c, d)` (`gram.y`).
             if overlaps {
                 return match (l.kind, r.kind) {
                     (ExprKind::Tuple(mut a), ExprKind::Tuple(b))
@@ -1114,7 +1110,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
                         system_call("overlaps", a)
                     }
                     _ => Err(ParseError::Unsupported(
-                        "OVERLAPS attend deux lignes de deux valeurs".to_string(),
+                        "OVERLAPS expects two rows of two values".to_string(),
                     )),
                 };
             }
@@ -1233,9 +1229,9 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             Ok(ExprKind::QualifiedWildcard(convert_ident(last)))
         }
         sp::Expr::Like { any: true, .. } | sp::Expr::ILike { any: true, .. } => {
-            Err(ParseError::Unsupported("LIKE ANY non modélisé".to_string()))
+            Err(ParseError::Unsupported("LIKE ANY not modeled".to_string()))
         }
-        // `x LIKE p ESCAPE e` : `x ~~ like_escape(p, e)` (`gram.y`).
+        // `x LIKE p ESCAPE e`: `x ~~ like_escape(p, e)` (`gram.y`).
         sp::Expr::Like {
             negated,
             expr,
@@ -1269,7 +1265,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             },
             right: Box::new(escaped_pattern("like_escape", *pattern, escape_char)?),
         }),
-        // `x SIMILAR TO p [ESCAPE e]` : `x ~ similar_to_escape(p[, e])`.
+        // `x SIMILAR TO p [ESCAPE e]`: `x ~ similar_to_escape(p[, e])`.
         sp::Expr::SimilarTo {
             negated,
             expr,
@@ -1290,29 +1286,29 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
         sp::Expr::IsTrue(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::Is,
-            // Littéral synthétisé par le désucrage de IS [NOT] TRUE :
-            // absent de la source, donc sans span.
+            // Literal synthesized by desugaring IS [NOT] TRUE:
+            // absent from the source, hence without a span.
             right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(true)))),
         }),
         sp::Expr::IsFalse(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::Is,
-            // Littéral synthétisé par le désucrage de IS [NOT] FALSE :
-            // absent de la source, donc sans span.
+            // Literal synthesized by desugaring IS [NOT] FALSE:
+            // absent from the source, hence without a span.
             right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(false)))),
         }),
         sp::Expr::IsNotTrue(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::IsNot,
-            // Littéral synthétisé par le désucrage de IS [NOT] TRUE :
-            // absent de la source, donc sans span.
+            // Literal synthesized by desugaring IS [NOT] TRUE:
+            // absent from the source, hence without a span.
             right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(true)))),
         }),
         sp::Expr::IsNotFalse(e) => Ok(ExprKind::BinaryOp {
             left: Box::new(convert_expr(*e)?),
             op: BinaryOp::IsNot,
-            // Littéral synthétisé par le désucrage de IS [NOT] FALSE :
-            // absent de la source, donc sans span.
+            // Literal synthesized by desugaring IS [NOT] FALSE:
+            // absent from the source, hence without a span.
             right: Box::new(Expr::bare(ExprKind::Literal(Literal::Boolean(false)))),
         }),
         sp::Expr::IsDistinctFrom(l, r) => Ok(ExprKind::BinaryOp {
@@ -1325,12 +1321,12 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             op: BinaryOp::IsNotDistinctFrom,
             right: Box::new(convert_expr(*r)?),
         }),
-        // `(expr)` : on garde l'expression interne, dont le span est déjà juste.
+        // `(expr)`: keep the inner expression, whose span is already right.
         sp::Expr::Nested(e) => Ok(convert_expr(*e)?.kind),
 
-        // `expr op ANY (tableau)` / `ALL (…)` : comparaison à chaque élément,
-        // modélisée comme telle — la réduire à `expr op tableau` mentirait sur
-        // le sens et sur les types.
+        // `expr op ANY (array)` / `ALL (…)`: comparison with each element,
+        // modeled as such — reducing it to `expr op array` would lie about
+        // the meaning and the types.
         sp::Expr::AnyOp {
             left,
             compare_op,
@@ -1352,9 +1348,9 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             quantifier: pgweave_ast::expr::Quantifier::All,
             right: Box::new(convert_expr(*right)?),
         }),
-        // `ARRAY[e1, e2, …]` : constructeur de tableau, représenté comme un
-        // appel à `array` (vide pour `ARRAY[]`). Un élément illisible fait
-        // échouer l'expression entière plutôt que de disparaître.
+        // `ARRAY[e1, e2, …]`: array constructor, represented as a call to
+        // `array` (empty for `ARRAY[]`). An unreadable element makes the
+        // whole expression fail rather than disappear.
         sp::Expr::Array(arr) => Ok(ExprKind::FunctionCall {
             name: pgweave_ast::ObjectName(vec![pgweave_ast::Ident {
                 value: "array".into(),
@@ -1372,15 +1368,15 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             over: None,
         }),
 
-        // `DATE '2025-01-01'` : littéral typé, équivalent PostgreSQL de
-        // `'2025-01-01'::date`. Le type est conservé — le réduire au littéral
-        // seul en ferait une chaîne de type inconnu.
+        // `DATE '2025-01-01'`: typed literal, PostgreSQL equivalent of
+        // `'2025-01-01'::date`. The type is kept — reducing it to the bare
+        // literal would make it a string of unknown type.
         sp::Expr::TypedString(ts) => {
             let data_type = convert_data_type(ts.data_type)?;
             let literal = match ts.value.into_string() {
                 Some(v) => Literal::String(v),
                 None => {
-                    return Ok(ExprKind::Unsupported("littéral typé non textuel".into()));
+                    return Ok(ExprKind::Unsupported("non-textual typed literal".into()));
                 }
             };
             Ok(ExprKind::Cast {
@@ -1389,7 +1385,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             })
         }
 
-        // ── Constructions PostgreSQL courantes ────────────────────────────────
+        // ── Common PostgreSQL constructs ──────────────────────────────────────
         sp::Expr::Exists { subquery, negated } => Ok(ExprKind::Exists {
             subquery: Box::new(convert_query(*subquery)?),
             negated,
@@ -1417,14 +1413,14 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
                 .collect::<Result<Vec<_>, _>>()?,
         )),
 
-        // `arr[1]`, `(rec).champ`, `payload['clé']`.
+        // `arr[1]`, `(rec).field`, `payload['key']`.
         sp::Expr::CompoundFieldAccess { root, access_chain } => Ok(ExprKind::FieldAccess {
             root: Box::new(convert_expr(*root)?),
             path: access_chain.iter().map(|a| a.to_string()).collect(),
         }),
 
-        // Fonctions déguisées en syntaxe : on les ramène à `FunctionCall` plutôt
-        // que d'ajouter une variante par mot-clé. Le nom suffit à l'inférence.
+        // Functions disguised as syntax: they are brought back to `FunctionCall`
+        // rather than adding a variant per keyword. The name is enough for inference.
         sp::Expr::Extract { field, expr, .. } => Ok(ExprKind::FunctionCall {
             name: ObjectName::unquoted(&["extract"]),
             args: vec![
@@ -1442,13 +1438,13 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
         sp::Expr::Cube(sets) => grouping_sets(pgweave_ast::expr::GroupingKind::Cube, sets),
         sp::Expr::GroupingSets(sets) => grouping_sets(pgweave_ast::expr::GroupingKind::Sets, sets),
 
-        // Syntaxes SQL ramenées par la grammaire de PostgreSQL à des appels
-        // de fonctions système (`gram.y`, `SystemFuncName`).
+        // SQL syntaxes that PostgreSQL's grammar turns into calls to
+        // system functions (`gram.y`, `SystemFuncName`).
         sp::Expr::Position { expr, r#in } => {
             system_call("position", vec![convert_expr(*r#in)?, convert_expr(*expr)?])
         }
-        // `substr(x, a, b)` : lu par sqlparser comme `SUBSTRING` abrégé, mais
-        // c'est un appel ordinaire à la fonction `substr`.
+        // `substr(x, a, b)`: read by sqlparser as an abbreviated `SUBSTRING`, but
+        // it is an ordinary call to the `substr` function.
         sp::Expr::Substring {
             expr,
             substring_from,
@@ -1483,7 +1479,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
                     args.push(convert_expr(*len)?);
                 }
                 (Some(from), None) => args.push(convert_expr(*from)?),
-                // `SUBSTRING(x FOR n)` : à partir du premier caractère.
+                // `SUBSTRING(x FOR n)`: from the first character.
                 (None, Some(len)) => {
                     args.push(Expr::bare(ExprKind::Literal(Literal::Number("1".into()))));
                     args.push(convert_expr(*len)?);
@@ -1538,7 +1534,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
     }
 }
 
-/// `ROLLUP`, `CUBE`, `GROUPING SETS` de `GROUP BY`.
+/// `ROLLUP`, `CUBE`, `GROUPING SETS` of `GROUP BY`.
 fn grouping_sets(
     kind: pgweave_ast::expr::GroupingKind,
     sets: Vec<Vec<sp::Expr>>,
@@ -1556,10 +1552,10 @@ fn grouping_sets(
     })
 }
 
-/// Appel à `pg_catalog.name(args)`, forme que PostgreSQL donne aux syntaxes
-/// SQL `POSITION`, `SUBSTRING`, `TRIM`, `OVERLAY`.
-/// Motif de `LIKE` : tel quel, ou passé à `escape_fn` avec son caractère
-/// d'échappement.
+/// Call to `pg_catalog.name(args)`, the form PostgreSQL gives to the SQL
+/// syntaxes `POSITION`, `SUBSTRING`, `TRIM`, `OVERLAY`.
+/// `LIKE` pattern: as is, or passed to `escape_fn` with its escape
+/// character.
 fn escaped_pattern(
     escape_fn: &str,
     pattern: sp::Expr,
@@ -1587,10 +1583,10 @@ fn system_call(name: &str, args: Vec<Expr>) -> Result<ExprKind, ParseError> {
     })
 }
 
-/// Nom court de la construction sqlparser, pour un diagnostic lisible.
+/// Short name of the sqlparser construct, for a readable diagnostic.
 ///
-/// Le `Debug` complet d'une expression est illisible dans un message ; on n'en
-/// garde que le nom de variante.
+/// The full `Debug` of an expression is unreadable in a message; only the
+/// variant name is kept.
 fn describe_sp_expr(e: &sp::Expr) -> String {
     let dbg = format!("{e:?}");
     let name: String = dbg
@@ -1604,7 +1600,7 @@ fn describe_sp_expr(e: &sp::Expr) -> String {
     }
 }
 
-/// `ObjectName` sqlparser → chaîne pointée, sans passer par notre `ObjectName`.
+/// sqlparser `ObjectName` → dotted string, without going through our `ObjectName`.
 fn object_name_to_plain_string(name: &sp::ObjectName) -> String {
     name.0
         .iter()
@@ -1630,11 +1626,11 @@ fn convert_value(v: sp::Value) -> Result<ExprKind, ParseError> {
         sp::Value::Null => Ok(ExprKind::Literal(Literal::Null)),
         sp::Value::DoubleQuotedString(s) => Ok(ExprKind::Literal(Literal::String(s))),
         sp::Value::EscapedStringLiteral(s) => Ok(ExprKind::Literal(Literal::String(s))),
-        // `$1`, `:nom` : le nœud existe désormais. Auparavant ce bras écartait le
-        // statement entier, donc aucune requête paramétrée d'application ne
-        // passait — alors que c'est la forme normale du SQL applicatif.
+        // `$1`, `:name`: the node now exists. Previously this arm discarded the
+        // whole statement, so no parameterized application query got
+        // through — even though it is the normal form of application SQL.
         sp::Value::Placeholder(p) => Ok(ExprKind::Parameter(p)),
-        // `B'0101'` et `X'1F'` : chaînes de bits (`gram.y`, `BCONST`/`XCONST`).
+        // `B'0101'` and `X'1F'`: bit strings (`gram.y`, `BCONST`/`XCONST`).
         sp::Value::SingleQuotedByteStringLiteral(s) => {
             Ok(ExprKind::Literal(Literal::BitString(format!("b{s}"))))
         }
@@ -1642,9 +1638,9 @@ fn convert_value(v: sp::Value) -> Result<ExprKind, ParseError> {
             Ok(ExprKind::Literal(Literal::BitString(format!("x{s}"))))
         }
 
-        // Littéral d'une forme que nous ne modélisons pas (chaînes nationales,
-        // hexadécimales, Unicode…). On ne prétend pas connaître sa valeur, mais
-        // on ne détruit pas le statement pour autant.
+        // Literal of a form we do not model (national, hexadecimal,
+        // Unicode strings…). We do not claim to know its value, but
+        // we do not destroy the statement either.
         other => Ok(ExprKind::Unsupported(format!("literal {other}"))),
     }
 }
@@ -1694,30 +1690,30 @@ fn convert_binary_op(op: sp::BinaryOperator) -> Result<BinaryOp, ParseError> {
         // Other PostgreSQL operators
         sp::BinaryOperator::PGRegexMatch => Ok(BinaryOp::Custom("~".into())),
         sp::BinaryOperator::DoubleHash => Ok(BinaryOp::Custom("##".into())),
-        // `||` : opérateur non standard le plus fréquent, et de type connu.
+        // `||`: most frequent non-standard operator, with a known type.
         sp::BinaryOperator::StringConcat => Ok(BinaryOp::Concat),
         // Generic custom / user-defined operators
         sp::BinaryOperator::Custom(s) => Ok(BinaryOp::Custom(s)),
         sp::BinaryOperator::PGCustomBinaryOperator(parts) => Ok(BinaryOp::Custom(parts.join("."))),
 
-        // Tout autre opérateur connu de sqlparser se range en `Custom`, avec son
-        // symbole obtenu de son propre `Display`.
+        // Any other operator known to sqlparser goes into `Custom`, with its
+        // symbol obtained from its own `Display`.
         //
-        // Auparavant ce bras renvoyait `Unsupported`, ce qui écartait le
-        // statement entier — y compris pour des opérateurs banals que sqlparser
-        // sait parfaitement lire. `BinaryOp::Custom` existait déjà pour PostGIS
-        // et JSONB ; il suffisait de s'en servir jusqu'au bout.
+        // Previously this arm returned `Unsupported`, which discarded the
+        // whole statement — including for mundane operators sqlparser
+        // reads perfectly well. `BinaryOp::Custom` already existed for PostGIS
+        // and JSONB; it just had to be used all the way.
         other => Ok(BinaryOp::Custom(other.to_string())),
     }
 }
 
-/// Appel de fonction, avec tout ce qui l'accompagne : `DISTINCT`, `ORDER BY`
-/// d'agrégat, `FILTER`, `WITHIN GROUP`, `OVER`. Ce que PostgreSQL ne connaît
-/// pas (syntaxes d'autres dialectes) est refusé, jamais ignoré.
+/// Function call, with everything that comes with it: `DISTINCT`, aggregate
+/// `ORDER BY`, `FILTER`, `WITHIN GROUP`, `OVER`. What PostgreSQL does not know
+/// (other dialects' syntaxes) is rejected, never ignored.
 fn convert_function_call(f: sp::Function) -> Result<ExprKind, ParseError> {
     if !matches!(f.parameters, sp::FunctionArguments::None) || f.null_treatment.is_some() {
         return Err(ParseError::Unsupported(format!(
-            "appel de fonction hors PostgreSQL : {f}"
+            "non-PostgreSQL function call: {f}"
         )));
     }
     let call_span = sqlparser::ast::Spanned::span(&f);
@@ -1738,7 +1734,7 @@ fn convert_function_call(f: sp::Function) -> Result<ExprKind, ParseError> {
                     }
                     other => {
                         return Err(ParseError::Unsupported(format!(
-                            "clause d'appel de fonction hors PostgreSQL : {other}"
+                            "non-PostgreSQL function call clause: {other}"
                         )));
                     }
                 }
@@ -1758,8 +1754,8 @@ fn convert_function_call(f: sp::Function) -> Result<ExprKind, ParseError> {
             });
         }
     }
-    // `NORMALIZE(texte, forme)` : la forme est un mot-clé de la grammaire
-    // (`unicode_normal_form`), passé à `pg_catalog.normalize` comme chaîne.
+    // `NORMALIZE(text, form)`: the form is a grammar keyword
+    // (`unicode_normal_form`), passed to `pg_catalog.normalize` as a string.
     if let ([n], [_, form]) = (name.0.as_slice(), args.as_slice())
         && n.value == "normalize"
         && !n.quoted
@@ -1884,7 +1880,7 @@ fn convert_function_args(args: sp::FunctionArguments) -> Result<Vec<Expr>, Parse
                     ..
                 } => convert_named_arg(name, e),
                 other => Err(ParseError::Unsupported(format!(
-                    "argument de fonction hors PostgreSQL : {other}"
+                    "non-PostgreSQL function argument: {other}"
                 ))),
             })
             .collect(),
@@ -1923,7 +1919,7 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
             && matches!(*q.body, sp::SetExpr::Values(_));
         if !plain_values && matches!(*q.body, sp::SetExpr::Values(_)) {
             return Err(ParseError::Unsupported(
-                "VALUES avec WITH / ORDER BY / LIMIT dans un INSERT".to_string(),
+                "VALUES with WITH / ORDER BY / LIMIT in an INSERT".to_string(),
             ));
         }
         match *q.body {
@@ -1947,7 +1943,7 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
             }
         }
     } else {
-        // Pas de source : `INSERT INTO t DEFAULT VALUES`.
+        // No source: `INSERT INTO t DEFAULT VALUES`.
         InsertSource::DefaultValues
     };
 
@@ -2024,8 +2020,8 @@ fn convert_on_conflict(oc: sp::OnConflict) -> Result<OnConflict, ParseError> {
 }
 
 fn convert_assignment(a: sp::Assignment) -> Result<Assignment, ParseError> {
-    // Cible de `SET` : la colonne, puis les champs d'un composite
-    // (`home.city`) ; jamais un nom de table.
+    // `SET` target: the column, then the fields of a composite
+    // (`home.city`); never a table name.
     let path = |name: sp::ObjectName| -> Result<Vec<Ident>, ParseError> {
         let parts: Vec<Ident> = name
             .0
@@ -2052,7 +2048,7 @@ fn convert_assignment(a: sp::Assignment) -> Result<Assignment, ParseError> {
                 let parts = path(n)?;
                 if parts.len() > 1 {
                     return Err(ParseError::Unsupported(
-                        "champ de composite dans une affectation multi-colonnes".to_string(),
+                        "composite field in a multi-column assignment".to_string(),
                     ));
                 }
                 cols.extend(parts);
@@ -2077,9 +2073,7 @@ fn convert_update(
     returning: Option<Vec<sp::SelectItem>>,
 ) -> Result<UpdateStmt, ParseError> {
     if !table.joins.is_empty() {
-        return Err(ParseError::Unsupported(
-            "UPDATE sur une jointure".to_string(),
-        ));
+        return Err(ParseError::Unsupported("UPDATE on a join".to_string()));
     }
     let tref = convert_target(table.relation)?;
 
@@ -2155,7 +2149,7 @@ fn convert_delete(del: sp::Delete) -> Result<DeleteStmt, ParseError> {
     })
 }
 
-/// Cible d'UPDATE / DELETE : une table nommée, éventuellement aliasée.
+/// UPDATE / DELETE target: a named table, possibly aliased.
 fn convert_target(factor: sp::TableFactor) -> Result<TargetTable, ParseError> {
     match factor {
         sp::TableFactor::Table {
@@ -2168,12 +2162,12 @@ fn convert_target(factor: sp::TableFactor) -> Result<TargetTable, ParseError> {
             alias: alias.map(|a| convert_ident(a.name)),
         }),
         other => Err(ParseError::Unsupported(format!(
-            "cible d'UPDATE/DELETE : {other}"
+            "UPDATE/DELETE target: {other}"
         ))),
     }
 }
 
-/// Liste `FROM` / `USING` : sources et jointures, sans rien perdre.
+/// `FROM` / `USING` list: sources and joins, losing nothing.
 fn convert_tables_with_joins(
     tables: Vec<sp::TableWithJoins>,
 ) -> Result<(Vec<TableRef>, Vec<Join>), ParseError> {
@@ -2188,7 +2182,7 @@ fn convert_tables_with_joins(
     Ok((sources, joins))
 }
 
-// ── Types, vues, DROP ─────────────────────────────────────────────────────────
+// ── Types, views, DROP ────────────────────────────────────────────────────────
 
 fn last_ident(name: sp::ObjectName) -> Result<Ident, ParseError> {
     name.0
@@ -2196,7 +2190,7 @@ fn last_ident(name: sp::ObjectName) -> Result<Ident, ParseError> {
         .filter_map(part_to_ident)
         .next_back()
         .map(convert_ident)
-        .ok_or_else(|| ParseError::Unsupported("nom vide".to_string()))
+        .ok_or_else(|| ParseError::Unsupported("empty name".to_string()))
 }
 
 fn drop(
@@ -2216,7 +2210,7 @@ fn drop(
     }))
 }
 
-/// `DROP FUNCTION/PROCEDURE f(types), …` : noms et signatures d'entrée.
+/// `DROP FUNCTION/PROCEDURE f(types), …`: names and input signatures.
 fn drop_routines(
     kind: ObjectKind,
     descs: Vec<sp::FunctionDesc>,
@@ -2266,12 +2260,12 @@ fn convert_create_type(
         }
         Some(other) => {
             return Err(ParseError::Unsupported(format!(
-                "CREATE TYPE {other} non modélisé"
+                "CREATE TYPE {other} not modeled"
             )));
         }
         None => {
             return Err(ParseError::Unsupported(
-                "CREATE TYPE sans définition (type shell)".to_string(),
+                "CREATE TYPE without a definition (shell type)".to_string(),
             ));
         }
     };
@@ -2321,7 +2315,7 @@ fn convert_create_view(cv: sp::CreateView) -> Result<CreateView, ParseError> {
 // ── CREATE TABLE ──────────────────────────────────────────────────────────────
 
 fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> {
-    // Formes que l'AST ne représente pas : refusées plutôt que perdues.
+    // Forms the AST does not represent: rejected rather than lost.
     let unsupported = [
         (ct.partition_of.is_some(), "PARTITION OF"),
         (ct.inherits.is_some(), "INHERITS"),
@@ -2332,7 +2326,7 @@ fn convert_create_table(ct: sp::CreateTable) -> Result<CreateTable, ParseError> 
     ];
     if let Some((_, what)) = unsupported.iter().find(|(set, _)| *set) {
         return Err(ParseError::Unsupported(format!(
-            "CREATE TABLE … {what} non modélisé"
+            "CREATE TABLE … {what} not modeled"
         )));
     }
     let as_query = ct
@@ -2435,14 +2429,14 @@ pub(crate) fn convert_column_def(col: sp::ColumnDef) -> Result<ColumnDef, ParseE
                         sp::GeneratedAs::ByDefault => Identity::ByDefault,
                         _ => Identity::Always,
                     });
-                    // Une colonne identité est implicitement NOT NULL.
+                    // An identity column is implicitly NOT NULL.
                     nullable = false;
                 }
             },
             sp::ColumnOption::Collation(_) | sp::ColumnOption::Comment(_) => {}
             other => {
                 return Err(ParseError::Unsupported(format!(
-                    "option de colonne non modélisée : {other}"
+                    "unmodeled column option: {other}"
                 )));
             }
         }
@@ -2513,10 +2507,10 @@ fn convert_referential_action(action: sp::ReferentialAction) -> ReferentialActio
 fn convert_create_index(ci: sp::CreateIndex) -> Result<CreateIndex, ParseError> {
     let name = ci.name.map(last_ident).transpose()?;
     let table = convert_object_name(ci.table_name);
-    // Rien d'écrit n'est perdu : ce que l'AST ne porte pas est refusé.
+    // Nothing written is lost: what the AST does not carry is rejected.
     if !ci.with.is_empty() || !ci.index_options.is_empty() || !ci.alter_options.is_empty() {
         return Err(ParseError::Unsupported(
-            "CREATE INDEX … WITH (paramètres de stockage) non modélisé".into(),
+            "CREATE INDEX … WITH (storage parameters) not modeled".into(),
         ));
     }
     let elements = ci
@@ -2524,7 +2518,7 @@ fn convert_create_index(ci: sp::CreateIndex) -> Result<CreateIndex, ParseError> 
         .into_iter()
         .map(|ic| {
             if ic.column.with_fill.is_some() {
-                return Err(ParseError::Unsupported("WITH FILL dans un index".into()));
+                return Err(ParseError::Unsupported("WITH FILL in an index".into()));
             }
             let expr = convert_expr(ic.column.expr)?;
             let element = match expr.kind {
@@ -2686,7 +2680,7 @@ fn convert_create_policy(
         .into_iter()
         .map(|owner| match owner {
             sp::Owner::Ident(id) => convert_ident(id),
-            // Mots-clés de rôle : non quotés, PostgreSQL les relit comme tels.
+            // Role keywords: unquoted, PostgreSQL reads them back as such.
             sp::Owner::CurrentRole => Ident::new("current_role"),
             sp::Owner::CurrentUser => Ident::new("current_user"),
             sp::Owner::SessionUser => Ident::new("session_user"),
@@ -2738,7 +2732,7 @@ pub(crate) fn convert_alter_table_op(
         } => {
             if column_position.is_some() {
                 return Err(ParseError::Unsupported(
-                    "position de colonne (FIRST / AFTER) hors PostgreSQL".to_string(),
+                    "non-PostgreSQL column position (FIRST / AFTER)".to_string(),
                 ));
             }
             Ok(AlterTableOp::AddColumn {
@@ -2753,7 +2747,7 @@ pub(crate) fn convert_alter_table_op(
             ..
         } => {
             let [name] = <[sp::Ident; 1]>::try_from(column_names).map_err(|_| {
-                ParseError::Unsupported("DROP COLUMN : une colonne par clause".to_string())
+                ParseError::Unsupported("DROP COLUMN: one column per clause".to_string())
             })?;
             Ok(AlterTableOp::DropColumn {
                 name: convert_ident(name),
@@ -2824,7 +2818,7 @@ fn convert_alter_column_op(op: sp::AlterColumnOperation) -> Result<AlterColumnAc
     }
 }
 
-/// `CASCADE` explicite ; `RESTRICT` est le comportement par défaut.
+/// Explicit `CASCADE`; `RESTRICT` is the default behavior.
 fn cascade(behavior: Option<sp::DropBehavior>) -> bool {
     matches!(behavior, Some(sp::DropBehavior::Cascade))
 }
@@ -2894,7 +2888,7 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
             precision: None,
         } => Ok(DataType::Interval),
         sp::DataType::Interval { .. } => Err(ParseError::Unsupported(
-            "INTERVAL avec champs ou précision".to_string(),
+            "INTERVAL with fields or precision".to_string(),
         )),
         // Boolean
         sp::DataType::Boolean | sp::DataType::Bool => Ok(DataType::Boolean),
@@ -2936,14 +2930,14 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
         }
         // Trigger return type
         sp::DataType::Trigger => Ok(DataType::Custom("trigger".to_string())),
-        // Types intégrés sans variante dédiée : nommés comme dans pg_catalog,
-        // résolus par le catalogue.
+        // Built-in types without a dedicated variant: named as in pg_catalog,
+        // resolved by the catalog.
         sp::DataType::Regclass => Ok(DataType::Custom("regclass".to_string())),
         sp::DataType::TsVector => Ok(DataType::Custom("tsvector".to_string())),
         sp::DataType::TsQuery => Ok(DataType::Custom("tsquery".to_string())),
         sp::DataType::GeometricType(kind) => Ok(DataType::Custom(kind.to_string().to_lowercase())),
-        // `bit` sans longueur est `bit(1)` ; `bit varying` sans longueur n'a
-        // pas de limite (`gram.y`, `Bit`).
+        // `bit` without a length is `bit(1)`; `bit varying` without a length has
+        // no limit (`gram.y`, `Bit`).
         sp::DataType::Bit(n) => Ok(DataType::Modified {
             name: "bit".to_string(),
             modifiers: vec![n.unwrap_or(1).to_string()],
@@ -2964,10 +2958,10 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
 
 // ── Identifier helpers ────────────────────────────────────────────────────────
 
-/// Identifiant tel que PostgreSQL le comprend : non quoté, il est replié en
-/// minuscules (ASCII seulement, comme `downcase_identifier` en UTF-8) ;
-/// quoté, il est conservé tel quel. `"MenuComponent"` et `MenuComponent`
-/// désignent deux objets distincts.
+/// Identifier as PostgreSQL understands it: unquoted, it is folded to
+/// lowercase (ASCII only, like `downcase_identifier` in UTF-8);
+/// quoted, it is kept as is. `"MenuComponent"` and `MenuComponent`
+/// denote two distinct objects.
 pub(crate) fn convert_ident(id: sp::Ident) -> Ident {
     match id.quote_style {
         Some(_) => Ident {
@@ -2995,29 +2989,29 @@ pub(crate) fn convert_object_name(name: sp::ObjectName) -> ObjectName {
     )
 }
 
-// ── Résolution des positions ──────────────────────────────────────────────────
+// ── Position resolution ───────────────────────────────────────────────────────
 
-/// Contexte de conversion des positions sqlparser en offsets octets.
+/// Context for converting sqlparser positions into byte offsets.
 ///
-/// sqlparser rend les positions en `Location { line, column }`, 1-basées et
-/// comptées en **caractères**, relatives au texte qui lui a été soumis. Pour en
-/// faire un offset octet dans le document il faut ce texte et l'offset du
-/// statement dans le document.
+/// sqlparser returns positions as `Location { line, column }`, 1-based and
+/// counted in **characters**, relative to the text it was given. To turn
+/// them into a byte offset in the document, that text and the statement's
+/// offset in the document are needed.
 ///
-/// Ce contexte est ambiant (thread-local) plutôt que passé en paramètre :
-/// `convert_expr` est atteint depuis 11 fonctions et 212 sites d'appel internes
-/// à ce module, et l'information n'intéresse aucun des intermédiaires. Il est
-/// posé par [`convert_statement_at`] et retiré par un garde RAII, donc il ne
-/// peut pas fuir d'un statement au suivant. Étant thread-local, un parse
-/// parallèle reste correct.
+/// This context is ambient (thread-local) rather than passed as a parameter:
+/// `convert_expr` is reached from 11 functions and 212 internal call sites
+/// in this module, and none of the intermediaries care about it. It is
+/// set by [`convert_statement_at`] and removed by a RAII guard, so it cannot
+/// leak from one statement to the next. Being thread-local, a parallel
+/// parse stays correct.
 struct SpanCtx {
-    /// Offset octet du début de chaque ligne du texte soumis à sqlparser.
+    /// Byte offset of the start of each line of the text given to sqlparser.
     line_starts: Vec<usize>,
-    /// Texte soumis, pour convertir une colonne-caractère en offset octet.
+    /// Submitted text, to convert a character column into a byte offset.
     source: String,
-    /// Offset du statement dans le texte soumis au parser.
+    /// Offset of the statement in the text given to the parser.
     stmt_offset: usize,
-    /// Comment traduire un offset local vers le repère du document.
+    /// How to translate a local offset into the document's frame.
     offsets: crate::Offsets,
 }
 
@@ -3037,12 +3031,12 @@ impl SpanCtx {
         }
     }
 
-    /// `Location` (ligne/colonne 1-basées, colonne en caractères) → offset octet
-    /// **local au texte soumis**. La traduction vers le document se fait dans
-    /// [`Self::resolve`], qui dispose de la plage complète.
+    /// `Location` (1-based line/column, column in characters) → byte offset
+    /// **local to the submitted text**. Translation into the document happens in
+    /// [`Self::resolve`], which has the full range.
     fn local_offset_of(&self, line: u64, column: u64) -> Option<usize> {
         if line == 0 {
-            // sqlparser utilise la ligne 0 pour un span vide.
+            // sqlparser uses line 0 for an empty span.
             return None;
         }
         let line_start = *self.line_starts.get((line - 1) as usize)?;
@@ -3053,8 +3047,8 @@ impl SpanCtx {
             .unwrap_or(self.source.len());
         let line_text = self.source.get(line_start..line_end)?;
 
-        // Avancer de (column - 1) caractères, pas d'octets : une colonne after
-        // un accent ne correspond pas au même nombre d'octets.
+        // Advance by (column - 1) characters, not bytes: a column after
+        // an accent does not correspond to the same number of bytes.
         let char_offset = (column.saturating_sub(1)) as usize;
         let byte_in_line = line_text
             .char_indices()
@@ -3065,9 +3059,9 @@ impl SpanCtx {
         Some(self.stmt_offset + line_start + byte_in_line)
     }
 
-    /// Position du `*` de `f(*)` : premier caractère significatif après la
-    /// première parenthèse qui suit le début de l'appel. sqlparser ne la
-    /// conserve pas, et le span qu'il donne à l'appel s'arrête alors au nom.
+    /// Position of the `*` in `f(*)`: first significant character after the
+    /// first parenthesis following the start of the call. sqlparser does not
+    /// keep it, and the span it gives the call then stops at the name.
     fn star_in_call(&self, call: sqlparser::tokenizer::Span) -> Span {
         let Some(start) = self.local_offset_of(call.start.line, call.start.column) else {
             return Span::DUMMY;
@@ -3091,7 +3085,7 @@ impl SpanCtx {
         }
     }
 
-    /// Plage sqlparser → span dans le repère du document.
+    /// sqlparser range → span in the document's frame.
     fn resolve(&self, sp_span: sqlparser::tokenizer::Span) -> Span {
         let Some(start) = self.local_offset_of(sp_span.start.line, sp_span.start.column) else {
             return Span::DUMMY;
@@ -3115,9 +3109,9 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-/// Garde RAII : restaure le contexte de position précédent à la sortie de
-/// portée. Les contextes s'empilent : le corps d'une routine est parsé à
-/// l'intérieur du parse de son fichier, et le fichier doit retrouver son
+/// RAII guard: restores the previous position context when going out of
+/// scope. Contexts stack: a routine's body is parsed inside the parse of
+/// its file, and the file must get its context back afterwards.
 /// contexte ensuite.
 pub(crate) struct SpanCtxGuard {
     previous: Option<SpanCtx>,
@@ -3130,9 +3124,9 @@ impl Drop for SpanCtxGuard {
     }
 }
 
-/// Entre dans le contexte de position d'un texte : `source` est le texte
-/// soumis au tokenizer, `stmt_offset` sa position dans le texte soumis au
-/// parse englobant, `offsets` la traduction vers le document.
+/// Enters the position context of a text: `source` is the text given to
+/// the tokenizer, `stmt_offset` its position in the text given to the
+/// enclosing parse, `offsets` the translation into the document.
 pub(crate) fn enter_span_ctx(
     source: &str,
     stmt_offset: usize,
@@ -3142,13 +3136,13 @@ pub(crate) fn enter_span_ctx(
     SpanCtxGuard { previous }
 }
 
-/// Span d'une expression sqlparser, en offsets octets dans le document.
+/// Span of a sqlparser expression, in byte offsets in the document.
 ///
-/// Renvoie [`Span::DUMMY`] hors contexte de position — c'est-à-dire quand
-/// l'appelant a utilisé [`convert_statement`] plutôt que
-/// [`convert_statement_at`], ou quand le texte soumis à sqlparser a été réécrit
-/// avant le parse et que les positions ne correspondent plus au document.
-/// Mieux vaut pas de span qu'un span faux.
+/// Returns [`Span::DUMMY`] outside a position context — that is, when
+/// the caller used [`convert_statement`] rather than
+/// [`convert_statement_at`], or when the text given to sqlparser was rewritten
+/// before parsing and the positions no longer match the document.
+/// Better no span than a wrong span.
 fn sp_expr_span(expr: &sp::Expr) -> Span {
     use sqlparser::ast::Spanned;
     let sp_span = expr.span();

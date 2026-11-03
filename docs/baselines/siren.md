@@ -1,99 +1,99 @@
-# Corpus `siren` — taux d'analyse
+# Corpus `siren` — analysis rate
 
-> Généré le 2026-11-03 par `cargo xtask corpus siren` (pgweave `d49e938`).
-> Fichiers retenus : Diesel : `*/up.sql`, triés par répertoire horodaté.
-> Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.
+> Generated on 2026-11-03 by `cargo xtask corpus siren` (pgweave `d49e938`).
+> Files selected: Diesel: `*/up.sql`, sorted by timestamped directory.
+> Aggregates only: no identifier from the corpus appears here.
 
-## Lecture
+## Reading
 
-| Mesure | Valeur |
+| Measure | Value |
 |---|--:|
-| Fichiers | 21 |
-| Fichiers illisibles | 0 |
+| Files | 21 |
+| Unreadable files | 0 |
 | Statements | 294 |
-| Analysés (dans l'AST) | 294 (100 %) |
-| Écartés : illisibles pour sqlparser | 0 |
-| Écartés : non modélisés | 0 |
-| Fonctions et procédures | 10 |
-| Corps PL/pgSQL analysés | 5 |
-| Corps `LANGUAGE sql` analysés | 5 |
-| Corps non analysés | 0 |
+| Analyzed (in the AST) | 294 (100 %) |
+| Skipped: unreadable by sqlparser | 0 |
+| Skipped: not modeled | 0 |
+| Functions and procedures | 10 |
+| PL/pgSQL bodies analyzed | 5 |
+| `LANGUAGE sql` bodies analyzed | 5 |
+| Bodies not analyzed | 0 |
 
-## Diagnostics de `check`
+## `check` diagnostics
 
-Chaque migration est vérifiée contre le catalogue rejoué jusqu'à elle (incluse), catalogue `postgres@18` et extensions compris. Les migrations ayant été appliquées en production, une erreur est a priori un faux positif.
+Each migration is checked against the catalog replayed up to it (inclusive), including the `postgres@18` catalog and extensions. Since the migrations have been applied in production, an error is presumably a false positive.
 
-Fichiers avec au moins une erreur : 0/21. Statements absents de l'index : 0.
+Files with at least one error: 0/21. Statements missing from the index: 0.
 
-| Sévérité | Code | Nombre |
+| Severity | Code | Count |
 |---|---|--:|
 | warning | `trigger-no-context` | 1 |
 
-## Rejeu sur PostgreSQL
+## Replay on PostgreSQL
 
-PostgreSQL 18 : 21/21 migrations appliquées sur une base vierge.
+PostgreSQL 18: 21/21 migrations applied on a fresh database.
 
-## Catalogue reconstruit par pgweave
+## Catalog rebuilt by pgweave
 
-Rejeu des migrations dans l'ordre sur le catalogue `postgres@18` (packs d'extension compris).
+Replay of the migrations in order on the `postgres@18` catalog (extension packs included).
 
-| Diagnostic du rejeu | Nombre |
+| Replay diagnostic | Count |
 |---|--:|
 | `ddl-not-replayed` | 4 |
 
-Comparaison au catalogue réel (objets du projet, hors membres d'extensions ; expressions comparées par leur présence) :
+Comparison with the real catalog (project objects, excluding extension members; expressions compared by presence):
 
-| Objets | Réels | Identiques | Non établis (P3) | Différents | Manquants | En trop |
+| Objects | Real | Identical | Not established (P3) | Different | Missing | Extra |
 |---|--:|--:|--:|--:|--:|--:|
-| colonnes | 232 | 232 | 0 | 0 | 0 | 0 |
-| contraintes | 12 | 12 | 0 | 0 | 0 | 0 |
+| columns | 232 | 232 | 0 | 0 | 0 | 0 |
+| constraints | 12 | 12 | 0 | 0 | 0 | 0 |
 | extensions | 5 | 5 | 0 | 0 | 0 | 0 |
-| index | 45 | 45 | 0 | 0 | 0 | 0 |
+| indexes | 45 | 45 | 0 | 0 | 0 | 0 |
 | policies | 0 | 0 | 0 | 0 | 0 | 0 |
 | relations | 12 | 12 | 0 | 0 | 0 | 0 |
 | routines | 8 | 8 | 0 | 0 | 0 | 0 |
-| schémas | 1 | 1 | 0 | 0 | 0 | 0 |
-| séquences | 3 | 3 | 0 | 0 | 0 | 0 |
+| schemas | 1 | 1 | 0 | 0 | 0 | 0 |
+| sequences | 3 | 3 | 0 | 0 | 0 | 0 |
 | triggers | 2 | 0 | 0 | 0 | 2 | 0 |
 | types | 12 | 12 | 0 | 0 | 0 | 0 |
 
-## Import (schéma déclaratif)
+## Import (declarative schema)
 
-Le catalogue reconstruit, exporté en SQL (`pgweave_catalog::dump`) et appliqué à une base vierge, comparé au catalogue réel des migrations :
+The rebuilt catalog, exported as SQL (`pgweave_catalog::dump`) and applied to a fresh database, compared with the real catalog of the migrations:
 
-| Objets | Réels | Identiques | Différents | Manquants | En trop |
+| Objects | Real | Identical | Different | Missing | Extra |
 |---|--:|--:|--:|--:|--:|
-| colonnes | 232 | 232 | 0 | 0 | 0 |
-| contraintes | 12 | 12 | 0 | 0 | 0 |
+| columns | 232 | 232 | 0 | 0 | 0 |
+| constraints | 12 | 12 | 0 | 0 | 0 |
 | extensions | 5 | 5 | 0 | 0 | 0 |
-| index | 45 | 45 | 0 | 0 | 0 |
+| indexes | 45 | 45 | 0 | 0 | 0 |
 | policies | 0 | 0 | 0 | 0 | 0 |
 | relations | 12 | 12 | 0 | 0 | 0 |
 | routines | 8 | 8 | 0 | 0 | 0 |
-| schémas | 1 | 1 | 0 | 0 | 0 |
-| séquences | 3 | 3 | 0 | 0 | 0 |
+| schemas | 1 | 1 | 0 | 0 | 0 |
+| sequences | 3 | 3 | 0 | 0 | 0 |
 | triggers | 2 | 0 | 0 | 2 | 0 |
 | types | 12 | 12 | 0 | 0 | 0 |
 
-Au texte près, selon PostgreSQL (`format_type`, `pg_get_*def` : défauts, index, vues, corps de routines ; oracle des migrations de P7, noms des contraintes NOT NULL exceptés), 386 ligne(s) de description comparée(s) : 2 propre(s) aux migrations, 0 propre(s) à l'import.
+Text-exact, according to PostgreSQL (`format_type`, `pg_get_*def`: defaults, indexes, views, routine bodies; P7 migration oracle, NOT NULL constraint names excepted), 386 description line(s) compared: 2 only in the migrations, 0 only in the import.
 
-## Requêtes générées (oracle)
+## Generated queries (oracle)
 
-Sondes tirées du catalogue reconstruit, préparées par PostgreSQL sur la base des migrations et décrites par `pgweave-sema` (types des paramètres, noms et types des colonnes ; un refus des deux côtés compte comme accord). Les requêtes des corps de routines en vigueur sont préparées avec leurs variables en paramètres typés (`PREPARE`), comme PL/pgSQL les exécute ; seuls les types des colonnes sont comparés :
+Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations' database and described by `pgweave-sema` (parameter types, column names and types; a refusal on both sides counts as agreement). Queries from the bodies of current routines are prepared with their variables as typed parameters (`PREPARE`), the way PL/pgSQL executes them; only column types are compared:
 
-| Sonde | Total | Identiques |
+| Probe | Total | Identical |
 |---|--:|--:|
 | INSERT … VALUES ($1) | 232 | 232 |
 | SELECT * | 12 | 12 |
-| WHERE colonne = $1 | 232 | 232 |
-| requête de corps de routine | 10 | 10 |
+| WHERE column = $1 | 232 | 232 |
+| routine body query | 10 | 10 |
 
-Requêtes de corps non sondées (non analysées par pgweave, ou variable sans position dans l'AST) : 0.
+Body queries not probed (not analyzed by pgweave, or variable without a position in the AST): 0.
 
-## Temps (indicatif, dépend de la machine)
+## Time (indicative, machine-dependent)
 
-| Étape | Durée |
+| Step | Duration |
 |---|--:|
-| Parse de tous les fichiers | 29 ms |
-| Vérification de tous les fichiers | 100 ms |
-| Rejeu sur le catalogue (`pgweave-catalog`) | 40 ms |
+| Parse all files | 29 ms |
+| Check all files | 100 ms |
+| Replay on the catalog (`pgweave-catalog`) | 40 ms |

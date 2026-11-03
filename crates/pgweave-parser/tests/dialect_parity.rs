@@ -1,15 +1,15 @@
-//! `PgweaveDialect` doit se comporter comme `PostgreSqlDialect`, sauf sur les
-//! compléments documentés (`src/dialect.rs`).
+//! `PgweaveDialect` must behave like `PostgreSqlDialect`, except for the
+//! documented additions (`src/dialect.rs`).
 
 use pgweave_parser::dialect::PgweaveDialect;
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
-/// Version de sqlparser pour laquelle la liste `DELEGATED` a été établie.
+/// sqlparser version for which the `DELEGATED` list was established.
 const AUDITED_SQLPARSER_VERSION: &str = "0.62.0";
 
 #[test]
-fn la_version_de_sqlparser_est_celle_qui_a_ete_auditee() {
+fn the_sqlparser_version_is_the_audited_one() {
     let lock = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.lock"))
         .expect("Cargo.lock");
     let version = lock
@@ -17,12 +17,12 @@ fn la_version_de_sqlparser_est_celle_qui_a_ete_auditee() {
         .find(|p| p.contains("\nname = \"sqlparser\"\n"))
         .and_then(|p| p.lines().find_map(|l| l.strip_prefix("version = \"")))
         .map(|v| v.trim_end_matches('"').to_string())
-        .expect("sqlparser dans Cargo.lock");
+        .expect("sqlparser in Cargo.lock");
     assert_eq!(
         version, AUDITED_SQLPARSER_VERSION,
-        "sqlparser a changé de version : revoir la liste des méthodes que \
-         PostgreSqlDialect redéfinit (src/dialect.rs, DELEGATED), puis mettre \
-         à jour AUDITED_SQLPARSER_VERSION"
+        "sqlparser changed version: review the list of methods that \
+         PostgreSqlDialect overrides (src/dialect.rs, DELEGATED), then update \
+         AUDITED_SQLPARSER_VERSION"
     );
 }
 
@@ -50,13 +50,13 @@ fn meme_ast_que_postgresql_hors_complements() {
     for sql in corpus {
         let ours = Parser::parse_sql(&PgweaveDialect, sql).map_err(|e| e.to_string());
         let theirs = Parser::parse_sql(&PostgreSqlDialect {}, sql).map_err(|e| e.to_string());
-        assert_eq!(ours, theirs, "divergence sur : {sql}");
+        assert_eq!(ours, theirs, "divergence on: {sql}");
         assert!(ours.is_ok(), "{sql} : {ours:?}");
     }
 }
 
 #[test]
-fn complements_trim_et_colonnes_generees() {
+fn additions_trim_and_generated_columns() {
     for sql in [
         "SELECT trim(both from ' x ')",
         "SELECT trim(leading from a), trim(from b)",
@@ -66,7 +66,7 @@ fn complements_trim_et_colonnes_generees() {
     ] {
         assert!(
             Parser::parse_sql(&PostgreSqlDialect {}, sql).is_err() || sql.contains("STORED"),
-            "si sqlparser le lit désormais, le complément est à retirer : {sql}"
+            "if sqlparser now reads it, the addition should be removed: {sql}"
         );
         let parsed = Parser::parse_sql(&PgweaveDialect, sql);
         assert!(parsed.is_ok(), "{sql} : {parsed:?}");

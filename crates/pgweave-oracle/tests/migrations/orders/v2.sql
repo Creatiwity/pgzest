@@ -1,6 +1,6 @@
--- Deuxième version : extension et schéma, valeur d'enum au milieu,
--- colonnes ajoutées, type élargi sous une vue, corps de fonction modifié,
--- CHECK, sécurité par ligne, commentaires.
+-- Second version: extension and schema, enum value in the middle,
+-- added columns, type widened under a view, modified function body,
+-- CHECK, row-level security, comments.
 CREATE EXTENSION citext;
 CREATE SCHEMA audit;
 
@@ -17,7 +17,7 @@ CREATE TABLE customers (
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY customers_owner ON customers USING (owner = current_user);
 COMMENT ON TABLE customers IS 'Clients';
-COMMENT ON COLUMN customers.loyalty IS 'Points de fidélité';
+COMMENT ON COLUMN customers.loyalty IS 'Loyalty points';
 
 CREATE TABLE orders (
   id BIGSERIAL PRIMARY KEY,

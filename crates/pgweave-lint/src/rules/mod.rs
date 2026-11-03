@@ -13,7 +13,7 @@ use pgweave_diagnostics::Diagnostic;
 
 use crate::config::LintConfig;
 
-/// Convertit un span AST (u32) en span de diagnostic (usize).
+/// Converts an AST span (u32) into a diagnostic span (usize).
 fn to_diag_span(span: pgweave_ast::Span) -> pgweave_diagnostics::Span {
     pgweave_diagnostics::Span {
         start: span.start as usize,
@@ -21,16 +21,16 @@ fn to_diag_span(span: pgweave_ast::Span) -> pgweave_diagnostics::Span {
     }
 }
 
-/// Attache le span de `stmt` aux diagnostics qui n'en ont pas.
+/// Attaches the span of `stmt` to diagnostics that have none.
 ///
-/// Les règles n'ont pas à s'en occuper : elles inspectent des nœuds qui, pour
-/// la plupart (`Expr`, `Ident`, `ColumnRef`), ne portent aucun span. Sans ça
-/// tous les diagnostics de lint se rapportaient en `1:1`, ce qui les rendait
-/// inexploitables dans l'éditeur et impossibles à cibler avec une directive
-/// `-- pgweave-disable-next-line`.
+/// Rules do not have to deal with it: most of the nodes they inspect
+/// (`Expr`, `Ident`, `ColumnRef`) carry no span. Without this, every lint
+/// diagnostic was reported at `1:1`, which made them useless in the editor
+/// and impossible to target with a
+/// `-- pgweave-disable-next-line` directive.
 ///
-/// Un span déjà présent est conservé : une règle capable d'être plus précise
-/// que le statement garde sa précision.
+/// A span already present is kept: a rule able to be more precise than the
+/// statement keeps its precision.
 fn attach_span(diags: &mut [Diagnostic], stmt: &Statement) {
     let Some(span) = stmt_span(stmt) else { return };
     let diag_span = to_diag_span(span);

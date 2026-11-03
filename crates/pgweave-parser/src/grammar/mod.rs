@@ -1,9 +1,9 @@
-//! Grammaire propre à pgweave : les statements que sqlparser ne lit pas, ou
-//! que son AST ne sait pas représenter, écrits pour PostgreSQL 18.
+//! pgweave's own grammar: statements sqlparser does not read, or
+//! that its AST cannot represent, written for PostgreSQL 18.
 //!
-//! Chaque règle pilote le `Parser` de sqlparser et réutilise ses méthodes
-//! publiques pour ce qui est commun (noms, types, expressions, requêtes). Le
-//! reste des statements passe par `Parser::parse_statement`.
+//! Each rule drives sqlparser's `Parser` and reuses its public methods
+//! for what is common (names, types, expressions, queries). The
+//! remaining statements go through `Parser::parse_statement`.
 
 pub(crate) mod ddl;
 pub(crate) mod returning;
@@ -15,8 +15,8 @@ use pgweave_ast::Statement;
 use crate::error::ParseError;
 use routine::RoutineBody;
 
-/// Statement lu par la grammaire de pgweave, avec le corps à analyser s'il
-/// s'agit d'une routine. `None` : le statement relève de sqlparser.
+/// Statement read by pgweave's grammar, with the body to analyze if it
+/// is a routine. `None`: the statement belongs to sqlparser.
 pub(crate) fn parse(
     p: &mut Parser,
     ctx: &Ctx,
@@ -61,8 +61,8 @@ use sqlparser::tokenizer::{Location, Token};
 
 use crate::split::LineIndex;
 
-/// Contexte du texte en cours de parse : pour convertir les positions des
-/// tokens en offsets octets.
+/// Context of the text being parsed: to convert token positions
+/// into byte offsets.
 pub(crate) struct Ctx<'a> {
     pub text: &'a str,
     pub index: &'a LineIndex,
@@ -74,7 +74,7 @@ impl Ctx<'_> {
     }
 }
 
-/// Mot-clé du `n`-ième token significatif à venir.
+/// Keyword of the `n`-th upcoming significant token.
 pub(crate) fn keyword_at(p: &Parser, n: usize) -> Option<Keyword> {
     match &p.peek_nth_token_ref(n).token {
         Token::Word(w) => Some(w.keyword),

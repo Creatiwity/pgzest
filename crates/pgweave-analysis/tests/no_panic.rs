@@ -1,14 +1,13 @@
-//! Aucune entrée ne fait paniquer la chaîne parse → analyse → émission.
+//! No input makes the parse → analysis → emission chain panic.
 //!
-//! Fuzzing déterministe, exécuté à chaque `cargo test` : chaque fichier SQL
-//! du dépôt (exemples, cas de l'oracle) est tronqué à de nombreuses
-//! positions et muté (suppressions, duplications, insertions de fragments
-//! qui ouvrent ou ferment des constructions). Le générateur est à graine
-//! fixe : un échec se reproduit à l'identique, et le message donne la
-//! variante fautive.
+//! Deterministic fuzzing, run on every `cargo test`: each SQL file of the
+//! repository (examples, oracle cases) is truncated at many positions and
+//! mutated (deletions, duplications, insertions of fragments that open or
+//! close constructs). The generator has a fixed seed: a failure reproduces
+//! identically, and the message gives the faulty variant.
 //!
-//! Un éditeur envoie au LSP un texte à moitié tapé à chaque frappe : une
-//! panique y est un plantage de l'outil, pas un diagnostic.
+//! An editor sends the LSP half-typed text on every keystroke: a panic there
+//! is a crash of the tool, not a diagnostic.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -20,8 +19,8 @@ use pgweave_catalog::ProjectCatalog;
 use pgweave_codegen::emit::emit_statement;
 use pgweave_macro::MacroSet;
 
-/// Variantes par fichier, pour chaque famille (troncature, mutation).
-/// `PGWEAVE_FUZZ_PER_FILE` l'augmente pour une passe locale approfondie.
+/// Variants per file, for each family (truncation, mutation).
+/// `PGWEAVE_FUZZ_PER_FILE` raises it for a thorough local pass.
 const PER_FILE: usize = 120;
 
 fn per_file() -> usize {
@@ -31,9 +30,8 @@ fn per_file() -> usize {
         .unwrap_or(PER_FILE)
 }
 
-/// Fragments insérés : délimiteurs et mots qui ouvrent ou ferment une
-/// construction, là où un parser incrémental a le plus de chances de se
-/// perdre.
+/// Inserted fragments: delimiters and words that open or close a construct,
+/// where an incremental parser is most likely to get lost.
 const FRAGMENTS: &[&str] = &[
     "(",
     ")",
@@ -71,7 +69,7 @@ const FRAGMENTS: &[&str] = &[
     "@function",
     "{",
     "}",
-    "é",
+    "\u{e9}",
     "\u{0}",
 ];
 
@@ -99,11 +97,7 @@ fn seeds() -> Vec<(PathBuf, String)> {
         collect(&root.join(dir), &mut out);
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
-    assert!(
-        out.len() >= 10,
-        "corpus de graines trop maigre : {}",
-        out.len()
-    );
+    assert!(out.len() >= 10, "seed corpus too thin: {}", out.len());
     out
 }
 
@@ -123,7 +117,7 @@ fn collect(dir: &Path, out: &mut Vec<(PathBuf, String)>) {
     }
 }
 
-/// Position valide (frontière de caractère) la plus proche avant `i`.
+/// Nearest valid position (char boundary) before `i`.
 fn floor_boundary(s: &str, mut i: usize) -> usize {
     i = i.min(s.len());
     while !s.is_char_boundary(i) {
@@ -135,7 +129,7 @@ fn floor_boundary(s: &str, mut i: usize) -> usize {
 fn variants(text: &str, rng: &mut XorShift) -> Vec<String> {
     let n = per_file();
     let mut out = Vec::new();
-    // Troncatures, réparties sur tout le texte.
+    // Truncations, spread over the whole text.
     for k in 1..=n {
         out.push(text[..floor_boundary(text, text.len() * k / n)].to_string());
     }
@@ -164,8 +158,8 @@ fn variants(text: &str, rng: &mut XorShift) -> Vec<String> {
     out
 }
 
-/// Tout ce qu'un client fait d'une source : analyse simple, analyse avec
-/// macros, réémission de ce qui a été lu.
+/// Everything a client does with a source: plain analysis, analysis with
+/// macros, re-emission of what was read.
 fn exercise(sql: &str, macros: &MacroSet) {
     let opts = AnalysisOptions::default();
     let _ = analyze_source_self_contained(sql, &opts);
@@ -179,7 +173,7 @@ fn exercise(sql: &str, macros: &MacroSet) {
 }
 
 #[test]
-fn aucune_variante_ne_fait_paniquer() {
+fn no_variant_panics() {
     let macros = MacroSet::builtin();
     let mut rng = XorShift(0x9e37_79b9_7f4a_7c15);
     let previous = std::panic::take_hook();
@@ -197,7 +191,7 @@ fn aucune_variante_ne_fait_paniquer() {
                     .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
                     .unwrap_or_default();
                 failures.push(format!(
-                    "{} : {msg}\n--- variante ---\n{v}\n---",
+                    "{} : {msg}\n--- variant ---\n{v}\n---",
                     path.display()
                 ));
             }
@@ -207,7 +201,7 @@ fn aucune_variante_ne_fait_paniquer() {
     std::panic::set_hook(previous);
     assert!(
         failures.is_empty(),
-        "{} panique(s) sur {total} variantes ; premières :\n{}",
+        "{} panic(s) over {total} variants; first ones:\n{}",
         failures.len(),
         failures
             .iter()

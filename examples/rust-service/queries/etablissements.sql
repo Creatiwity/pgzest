@@ -17,7 +17,7 @@ DELETE FROM etablissements_staging;
 SELECT count(*) AS n FROM etablissements;
 
 -- name: search_etablissements :many
--- Recherche plein texte, servie par l'index `etablissements_search`.
+-- Full-text search, served by the `etablissements_search` index.
 SELECT e.siret, e.nom
 FROM etablissements e
 WHERE @etablissement_search(e) @@ plainto_tsquery('french', $q)

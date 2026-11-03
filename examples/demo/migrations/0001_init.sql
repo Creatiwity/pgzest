@@ -1,12 +1,12 @@
 -- pgweave: postgres=18 extensions=citext@1.8
--- Restaurants, plats, clients et commandes.
+-- Restaurants, dishes, customers and orders.
 
 CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TYPE dish_kind AS ENUM ('starter', 'main', 'dessert', 'drink');
 CREATE TYPE order_status AS ENUM ('draft', 'placed', 'served', 'cancelled');
 
--- Un prix en centimes, jamais négatif.
+-- A price in cents, never negative.
 CREATE DOMAIN cents AS INTEGER CHECK (VALUE >= 0);
 
 CREATE TABLE restaurants (
@@ -36,7 +36,7 @@ CREATE TABLE customers (
     phone      TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Comme Prisma pose ses `@unique` : un index unique, pas une contrainte.
+-- The way Prisma sets its `@unique`: a unique index, not a constraint.
 CREATE UNIQUE INDEX customers_email_key ON customers (email);
 
 CREATE TABLE orders (
@@ -61,8 +61,8 @@ CREATE INDEX orders_restaurant_idx ON orders (restaurant_id);
 CREATE INDEX orders_customer_idx ON orders (customer_id);
 CREATE INDEX order_items_dish_idx ON order_items (dish_id);
 
--- Horodatage de mise à jour, partagé par plusieurs tables : le corps est
--- vérifié une fois par table (NEW y a le type de chacune).
+-- Update timestamp, shared by several tables: the body is checked once
+-- per table (there, NEW has the type of each one).
 CREATE FUNCTION touch_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     NEW.updated_at := now();
@@ -75,7 +75,7 @@ CREATE TRIGGER restaurants_touch BEFORE UPDATE ON restaurants
 CREATE TRIGGER orders_touch BEFORE UPDATE ON orders
     FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
--- Total d'une commande, en centimes.
+-- Total of an order, in cents.
 CREATE FUNCTION order_total(p_order BIGINT) RETURNS BIGINT LANGUAGE sql STABLE AS $$
     SELECT coalesce(sum(quantity * unit_price), 0)::bigint
     FROM order_items

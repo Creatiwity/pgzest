@@ -33,12 +33,11 @@ impl LineIndex {
 }
 
 impl LineIndex {
-    /// L'inverse : (ligne, caractère) → offset octet.
+    /// The inverse: (line, character) → byte offset.
     ///
-    /// Les colonnes LSP comptent des unités UTF-16 ; on approxime par des
-    /// caractères, ce qui coïncide hors plan astral (émojis). Suffisant pour
-    /// situer un curseur dans du SQL, et borné à la ligne pour ne jamais
-    /// déborder.
+    /// LSP columns count UTF-16 units; this approximates with characters,
+    /// which coincide outside the astral plane (emojis). Enough to locate a
+    /// cursor in SQL, and clamped to the line so it never overflows.
     pub fn offset_at(&self, line: usize, character: usize) -> usize {
         let Some(&start) = self.line_starts.get(line) else {
             return 0;
@@ -57,7 +56,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn offset_at_est_l_inverse_de_offset_to_position() {
+    fn offset_at_is_the_inverse_of_offset_to_position() {
         let text = "SELECT 1;\nSELECT 2;\nSELECT 3;";
         let idx = LineIndex::new(text);
         for offset in [0u32, 5, 10, 15, 20, 25] {
@@ -65,21 +64,21 @@ mod tests {
             assert_eq!(
                 idx.offset_at(line as usize, col as usize),
                 offset as usize,
-                "aller-retour sur l'offset {offset}"
+                "round trip on offset {offset}"
             );
         }
     }
 
     #[test]
-    fn offset_at_est_borne_a_la_ligne() {
+    fn offset_at_is_clamped_to_the_line() {
         let text = "ab\ncd\n";
         let idx = LineIndex::new(text);
-        // Colonne bien au-delà de la fin de la ligne 0 : borné avant le \n.
+        // Column well past the end of line 0: clamped before the \n.
         assert!(idx.offset_at(0, 99) < 3);
     }
 
     #[test]
-    fn une_ligne_inexistante_renvoie_zero() {
+    fn a_missing_line_returns_zero() {
         let idx = LineIndex::new("ab");
         assert_eq!(idx.offset_at(42, 0), 0);
     }

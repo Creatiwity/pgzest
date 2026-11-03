@@ -1,7 +1,7 @@
-# pgweave — développement
+# pgweave — development
 #
-# Point d'entrée unique. `make help` liste les cibles.
-# Démarrage à froid :  make bootstrap && make demo
+# Single entry point. `make help` lists the targets.
+# Cold start:  make bootstrap && make demo
 
 SHELL := /bin/bash
 CARGO ?= cargo
@@ -14,105 +14,105 @@ EXAMPLES  := examples
 
 .DEFAULT_GOAL := help
 
-# ── Aide ─────────────────────────────────────────────────────────────────────
+# ── Help ─────────────────────────────────────────────────────────────────────
 
 .PHONY: help
-help: ## Affiche cette aide
-	@echo "pgweave — cibles disponibles :"
+help: ## Show this help
+	@echo "pgweave — available targets:"
 	@echo
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | sort \
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 	@echo
-	@echo "Démarrage à froid :  make bootstrap && make demo"
+	@echo "Cold start:  make bootstrap && make demo"
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 
 .PHONY: bootstrap
-bootstrap: ## Installe toutes les dépendances (Rust + npm) et vérifie l'outillage
-	@echo "==> Vérification de l'outillage"
-	@command -v $(CARGO) >/dev/null || { echo "cargo introuvable — installe Rust: https://rustup.rs"; exit 1; }
+bootstrap: ## Install all dependencies (Rust + npm) and check the tooling
+	@echo "==> Checking the tooling"
+	@command -v $(CARGO) >/dev/null || { echo "cargo not found — install Rust: https://rustup.rs"; exit 1; }
 	@$(CARGO) --version
-	@command -v $(NPM) >/dev/null || { echo "npm introuvable — installe Node.js >= 18"; exit 1; }
+	@command -v $(NPM) >/dev/null || { echo "npm not found — install Node.js >= 18"; exit 1; }
 	@$(NPM) --version
 	@command -v wasm-pack >/dev/null \
-	  || echo "  (!) wasm-pack absent — 'make wasm' échouera. Installe-le: cargo install wasm-pack"
-	@echo "==> npm install : $(NPM_PKG)"
+	  || echo "  (!) wasm-pack missing — 'make wasm' will fail. Install it: cargo install wasm-pack"
+	@echo "==> npm install: $(NPM_PKG)"
 	@cd $(NPM_PKG) && $(NPM) install --no-fund --no-audit
-	@echo "==> npm install : $(VSCODE)"
+	@echo "==> npm install: $(VSCODE)"
 	@cd $(VSCODE) && $(NPM) install --no-fund --no-audit
-	@echo "==> Bootstrap terminé. Prochaine étape : make demo"
+	@echo "==> Bootstrap done. Next step: make demo"
 
 # ── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build
-build: ## Compile tous les crates Rust (debug)
+build: ## Build all Rust crates (debug)
 	$(CARGO) build --workspace
 
 .PHONY: release
-release: ## Compile tous les crates Rust (release)
+release: ## Build all Rust crates (release)
 	$(CARGO) build --workspace --release
 
 .PHONY: ts
-ts: ## Compile le paquet npm pgweave -> dist/
+ts: ## Build the pgweave npm package -> dist/
 	cd $(NPM_PKG) && npx tsc
 
 .PHONY: vscode
-vscode: ## Compile l'extension VS Code -> out/
+vscode: ## Build the VS Code extension -> out/
 	cd $(VSCODE) && npx tsc -p ./
 
 .PHONY: wasm
-wasm: ## Compile les bindings WASM (nécessite wasm-pack)
+wasm: ## Build the WASM bindings (requires wasm-pack)
 	cd bindings/wasm && ./build.sh
 
 .PHONY: all
-all: build ts vscode ## Compile Rust + TypeScript + extension
+all: build ts vscode ## Build Rust + TypeScript + extension
 
-# ── Tests & qualité ──────────────────────────────────────────────────────────
+# ── Tests & quality ─────────────────────────────────────────────────────────
 
 .PHONY: test
-test: test-rust test-ts ## Lance tous les tests
+test: test-rust test-ts ## Run all tests
 
 .PHONY: test-rust
-test-rust: ## Tests Rust
+test-rust: ## Rust tests
 	$(CARGO) test --workspace
 
 .PHONY: test-ts
-test-ts: ts ## Tests TypeScript du paquet npm
+test-ts: ts ## TypeScript tests of the npm package
 	cd $(NPM_PKG) && node --test "dist/**/*.test.js"
 
 .PHONY: clippy
-clippy: ## Lints Rust — bloquant, comme en CI
+clippy: ## Rust lints — blocking, as in CI
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
 
 .PHONY: fmt
-fmt: ## Formate le code Rust
+fmt: ## Format the Rust code
 	$(CARGO) fmt --all
 
 .PHONY: fmt-check
-fmt-check: ## Vérifie le formatage sans modifier
+fmt-check: ## Check formatting without modifying
 	$(CARGO) fmt --all --check
 
 .PHONY: typecheck
-typecheck: ## Typecheck TypeScript sans émettre
+typecheck: ## Typecheck TypeScript without emitting
 	cd $(NPM_PKG) && npx tsc --noEmit
 	cd $(VSCODE) && npx tsc -p ./ --noEmit
 
 .PHONY: ci
-ci: build test fmt-check clippy typecheck ## Ce que la CI vérifie, à l'identique
+ci: build test fmt-check clippy typecheck ## Exactly what CI checks
 
 # ── Oracle PostgreSQL (PLAN.md §7) ───────────────────────────────────────────
 #
-# Un PostgreSQL 18 jetable dans Docker, sur un port dédié pour ne jamais
-# toucher une base locale. L'oracle y crée puis supprime une base par cas.
+# A disposable PostgreSQL 18 in Docker, on a dedicated port so as never to
+# touch a local database. The oracle creates then drops one database per case.
 
 ORACLE_CONTAINER := pgweave-oracle-pg18
 ORACLE_PORT      := 54318
 ORACLE_URL       := postgres://postgres:pgweave@localhost:$(ORACLE_PORT)/postgres
 
 .PHONY: oracle-up
-oracle-up: ## Démarre le PostgreSQL 18 de l'oracle (Docker)
-	@command -v docker >/dev/null || { echo "docker introuvable"; exit 1; }
+oracle-up: ## Start the oracle's PostgreSQL 18 (Docker)
+	@command -v docker >/dev/null || { echo "docker not found"; exit 1; }
 	@if [ -z "$$(docker ps -q -f name=^$(ORACLE_CONTAINER)$$)" ]; then \
 	  docker rm -f $(ORACLE_CONTAINER) >/dev/null 2>&1 || true; \
 	  docker run -d --name $(ORACLE_CONTAINER) -e POSTGRES_PASSWORD=pgweave \
@@ -121,10 +121,10 @@ oracle-up: ## Démarre le PostgreSQL 18 de l'oracle (Docker)
 	@for i in $$(seq 1 30); do \
 	  docker exec $(ORACLE_CONTAINER) pg_isready -U postgres -h localhost >/dev/null 2>&1 && exit 0; \
 	  sleep 1; \
-	done; echo "PostgreSQL ne répond pas"; exit 1
+	done; echo "PostgreSQL is not responding"; exit 1
 
 .PHONY: oracle
-oracle: oracle-up ## Confronte l'analyse à PostgreSQL 18 (rapport : crates/pgweave-oracle/tests/snapshots)
+oracle: oracle-up ## Check the analysis against PostgreSQL 18 (report: crates/pgweave-oracle/tests/snapshots)
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-sema --test oracle_sweep -- --ignored
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test precedence -- --ignored
@@ -132,24 +132,24 @@ oracle: oracle-up ## Confronte l'analyse à PostgreSQL 18 (rapport : crates/pgwe
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-example-rust-service -- --ignored
 
 .PHONY: bench
-bench: oracle-up ## Coût du code généré face à tokio-postgres écrit à la main (rapport affiché)
+bench: oracle-up ## Cost of the generated code vs hand-written tokio-postgres (report printed)
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test --release -p pgweave-example-rust-service --test bench -- --ignored --nocapture
 
 .PHONY: oracle-accept
-oracle-accept: oracle-up ## Comme `oracle`, en acceptant le nouveau rapport (à relire avant commit)
+oracle-accept: oracle-up ## Like `oracle`, accepting the new report (review before committing)
 	PGWEAVE_ORACLE_URL=$(ORACLE_URL) INSTA_UPDATE=always $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
 
 .PHONY: oracle-down
-oracle-down: ## Arrête et supprime le PostgreSQL de l'oracle
+oracle-down: ## Stop and remove the oracle's PostgreSQL
 	docker rm -f $(ORACLE_CONTAINER)
 
-# ── Démo / smoke ─────────────────────────────────────────────────────────────
+# ── Demo / smoke ─────────────────────────────────────────────────────────────
 
 .PHONY: demo-cli
-demo-cli: build ## Exécute la CLI sur examples/ — montre l'outil en action
+demo-cli: build ## Run the CLI on examples/ — shows the tool in action
 	@echo
 	@echo "════ pgweave check examples/test.sql ════"
-	@echo "   (erreur attendue : table inexistante)"
+	@echo "   (expected error: nonexistent table)"
 	@$(CLI) check $(EXAMPLES)/test.sql || true
 	@echo
 	@echo "════ pgweave check examples/schema.sql ════"
@@ -164,48 +164,48 @@ demo-cli: build ## Exécute la CLI sur examples/ — montre l'outil en action
 	@echo "════ pgweave emit examples/test.sql ════"
 	@$(CLI) emit $(EXAMPLES)/test.sql || true
 	@echo
-	@echo "Démo terminée. La CLI est dans $(CLI) — voir 'make help'."
+	@echo "Demo done. The CLI is at $(CLI) — see 'make help'."
 
 .PHONY: demo
-demo: ## Ouvre la démo (examples/demo) dans VS Code, extension pgweave en mode développement
+demo: ## Open the demo (examples/demo) in VS Code, pgweave extension in development mode
 	$(CARGO) build -p pgweave-lsp -p pgweave
 	$(MAKE) vscode
 	code --extensionDevelopmentPath=$(CURDIR)/$(VSCODE) $(CURDIR)/examples/demo
 	@echo
-	@echo "Fenêtre VS Code ouverte sur examples/demo : suivre examples/demo/README.md."
+	@echo "VS Code window opened on examples/demo: follow examples/demo/README.md."
 
 .PHONY: demo-run
-demo-run: oracle-up ## Exécute le scénario Rust de la démo sur PostgreSQL 18 (Docker)
+demo-run: oracle-up ## Run the demo's Rust scenario on PostgreSQL 18 (Docker)
 	$(CARGO) run -p pgweave-demo
 
 .PHONY: lsp
-lsp: ## Compile le serveur LSP et rappelle comment le lancer dans VS Code
+lsp: ## Build the LSP server and recall how to launch it in VS Code
 	$(CARGO) build -p pgweave-lsp
 	@echo
-	@echo "Binaire LSP : ./target/debug/pgweave-lsp"
-	@echo "Pour l'essayer :  make vscode-dev"
+	@echo "LSP binary: ./target/debug/pgweave-lsp"
+	@echo "To try it:  make vscode-dev"
 
 .PHONY: vscode-dev
-vscode-dev: lsp vscode ## Prépare tout pour tester dans VS Code, puis explique F5
+vscode-dev: lsp vscode ## Prepare everything to test in VS Code, then explain F5
 	@echo
 	@echo "════════════════════════════════════════════════════════════════"
-	@echo " Tout est compilé. Pour tester dans VS Code :"
+	@echo " Everything is built. To test in VS Code:"
 	@echo
 	@echo "   code $(VSCODE)"
-	@echo "   puis F5  →  « Run Extension (playground) »"
+	@echo "   then F5  →  \"Run Extension (playground)\""
 	@echo
-	@echo " Une fenêtre s'ouvre sur examples/playground/ :"
-	@echo "   queries/01-ok.sql          doit être propre"
-	@echo "   queries/02-erreurs.sql     colonnes/tables inexistantes"
-	@echo "   queries/03-directives.sql  directives ESLint-style"
-	@echo "   queries/04-tolerance-*.sql statement illisible en warning"
-	@echo "   queries/05-lint.sql        règles de lint (LSP uniquement)"
+	@echo " A window opens on examples/playground/:"
+	@echo "   queries/01-ok.sql          must be clean"
+	@echo "   queries/02-errors.sql      nonexistent columns/tables"
+	@echo "   queries/03-directives.sql  ESLint-style directives"
+	@echo "   queries/04-tolerance-*.sql unreadable statement as a warning"
+	@echo "   queries/05-lint.sql        lint rules (LSP only)"
 	@echo
-	@echo " Détails : examples/playground/README.md"
+	@echo " Details: examples/playground/README.md"
 	@echo "════════════════════════════════════════════════════════════════"
 
 .PHONY: playground
-playground: build ## Lance la CLI sur le projet de démonstration
+playground: build ## Run the CLI on the demo project
 	@cd $(EXAMPLES)/playground && for f in queries/*.sql; do \
 	  echo "════ pgweave check $$f ════"; \
 	  ../../$(CLI) check "$$f" || true; \
@@ -213,13 +213,13 @@ playground: build ## Lance la CLI sur le projet de démonstration
 	echo "════ pgweave lint queries/05-lint.sql ════"; \
 	../../$(CLI) lint queries/05-lint.sql || true
 
-# ── Nettoyage ────────────────────────────────────────────────────────────────
+# ── Cleanup ─────────────────────────────────────────────────────────────────
 
 .PHONY: clean
-clean: ## Supprime les artefacts de build
+clean: ## Remove build artifacts
 	$(CARGO) clean
 	rm -rf $(NPM_PKG)/dist $(VSCODE)/out bindings/wasm/pkg
 
 .PHONY: distclean
-distclean: clean ## clean + supprime les node_modules
+distclean: clean ## clean + remove node_modules
 	rm -rf $(NPM_PKG)/node_modules $(VSCODE)/node_modules

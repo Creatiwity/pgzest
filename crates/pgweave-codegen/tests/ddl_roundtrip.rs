@@ -1,14 +1,14 @@
-//! Aller-retour parse → émission → parse sur toutes les formes DDL du
-//! périmètre : le SQL émis doit se relire en un AST identique. C'est la
-//! garantie dont a besoin la génération de migrations (P7).
+//! Parse → emit → parse roundtrip over every DDL form in scope: the
+//! emitted SQL must read back into an identical AST. This is the guarantee
+//! migration generation needs (P7).
 
 use pgweave_ast::Statement;
 use pgweave_codegen::emit::emit_statement;
 use pgweave_parser::parse_with_outcome;
 
-/// AST sans positions ni identifiants, pour comparer deux parses.
+/// AST without positions or identifiers, to compare two parses.
 fn shape(stmts: &[Statement]) -> serde_json::Value {
-    let mut v = serde_json::to_value(stmts).expect("sérialisation");
+    let mut v = serde_json::to_value(stmts).expect("serialization");
     strip(&mut v);
     v
 }
@@ -30,7 +30,7 @@ fn parse_clean(sql: &str) -> Vec<Statement> {
     let out = parse_with_outcome(sql).expect("parse");
     assert!(
         out.skipped.is_empty(),
-        "{sql}\n→ écarts : {:?}",
+        "{sql}\n→ skipped: {:?}",
         out.skipped
     );
     assert_eq!(out.statements.len(), 1, "{sql}");
@@ -43,13 +43,13 @@ fn roundtrip(sql: &str) {
     let second = parse_with_outcome(&emitted).expect("re-parse");
     assert!(
         second.skipped.is_empty(),
-        "le SQL émis ne se relit pas :\n{emitted}\n→ {:?}",
+        "emitted SQL does not read back:\n{emitted}\n→ {:?}",
         second.skipped
     );
     assert_eq!(
         shape(&first),
         shape(&second.statements),
-        "AST différent après aller-retour.\nSource : {sql}\nÉmis : {emitted}"
+        "AST differs after roundtrip.\nSource: {sql}\nEmitted: {emitted}"
     );
 }
 
@@ -64,8 +64,8 @@ fn tables() {
         "CREATE TABLE t (a int REFERENCES u (id) ON DELETE CASCADE, b int, CONSTRAINT fk FOREIGN KEY (b) REFERENCES u (id))",
         "CREATE UNLOGGED TABLE IF NOT EXISTS cache (k text PRIMARY KEY, v jsonb)",
         "CREATE TEMPORARY TABLE staging (a int) ON COMMIT DROP",
-        "CREATE TABLE copie (LIKE t INCLUDING DEFAULTS EXCLUDING INDEXES, extra INT)",
-        "CREATE TABLE copie (id INT, LIKE t INCLUDING ALL)",
+        "CREATE TABLE clone (LIKE t INCLUDING DEFAULTS EXCLUDING INDEXES, extra INT)",
+        "CREATE TABLE clone (id INT, LIKE t INCLUDING ALL)",
     ] {
         roundtrip(sql);
     }
@@ -91,12 +91,12 @@ fn alter_table() {
 }
 
 #[test]
-fn types_domaines_extensions_schemas() {
+fn types_domains_extensions_schemas() {
     for sql in [
         "CREATE TYPE status AS ENUM ('draft', 'it''s', 'published')",
         "CREATE TYPE pair AS (x int, label text)",
         "ALTER TYPE status ADD VALUE IF NOT EXISTS 'review' BEFORE 'published'",
-        "ALTER TYPE status RENAME VALUE 'draft' TO 'brouillon'",
+        "ALTER TYPE status RENAME VALUE 'draft' TO 'rough'",
         "ALTER TYPE status RENAME TO page_status",
         "ALTER TYPE status SET SCHEMA archive",
         "CREATE DOMAIN positive_int AS integer DEFAULT 1 NOT NULL CONSTRAINT pos CHECK (VALUE > 0)",
@@ -111,7 +111,7 @@ fn types_domaines_extensions_schemas() {
 }
 
 #[test]
-fn vues_sequences_index_triggers() {
+fn views_sequences_indexes_triggers() {
     for sql in [
         "CREATE OR REPLACE VIEW v (a, b) AS SELECT id, title FROM pages",
         "CREATE MATERIALIZED VIEW mv AS SELECT id FROM pages",
@@ -159,7 +159,7 @@ fn routines() {
 }
 
 #[test]
-fn utilitaires() {
+fn utilities() {
     for sql in [
         "DO $$ BEGIN RAISE NOTICE 'x'; END $$",
         "DO LANGUAGE plpgsql $body$ BEGIN PERFORM 1; END $body$",
@@ -173,7 +173,7 @@ fn utilitaires() {
         "ROLLBACK",
         "SAVEPOINT s1",
         "ROLLBACK TO SAVEPOINT s1",
-        "COMMENT ON TABLE pages IS 'Les pages'",
+        "COMMENT ON TABLE pages IS 'The pages'",
         "COMMENT ON COLUMN pages.title IS NULL",
         "TRUNCATE TABLE a, b RESTART IDENTITY CASCADE",
         "ANALYZE",
@@ -187,18 +187,14 @@ fn utilitaires() {
 }
 
 #[test]
-fn copy_ancienne_syntaxe() {
+fn copy_legacy_syntax() {
     let new = parse_clean("COPY t (a) FROM STDIN WITH (FORMAT csv, HEADER true)");
     let old = parse_clean("COPY t (a) FROM STDIN WITH CSV HEADER");
-    assert_eq!(
-        shape(&new),
-        shape(&old),
-        "les deux syntaxes donnent le même AST"
-    );
+    assert_eq!(shape(&new), shape(&old), "both syntaxes yield the same AST");
 }
 
 #[test]
-fn requetes() {
+fn queries() {
     for sql in [
         "SELECT 1 UNION ALL SELECT 2",
         "SELECT a FROM t UNION SELECT b FROM u INTERSECT SELECT c FROM v",
@@ -232,14 +228,14 @@ fn requetes() {
         "INSERT INTO t AS x (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = x.a + 1",
         "UPDATE t SET a = a + 1 RETURNING old.a, new.a",
         "UPDATE t SET a = a + 1 RETURNING WITH (OLD AS o, NEW AS n) o.a, n.a",
-        "DELETE FROM t RETURNING WITH (OLD AS avant) avant.*",
+        "DELETE FROM t RETURNING WITH (OLD AS prev) prev.*",
     ] {
         roundtrip(sql);
     }
 }
 
 #[test]
-fn with_recursive_est_restitue() {
+fn with_recursive_is_preserved() {
     let stmts = parse_clean(
         "WITH RECURSIVE r (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r",
     );
@@ -247,20 +243,20 @@ fn with_recursive_est_restitue() {
 }
 
 #[test]
-fn with_devant_une_modification_est_restitue() {
+fn with_before_a_modification_is_preserved() {
     let stmts = parse_clean("WITH x AS (SELECT 1 AS a) INSERT INTO t (a) SELECT a FROM x");
     let Statement::Insert(ins) = &stmts[0] else {
-        panic!("INSERT attendu : {:?}", stmts[0])
+        panic!("INSERT expected: {:?}", stmts[0])
     };
     assert_eq!(ins.with.len(), 1);
     assert!(emit_statement(&stmts[0]).starts_with("WITH x AS ("));
 }
 
 #[test]
-fn returning_with_conserve_ses_alias() {
+fn returning_with_keeps_its_aliases() {
     let stmts = parse_clean("UPDATE t SET a = 1 RETURNING WITH (NEW AS n, OLD AS o) o.a, n.a");
     let Statement::Update(u) = &stmts[0] else {
-        panic!("UPDATE attendu")
+        panic!("UPDATE expected")
     };
     assert_eq!(u.returning_aliases.old.as_ref().unwrap().value, "o");
     assert_eq!(u.returning_aliases.new.as_ref().unwrap().value, "n");

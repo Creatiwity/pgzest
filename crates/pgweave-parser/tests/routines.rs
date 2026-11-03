@@ -1,5 +1,5 @@
-//! Grammaire des routines (`grammar::routine`) : PostgreSQL 18, sans
-//! réécriture du texte.
+//! Routine grammar (`grammar::routine`): PostgreSQL 18, without
+//! text rewriting.
 
 use pgweave_ast::Statement;
 use pgweave_ast::ddl::{
@@ -13,7 +13,7 @@ fn one(sql: &str) -> Statement {
     let out = parse_with_outcome(sql).expect("parse");
     assert!(
         out.skipped.is_empty(),
-        "écarts inattendus : {:?}",
+        "unexpected skips: {:?}",
         out.skipped
     );
     assert_eq!(out.statements.len(), 1, "{sql}");
@@ -23,19 +23,19 @@ fn one(sql: &str) -> Statement {
 fn function(sql: &str) -> CreateFunction {
     match one(sql) {
         Statement::Ddl(DdlStatement::CreateFunction(f)) => f,
-        other => panic!("fonction attendue : {other:?}"),
+        other => panic!("function expected: {other:?}"),
     }
 }
 
 fn procedure(sql: &str) -> CreateProcedure {
     match one(sql) {
         Statement::Ddl(DdlStatement::CreateProcedure(p)) => p,
-        other => panic!("procédure attendue : {other:?}"),
+        other => panic!("procedure expected: {other:?}"),
     }
 }
 
 #[test]
-fn procedure_avec_corps_dollar() {
+fn procedure_with_dollar_body() {
     let p = procedure(
         "CREATE OR REPLACE PROCEDURE reset_views(p_id BIGINT) LANGUAGE plpgsql AS $$
          BEGIN UPDATE pages SET views = 0 WHERE id = p_id; END $$",
@@ -46,7 +46,7 @@ fn procedure_avec_corps_dollar() {
 }
 
 #[test]
-fn options_dans_n_importe_quel_ordre() {
+fn options_in_any_order() {
     let f = function(
         "CREATE FUNCTION f() RETURNS int SET search_path = public, pg_temp COST 10
          SECURITY DEFINER LANGUAGE plpgsql STRICT PARALLEL SAFE ROWS 5 STABLE LEAKPROOF
@@ -65,7 +65,7 @@ fn options_dans_n_importe_quel_ordre() {
 }
 
 #[test]
-fn set_from_current_et_returns_null_on_null_input() {
+fn set_from_current_and_returns_null_on_null_input() {
     let f = function(
         "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql RETURNS NULL ON NULL INPUT
          SET work_mem FROM CURRENT AS 'SELECT a'",
@@ -75,7 +75,7 @@ fn set_from_current_et_returns_null_on_null_input() {
 }
 
 #[test]
-fn parametres_ambigus_type_seul_ou_nom_et_type() {
+fn ambiguous_params_type_alone_or_name_and_type() {
     let f = function(
         "CREATE FUNCTION f(double precision, p_id uuid, character varying(10),
                            IN OUT total numeric = 0, VARIADIC xs int[])
@@ -94,7 +94,7 @@ fn parametres_ambigus_type_seul_ou_nom_et_type() {
 }
 
 #[test]
-fn formes_de_retour() {
+fn return_forms() {
     let f = function(
         "CREATE FUNCTION f(m int) RETURNS TABLE (page_id bigint, title text) LANGUAGE sql
          AS $$ SELECT 1::bigint, 'x' $$",
@@ -117,17 +117,17 @@ fn formes_de_retour() {
 }
 
 #[test]
-fn parametres_out_sans_returns() {
+fn out_params_without_returns() {
     let f = function(
         "CREATE FUNCTION f(a int, OUT doubled int, OUT label text) LANGUAGE sql
          AS $$ SELECT a * 2, 'x' $$",
     );
-    // Ni `RETURNS TABLE` ni `SETOF` : une seule ligne, typée par les OUT.
+    // Neither `RETURNS TABLE` nor `SETOF`: a single row, typed by the OUTs.
     assert_eq!(f.return_type, ReturnType::OutParams);
 }
 
 #[test]
-fn corps_sql_standard() {
+fn standard_sql_body() {
     let f = function(
         "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC
          SELECT CASE WHEN a > 0 THEN a END; SELECT a + 1; END",
@@ -143,7 +143,7 @@ fn corps_sql_standard() {
 }
 
 #[test]
-fn corps_sql_de_plusieurs_statements() {
+fn sql_body_with_several_statements() {
     let f = function(
         "CREATE FUNCTION f(p bigint) RETURNS bigint LANGUAGE sql AS $$
             UPDATE pages SET views = views + 1 WHERE id = p;
@@ -158,12 +158,12 @@ fn corps_sql_de_plusieurs_statements() {
 }
 
 #[test]
-fn un_corps_illisible_est_signale_avec_sa_routine() {
+fn an_unreadable_body_is_reported_with_its_routine() {
     let out = parse_with_outcome(
         "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELEC 1 $$;\nSELECT 2;",
     )
     .unwrap();
-    assert_eq!(out.statements.len(), 2, "la fonction reste déclarée");
+    assert_eq!(out.statements.len(), 2, "the function stays declared");
     match &out.skipped[..] {
         [s] => assert!(
             matches!(&s.reason, SkipReason::UnparsedBody { name, .. } if name == "f"),
@@ -175,9 +175,9 @@ fn un_corps_illisible_est_signale_avec_sa_routine() {
 }
 
 #[test]
-fn les_expressions_du_corps_sql_pointent_dans_le_fichier() {
+fn sql_body_expressions_point_into_the_file() {
     let sql =
-        "-- tête\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$\n  SELECT nope FROM t\n$$;";
+        "-- head\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$\n  SELECT nope FROM t\n$$;";
     let f = function(sql);
     let FunctionBody::SqlQuery(sel) = &f.body else {
         panic!("{:?}", f.body)
@@ -192,12 +192,12 @@ fn les_expressions_du_corps_sql_pointent_dans_le_fichier() {
     assert_eq!(
         &sql[f.body_start as usize..f.body_start as usize + 9],
         "\n  SELECT",
-        "body_start pointe sur le premier caractère du corps"
+        "body_start points at the body's first character"
     );
 }
 
 #[test]
-fn routine_sans_language_est_refusee_explicitement() {
+fn routine_without_language_is_explicitly_rejected() {
     let out = parse_with_outcome("CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$").unwrap();
     assert!(out.statements.is_empty());
     assert!(matches!(out.skipped[0].reason, SkipReason::Unsupported(_)));

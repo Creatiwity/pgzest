@@ -45,7 +45,7 @@ pub struct NormalizedSelect {
     /// Common Table Expressions (WITH clause), evaluated first.
     pub with: Vec<Cte>,
 
-    /// `WITH RECURSIVE` : les CTE peuvent se référencer elles-mêmes.
+    /// `WITH RECURSIVE`: CTEs may reference themselves.
     pub with_recursive: bool,
 
     /// Primary table references in the FROM clause.
@@ -65,7 +65,7 @@ pub struct NormalizedSelect {
     /// Group-level filter evaluated after grouping (HAVING).
     pub having: Option<Expr>,
 
-    /// Fenêtres nommées (`WINDOW`), évaluées après le regroupement.
+    /// Named windows (`WINDOW`), evaluated after grouping.
     pub windows: Vec<NamedWindow>,
 
     // ── Phase 4: projection ──────────────────────────────────────────────────
@@ -75,7 +75,7 @@ pub struct NormalizedSelect {
     /// Whether DISTINCT de-duplication is applied after projection.
     pub distinct: bool,
 
-    /// `DISTINCT ON (…)` : une ligne par valeur de ces expressions.
+    /// `DISTINCT ON (…)`: one row per value of these expressions.
     pub distinct_on: Vec<Expr>,
 
     // ── Phase 5: ordering & pagination ───────────────────────────────────────
@@ -89,12 +89,12 @@ pub struct NormalizedSelect {
     /// OFFSET clause.
     pub offset: Option<Expr>,
 
-    // ── Phase 6: opérations ensemblistes ─────────────────────────────────────
-    /// UNION / INTERSECT / EXCEPT, appliqués après ce SELECT ; ORDER BY, LIMIT
-    /// et OFFSET portent alors sur leur résultat.
+    // ── Phase 6: set operations ──────────────────────────────────────────────
+    /// UNION / INTERSECT / EXCEPT, applied after this SELECT; ORDER BY, LIMIT
+    /// and OFFSET then apply to their result.
     pub set_ops: Vec<SetOperation>,
 
-    /// `VALUES` : lignes de valeurs, à la place de la projection.
+    /// `VALUES`: rows of values, in place of the projection.
     pub values: Vec<Vec<Expr>>,
 
     // ── Derived metadata ─────────────────────────────────────────────────────

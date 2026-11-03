@@ -2,7 +2,7 @@
 name = "pgweave-query"
 version = "0.1.0"
 edition = "2024"
-description = "Requêtes nommées : format de fichier, réécriture positionnelle, descripteur de requête"
+description = "Named queries: file format, positional rewriting, query descriptor"
 
 [dependencies]
 pgweave-ast = { path = "../pgweave-ast" }

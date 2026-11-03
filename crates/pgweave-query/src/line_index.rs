@@ -1,7 +1,7 @@
 use sqlparser::tokenizer::Location;
 
-/// Conversion des positions sqlparser (ligne/colonne 1-basées, colonne en
-/// caractères) en offsets octets dans la source.
+/// Converts sqlparser positions (1-based line/column, column in characters)
+/// into byte offsets in the source.
 pub(crate) struct LineIndex<'a> {
     source: &'a str,
     line_starts: Vec<usize>,
@@ -21,8 +21,8 @@ impl<'a> LineIndex<'a> {
         }
     }
 
-    /// Offset octet de `loc`. `None` pour une position hors source ou vide
-    /// (sqlparser utilise la ligne 0 pour un span vide).
+    /// Byte offset of `loc`. `None` for a position outside the source or
+    /// empty (sqlparser uses line 0 for an empty span).
     pub(crate) fn offset(&self, loc: Location) -> Option<usize> {
         if loc.line == 0 || loc.column == 0 {
             return None;
@@ -34,7 +34,7 @@ impl<'a> LineIndex<'a> {
             .copied()
             .unwrap_or(self.source.len());
         let line_text = self.source.get(line_start..line_end)?;
-        // Avancer de (column - 1) caractères, pas d'octets.
+        // Advance by (column - 1) characters, not bytes.
         let byte_in_line = line_text
             .char_indices()
             .nth((loc.column - 1) as usize)

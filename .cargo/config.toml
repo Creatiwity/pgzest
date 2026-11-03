@@ -1,3 +1,3 @@
 [alias]
-# Tâches de développement (corpus, plus tard catalog-gen et bench) : PLAN.md §9.
+# Development tasks (corpus, later catalog-gen and bench): PLAN.md §9.
 xtask = "run --quiet --package xtask --"

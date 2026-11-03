@@ -2,7 +2,7 @@
 name = "pgweave-project"
 version = "0.1.0"
 edition = "2024"
-description = "Base de projet incrémentale de pgweave (salsa) : fichiers, parse, catalogue, vérification"
+description = "pgweave incremental project database (salsa): files, parse, catalog, checking"
 
 [dependencies]
 pgweave-ast = { path = "../pgweave-ast" }
@@ -13,5 +13,5 @@ pgweave-diagnostics = { workspace = true }
 pgweave-macro = { path = "../pgweave-macro" }
 pgweave-parser = { path = "../pgweave-parser" }
 pgweave-schema = { path = "../pgweave-schema" }
-# Épinglée (décision 0001) : montée de version délibérée et isolée.
+# Pinned (decision 0001): version bumps are deliberate and isolated.
 salsa = "=0.28.5"

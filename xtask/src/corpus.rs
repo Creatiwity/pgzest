@@ -1,11 +1,11 @@
-//! `cargo xtask corpus` : taux d'analyse de pgweave sur un corpus externe.
+//! `cargo xtask corpus`: pgweave's analysis rate on an external corpus.
 //!
-//! Le rapport est destiné à être commité (`docs/baselines/`) alors que le
-//! corpus, lui, est privé. Règle stricte : **aucun identifiant du corpus**
-//! dans le rapport. On n'y écrit que des compteurs, des codes de diagnostic et
-//! des « formes » de statements où tout nom est remplacé par `…`. Les messages
-//! d'erreur (de sqlparser, de pgweave ou de PostgreSQL) citent des noms : ils
-//! ne vont que sur la sortie d'erreur avec `--details`, ou sont masqués.
+//! The report is meant to be committed (`docs/baselines/`) while the corpus
+//! itself is private. Strict rule: **no corpus identifier** in the report.
+//! Only counters, diagnostic codes and statement "shapes", where every name
+//! is replaced by `…`, are written to it. Error messages (from sqlparser,
+//! pgweave or PostgreSQL) quote names: they only go to standard error with
+//! `--details`, or are masked.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -20,26 +20,26 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-/// Organisation d'un répertoire de migrations. Explicite : la deviner
-/// ferait prendre un script de retour arrière pour une migration.
+/// Layout of a migration directory. Explicit: guessing it would mistake a
+/// rollback script for a migration.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum Layout {
-    /// Tous les `.sql`, récursivement, triés par chemin.
+    /// Every `.sql`, recursively, sorted by path.
     Flat,
-    /// Prisma : `<horodatage>_<nom>/migration.sql`, seul fichier appliqué
-    /// (les autres, comme un `down.sql`, sont ignorés).
+    /// Prisma: `<timestamp>_<name>/migration.sql`, the only applied file
+    /// (the others, like a `down.sql`, are ignored).
     Prisma,
-    /// Diesel : `<horodatage>_<nom>/up.sql`, seul fichier appliqué (le
-    /// `down.sql` est ignoré).
+    /// Diesel: `<timestamp>_<name>/up.sql`, the only applied file (the
+    /// `down.sql` is ignored).
     Diesel,
 }
 
 impl Layout {
     fn describe(self) -> &'static str {
         match self {
-            Layout::Flat => "tous les `.sql`, triés par chemin",
-            Layout::Prisma => "Prisma : `*/migration.sql`, triés par répertoire horodaté",
-            Layout::Diesel => "Diesel : `*/up.sql`, triés par répertoire horodaté",
+            Layout::Flat => "every `.sql`, sorted by path",
+            Layout::Prisma => "Prisma: `*/migration.sql`, sorted by timestamped directory",
+            Layout::Diesel => "Diesel: `*/up.sql`, sorted by timestamped directory",
         }
     }
 
@@ -63,11 +63,11 @@ pub fn run(
     let env_var = format!("PGWEAVE_CORPUS_{}", name.to_ascii_uppercase());
     let dir = path
         .or_else(|| std::env::var_os(&env_var).map(PathBuf::from))
-        .ok_or_else(|| format!("corpus introuvable : passer --path ou définir {env_var}"))?;
+        .ok_or_else(|| format!("corpus not found: pass --path or set {env_var}"))?;
 
     let files = collect_sql(&dir, layout)?;
     if files.is_empty() {
-        return Err(format!("aucun fichier .sql sous {}", dir.display()));
+        return Err(format!("no .sql file under {}", dir.display()));
     }
     let sources: Vec<(PathBuf, String)> = files
         .into_iter()
@@ -95,26 +95,26 @@ pub fn run(
             Err(e) => {
                 stats.files_unreadable += 1;
                 if details {
-                    eprintln!("{}: fichier illisible : {e}", path.display());
+                    eprintln!("{}: unreadable file: {e}", path.display());
                 }
             }
         }
     }
     stats.parse_time = parse_start.elapsed();
 
-    // Statements écartés au parse : absents du catalogue rejoué.
+    // Statements skipped at parse time: missing from the replayed catalog.
     stats.index_skipped = stats.statements - stats.analyzed;
 
-    // Rejeu par pgweave et diagnostics de `check` : chaque migration est
-    // vérifiée contre le catalogue tel qu'il est après elle — l'état réel de
-    // la base au moment où elle s'applique (P2), pas l'état final.
+    // Replay by pgweave and `check` diagnostics: each migration is checked
+    // against the catalog as it is right after it, i.e. the real database
+    // state at the time it applies (P2), not the final state.
     let mut replay = pgweave_catalog::Replay::new(
         pgweave_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
     );
     replay.typer = Some(pgweave_sema::ViewTyper::shared());
-    // Chaque statement est vérifié quand il s'applique, contre l'état de ce
-    // moment ; un corps PL/pgSQL, exécuté plus tard, l'est contre l'état
-    // final s'il est encore en vigueur (`pgweave_sema::check`).
+    // Each statement is checked when it applies, against the state at that
+    // moment; a PL/pgSQL body, run later, is checked against the final state
+    // if it is still in force (`pgweave_sema::check`).
     let mut check_diags: Vec<(usize, pgweave_diagnostics::Diagnostic)> = Vec::new();
     let mut deferred = Vec::new();
     let mut routines = Vec::new();
@@ -124,7 +124,7 @@ pub fn run(
             let replay_start = Instant::now();
             replay.apply(st, &mut replay_diags);
             stats.replay_time += replay_start.elapsed();
-            // Corps de routine tel qu'écrit, pour l'export.
+            // Routine body as written, for the export.
             pgweave_catalog::project::attach_source(&mut replay.catalog, st, sql);
             let check_start = Instant::now();
             let mut d = Vec::new();
@@ -147,7 +147,7 @@ pub fn run(
         for d in &replay_diags {
             *stats.replay_diagnostics.entry(d.code).or_default() += 1;
             if details {
-                eprintln!("{}: rejeu : [{}] {}", path.display(), d.code, d.message);
+                eprintln!("{}: replay: [{}] {}", path.display(), d.code, d.message);
             }
         }
     }
@@ -184,7 +184,7 @@ pub fn run(
 
     let pg_url_for_import = pg_url.or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok());
     let mut probes = crate::probes::generate(&replay.catalog);
-    // Requêtes des corps des routines en vigueur, analysées dans leur portée.
+    // Queries of the routine bodies in force, analyzed in their scope.
     let mut queries = Vec::new();
     for (path, st) in &routines {
         if pgweave_catalog::project::routine_in_force(&replay.catalog, st) {
@@ -209,8 +209,8 @@ pub fn run(
         stats
     });
 
-    // Import : le catalogue reconstruit, exporté en SQL et appliqué à une base
-    // vierge, doit redonner le catalogue réel.
+    // Import: the rebuilt catalog, exported as SQL and applied to an empty
+    // database, must give back the real catalog.
     let import_comparison = match (
         pg_url_for_import.as_deref(),
         pg.as_ref().and_then(|p| p.catalog.as_ref()),
@@ -227,8 +227,8 @@ pub fn run(
         }
         _ => None,
     };
-    // Même confrontation, au texte près (oracle des migrations, P7) : ce que
-    // PostgreSQL dit de chaque objet des deux bases.
+    // Same check, down to the text (migration oracle, P7): what PostgreSQL
+    // says about each object of both databases.
     let fidelity = match (pg_url_for_import.as_deref(), &import_comparison) {
         (Some(url), Some(Ok(_))) => {
             let dump = pgweave_catalog::dump::dump(&replay.catalog, 18);
@@ -248,10 +248,10 @@ pub fn run(
             ));
             if details && let Ok(c) = &r {
                 for l in &c.only_migrations {
-                    eprintln!("fidélité, migrations : {l}");
+                    eprintln!("fidelity, migrations: {l}");
                 }
                 for l in &c.only_schema {
-                    eprintln!("fidélité, import : {l}");
+                    eprintln!("fidelity, import: {l}");
                 }
             }
             Some(r.map_err(|e| redact(&e)))
@@ -260,13 +260,13 @@ pub fn run(
     };
     if details && let Some(Ok(c)) = &import_comparison {
         for d in &c.details {
-            eprintln!("import : {d}");
+            eprintln!("import: {d}");
         }
     }
     if let Some(Err(e)) = &import_comparison
         && details
     {
-        eprintln!("import refusé par PostgreSQL : {e}");
+        eprintln!("import rejected by PostgreSQL: {e}");
     }
 
     let comparison = pg
@@ -275,7 +275,7 @@ pub fn run(
         .map(|real| crate::catalog_compare::compare(real, &replay.catalog));
     if details && let Some(c) = &comparison {
         for d in &c.details {
-            eprintln!("catalogue : {d}");
+            eprintln!("catalog: {d}");
         }
     }
 
@@ -301,7 +301,7 @@ pub fn run(
     }
 }
 
-// ── Collecte ──────────────────────────────────────────────────────────────────
+// ── Collection ────────────────────────────────────────────────────────────────
 
 fn collect_sql(dir: &Path, layout: Layout) -> Result<Vec<PathBuf>, String> {
     let mut out = Vec::new();
@@ -316,12 +316,12 @@ fn collect_sql(dir: &Path, layout: Layout) -> Result<Vec<PathBuf>, String> {
             }
         }
     }
-    // Tri par chemin : l'ordre d'application des migrations horodatées.
+    // Sort by path: the application order of timestamped migrations.
     out.sort();
     Ok(out)
 }
 
-// ── Statistiques ──────────────────────────────────────────────────────────────
+// ── Statistics ────────────────────────────────────────────────────────────────
 
 #[derive(Default)]
 struct Stats {
@@ -339,7 +339,7 @@ struct Stats {
     files_with_errors: usize,
     parse_time: Duration,
     check_time: Duration,
-    /// Diagnostics du rejeu pgweave, par code.
+    /// pgweave replay diagnostics, by code.
     replay_diagnostics: BTreeMap<&'static str, usize>,
     replay_time: Duration,
 }
@@ -375,20 +375,20 @@ impl Stats {
                     self.statements += 1;
                     *self.unsupported.entry(shape(&sk.sql)).or_default() += 1;
                 }
-                // Le statement est compté parmi les analysés ; seul son corps
-                // ne l'est pas.
+                // The statement is counted as analyzed; only its body is
+                // not.
                 SkipReason::UnparsedBody { .. } => self.bodies_unparsed += 1,
             }
         }
     }
 }
 
-/// Forme d'un statement sans aucun nom : les mots-clés SQL non quotés sont
-/// gardés, tout le reste (identifiants, littéraux, nombres) devient `…`.
-/// Limitée aux 8 premiers éléments — assez pour reconnaître la construction.
+/// Shape of a statement without any name: unquoted SQL keywords are kept,
+/// everything else (identifiers, literals, numbers) becomes `…`.
+/// Limited to the first 8 elements, enough to recognize the construct.
 fn shape(sql: &str) -> String {
     let Ok(tokens) = Tokenizer::new(&PostgreSqlDialect {}, sql).tokenize() else {
-        return "(non tokenisable)".into();
+        return "(not tokenizable)".into();
     };
     let mut parts: Vec<String> = Vec::new();
     for tok in tokens {
@@ -413,17 +413,16 @@ fn shape(sql: &str) -> String {
     parts.join(" ")
 }
 
-// ── Rejeu sur PostgreSQL ──────────────────────────────────────────────────────
+// ── Replay on PostgreSQL ──────────────────────────────────────────────────────
 
 struct PgReplay {
     major: u32,
     applied: usize,
-    /// Catalogue du projet dans PostgreSQL, si toutes les migrations ont été
-    /// appliquées.
+    /// Project catalog in PostgreSQL, if every migration was applied.
     catalog: Option<pgweave_catalog::Catalog>,
-    /// Rang (1-basé) de la première migration refusée et message masqué.
+    /// Rank (1-based) of the first rejected migration and masked message.
     first_failure: Option<(usize, String)>,
-    /// Description par PostgreSQL de chaque sonde, dans l'ordre.
+    /// PostgreSQL's description of each probe, in order.
     probes: Vec<Result<crate::probes::Described, String>>,
 }
 
@@ -457,7 +456,7 @@ fn replay_on_postgres(
             .await
             .map_err(|e| db_message(&e))?;
 
-        let mut config: tokio_postgres::Config = url.parse().map_err(|e| format!("URL : {e}"))?;
+        let mut config: tokio_postgres::Config = url.parse().map_err(|e| format!("URL: {e}"))?;
         config.dbname(&db);
         let result = async {
             let client = connect_config(&config).await?;
@@ -466,7 +465,7 @@ fn replay_on_postgres(
                 if let Err(e) = client.batch_execute(sql).await {
                     let msg = db_message(&e);
                     if details {
-                        eprintln!("{}: refusée par PostgreSQL : {msg}", path.display());
+                        eprintln!("{}: rejected by PostgreSQL: {msg}", path.display());
                     }
                     return Ok::<_, String>((
                         applied,
@@ -506,7 +505,7 @@ fn replay_on_postgres(
     })
 }
 
-/// Applique un script à une base vierge et rend son catalogue de projet.
+/// Applies a script to an empty database and returns its project catalog.
 fn apply_on_fresh_db(url: &str, sql: &str) -> Result<pgweave_catalog::Catalog, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -523,7 +522,7 @@ fn apply_on_fresh_db(url: &str, sql: &str) -> Result<pgweave_catalog::Catalog, S
             .batch_execute(&format!("CREATE DATABASE \"{db}\""))
             .await
             .map_err(|e| db_message(&e))?;
-        let mut config: tokio_postgres::Config = url.parse().map_err(|e| format!("URL : {e}"))?;
+        let mut config: tokio_postgres::Config = url.parse().map_err(|e| format!("URL: {e}"))?;
         config.dbname(&db);
         let result = async {
             let client = connect_config(&config).await?;
@@ -542,7 +541,7 @@ fn apply_on_fresh_db(url: &str, sql: &str) -> Result<pgweave_catalog::Catalog, S
     })
 }
 
-/// Masque les identifiants cités entre guillemets par PostgreSQL.
+/// Masks the identifiers PostgreSQL quotes between double quotes.
 fn redact(msg: &str) -> String {
     let mut out = String::new();
     let mut in_quote = false;
@@ -562,7 +561,7 @@ fn redact(msg: &str) -> String {
 }
 
 async fn connect(url: &str) -> Result<tokio_postgres::Client, String> {
-    let config: tokio_postgres::Config = url.parse().map_err(|e| format!("URL : {e}"))?;
+    let config: tokio_postgres::Config = url.parse().map_err(|e| format!("URL: {e}"))?;
     connect_config(&config).await
 }
 
@@ -570,7 +569,7 @@ async fn connect_config(config: &tokio_postgres::Config) -> Result<tokio_postgre
     let (client, connection) = config
         .connect(tokio_postgres::NoTls)
         .await
-        .map_err(|e| format!("connexion à PostgreSQL : {e}"))?;
+        .map_err(|e| format!("connecting to PostgreSQL: {e}"))?;
     tokio::spawn(async move {
         let _ = connection.await;
     });
@@ -583,14 +582,14 @@ fn db_message(e: &tokio_postgres::Error) -> String {
         .unwrap_or_else(|| e.to_string())
 }
 
-// ── Rendu ─────────────────────────────────────────────────────────────────────
+// ── Rendering ─────────────────────────────────────────────────────────────────
 
-/// Ce que le rejeu sur PostgreSQL a permis d'établir.
+/// What the replay on PostgreSQL established.
 struct Oracle<'a> {
     pg: Option<&'a PgReplay>,
-    /// Catalogue reconstruit comparé au réel.
+    /// Rebuilt catalog compared to the real one.
     comparison: Option<&'a crate::catalog_compare::Comparison>,
-    /// Import : schéma exporté puis appliqué, comparé au réel.
+    /// Import: schema exported then applied, compared to the real one.
     import: Option<&'a Result<crate::catalog_compare::Comparison, String>>,
     fidelity: Option<&'a Result<pgweave_oracle::schema::SchemaComparison, String>>,
     probes: Option<&'a crate::probes::ProbeStats>,
@@ -608,47 +607,47 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
     let skipped_unparsable: usize = s.unparsable.values().sum();
     let skipped_unsupported: usize = s.unsupported.values().sum();
     let date = chrono::Local::now().format("%Y-%m-%d");
-    let commit = git_head().unwrap_or_else(|| "inconnu".into());
+    let commit = git_head().unwrap_or_else(|| "unknown".into());
 
-    let _ = writeln!(o, "# Corpus `{name}` — taux d'analyse\n");
+    let _ = writeln!(o, "# Corpus `{name}` — analysis rate\n");
     let _ = writeln!(
         o,
-        "> Généré le {date} par `cargo xtask corpus {name}` (pgweave `{commit}`).\n\
-         > Fichiers retenus : {}.\n\
-         > Agrégats uniquement : aucun identifiant du corpus n'apparaît ici.",
+        "> Generated on {date} by `cargo xtask corpus {name}` (pgweave `{commit}`).\n\
+         > Files kept: {}.\n\
+         > Aggregates only: no corpus identifier appears here.",
         layout.describe()
     );
 
-    let _ = writeln!(o, "\n## Lecture\n");
-    let _ = writeln!(o, "| Mesure | Valeur |\n|---|--:|");
-    let _ = writeln!(o, "| Fichiers | {files} |");
-    let _ = writeln!(o, "| Fichiers illisibles | {} |", s.files_unreadable);
+    let _ = writeln!(o, "\n## Reading\n");
+    let _ = writeln!(o, "| Measure | Value |\n|---|--:|");
+    let _ = writeln!(o, "| Files | {files} |");
+    let _ = writeln!(o, "| Unreadable files | {} |", s.files_unreadable);
     let _ = writeln!(o, "| Statements | {} |", s.statements);
     let _ = writeln!(
         o,
-        "| Analysés (dans l'AST) | {} ({} %) |",
+        "| Analyzed (in the AST) | {} ({} %) |",
         s.analyzed,
         pct(s.analyzed, s.statements)
     );
     let _ = writeln!(
         o,
-        "| Écartés : illisibles pour sqlparser | {skipped_unparsable} |"
+        "| Skipped: unreadable for sqlparser | {skipped_unparsable} |"
     );
-    let _ = writeln!(o, "| Écartés : non modélisés | {skipped_unsupported} |");
-    let _ = writeln!(o, "| Fonctions et procédures | {} |", s.functions);
-    let _ = writeln!(o, "| Corps PL/pgSQL analysés | {} |", s.bodies_parsed);
-    let _ = writeln!(o, "| Corps `LANGUAGE sql` analysés | {} |", s.bodies_sql);
-    let _ = writeln!(o, "| Corps non analysés | {} |", s.bodies_unparsed);
+    let _ = writeln!(o, "| Skipped: not modeled | {skipped_unsupported} |");
+    let _ = writeln!(o, "| Functions and procedures | {} |", s.functions);
+    let _ = writeln!(o, "| PL/pgSQL bodies analyzed | {} |", s.bodies_parsed);
+    let _ = writeln!(o, "| `LANGUAGE sql` bodies analyzed | {} |", s.bodies_sql);
+    let _ = writeln!(o, "| Bodies not analyzed | {} |", s.bodies_unparsed);
 
     for (title, map) in [
-        ("Statements illisibles, par forme", &s.unparsable),
-        ("Statements non modélisés, par forme", &s.unsupported),
+        ("Unreadable statements, by shape", &s.unparsable),
+        ("Statements not modeled, by shape", &s.unsupported),
     ] {
         if map.is_empty() {
             continue;
         }
         let _ = writeln!(o, "\n## {title}\n");
-        let _ = writeln!(o, "| Forme | Nombre |\n|---|--:|");
+        let _ = writeln!(o, "| Shape | Count |\n|---|--:|");
         let mut rows: Vec<_> = map.iter().collect();
         rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
         for (shape, n) in rows {
@@ -656,57 +655,57 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
         }
     }
 
-    let _ = writeln!(o, "\n## Diagnostics de `check`\n");
+    let _ = writeln!(o, "\n## `check` diagnostics\n");
     let _ = writeln!(
         o,
-        "Chaque migration est vérifiée contre le catalogue rejoué jusqu'à elle \
-         (incluse), catalogue `postgres@18` et extensions compris. Les migrations ayant \
-         été appliquées en production, une erreur est a priori un faux positif.\n"
+        "Each migration is checked against the catalog replayed up to it \
+         (inclusive), `postgres@18` catalog and extensions included. Since the migrations \
+         were applied in production, an error is presumably a false positive.\n"
     );
     let _ = writeln!(
         o,
-        "Fichiers avec au moins une erreur : {}/{files}. Statements absents de \
-         l'index : {}.\n",
+        "Files with at least one error: {}/{files}. Statements missing from \
+         the index: {}.\n",
         s.files_with_errors, s.index_skipped
     );
     if s.diagnostics.is_empty() {
-        let _ = writeln!(o, "Aucun diagnostic.");
+        let _ = writeln!(o, "No diagnostics.");
     } else {
-        let _ = writeln!(o, "| Sévérité | Code | Nombre |\n|---|---|--:|");
+        let _ = writeln!(o, "| Severity | Code | Count |\n|---|---|--:|");
         for ((sev, code), n) in &s.diagnostics {
             let _ = writeln!(o, "| {sev} | `{code}` | {n} |");
         }
     }
 
-    let _ = writeln!(o, "\n## Rejeu sur PostgreSQL\n");
+    let _ = writeln!(o, "\n## Replay on PostgreSQL\n");
     match pg {
         None => {
-            let _ = writeln!(o, "Non effectué (ni `--pg-url` ni `PGWEAVE_ORACLE_URL`).");
+            let _ = writeln!(o, "Not run (neither `--pg-url` nor `PGWEAVE_ORACLE_URL`).");
         }
         Some(r) => {
             let _ = writeln!(
                 o,
-                "PostgreSQL {} : {}/{files} migrations appliquées sur une base vierge.",
+                "PostgreSQL {}: {}/{files} migrations applied to an empty database.",
                 r.major, r.applied
             );
             if let Some((rank, msg)) = &r.first_failure {
                 let _ = writeln!(
                     o,
-                    "\nPremière migration refusée : n° {rank} — « {msg} » (noms masqués)."
+                    "\nFirst rejected migration: #{rank}: \"{msg}\" (names masked)."
                 );
             }
         }
     }
 
-    let _ = writeln!(o, "\n## Catalogue reconstruit par pgweave\n");
+    let _ = writeln!(o, "\n## Catalog rebuilt by pgweave\n");
     let _ = writeln!(
         o,
-        "Rejeu des migrations dans l'ordre sur le catalogue `postgres@18` (packs d'extension compris)."
+        "Replay of the migrations in order on the `postgres@18` catalog (extension packs included)."
     );
     if s.replay_diagnostics.is_empty() {
-        let _ = writeln!(o, "\nAucun diagnostic de rejeu.");
+        let _ = writeln!(o, "\nNo replay diagnostics.");
     } else {
-        let _ = writeln!(o, "\n| Diagnostic du rejeu | Nombre |\n|---|--:|");
+        let _ = writeln!(o, "\n| Replay diagnostic | Count |\n|---|--:|");
         for (code, n) in &s.replay_diagnostics {
             let _ = writeln!(o, "| `{code}` | {n} |");
         }
@@ -715,18 +714,18 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
         None => {
             let _ = writeln!(
                 o,
-                "\nComparaison au catalogue réel : non effectuée (rejeu PostgreSQL absent ou incomplet)."
+                "\nComparison with the real catalog: not run (PostgreSQL replay missing or incomplete)."
             );
         }
         Some(c) => {
             let _ = writeln!(
                 o,
-                "\nComparaison au catalogue réel (objets du projet, hors membres d'extensions ; \
-                 expressions comparées par leur présence) :\n"
+                "\nComparison with the real catalog (project objects, excluding extension members; \
+                 expressions compared by presence):\n"
             );
             let _ = writeln!(
                 o,
-                "| Objets | Réels | Identiques | Non établis (P3) | Différents | Manquants | En trop |\n|---|--:|--:|--:|--:|--:|--:|"
+                "| Objects | Real | Identical | Not established (P3) | Different | Missing | Extra |\n|---|--:|--:|--:|--:|--:|--:|"
             );
             for (cat, r) in &c.categories {
                 let _ = writeln!(
@@ -738,26 +737,26 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
         }
     }
 
-    let _ = writeln!(o, "\n## Import (schéma déclaratif)\n");
+    let _ = writeln!(o, "\n## Import (declarative schema)\n");
     match import {
         None => {
-            let _ = writeln!(o, "Non vérifié (rejeu PostgreSQL absent ou incomplet).");
+            let _ = writeln!(o, "Not verified (PostgreSQL replay missing or incomplete).");
         }
         Some(Err(e)) => {
             let _ = writeln!(
                 o,
-                "Le SQL exporté a été refusé par PostgreSQL : « {e} » (noms masqués)."
+                "The exported SQL was rejected by PostgreSQL: \"{e}\" (names masked)."
             );
         }
         Some(Ok(c)) => {
             let _ = writeln!(
                 o,
-                "Le catalogue reconstruit, exporté en SQL (`pgweave_catalog::dump`) et appliqué à une \
-                 base vierge, comparé au catalogue réel des migrations :\n"
+                "The rebuilt catalog, exported as SQL (`pgweave_catalog::dump`) and applied to an \
+                 empty database, compared with the real catalog of the migrations:\n"
             );
             let _ = writeln!(
                 o,
-                "| Objets | Réels | Identiques | Différents | Manquants | En trop |\n|---|--:|--:|--:|--:|--:|"
+                "| Objects | Real | Identical | Different | Missing | Extra |\n|---|--:|--:|--:|--:|--:|"
             );
             for (cat, r) in &c.categories {
                 let _ = writeln!(
@@ -777,21 +776,21 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
         Some(Err(e)) => {
             let _ = writeln!(
                 o,
-                "\nConfrontation au texte près non effectuée : « {e} » (noms masqués)."
+                "\nText-level comparison not run: \"{e}\" (names masked)."
             );
         }
         Some(Ok(c)) => {
             let _ = writeln!(
                 o,
-                "\nAu texte près, selon PostgreSQL (`format_type`, `pg_get_*def` : défauts, index, \
-                 vues, corps de routines ; oracle des migrations de P7, noms des contraintes \
-                 NOT NULL exceptés), {} ligne(s) de description comparée(s) : {}.",
+                "\nDown to the text, according to PostgreSQL (`format_type`, `pg_get_*def`: defaults, \
+                 indexes, views, routine bodies; P7 migration oracle, except NOT NULL \
+                 constraint names), {} description line(s) compared: {}.",
                 c.objects,
                 if c.is_identical() {
-                    "bases identiques".to_string()
+                    "identical databases".to_string()
                 } else {
                     format!(
-                        "{} propre(s) aux migrations, {} propre(s) à l'import",
+                        "{} only in migrations, {} only in import",
                         c.only_migrations.len(),
                         c.only_schema.len()
                     )
@@ -802,21 +801,21 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
 
     crate::probes::render(&mut o, probes);
 
-    let _ = writeln!(o, "\n## Temps (indicatif, dépend de la machine)\n");
-    let _ = writeln!(o, "| Étape | Durée |\n|---|--:|");
+    let _ = writeln!(o, "\n## Time (indicative, machine-dependent)\n");
+    let _ = writeln!(o, "| Step | Duration |\n|---|--:|");
     let _ = writeln!(
         o,
-        "| Parse de tous les fichiers | {} ms |",
+        "| Parse of all files | {} ms |",
         s.parse_time.as_millis()
     );
     let _ = writeln!(
         o,
-        "| Vérification de tous les fichiers | {} ms |",
+        "| Check of all files | {} ms |",
         s.check_time.as_millis()
     );
     let _ = writeln!(
         o,
-        "| Rejeu sur le catalogue (`pgweave-catalog`) | {} ms |",
+        "| Replay on the catalog (`pgweave-catalog`) | {} ms |",
         s.replay_time.as_millis()
     );
     o
@@ -841,7 +840,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_forme_ne_contient_aucun_nom() {
+    fn shape_contains_no_name() {
         let s = shape(
             r#"ALTER TABLE "MenuComponent" ADD CONSTRAINT "fk_x" FOREIGN KEY ("a") REFERENCES "Other"("id") ON DELETE CASCADE"#,
         );
@@ -853,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    fn redact_masque_les_identifiants() {
+    fn redact_masks_identifiers() {
         assert_eq!(
             redact(r#"relation "MenuComponent" does not exist"#),
             r#"relation "…" does not exist"#

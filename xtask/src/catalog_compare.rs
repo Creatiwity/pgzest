@@ -1,12 +1,11 @@
-//! Comparaison du catalogue reconstruit par pgweave (rejeu des migrations)
-//! avec le catalogue réel d'un PostgreSQL sur lequel les mêmes migrations
-//! ont été appliquées — critère de sortie de P2.
+//! Comparison of the catalog rebuilt by pgweave (migration replay) with the
+//! real catalog of a PostgreSQL on which the same migrations were applied:
+//! the P2 exit criterion.
 //!
-//! Le périmètre est celui du projet : schémas utilisateur, objets qui ne
-//! sont pas membres d'une extension (ceux-là viennent des packs, comparés à
-//! part par leur nom et leur version). Les expressions (défauts, `CHECK`)
-//! sont comparées par leur présence : le texte qu'en restitue PostgreSQL
-//! n'est pas celui qu'émet pgweave.
+//! The scope is the project's: user schemas, objects that are not members
+//! of an extension (those come from packs, compared separately by name and
+//! version). Expressions (defaults, `CHECK`) are compared by presence: the
+//! text PostgreSQL gives back is not the one pgweave emits.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,7 +32,7 @@ fn is_system(schema: &str) -> bool {
         || schema.starts_with("pg_temp_")
 }
 
-/// Catalogue du projet tel que PostgreSQL le contient.
+/// Project catalog as PostgreSQL holds it.
 pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
     let schemas: Vec<String> = client
         .query("SELECT nspname::text FROM pg_namespace ORDER BY 1", &[])
@@ -48,7 +47,7 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
     let pack = snap.into_pack(
         Contributor {
             name: "postgres".into(),
-            version: "réel".into(),
+            version: "real".into(),
         },
         None,
         &Default::default(),
@@ -302,31 +301,31 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
     Ok(cat)
 }
 
-/// Résultat d'une catégorie d'objets.
+/// Result for one object category.
 #[derive(Default)]
 pub(crate) struct Category {
-    /// Objets présents dans PostgreSQL.
+    /// Objects present in PostgreSQL.
     pub real: usize,
-    /// Identiques.
+    /// Identical.
     pub matched: usize,
-    /// Absents du catalogue reconstruit.
+    /// Missing from the rebuilt catalog.
     pub missing: usize,
-    /// En trop dans le catalogue reconstruit.
+    /// Extra in the rebuilt catalog.
     pub extra: usize,
-    /// Présents des deux côtés, mais différents.
+    /// Present on both sides, but different.
     pub different: usize,
-    /// Présents des deux côtés, valeur non encore établie par pgweave (type
-    /// d'une colonne de vue avant l'analyse sémantique, P3).
+    /// Present on both sides, value not yet established by pgweave (type of
+    /// a view column before semantic analysis, P3).
     pub unknown: usize,
 }
 
 pub(crate) struct Comparison {
     pub categories: BTreeMap<&'static str, Category>,
-    /// Détail de chaque écart, noms compris : pour `--details` seulement.
+    /// Detail of each gap, names included: for `--details` only.
     pub details: Vec<String>,
 }
 
-/// Compare des ensembles clé → description.
+/// Compares key → description sets.
 fn compare_maps(
     out: &mut Comparison,
     category: &'static str,
@@ -339,14 +338,14 @@ fn compare_maps(
         match ours.get(k) {
             None => {
                 c.missing += 1;
-                out.details.push(format!("{category} manquant : {k}"));
+                out.details.push(format!("{category} missing: {k}"));
             }
             Some(o) if o == v => c.matched += 1,
             Some(o) if o.starts_with('?') => c.unknown += 1,
             Some(o) => {
                 c.different += 1;
                 out.details.push(format!(
-                    "{category} différent : {k}\n  réel : {v}\n  pgweave : {o}"
+                    "{category} different: {k}\n  real: {v}\n  pgweave: {o}"
                 ));
             }
         }
@@ -354,13 +353,13 @@ fn compare_maps(
     for k in ours.keys() {
         if !real.contains_key(k) {
             c.extra += 1;
-            out.details.push(format!("{category} en trop : {k}"));
+            out.details.push(format!("{category} extra: {k}"));
         }
     }
 }
 
-/// Description comparable de chaque objet du projet (hors système et
-/// membres d'extensions).
+/// Comparable description of each project object (excluding system and
+/// extension members).
 fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
     let ext_types: BTreeSet<&QName> = cat
         .extension_packs
@@ -391,7 +390,7 @@ fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
 
     let mut d: BTreeMap<&'static str, BTreeMap<String, String>> = BTreeMap::new();
     d.insert(
-        "schémas",
+        "schemas",
         cat.schemas
             .keys()
             .filter(|s| !is_system(s))
@@ -419,7 +418,7 @@ fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
                 let desc = match &t.kind {
                     TypeKind::Enum { labels } => format!("enum {}", labels.join(",")),
                     TypeKind::Domain { base, not_null, .. } => {
-                        format!("domaine {base} not_null={not_null}")
+                        format!("domain {base} not_null={not_null}")
                     }
                     TypeKind::Composite { attributes } => format!(
                         "composite {}",
@@ -429,7 +428,7 @@ fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),
-                    TypeKind::Array { element } => format!("tableau de {element}"),
+                    TypeKind::Array { element } => format!("array of {element}"),
                     other => format!("{other:?}"),
                 };
                 (t.name.to_string(), desc)
@@ -502,8 +501,8 @@ fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
         }
     }
     d.insert("relations", relations);
-    d.insert("colonnes", columns);
-    d.insert("contraintes", constraints);
+    d.insert("columns", columns);
+    d.insert("constraints", constraints);
     d.insert(
         "index",
         cat.indexes
@@ -518,7 +517,7 @@ fn describe(cat: &Catalog) -> BTreeMap<&'static str, BTreeMap<String, String>> {
             .collect(),
     );
     d.insert(
-        "séquences",
+        "sequences",
         cat.sequences
             .values()
             .filter(|s| user(&s.name))

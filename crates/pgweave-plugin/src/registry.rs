@@ -17,8 +17,8 @@ impl PluginRegistry {
         // Register built-in plugins
         r.register(Box::new(crate::builtin::RlsEnforcerPlugin));
         r.register(Box::new(crate::prisma::plugin::PrismaPlugin));
-        // Documenté depuis longtemps (`postgis = {}`) mais jamais enregistré :
-        // l'activer ne faisait rien, sans le dire.
+        // Documented for a long time (`postgis = {}`) but never registered:
+        // enabling it did nothing, silently.
         r.register(Box::new(crate::postgis::PostGisPlugin));
         r
     }
@@ -27,10 +27,10 @@ impl PluginRegistry {
         self.plugins.insert(plugin.name().to_string(), plugin);
     }
 
-    /// Vérifie que chaque nom désigne un plugin enregistré.
+    /// Checks that every name designates a registered plugin.
     ///
-    /// Un nom inconnu (faute de frappe, plugin non fourni) serait sinon
-    /// ignoré en silence : le projet croirait le plugin actif.
+    /// Otherwise an unknown name (typo, plugin not shipped) would be
+    /// silently ignored: the project would believe the plugin is active.
     pub fn check_names<'a>(
         &self,
         names: impl IntoIterator<Item = &'a String>,

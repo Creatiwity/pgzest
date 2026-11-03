@@ -55,20 +55,17 @@ pub fn lint(sql: &str) -> String {
 
 #[wasm_bindgen]
 pub fn migrate_diff(old_sql: &str, new_sql: &str) -> String {
-    // Un schéma illisible ne donne pas de migration vide : l'erreur est
-    // rendue, en commentaire SQL.
+    // An unreadable schema does not yield an empty migration: the error is
+    // rendered as a SQL comment.
     match pgweave_catalog::diff::diff_sql(old_sql, new_sql) {
         Ok(m) => {
             let mut out = m.to_sql();
             for u in &m.unsupported {
-                out.push_str(&format!(
-                    "\n-- non pris en charge : {} : {}",
-                    u.object, u.change
-                ));
+                out.push_str(&format!("\n-- unsupported: {}: {}", u.object, u.change));
             }
             out
         }
-        Err(e) => format!("-- erreur : {e}"),
+        Err(e) => format!("-- error: {e}"),
     }
 }
 

@@ -1,4 +1,4 @@
--- Points de fidélité, crédités quand une commande est servie.
+-- Loyalty points, credited when an order is served.
 
 CREATE FUNCTION award_loyalty() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -12,7 +12,7 @@ BEGIN
         UPDATE customers
         SET loyalty_points = loyalty_points + v_points
         WHERE id = NEW.customer_id;
-        RAISE NOTICE 'commande % : % point(s)', NEW.id, v_points;
+        RAISE NOTICE 'order %: % point(s)', NEW.id, v_points;
     END IF;
     RETURN NULL;
 END;

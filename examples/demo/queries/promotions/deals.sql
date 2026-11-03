@@ -1,9 +1,9 @@
--- Promotions : un sous-répertoire est un module (`queries::promotions::deals`).
--- La fiche reprise vient d'un autre fichier : `-> menu::dish_card`, chemin
--- depuis la racine de `queries/`.
+-- Promotions: a subdirectory is a module (`queries::promotions::deals`).
+-- The reused card comes from another file: `-> menu::dish_card`, a path
+-- from the root of `queries/`.
 
 -- name: affordable_dishes :many -> menu::dish_card
--- `@affordable(d)` est un prédicat : inséré entre parenthèses.
+-- `@affordable(d)` is a predicate: inserted in parentheses.
 SELECT @dish_card(d)
 FROM dishes d
 WHERE d.restaurant_id = $restaurant AND @affordable(d)

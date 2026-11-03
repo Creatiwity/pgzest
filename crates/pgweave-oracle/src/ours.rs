@@ -4,33 +4,33 @@ use pgweave_sema::{Ty, TypeSystem, ViewTyper};
 
 use crate::case::Case;
 
-/// Ce que pgweave affirme d'une requête. `None` = pgweave ne se prononce pas
-/// (« non inféré »), ce qui est distinct d'une liste vide.
+/// What pgweave claims about a query. `None` = pgweave does not say
+/// ("not inferred"), which is distinct from an empty list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OurDescription {
     pub params: Option<Vec<String>>,
-    /// Nom (si pgweave en déduit un) et type de chaque colonne de sortie.
+    /// Name (if pgweave infers one) and type of each output column.
     pub columns: Option<Vec<(Option<String>, String)>>,
-    /// Ce qui a dégradé l'analyse : statements du schéma ou de la requête
-    /// écartés par le parser. Vide = analyse complète.
+    /// What degraded the analysis: schema or query statements skipped by
+    /// the parser. Empty = complete analysis.
     pub notes: Vec<String>,
 }
 
-/// Décrit chaque requête du cas par son descripteur (PLAN.md §4), tel que
-/// le consomme un générateur de code.
+/// Describes each query of the case through its descriptor (PLAN.md §4), as
+/// a code generator consumes it.
 pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
-    // Le résolveur ne dit pas ce qu'il a écarté : on reparse pour le savoir.
-    // Une table absente de l'index explique des colonnes « fausses » en aval,
-    // le rapport doit donc le montrer.
+    // The resolver does not say what it skipped: reparse to find out.
+    // A table missing from the index explains "wrong" columns downstream,
+    // so the report must show it.
     let schema_notes: Vec<String> = match pgweave_parser::parse_with_outcome(&case.schema) {
         Ok(o) => o
             .skipped
             .iter()
-            .map(|s| format!("schéma : {}", describe_skip(s)))
+            .map(|s| format!("schema: {}", describe_skip(s)))
             .collect(),
-        Err(e) => vec![format!("schéma illisible : {e}")],
+        Err(e) => vec![format!("unreadable schema: {e}")],
     };
-    // Rejeu du schéma, vues typées par l'analyse sémantique.
+    // Schema replay, views typed by semantic analysis.
     let schema = {
         let mut b = ProjectBuilder::new().with_typer(Some(ViewTyper::shared()));
         let parsed = pgweave_parser::parse_with_outcome(&case.schema);
@@ -47,12 +47,12 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
         .iter()
         .map(|q| {
             let mut notes = schema_notes.clone();
-            // Le SQL positionnel, comme celui que prépare PostgreSQL : même
-            // numérotation des paramètres.
+            // Positional SQL, like the one PostgreSQL prepares: same
+            // parameter numbering.
             let outcome = match pgweave_parser::parse_with_outcome(&q.positional_sql()) {
                 Ok(o) => o,
                 Err(e) => {
-                    notes.push(format!("requête illisible : {e}"));
+                    notes.push(format!("unreadable query: {e}"));
                     return OurDescription {
                         params: None,
                         columns: None,
@@ -64,7 +64,7 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
                 outcome
                     .skipped
                     .iter()
-                    .map(|s| format!("requête : {}", describe_skip(s))),
+                    .map(|s| format!("query: {}", describe_skip(s))),
             );
             let ts = TypeSystem::new(&schema.catalog);
             match pgweave_query::describe_named(&schema, q) {
@@ -78,8 +78,8 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
                     columns: Some(
                         d.columns
                             .iter()
-                            // Le protocole décrit une colonne de domaine par
-                            // son type de base (`printtup.c`).
+                            // The protocol describes a domain column by
+                            // its base type (`printtup.c`).
                             .map(|c| {
                                 (
                                     Some(c.name.clone()),
@@ -90,10 +90,10 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
                     ),
                     notes,
                 },
-                // Refus du descripteur (type non établi, erreur d'analyse).
+                // Descriptor refusal (type not established, analysis error).
                 Err(diags) => {
                     for d in diags {
-                        notes.push(format!("analyse : [{}] {}", d.code, d.message));
+                        notes.push(format!("analysis: [{}] {}", d.code, d.message));
                     }
                     OurDescription {
                         params: None,
@@ -106,7 +106,7 @@ pub fn describe_ours(case: &Case) -> Vec<OurDescription> {
         .collect()
 }
 
-/// Raison d'un écart, sur une ligne, avec le début du statement concerné.
+/// Reason for a skip, on one line, with the start of the statement concerned.
 fn describe_skip(s: &SkippedStatement) -> String {
     let head: String = s
         .sql
@@ -115,23 +115,23 @@ fn describe_skip(s: &SkippedStatement) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     let reason = match &s.reason {
-        SkipReason::Unparsable(why) => format!("illisible ({why})"),
-        SkipReason::Unsupported(what) => format!("non modélisé ({what})"),
+        SkipReason::Unparsable(why) => format!("unreadable ({why})"),
+        SkipReason::Unsupported(what) => format!("not modeled ({what})"),
         SkipReason::UnparsedBody { name, reason } => {
-            format!("corps de `{name}` non analysé ({reason})")
+            format!("body of `{name}` not analyzed ({reason})")
         }
     };
     format!("`{head} …` {reason}")
 }
 
-/// Type désigné par le nom qualifié d'un descripteur.
+/// Type designated by a descriptor's qualified name.
 fn ty(qualified: &str) -> Ty {
     pgweave_query::descriptor::parse_qualified(qualified)
         .unwrap_or_else(|| pgweave_sema::pg(qualified))
 }
 
-/// Nom du type tel que le rapporte le `Prepare` : nom interne, `[]` pour
-/// le tableau attitré d'un élément.
+/// Type name as `Prepare` reports it: internal name, `[]` for the
+/// designated array type of an element.
 fn pg_name(ts: &TypeSystem, ty: &Ty) -> String {
     match ts.element(ty) {
         Some(e) if ts.array_of(&e).as_ref() == Some(ty) => format!("{}[]", e.name),

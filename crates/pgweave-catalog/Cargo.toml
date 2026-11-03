@@ -2,12 +2,12 @@
 name = "pgweave-catalog"
 version = "0.1.0"
 edition = "2024"
-description = "Catalogue PostgreSQL de pgweave : modèle, packs générés, application des DDL"
+description = "pgweave's PostgreSQL catalog: model, generated packs, DDL application"
 
 [dependencies]
 pgweave-ast = { path = "../pgweave-ast" }
 pgweave-diagnostics = { workspace = true }
-# Pont transitoire vers `SchemaProvider` (module `compat`), retiré en fin de P2.
+# Transitional bridge to `SchemaProvider` (`compat` module), removed at the end of P2.
 pgweave-schema = { path = "../pgweave-schema" }
 pgweave-macro = { path = "../pgweave-macro" }
 pgweave-parser = { path = "../pgweave-parser" }

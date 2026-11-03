@@ -1,15 +1,15 @@
--- pgweave — Schéma d'exemple
+-- pgweave — Example schema
 --
--- Cas couverts pour le toolchain :
---   - DDL multi-table avec FK, CHECK, index
---   - Trigger functions PL/pgSQL (corps $$...$$)
---   - Transitions d'état avec mutation de NEW
---   - RLS avec sous-requêtes cross-table (USING / WITH CHECK)
---   - Helper SECURITY DEFINER référencé dans les policies
---   - Procédure stockée avec DECLARE, validation métier, RAISE
---   - Fonction retournant une TABLE (typage du résultat)
---   - auth.uid() : fonction fournie par la plateforme (Supabase), déclarée
---     ici pour que l'analyse la connaisse, comme toute dépendance externe
+-- Cases covered for the toolchain:
+--   - Multi-table DDL with FK, CHECK, indexes
+--   - PL/pgSQL trigger functions ($$...$$ bodies)
+--   - State transitions mutating NEW
+--   - RLS with cross-table subqueries (USING / WITH CHECK)
+--   - SECURITY DEFINER helper referenced in the policies
+--   - Stored procedure with DECLARE, business validation, RAISE
+--   - Function returning a TABLE (result typing)
+--   - auth.uid(): a function provided by the platform (Supabase), declared
+--     here so that the analysis knows it, like any external dependency
 
 -- ---------------------------------------------------------------------------
 -- Extensions
@@ -18,8 +18,8 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ---------------------------------------------------------------------------
--- Dépendance externe : sur Supabase, le schéma `auth` existe déjà. pgweave ne
--- suppose rien de ce qu'il ne voit pas : la signature est déclarée.
+-- External dependency: on Supabase, the `auth` schema already exists. pgweave
+-- assumes nothing it cannot see: the signature is declared.
 -- ---------------------------------------------------------------------------
 
 CREATE SCHEMA IF NOT EXISTS auth;
@@ -84,7 +84,7 @@ CREATE TABLE tasks (
 );
 
 -- ---------------------------------------------------------------------------
--- Index
+-- Indexes
 -- ---------------------------------------------------------------------------
 
 CREATE INDEX tasks_project_id_idx   ON tasks(project_id);
@@ -93,7 +93,7 @@ CREATE INDEX projects_org_id_idx    ON projects(org_id);
 CREATE INDEX memberships_org_id_idx ON memberships(org_id);
 
 -- ---------------------------------------------------------------------------
--- Trigger : updated_at automatique
+-- Trigger: automatic updated_at
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -122,11 +122,11 @@ CREATE TRIGGER tasks_updated_at
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- Trigger : transitions de statut des tasks
+-- Trigger: task status transitions
 --
--- Règles métier :
---   - Une task annulée ne peut pas être rouverte.
---   - Passer à 'done' fixe completed_at ; en sortir le remet à NULL.
+-- Business rules:
+--   - A cancelled task cannot be reopened.
+--   - Moving to 'done' sets completed_at; leaving it resets it to NULL.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION enforce_task_status_transition()
@@ -162,26 +162,26 @@ ALTER TABLE memberships   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks         ENABLE ROW LEVEL SECURITY;
 
--- Helper : orgs accessibles à l'utilisateur courant.
--- SECURITY DEFINER pour bypasser le RLS sur memberships lors de l'évaluation
--- des autres policies (évite la récursion).
+-- Helper: orgs accessible to the current user.
+-- SECURITY DEFINER to bypass RLS on memberships while evaluating the other
+-- policies (avoids recursion).
 CREATE OR REPLACE FUNCTION current_user_org_ids()
 RETURNS SETOF UUID
 LANGUAGE sql STABLE SECURITY DEFINER AS $$
   SELECT org_id FROM memberships WHERE user_id = auth.uid()
 $$;
 
--- organizations : lecture réservée aux membres
+-- organizations: read restricted to members
 CREATE POLICY orgs_select ON organizations
   FOR SELECT
   USING (id IN (SELECT current_user_org_ids()));
 
--- memberships : un membre voit les autres membres de ses orgs
+-- memberships: a member sees the other members of their orgs
 CREATE POLICY memberships_select ON memberships
   FOR SELECT
   USING (org_id IN (SELECT current_user_org_ids()));
 
--- projects : lecture pour tous les membres ; écriture pour owner/admin
+-- projects: read for all members; write for owner/admin
 CREATE POLICY projects_select ON projects
   FOR SELECT
   USING (org_id IN (SELECT current_user_org_ids()));
@@ -206,8 +206,8 @@ CREATE POLICY projects_update ON projects
     )
   );
 
--- tasks : lecture pour tous les membres de l'org
---         modification pour l'assigné ou les owner/admin
+-- tasks: read for all members of the org
+--        update for the assignee or owner/admin
 CREATE POLICY tasks_select ON tasks
   FOR SELECT
   USING (
@@ -240,10 +240,10 @@ CREATE POLICY tasks_update ON tasks
   );
 
 -- ---------------------------------------------------------------------------
--- Procédure : assigner une task
+-- Procedure: assign a task
 --
--- Vérifie que la task existe, que l'utilisateur cible est membre de l'org,
--- et que la task est dans un état 'open' avant de la passer en 'in_progress'.
+-- Checks that the task exists, that the target user is a member of the org,
+-- and that the task is in the 'open' state before moving it to 'in_progress'.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE PROCEDURE assign_task(
@@ -285,10 +285,10 @@ END;
 $$;
 
 -- ---------------------------------------------------------------------------
--- Fonction : résumé d'un projet
+-- Function: project summary
 --
--- Retourne une ligne avec les compteurs par statut et le taux d'avancement.
--- Cas intéressant pour la génération de typages : TABLE avec colonnes nommées.
+-- Returns one row with the per-status counters and the completion rate.
+-- An interesting case for type generation: TABLE with named columns.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION project_summary(p_project_id UUID)

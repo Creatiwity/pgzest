@@ -1,4 +1,4 @@
--- Identity, citext, enum, domaine, CHECK, colonnes générées (PG 18 : VIRTUAL).
+-- Identity, citext, enum, domain, CHECK, generated columns (PG 18: VIRTUAL).
 
 -- name: all_products
 SELECT id, sku, status, quantity, unit_price, total_stored, price_with_tax FROM products;

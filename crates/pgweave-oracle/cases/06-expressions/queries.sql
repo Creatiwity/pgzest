@@ -1,5 +1,5 @@
--- Expressions : arithmétique, chaînes, dates, JSON, tableaux, conversions,
--- CASE, agrégats, fenêtres, paramètres dans tous les contextes.
+-- Expressions: arithmetic, strings, dates, JSON, arrays, casts,
+-- CASE, aggregates, windows, parameters in every context.
 
 -- name: arithmetic_mix
 SELECT total * 2, total + 1.5, discount * 2, discount + total, id / 2, id % 3, -total FROM orders;

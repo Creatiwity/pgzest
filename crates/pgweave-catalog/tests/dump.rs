@@ -1,5 +1,5 @@
-//! Export du catalogue (import brownfield) : le SQL émis, rejoué, redonne
-//! le même catalogue — donc le même export.
+//! Catalog export (brownfield import): the emitted SQL, replayed, yields the
+//! same catalog — hence the same export.
 
 use pgweave_catalog::ProjectCatalog;
 use pgweave_catalog::dump::dump;
@@ -22,11 +22,11 @@ CREATE FUNCTION touch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW;
 CREATE TRIGGER t_touch BEFORE UPDATE ON member FOR EACH ROW EXECUTE FUNCTION touch();
 ALTER TABLE member ENABLE ROW LEVEL SECURITY;
 CREATE POLICY p ON member FOR SELECT USING (org_id > 0);
-COMMENT ON TABLE member IS 'Membres';
+COMMENT ON TABLE member IS 'Members';
 "#;
 
 #[test]
-fn l_export_est_un_point_fixe() {
+fn export_is_a_fixed_point() {
     let first = ProjectCatalog::from_sql(MIGRATIONS).unwrap();
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
     let a = dump(&first.catalog, 18);
@@ -43,7 +43,7 @@ fn l_export_est_un_point_fixe() {
 }
 
 #[test]
-fn en_tete_et_ordre() {
+fn header_and_order() {
     let p = ProjectCatalog::from_sql(MIGRATIONS).unwrap();
     let d = dump(&p.catalog, 18);
     assert!(
@@ -55,17 +55,17 @@ fn en_tete_et_ordre() {
             .find(needle)
             .unwrap_or_else(|| panic!("{needle}\n{}", d.baseline))
     };
-    // La fonction utilisée par une colonne générée précède la table.
+    // The function used by a generated column precedes the table.
     assert!(pos("CREATE FUNCTION fold") < pos("CREATE TABLE \"Org\""));
-    // Les FK suivent les index, et `NOT VALID` est conservé.
+    // FKs follow indexes, and `NOT VALID` is kept.
     assert!(pos("CREATE UNIQUE INDEX org_name_idx") < pos("ADD CONSTRAINT member_org_fk"));
     assert!(
         d.baseline
             .contains("member_org_name_fk FOREIGN KEY (org_id) REFERENCES \"Org\" (id) NOT VALID")
     );
     assert!(d.baseline.contains("ON DELETE CASCADE"));
-    // Mot-clé quoté, serial restitué.
+    // Quoted keyword, serial restored.
     assert!(d.baseline.contains("\"default\" boolean"));
     assert!(d.baseline.contains("id serial"));
-    assert!(d.baseline.contains("COMMENT ON TABLE member IS 'Membres'"));
+    assert!(d.baseline.contains("COMMENT ON TABLE member IS 'Members'"));
 }

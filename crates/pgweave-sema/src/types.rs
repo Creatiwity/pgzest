@@ -1,38 +1,38 @@
-//! Types tels que PostgreSQL les identifie : un type est une entrée de
-//! `pg_type`, désignée par son nom qualifié. Un tableau est son propre type
-//! (`pg_catalog._int4`), comme dans PostgreSQL.
+//! Types as PostgreSQL identifies them: a type is a `pg_type` entry,
+//! designated by its qualified name. An array is its own type
+//! (`pg_catalog._int4`), as in PostgreSQL.
 
 use std::collections::HashMap;
 
 use pgweave_catalog::model::{Cast, TypeDef, TypeKind, TypeRef};
 use pgweave_catalog::{Catalog, QName};
 
-/// Identité d'un type (`pg_type`).
+/// Identity of a type (`pg_type`).
 pub type Ty = QName;
 
-/// Type de `pg_catalog`.
+/// Type from `pg_catalog`.
 pub fn pg(name: &str) -> Ty {
     QName::pg_catalog(name)
 }
 
-/// Catégorie `typcategory` des chaînes et des types inconnus.
+/// `typcategory` category of strings and of unknown types.
 pub(crate) const CATEGORY_STRING: char = 'S';
 pub(crate) const CATEGORY_UNKNOWN: char = 'X';
 
-/// Objet du catalogue dont dépend une analyse : ce qu'elle a résolu.
+/// Catalog object an analysis depends on: what it resolved.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Dependency {
     Relation(QName),
     Type(QName),
-    /// Routine et types de ses arguments d'entrée (la surcharge).
+    /// Routine and the types of its input arguments (the overload).
     Routine(QName, Vec<String>),
-    /// Opérateur et types de ses opérandes.
+    /// Operator and the types of its operands.
     Operator(QName, Option<String>, String),
 }
 
 impl Dependency {
-    /// Objet intégré à PostgreSQL : fixé par la version, sans intérêt pour
-    /// l'invalidation d'un projet.
+    /// Object built into PostgreSQL: fixed by the version, irrelevant to
+    /// invalidating a project.
     pub fn is_builtin(&self) -> bool {
         let q = match self {
             Dependency::Relation(q)
@@ -56,12 +56,12 @@ impl std::fmt::Display for Dependency {
     }
 }
 
-/// Vue « système de types » d'un catalogue.
+/// "Type system" view of a catalog.
 pub struct TypeSystem<'c> {
     pub catalog: &'c Catalog,
-    /// `pg_cast` indexé par (source, cible).
+    /// `pg_cast` indexed by (source, target).
     casts: HashMap<(Ty, Ty), &'c Cast>,
-    /// Objets résolus par les analyses faites avec ce système.
+    /// Objects resolved by the analyses done with this system.
     pub depends: std::cell::RefCell<std::collections::BTreeSet<Dependency>>,
 }
 
@@ -82,12 +82,12 @@ impl<'c> TypeSystem<'c> {
         }
     }
 
-    /// Note une dépendance.
+    /// Records a dependency.
     pub fn depend(&self, d: Dependency) {
         self.depends.borrow_mut().insert(d);
     }
 
-    /// Relation désignée par un nom écrit, notée comme dépendance.
+    /// Relation designated by a written name, recorded as a dependency.
     pub fn relation(
         &self,
         schema: Option<&str>,
@@ -103,8 +103,8 @@ impl<'c> TypeSystem<'c> {
         self.catalog.types.get(ty)
     }
 
-    /// Type désigné par une référence du catalogue (arguments de routine,
-    /// colonnes). `None` pour une référence non résolue ou inconnue.
+    /// Type designated by a catalog reference (routine arguments,
+    /// columns). `None` for an unresolved or unknown reference.
     pub fn of_ref(&self, r: &TypeRef) -> Option<Ty> {
         match r {
             TypeRef::Named { name, .. } => Some(name.clone()),
@@ -113,19 +113,19 @@ impl<'c> TypeSystem<'c> {
         }
     }
 
-    /// `typcategory` ; `X` pour un type absent du catalogue.
+    /// `typcategory`; `X` for a type absent from the catalog.
     pub fn category(&self, ty: &Ty) -> char {
         self.def(ty).map_or(CATEGORY_UNKNOWN, |d| d.category)
     }
 
-    /// `IsPreferredType` : préféré dans la catégorie donnée.
+    /// `IsPreferredType`: preferred in the given category.
     pub fn is_preferred(&self, category: char, ty: &Ty) -> bool {
         self.def(ty)
             .is_some_and(|d| d.preferred && d.category == category)
     }
 
-    /// `getBaseType` : un domaine est remplacé par son type de base, en
-    /// remontant les domaines de domaines.
+    /// `getBaseType`: a domain is replaced by its base type, walking up
+    /// domains over domains.
     pub fn base_type(&self, ty: &Ty) -> Ty {
         let mut t = ty.clone();
         for _ in 0..32 {
@@ -144,7 +144,7 @@ impl<'c> TypeSystem<'c> {
         matches!(self.def(ty).map(|d| &d.kind), Some(TypeKind::Domain { .. }))
     }
 
-    /// `get_element_type` : élément d'un type tableau (pas d'un domaine).
+    /// `get_element_type`: element of an array type (not of a domain).
     pub fn element(&self, ty: &Ty) -> Option<Ty> {
         match self.def(ty).map(|d| &d.kind) {
             Some(TypeKind::Array { element }) => Some(element.clone()),
@@ -152,12 +152,12 @@ impl<'c> TypeSystem<'c> {
         }
     }
 
-    /// `get_array_type` : type tableau d'un type.
+    /// `get_array_type`: array type of a type.
     pub fn array_of(&self, ty: &Ty) -> Option<Ty> {
         self.def(ty).and_then(|d| d.array.clone())
     }
 
-    /// `type_is_array_domain` : tableau, ou domaine sur un tableau.
+    /// `type_is_array_domain`: array, or domain over an array.
     pub fn is_array_or_array_domain(&self, ty: &Ty) -> bool {
         self.element(&self.base_type(ty)).is_some()
     }
@@ -166,7 +166,7 @@ impl<'c> TypeSystem<'c> {
         matches!(self.def(ty).map(|d| &d.kind), Some(TypeKind::Enum { .. }))
     }
 
-    /// Sous-type d'un type intervalle (`get_range_subtype`).
+    /// Subtype of a range type (`get_range_subtype`).
     pub fn range_subtype(&self, ty: &Ty) -> Option<Ty> {
         match self.def(ty).map(|d| &d.kind) {
             Some(TypeKind::Range { subtype }) => Some(subtype.clone()),
@@ -174,7 +174,7 @@ impl<'c> TypeSystem<'c> {
         }
     }
 
-    /// Multi-intervalle d'un intervalle (`get_range_multirange`).
+    /// Multirange of a range (`get_range_multirange`).
     pub fn range_multirange(&self, range: &Ty) -> Option<Ty> {
         self.catalog.types.values().find_map(|d| match &d.kind {
             TypeKind::Multirange { range: r } if r == range => Some(d.name.clone()),
@@ -182,7 +182,7 @@ impl<'c> TypeSystem<'c> {
         })
     }
 
-    /// Intervalle d'un multi-intervalle (`get_multirange_range`).
+    /// Range of a multirange (`get_multirange_range`).
     pub fn multirange_range(&self, ty: &Ty) -> Option<Ty> {
         match self.def(ty).map(|d| &d.kind) {
             Some(TypeKind::Multirange { range }) => Some(range.clone()),
@@ -190,8 +190,8 @@ impl<'c> TypeSystem<'c> {
         }
     }
 
-    /// `ISCOMPLEX` : type composite (y compris le type ligne d'une table,
-    /// ou un domaine sur l'un d'eux), ou `record`.
+    /// `ISCOMPLEX`: composite type (including the row type of a table,
+    /// or a domain over one of them), or `record`.
     pub fn is_complex(&self, ty: &Ty) -> bool {
         let base = self.base_type(ty);
         *ty == pg("record")
@@ -202,13 +202,13 @@ impl<'c> TypeSystem<'c> {
             )
     }
 
-    /// Entrée `pg_cast` de `source` vers `target`.
+    /// `pg_cast` entry from `source` to `target`.
     pub(crate) fn cast(&self, source: &Ty, target: &Ty) -> Option<&'c Cast> {
         self.casts.get(&(source.clone(), target.clone())).copied()
     }
 }
 
-/// Types pseudo du polymorphisme (`IsPolymorphicType`).
+/// Polymorphic pseudo-types (`IsPolymorphicType`).
 pub(crate) fn is_polymorphic(ty: &Ty) -> bool {
     ty.schema == "pg_catalog"
         && matches!(

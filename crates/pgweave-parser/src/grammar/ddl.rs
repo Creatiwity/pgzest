@@ -1,10 +1,10 @@
-//! DDL que sqlparser ne lit pas, ou que son AST ne sait pas représenter :
-//! contraintes `EXCLUDE`, tables `UNLOGGED`, `ALTER TABLE … SET SCHEMA`,
-//! `CREATE DOMAIN` complet, `CREATE/ALTER EXTENSION`, options PostgreSQL de
+//! DDL that sqlparser does not read, or that its AST cannot represent:
+//! `EXCLUDE` constraints, `UNLOGGED` tables, `ALTER TABLE … SET SCHEMA`,
+//! full `CREATE DOMAIN`, `CREATE/ALTER EXTENSION`, PostgreSQL options of
 //! `CREATE SEQUENCE`, `ALTER TYPE … SET SCHEMA`.
 //!
-//! Les éléments communs (colonnes, contraintes ordinaires, opérations
-//! d'`ALTER TABLE`, types, expressions) restent lus par sqlparser.
+//! Common elements (columns, ordinary constraints, `ALTER TABLE`
+//! operations, types, expressions) are still read by sqlparser.
 
 use pgweave_ast::Statement;
 use pgweave_ast::ddl::{
@@ -29,9 +29,9 @@ type Result<T> = std::result::Result<T, ParseError>;
 
 // ── CREATE TABLE ──────────────────────────────────────────────────────────────
 
-/// `CREATE [GLOBAL|LOCAL] [TEMP|TEMPORARY|UNLOGGED] TABLE [IF NOT EXISTS] nom (`
-/// — la forme à éléments. `CREATE TABLE … AS`, `PARTITION OF` et `OF type`
-/// restent à sqlparser (et sont écartés s'il ne les représente pas).
+/// `CREATE [GLOBAL|LOCAL] [TEMP|TEMPORARY|UNLOGGED] TABLE [IF NOT EXISTS] name (`
+/// — the element form. `CREATE TABLE … AS`, `PARTITION OF` and `OF type`
+/// are left to sqlparser (and rejected if it does not represent them).
 pub(crate) fn is_create_table(p: &Parser) -> bool {
     let mut n = 1;
     if keyword_at(p, 0) != Some(Keyword::CREATE) {
@@ -56,7 +56,7 @@ pub(crate) fn is_create_table(p: &Parser) -> bool {
     if keyword_at(p, n) == Some(Keyword::IF) {
         n += 3;
     }
-    // Nom éventuellement qualifié, puis `(`.
+    // Possibly qualified name, then `(`.
     n += 1;
     while p.peek_nth_token_ref(n).token == Token::Period {
         n += 2;
@@ -77,8 +77,8 @@ pub(crate) fn parse_create_table(p: &mut Parser) -> Result<Statement> {
         match k {
             Keyword::TEMP | Keyword::TEMPORARY => temporary = true,
             Keyword::UNLOGGED => unlogged = true,
-            // GLOBAL / LOCAL : sans effet dans PostgreSQL, conservés pour la
-            // compatibilité SQL.
+            // GLOBAL / LOCAL: no effect in PostgreSQL, kept for SQL
+            // compatibility.
             _ => {}
         }
     }
@@ -118,15 +118,15 @@ pub(crate) fn parse_create_table(p: &mut Parser) -> Result<Statement> {
             } else if p.parse_keyword(Keyword::DROP) {
                 OnCommit::Drop
             } else {
-                return Err(expected(p, "PRESERVE ROWS, DELETE ROWS ou DROP"));
+                return Err(expected(p, "PRESERVE ROWS, DELETE ROWS or DROP"));
             });
         } else if p.parse_keyword(Keyword::TABLESPACE) {
-            // Emplacement physique : sans effet sur l'analyse.
+            // Physical location: no effect on the analysis.
             p.parse_identifier().map_err(pe)?;
         } else {
             let what = p.peek_token_ref().to_string();
             return Err(ParseError::Unsupported(format!(
-                "option de CREATE TABLE non modélisée : {what}"
+                "unmodeled CREATE TABLE option: {what}"
             )));
         }
     }
@@ -146,7 +146,7 @@ pub(crate) fn parse_create_table(p: &mut Parser) -> Result<Statement> {
     })))
 }
 
-/// `LIKE source [{INCLUDING | EXCLUDING} option …]`, `LIKE` déjà lu.
+/// `LIKE source [{INCLUDING | EXCLUDING} option …]`, `LIKE` already read.
 fn parse_like(p: &mut Parser, position: usize) -> Result<TableLike> {
     let source = convert_object_name(p.parse_object_name(false).map_err(pe)?);
     let mut options = Vec::new();
@@ -163,9 +163,9 @@ fn parse_like(p: &mut Parser, position: usize) -> Result<TableLike> {
                 "STATISTICS" => LikeFeature::Statistics,
                 "STORAGE" => LikeFeature::Storage,
                 "ALL" => LikeFeature::All,
-                _ => return Err(expected(p, "une option de LIKE")),
+                _ => return Err(expected(p, "a LIKE option")),
             },
-            _ => return Err(expected(p, "une option de LIKE")),
+            _ => return Err(expected(p, "a LIKE option")),
         };
         options.push(LikeOption {
             including: k == Keyword::INCLUDING,
@@ -179,14 +179,14 @@ fn parse_like(p: &mut Parser, position: usize) -> Result<TableLike> {
     })
 }
 
-/// `[CONSTRAINT nom] EXCLUDE` en tête ?
+/// `[CONSTRAINT name] EXCLUDE` ahead?
 fn is_exclude(p: &Parser) -> bool {
     let is_exclude_at = |n| matches!(&p.peek_nth_token_ref(n).token, sqlparser::tokenizer::Token::Word(w) if w.value.eq_ignore_ascii_case("exclude"));
     is_exclude_at(0) || (keyword_at(p, 0) == Some(Keyword::CONSTRAINT) && is_exclude_at(2))
 }
 
-/// `[CONSTRAINT nom] EXCLUDE [USING méthode] (élément WITH opérateur, …)
-/// [INCLUDE (…)] [WITH (…)] [USING INDEX TABLESPACE t] [WHERE (prédicat)]`.
+/// `[CONSTRAINT name] EXCLUDE [USING method] (element WITH operator, …)
+/// [INCLUDE (…)] [WITH (…)] [USING INDEX TABLESPACE t] [WHERE (predicate)]`.
 fn parse_exclude(p: &mut Parser) -> Result<TableConstraint> {
     let name = if p.parse_keyword(Keyword::CONSTRAINT) {
         Some(convert_ident(p.parse_identifier().map_err(pe)?))
@@ -216,7 +216,7 @@ fn parse_exclude(p: &mut Parser) -> Result<TableConstraint> {
             operator.push_str(&p.next_token().token.to_string());
         }
         if operator.is_empty() {
-            return Err(expected(p, "opérateur d'exclusion"));
+            return Err(expected(p, "exclusion operator"));
         }
         elements.push(ExclusionElement { element, operator });
         if p.consume_token(&Token::RParen) {
@@ -250,8 +250,8 @@ pub(crate) fn is_alter_table(p: &Parser) -> bool {
     keyword_at(p, 0) == Some(Keyword::ALTER) && keyword_at(p, 1) == Some(Keyword::TABLE)
 }
 
-/// `ALTER TABLE [IF EXISTS] [ONLY] nom opération, …` : les opérations
-/// ordinaires sont lues par sqlparser, `ADD … EXCLUDE` et `SET SCHEMA` ici.
+/// `ALTER TABLE [IF EXISTS] [ONLY] name operation, …`: ordinary operations
+/// are read by sqlparser, `ADD … EXCLUDE` and `SET SCHEMA` here.
 pub(crate) fn parse_alter_table(p: &mut Parser) -> Result<Statement> {
     p.expect_keyword_is(Keyword::ALTER).map_err(pe)?;
     p.expect_keyword_is(Keyword::TABLE).map_err(pe)?;
@@ -262,7 +262,7 @@ pub(crate) fn parse_alter_table(p: &mut Parser) -> Result<Statement> {
     loop {
         let op = if keyword_at(p, 0) == Some(Keyword::ADD)
             && {
-                // ADD [CONSTRAINT nom] EXCLUDE
+                // ADD [CONSTRAINT name] EXCLUDE
                 let at = |n| matches!(&p.peek_nth_token_ref(n).token, Token::Word(w) if w.value.eq_ignore_ascii_case("exclude"));
                 at(1) || (keyword_at(p, 1) == Some(Keyword::CONSTRAINT) && at(3))
             } {
@@ -298,8 +298,8 @@ pub(crate) fn is_create_domain(p: &Parser) -> bool {
     keyword_at(p, 0) == Some(Keyword::CREATE) && keyword_at(p, 1) == Some(Keyword::DOMAIN)
 }
 
-/// `CREATE DOMAIN nom [AS] type [COLLATE c] [DEFAULT expr]
-/// [[CONSTRAINT nom] { NOT NULL | NULL | CHECK (expr) }] …`
+/// `CREATE DOMAIN name [AS] type [COLLATE c] [DEFAULT expr]
+/// [[CONSTRAINT name] { NOT NULL | NULL | CHECK (expr) }] …`
 pub(crate) fn parse_create_domain(p: &mut Parser) -> Result<Statement> {
     p.expect_keyword_is(Keyword::CREATE).map_err(pe)?;
     p.expect_keyword_is(Keyword::DOMAIN).map_err(pe)?;
@@ -340,7 +340,7 @@ pub(crate) fn parse_create_domain(p: &mut Parser) -> Result<Statement> {
                 expr,
             });
         } else {
-            return Err(expected(p, "contrainte de domaine"));
+            return Err(expected(p, "domain constraint"));
         }
     }
     Ok(Statement::Ddl(DdlStatement::CreateDomain(domain)))
@@ -352,7 +352,7 @@ pub(crate) fn is_create_extension(p: &Parser) -> bool {
     keyword_at(p, 0) == Some(Keyword::CREATE) && keyword_at(p, 1) == Some(Keyword::EXTENSION)
 }
 
-/// `CREATE EXTENSION [IF NOT EXISTS] nom [WITH] [SCHEMA s] [VERSION v] [CASCADE]`
+/// `CREATE EXTENSION [IF NOT EXISTS] name [WITH] [SCHEMA s] [VERSION v] [CASCADE]`
 pub(crate) fn parse_create_extension(p: &mut Parser) -> Result<Statement> {
     p.expect_keyword_is(Keyword::CREATE).map_err(pe)?;
     p.expect_keyword_is(Keyword::EXTENSION).map_err(pe)?;
@@ -374,7 +374,7 @@ pub(crate) fn parse_create_extension(p: &mut Parser) -> Result<Statement> {
         } else if p.parse_keyword(Keyword::CASCADE) {
             ext.cascade = true;
         } else {
-            return Err(expected(p, "SCHEMA, VERSION ou CASCADE"));
+            return Err(expected(p, "SCHEMA, VERSION or CASCADE"));
         }
     }
     Ok(Statement::Ddl(DdlStatement::CreateExtension(ext)))
@@ -384,7 +384,7 @@ pub(crate) fn is_alter_extension(p: &Parser) -> bool {
     keyword_at(p, 0) == Some(Keyword::ALTER) && keyword_at(p, 1) == Some(Keyword::EXTENSION)
 }
 
-/// `ALTER EXTENSION nom UPDATE [TO v]` ou `ALTER EXTENSION nom SET SCHEMA s`.
+/// `ALTER EXTENSION name UPDATE [TO v]` or `ALTER EXTENSION name SET SCHEMA s`.
 pub(crate) fn parse_alter_extension(p: &mut Parser) -> Result<Statement> {
     p.expect_keyword_is(Keyword::ALTER).map_err(pe)?;
     p.expect_keyword_is(Keyword::EXTENSION).map_err(pe)?;
@@ -399,7 +399,7 @@ pub(crate) fn parse_alter_extension(p: &mut Parser) -> Result<Statement> {
         AlterExtensionOp::SetSchema(convert_ident(p.parse_identifier().map_err(pe)?))
     } else {
         return Err(ParseError::Unsupported(
-            "ALTER EXTENSION ADD/DROP d'un membre".to_string(),
+            "ALTER EXTENSION ADD/DROP of a member".to_string(),
         ));
     };
     expect_end(p)?;
@@ -420,9 +420,9 @@ pub(crate) fn is_create_sequence(p: &Parser) -> bool {
             ) && k(2) == Some(Keyword::SEQUENCE)))
 }
 
-/// `CREATE [TEMP] SEQUENCE [IF NOT EXISTS] nom [AS type] [INCREMENT [BY] n]
+/// `CREATE [TEMP] SEQUENCE [IF NOT EXISTS] name [AS type] [INCREMENT [BY] n]
 /// [MINVALUE n | NO MINVALUE] [MAXVALUE n | NO MAXVALUE] [START [WITH] n]
-/// [CACHE n] [[NO] CYCLE] [OWNED BY {table.colonne | NONE}]`
+/// [CACHE n] [[NO] CYCLE] [OWNED BY {table.column | NONE}]`
 pub(crate) fn parse_create_sequence(p: &mut Parser) -> Result<Statement> {
     p.expect_keyword_is(Keyword::CREATE).map_err(pe)?;
     let temporary = matches!(
@@ -474,7 +474,7 @@ pub(crate) fn parse_create_sequence(p: &mut Parser) -> Result<Statement> {
                 Some(convert_object_name(p.parse_object_name(false).map_err(pe)?))
             };
         } else {
-            return Err(expected(p, "option de séquence"));
+            return Err(expected(p, "sequence option"));
         }
     }
     Ok(Statement::Ddl(DdlStatement::CreateSequence(seq)))
@@ -482,8 +482,8 @@ pub(crate) fn parse_create_sequence(p: &mut Parser) -> Result<Statement> {
 
 // ── ALTER TYPE … SET SCHEMA ───────────────────────────────────────────────────
 
-/// Seule forme d'`ALTER TYPE` que sqlparser ne lit pas ; les autres
-/// (`ADD VALUE`, `RENAME`) lui sont laissées.
+/// The only form of `ALTER TYPE` sqlparser does not read; the others
+/// (`ADD VALUE`, `RENAME`) are left to it.
 pub(crate) fn is_alter_type_set_schema(p: &Parser) -> bool {
     if keyword_at(p, 0) != Some(Keyword::ALTER) || keyword_at(p, 1) != Some(Keyword::TYPE) {
         return false;
@@ -509,7 +509,7 @@ pub(crate) fn parse_alter_type_set_schema(p: &mut Parser) -> Result<Statement> {
     })))
 }
 
-// ── Utilitaires ───────────────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
 fn word_or_string(p: &mut Parser) -> Result<String> {
     let tok = p.next_token();
@@ -525,11 +525,11 @@ fn signed_integer(p: &mut Parser) -> Result<i64> {
     let negative = p.consume_token(&Token::Minus);
     let tok = p.next_token();
     let Token::Number(n, _) = &tok.token else {
-        return Err(pe(p.expected_ref::<()>("entier", &tok).unwrap_err()));
+        return Err(pe(p.expected_ref::<()>("integer", &tok).unwrap_err()));
     };
     let value: i64 = n
         .parse()
-        .map_err(|_| ParseError::Syntax(format!("entier invalide : {n}")))?;
+        .map_err(|_| ParseError::Syntax(format!("invalid integer: {n}")))?;
     Ok(if negative { -value } else { value })
 }
 
@@ -537,7 +537,7 @@ fn expect_end(p: &Parser) -> Result<()> {
     if p.peek_token_ref().token == Token::EOF {
         Ok(())
     } else {
-        Err(expected(p, "fin du statement"))
+        Err(expected(p, "end of statement"))
     }
 }
 

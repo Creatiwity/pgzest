@@ -1,9 +1,9 @@
-//! Interfaces TypeScript des requêtes nommées (`-- @name: Interface`) et des
-//! fonctions `RETURNS TABLE`, typées par l'analyse sémantique.
+//! TypeScript interfaces for named queries (`-- @name: Interface`) and
+//! `RETURNS TABLE` functions, typed by semantic analysis.
 //!
-//! Les types sont ceux que renvoie `node-postgres` (`pg`) avec ses
-//! analyseurs par défaut ; une colonne qui n'est pas établie non nulle est
-//! `T | null` (PLAN.md D5). L'intégration TypeScript complète relève de P8.
+//! Types are those returned by `node-postgres` (`pg`) with its default
+//! parsers; a column not established as non-null is `T | null`
+//! (PLAN.md D5). Full TypeScript integration belongs to P8.
 
 use pgweave_ast::ddl::ReturnType;
 use pgweave_ast::{DdlStatement, Statement};
@@ -12,13 +12,13 @@ use pgweave_catalog::model::TypeKind;
 use pgweave_schema::provider::object_name_to_string;
 use pgweave_sema::{Analyzer, Nullability, Ty, TypeSystem};
 
-/// Colonne d'une interface : nom, type TypeScript.
+/// Interface column: name, TypeScript type.
 struct Field {
     name: String,
     ts: String,
 }
 
-/// Interfaces TypeScript des statements `stmts` de `sql`, typés contre
+/// TypeScript interfaces for the statements `stmts` of `sql`, typed against
 /// `catalog`.
 ///
 /// ```ts
@@ -32,15 +32,13 @@ pub fn generate_ts_types(sql: &str, stmts: &[Statement], catalog: &ProjectCatalo
     let mut generated_any = false;
     let ts = TypeSystem::new(&catalog.catalog);
 
-    // ── Requêtes nommées : `-- @name: Interface` puis le statement suivant ──
+    // ── Named queries: `-- @name: Interface` then the next statement ──
     for (name, after) in named_queries(sql) {
         let Some(stmt) = stmts
             .iter()
             .find(|s| pgweave_ast::stmt_span(s).is_some_and(|sp| sp.start as usize >= after))
         else {
-            out.push_str(&format!(
-                "// {name}: aucun statement après l'annotation\n\n"
-            ));
+            out.push_str(&format!("// {name}: no statement after the annotation\n\n"));
             continue;
         };
         let mut a = Analyzer::new(
@@ -61,8 +59,8 @@ pub fn generate_ts_types(sql: &str, stmts: &[Statement], catalog: &ProjectCatalo
                 out.push('\n');
                 generated_any = true;
             }
-            // Jamais d'interface devinée : l'erreur est dite.
-            Err(e) => out.push_str(&format!("// {name}: non typée ({})\n\n", e.message)),
+            // Never a guessed interface: the error is reported.
+            Err(e) => out.push_str(&format!("// {name}: untyped ({})\n\n", e.message)),
         }
     }
 
@@ -86,7 +84,7 @@ pub fn generate_ts_types(sql: &str, stmts: &[Statement], catalog: &ProjectCatalo
                 let ty = a
                     .data_type(dt, pgweave_ast::Span::DUMMY)
                     .map_err(|e| e.message)?;
-                // Une colonne de résultat de fonction peut toujours être nulle.
+                // A function result column can always be null.
                 Ok(Field {
                     name: ident.value.clone(),
                     ts: nullable(ts_type(&ts, &ty), Nullability::Unknown),
@@ -99,7 +97,7 @@ pub fn generate_ts_types(sql: &str, stmts: &[Statement], catalog: &ProjectCatalo
                 out.push('\n');
                 generated_any = true;
             }
-            Err(why) => out.push_str(&format!("// {interface_name}: non typée ({why})\n\n")),
+            Err(why) => out.push_str(&format!("// {interface_name}: untyped ({why})\n\n")),
         }
     }
 
@@ -112,7 +110,7 @@ pub fn generate_ts_types(sql: &str, stmts: &[Statement], catalog: &ProjectCatalo
     out
 }
 
-/// Parse `sql`, rejoue son DDL puis génère ses interfaces.
+/// Parses `sql`, replays its DDL, then generates its interfaces.
 pub fn generate_ts_types_from_sql(sql: &str) -> String {
     let stmts = match pgweave_parser::parse(sql) {
         Ok(s) => s,
@@ -124,7 +122,7 @@ pub fn generate_ts_types_from_sql(sql: &str) -> String {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// `T | null` sauf pour une valeur établie non nulle.
+/// `T | null` except for a value established as non-null.
 fn nullable(ts: String, n: Nullability) -> String {
     match n {
         Nullability::NonNull => ts,
@@ -132,7 +130,7 @@ fn nullable(ts: String, n: Nullability) -> String {
     }
 }
 
-/// Type TypeScript d'une valeur de type `ty` lue par `node-postgres`.
+/// TypeScript type of a value of type `ty` as read by `node-postgres`.
 fn ts_type(ts: &TypeSystem, ty: &Ty) -> String {
     let base = ts.base_type(ty);
     if let Some(def) = ts.def(&base) {
@@ -144,7 +142,7 @@ fn ts_type(ts: &TypeSystem, ty: &Ty) -> String {
                     .collect::<Vec<_>>()
                     .join(" | ");
             }
-            // Les éléments d'un tableau peuvent être nuls.
+            // Array elements may be null.
             TypeKind::Array { element } => {
                 return format!("({} | null)[]", ts_type(ts, element));
             }
@@ -155,7 +153,7 @@ fn ts_type(ts: &TypeSystem, ty: &Ty) -> String {
         let known = match base.name.as_str() {
             "bool" => Some("boolean"),
             "int2" | "int4" | "float4" | "float8" | "oid" => Some("number"),
-            // Entiers 64 bits et décimaux : des chaînes, pour ne rien perdre.
+            // 64-bit integers and decimals: strings, so nothing is lost.
             "int8" | "numeric" | "money" => Some("string"),
             "date" | "timestamp" | "timestamptz" => Some("Date"),
             "json" | "jsonb" => Some("unknown"),
@@ -167,7 +165,7 @@ fn ts_type(ts: &TypeSystem, ty: &Ty) -> String {
         }
     }
     match ts.category(&base) {
-        // Chaînes, et types rendus sous leur forme texte (temps, réseau…).
+        // Strings, and types rendered in their text form (time, network…).
         'S' | 'D' | 'T' | 'I' | 'U' | 'V' | 'G' => "string".to_string(),
         _ => "unknown".to_string(),
     }
@@ -182,8 +180,8 @@ fn render_interface(name: &str, fields: &[Field]) -> String {
     s
 }
 
-/// Nom de propriété TypeScript : tel quel s'il est un identifiant, sinon
-/// entre guillemets.
+/// TypeScript property name: as is if it is an identifier, otherwise
+/// quoted.
 fn ts_field_name(name: &str) -> String {
     let plain = name
         .chars()
@@ -199,8 +197,8 @@ fn ts_field_name(name: &str) -> String {
     }
 }
 
-/// Annotations `-- @name: Interface` : nom, et position de fin de ligne
-/// (le statement nommé est le premier qui commence après).
+/// `-- @name: Interface` annotations: name, and end-of-line position
+/// (the named statement is the first one starting after it).
 fn named_queries(sql: &str) -> Vec<(String, usize)> {
     let mut out = Vec::new();
     let mut offset = 0;

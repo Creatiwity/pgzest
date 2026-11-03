@@ -1,9 +1,9 @@
-//! Types de diagnostic partagés par toute la chaîne d'outils.
+//! Diagnostic types shared by the whole toolchain.
 //!
-//! Ce crate est volontairement minimal et sans dépendance interne : c'est le
-//! socle commun du checker, du linter, du codegen, du resolver de schéma et
-//! des plugins. Il vivait auparavant dans `pgweave-checker`, ce qui forçait
-//! chaque consommateur de `Diagnostic` à compiler le type-checker entier.
+//! This crate is deliberately minimal and has no internal dependency: it is
+//! the common foundation of the checker, the linter, codegen, the schema
+//! resolver and plugins. It used to live in `pgweave-checker`, which forced
+//! every consumer of `Diagnostic` to compile the whole type-checker.
 
 pub mod codes;
 pub mod diagnostic;
@@ -13,8 +13,8 @@ pub use codes::*;
 pub use diagnostic::{Diagnostic, Severity, Span};
 pub use directive::{Directive, DirectiveKind, Suppressions};
 
-/// Applique les surcharges de sévérité par règle à une liste de diagnostics.
-/// Les règles à "off" sont retirées ; les autres voient leur sévérité mise à jour.
+/// Applies per-rule severity overrides to a list of diagnostics.
+/// Rules set to "off" are removed; the others get their severity updated.
 pub fn apply_rule_overrides(
     diags: &mut Vec<Diagnostic>,
     rules: &std::collections::HashMap<String, String>,

@@ -2,7 +2,7 @@
 name = "pgweave-oracle"
 version = "0.1.0"
 edition = "2024"
-description = "Oracle différentiel : confronte l'analyse de pgweave à un vrai PostgreSQL"
+description = "Differential oracle: checks pgweave's analysis against a real PostgreSQL"
 publish = false
 
 [dependencies]

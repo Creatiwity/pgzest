@@ -18,7 +18,7 @@ pub enum DataType {
     Char(Option<u64>),
     // Temporal
     Date,
-    /// Précision des secondes fractionnaires (`time(3)`), absente = 6.
+    /// Fractional-seconds precision (`time(3)`), absent = 6.
     Time(Option<u64>),
     TimeTz(Option<u64>),
     Timestamp(Option<u64>),
@@ -34,8 +34,8 @@ pub enum DataType {
     Array(Box<DataType>),
     // Custom type (e.g. enums, domains, extension types)
     Custom(String),
-    /// Type nommé avec modificateurs, tels qu'écrits : `geometry(Point,
-    /// 4326)`, `vector(1536)`. Sans modificateurs, c'est `Custom`.
+    /// Named type with modifiers, as written: `geometry(Point,
+    /// 4326)`, `vector(1536)`. Without modifiers, it is `Custom`.
     Modified {
         name: String,
         modifiers: Vec<String>,

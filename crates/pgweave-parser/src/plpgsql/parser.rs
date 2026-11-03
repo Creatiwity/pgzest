@@ -1,10 +1,10 @@
-//! Grammaire PL/pgSQL (PostgreSQL 18), sur les tokens du dialecte pgweave.
+//! PL/pgSQL grammar (PostgreSQL 18), on the tokens of pgweave's dialect.
 //!
-//! Le `Parser` de sqlparser est piloté sur tout le corps : il lit les
-//! expressions et les types ; les statements SQL sont délimités sur les
-//! tokens puis confiés au pipeline commun (`statement_from_tokens`). Les
-//! seules interventions sur les tokens — retirer une clause `INTO`, lire
-//! `PERFORM` comme `SELECT` — conservent les positions de tous les autres.
+//! sqlparser's `Parser` is driven over the whole body: it reads
+//! expressions and types; SQL statements are delimited on the
+//! tokens then handed to the common pipeline (`statement_from_tokens`). The
+//! only interventions on the tokens — removing an `INTO` clause, reading
+//! `PERFORM` as `SELECT` — keep the positions of all the others.
 
 use pgweave_ast::expr::{Expr, Ident, ObjectName};
 use pgweave_ast::node::Span;
@@ -25,13 +25,13 @@ use crate::grammar::Ctx;
 use crate::pipeline::{DIALECT, statement_from_tokens};
 use crate::split::LineIndex;
 
-// ── Points d'entrée ───────────────────────────────────────────────────────────
+// ── Entry points ──────────────────────────────────────────────────────────────
 
 pub fn parse_plpgsql_body(body: &str) -> Result<PlpgsqlBody, PlParseError> {
     parse_plpgsql_body_mapped(body, 0, &Offsets::Shift(0))
 }
 
-/// `file_body_offset` : position du corps dans le document.
+/// `file_body_offset`: position of the body in the document.
 pub fn parse_plpgsql_body_at(
     body: &str,
     file_body_offset: usize,
@@ -39,8 +39,8 @@ pub fn parse_plpgsql_body_at(
     parse_plpgsql_body_mapped(body, file_body_offset, &Offsets::Shift(0))
 }
 
-/// `base` : position du corps dans le texte soumis au parse englobant ;
-/// `offsets` : traduction de ce texte vers le document.
+/// `base`: position of the body in the text submitted to the enclosing parse;
+/// `offsets`: translation of that text into the document.
 pub fn parse_plpgsql_body_mapped(
     body: &str,
     base: usize,
@@ -67,7 +67,7 @@ pub fn parse_plpgsql_body_mapped(
     let block = pl.block(label)?;
     pl.eat_token(&Token::SemiColon);
     if !pl.at_eof() {
-        return Err(pl.error("fin du corps après END"));
+        return Err(pl.error("end of body after END"));
     }
     Ok(PlpgsqlBody {
         block,
@@ -75,11 +75,11 @@ pub fn parse_plpgsql_body_mapped(
     })
 }
 
-// ── État ──────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
 
 struct Pl<'a> {
     parser: Parser<'a>,
-    /// Copie des tokens du parser, pour délimiter les statements SQL.
+    /// Copy of the parser's tokens, to delimit SQL statements.
     tokens: Vec<TokenWithSpan>,
     ctx: Ctx<'a>,
     base: usize,
@@ -89,7 +89,7 @@ struct Pl<'a> {
 type R<T> = Result<T, PlParseError>;
 
 impl<'a> Pl<'a> {
-    // ── Accès aux tokens ─────────────────────────────────────────────────────
+    // ── Token access ─────────────────────────────────────────────────────────
 
     fn peek(&self, n: usize) -> &Token {
         &self.parser.peek_nth_token_ref(n).token
@@ -99,9 +99,9 @@ impl<'a> Pl<'a> {
         *self.peek(0) == Token::EOF
     }
 
-    /// Mot non quoté en position `n`, en majuscules. Les mots-clés PL/pgSQL
-    /// (`LOOP`, `ELSIF`…) ne sont pas tous des mots-clés de sqlparser : on
-    /// compare les valeurs.
+    /// Unquoted word at position `n`, uppercase. PL/pgSQL keywords
+    /// (`LOOP`, `ELSIF`…) are not all sqlparser keywords: we
+    /// compare the values.
     fn word(&self, n: usize) -> Option<String> {
         match self.peek(n) {
             Token::Word(Word {
@@ -165,7 +165,7 @@ impl<'a> Pl<'a> {
         Ok(out)
     }
 
-    /// Chemin `a`, `a.b`, `a.b.c`.
+    /// Path `a`, `a.b`, `a.b.c`.
     fn path(&mut self) -> R<Vec<Ident>> {
         let mut out = vec![self.identifier()?];
         while *self.peek(0) == Token::Period {
@@ -184,7 +184,7 @@ impl<'a> Pl<'a> {
         )
     }
 
-    /// Indice, dans `tokens`, du prochain token significatif à partir de `i`.
+    /// Index, in `tokens`, of the next significant token starting from `i`.
     fn next_significant(&self, mut i: usize) -> usize {
         while i < self.tokens.len() && matches!(self.tokens[i].token, Token::Whitespace(_)) {
             i += 1;
@@ -211,13 +211,13 @@ impl<'a> Pl<'a> {
         }
     }
 
-    // ── Erreurs ──────────────────────────────────────────────────────────────
+    // ── Errors ───────────────────────────────────────────────────────────────
 
     fn error(&self, expected: &str) -> PlParseError {
         let tok = self.parser.peek_token_ref();
         PlParseError::Syntax {
             pos: self.offset_of(tok).0,
-            message: format!("attendu {expected}, trouvé {}", tok.token),
+            message: format!("expected {expected}, found {}", tok.token),
         }
     }
 
@@ -228,9 +228,9 @@ impl<'a> Pl<'a> {
         }
     }
 
-    // ── Blocs ────────────────────────────────────────────────────────────────
+    // ── Blocks ───────────────────────────────────────────────────────────────
 
-    /// `<<label>>` éventuel.
+    /// Optional `<<label>>`.
     fn label(&mut self) -> R<Option<String>> {
         if *self.peek(0) != Token::ShiftLeft {
             return Ok(None);
@@ -241,8 +241,8 @@ impl<'a> Pl<'a> {
         Ok(Some(name))
     }
 
-    /// `[DECLARE …] BEGIN … [EXCEPTION …] END [label]` (le label d'ouverture
-    /// est déjà lu).
+    /// `[DECLARE …] BEGIN … [EXCEPTION …] END [label]` (the opening label
+    /// is already read).
     fn block(&mut self, label: Option<String>) -> R<Block> {
         let mut declarations = Vec::new();
         if self.eat_word("DECLARE") {
@@ -250,7 +250,7 @@ impl<'a> Pl<'a> {
                 if self.at_eof() {
                     return Err(self.error("BEGIN"));
                 }
-                // Un second DECLARE est toléré par PostgreSQL.
+                // A second DECLARE is tolerated by PostgreSQL.
                 if self.eat_word("DECLARE") {
                     continue;
                 }
@@ -265,7 +265,7 @@ impl<'a> Pl<'a> {
             None
         };
         self.expect_word("END")?;
-        // `END label` : facultatif.
+        // `END label`: optional.
         if self.word(0).is_some() && !self.is_word(0, "IF") && !self.is_word(0, "LOOP") {
             self.parser.next_token();
         }
@@ -277,12 +277,12 @@ impl<'a> Pl<'a> {
         })
     }
 
-    /// Statements jusqu'à l'un des mots de fin (non consommé).
+    /// Statements up to one of the end words (not consumed).
     fn statements(&mut self, until: &[&str]) -> R<Vec<PlStatement>> {
         let mut out = Vec::new();
         loop {
             if self.at_eof() {
-                return Err(self.error(&until.join(" ou ")));
+                return Err(self.error(&until.join(" or ")));
             }
             if until.iter().any(|w| self.is_word(0, w)) {
                 return Ok(out);
@@ -323,7 +323,7 @@ impl<'a> Pl<'a> {
         ))
     }
 
-    // ── Déclarations ─────────────────────────────────────────────────────────
+    // ── Declarations ─────────────────────────────────────────────────────────
 
     fn declaration(&mut self) -> R<Declaration> {
         let start = self.next_significant(self.parser.index());
@@ -414,8 +414,8 @@ impl<'a> Pl<'a> {
         if self.eat_word("RECORD") {
             return Ok(VarType::Record);
         }
-        // `nom%ROWTYPE`, `table.colonne%TYPE`, `variable%TYPE` : un chemin
-        // suivi de `%`.
+        // `name%ROWTYPE`, `table.column%TYPE`, `variable%TYPE`: a path
+        // followed by `%`.
         let mut n = 1;
         while *self.peek(n) == Token::Period {
             n += 2;
@@ -428,7 +428,7 @@ impl<'a> Pl<'a> {
             } else if self.eat_word("TYPE") {
                 Ok(VarType::TypeOf(name))
             } else {
-                Err(self.error("ROWTYPE ou TYPE"))
+                Err(self.error("ROWTYPE or TYPE"))
             };
         }
         let dt = self
@@ -455,7 +455,7 @@ impl<'a> Pl<'a> {
                 self.loop_statement(label)?
             }
             _ if label.is_some() => {
-                return Err(self.error("BEGIN, DECLARE ou une boucle après un label"));
+                return Err(self.error("BEGIN, DECLARE or a loop after a label"));
             }
             Some("IF") => self.if_statement()?,
             Some("CASE") => self.case_statement()?,
@@ -534,7 +534,7 @@ impl<'a> Pl<'a> {
         })
     }
 
-    /// `chemin := …` ou `chemin = …` en tête de statement.
+    /// `path := …` or `path = …` at the head of a statement.
     fn is_assignment(&self) -> bool {
         let mut n = 0;
         if !matches!(self.peek(n), Token::Word(_)) {
@@ -608,7 +608,7 @@ impl<'a> Pl<'a> {
         self.expect_word("END")?;
         self.expect_word("LOOP")?;
         if !matches!(self.peek(0), Token::SemiColon) {
-            self.identifier()?; // label de fin
+            self.identifier()?; // end label
         }
         self.expect_token(&Token::SemiColon)?;
         Ok(body)
@@ -677,10 +677,10 @@ impl<'a> Pl<'a> {
             .ok_or_else(|| self.error("LOOP"))?;
         let slice: Vec<TokenWithSpan> = self.tokens[start..loop_at].to_vec();
 
-        // Intervalle : `..` au premier niveau.
+        // Range: `..` at the top level.
         if let Some(dots) = find_dot_dot(&slice) {
             let [var] = targets.as_slice() else {
-                return Err(self.error("une seule variable de boucle"));
+                return Err(self.error("a single loop variable"));
             };
             let mut from_tokens = slice[..dots].to_vec();
             let reverse = strip_leading_word(&mut from_tokens, "REVERSE");
@@ -707,7 +707,7 @@ impl<'a> Pl<'a> {
             });
         }
 
-        // Requête : SELECT, WITH, VALUES ou parenthèse.
+        // Query: SELECT, WITH, VALUES or parenthesis.
         let first = slice
             .iter()
             .find(|t| !matches!(t.token, Token::Whitespace(_)));
@@ -728,9 +728,9 @@ impl<'a> Pl<'a> {
             });
         }
 
-        // Curseur lié : `FOR rec IN curseur [(arguments)] LOOP`.
+        // Bound cursor: `FOR rec IN cursor [(arguments)] LOOP`.
         let [var] = targets.as_slice() else {
-            return Err(self.error("une seule variable de boucle sur un curseur"));
+            return Err(self.error("a single loop variable over a cursor"));
         };
         let cursor = self.identifier()?;
         let args = if self.eat_token(&Token::LParen) {
@@ -822,7 +822,7 @@ impl<'a> Pl<'a> {
                     message = Some(s);
                 }
             }
-            // Nom de condition (`RAISE unique_violation`).
+            // Condition name (`RAISE unique_violation`).
             Token::Word(_) if !self.is_word(0, "USING") => {
                 message = Some(self.identifier()?.value);
             }
@@ -842,7 +842,7 @@ impl<'a> Pl<'a> {
                     "DATATYPE" => RaiseOptionKey::Datatype,
                     "TABLE" => RaiseOptionKey::Table,
                     "SCHEMA" => RaiseOptionKey::Schema,
-                    _ => return Err(self.error("option de RAISE")),
+                    _ => return Err(self.error("RAISE option")),
                 };
                 if !self.eat_token(&Token::Eq) {
                     self.expect_token(&Token::Assignment)?;
@@ -890,7 +890,7 @@ impl<'a> Pl<'a> {
                 "MESSAGE_TEXT" => DiagnosticsItem::MessageText,
                 "TABLE_NAME" => DiagnosticsItem::TableName,
                 "SCHEMA_NAME" => DiagnosticsItem::SchemaName,
-                _ => return Err(self.error("élément de GET DIAGNOSTICS")),
+                _ => return Err(self.error("GET DIAGNOSTICS item")),
             };
             items.push(DiagnosticsAssignment { var, item });
             if !self.eat_token(&Token::Comma) {
@@ -937,8 +937,8 @@ impl<'a> Pl<'a> {
 
     fn fetch(&mut self) -> R<PlStatementKind> {
         self.expect_word("FETCH")?;
-        // Direction : NEXT, PRIOR, FIRST, LAST, ABSOLUTE n, RELATIVE n,
-        // FORWARD, BACKWARD, puis FROM / IN.
+        // Direction: NEXT, PRIOR, FIRST, LAST, ABSOLUTE n, RELATIVE n,
+        // FORWARD, BACKWARD, then FROM / IN.
         loop {
             match self.word(0).as_deref() {
                 Some("NEXT" | "PRIOR" | "FIRST" | "LAST" | "FORWARD" | "BACKWARD") => {
@@ -962,7 +962,7 @@ impl<'a> Pl<'a> {
         Ok(PlStatementKind::Fetch { cursor, into })
     }
 
-    /// `[INTO [STRICT] cibles] [USING exprs]`, dans un ordre quelconque.
+    /// `[INTO [STRICT] targets] [USING exprs]`, in any order.
     fn parse_into_and_using(&mut self) -> R<(Option<IntoTarget>, Vec<Expr>)> {
         let mut into = None;
         let mut using = Vec::new();
@@ -988,7 +988,7 @@ impl<'a> Pl<'a> {
 
     // ── SQL ──────────────────────────────────────────────────────────────────
 
-    /// `PERFORM requête` : lu comme `SELECT requête`, sur les mêmes positions.
+    /// `PERFORM query`: read as `SELECT query`, on the same positions.
     fn perform(&mut self) -> R<PlStatementKind> {
         let start = self.next_significant(self.parser.index());
         let end = self.statement_end(start)?;
@@ -1006,7 +1006,7 @@ impl<'a> Pl<'a> {
         Ok(PlStatementKind::Perform(query))
     }
 
-    /// Statement SQL jusqu'au `;`, avec extraction de sa clause `INTO`.
+    /// SQL statement up to the `;`, with extraction of its `INTO` clause.
     fn sql_statement(&mut self) -> R<PlStatementKind> {
         let start = self.next_significant(self.parser.index());
         let end = self.statement_end(start)?;
@@ -1040,7 +1040,7 @@ impl<'a> Pl<'a> {
             Ok(Statement::Select(s)) => Ok(s),
             Ok(_) => Err(PlParseError::Syntax {
                 pos,
-                message: "une requête SELECT est attendue".into(),
+                message: "a SELECT query is expected".into(),
             }),
             Err(e) => Err(PlParseError::Syntax {
                 pos,
@@ -1065,7 +1065,7 @@ impl<'a> Pl<'a> {
         convert_expr(e).map_err(|e| PlParseError::Unsupported(e.to_string()))
     }
 
-    /// Indice du `;` qui termine le statement commençant à `start`.
+    /// Index of the `;` ending the statement starting at `start`.
     fn statement_end(&self, start: usize) -> R<usize> {
         let mut depth = 0i32;
         for (i, t) in self.tokens.iter().enumerate().skip(start) {
@@ -1076,11 +1076,11 @@ impl<'a> Pl<'a> {
                 _ => {}
             }
         }
-        Err(self.error("; en fin de statement"))
+        Err(self.error("; at end of statement"))
     }
 
-    /// Indice du mot `word` au premier niveau de parenthèses, à partir de
-    /// `start`, avant le prochain `;`.
+    /// Index of the word `word` at the top parenthesis level, starting from
+    /// `start`, before the next `;`.
     fn find_word_at_depth0(&self, start: usize, word: &str) -> Option<usize> {
         let mut depth = 0i32;
         for (i, t) in self.tokens.iter().enumerate().skip(start) {
@@ -1095,7 +1095,7 @@ impl<'a> Pl<'a> {
         None
     }
 
-    /// Avance le parser jusqu'au token d'indice `target` (non consommé).
+    /// Advances the parser up to the token at index `target` (not consumed).
     fn advance_to(&mut self, target: usize) {
         while self.next_significant(self.parser.index()) < target {
             self.parser.next_token();
@@ -1103,7 +1103,7 @@ impl<'a> Pl<'a> {
     }
 }
 
-// ── Utilitaires sur les tokens ────────────────────────────────────────────────
+// ── Token utilities ───────────────────────────────────────────────────────────
 
 fn word_is(t: &Token, w: &str) -> bool {
     matches!(t, Token::Word(Word { value, quote_style: None, .. }) if value.eq_ignore_ascii_case(w))
@@ -1122,7 +1122,7 @@ fn strip_leading_word(tokens: &mut Vec<TokenWithSpan>, w: &str) -> bool {
     }
 }
 
-/// Position du premier `..` (deux points adjacents) au premier niveau.
+/// Position of the first `..` (two adjacent dots) at the top level.
 fn find_dot_dot(tokens: &[TokenWithSpan]) -> Option<usize> {
     let mut depth = 0i32;
     for i in 0..tokens.len() {
@@ -1142,18 +1142,18 @@ fn find_dot_dot(tokens: &[TokenWithSpan]) -> Option<usize> {
     None
 }
 
-/// Retire la clause `INTO [STRICT] cibles` d'un statement SQL de corps :
-/// - `SELECT … INTO cibles FROM …` : premier `INTO` au premier niveau ;
-/// - `INSERT/UPDATE/DELETE … RETURNING … INTO cibles` : `INTO` qui suit
-///   `RETURNING` (celui de `INSERT INTO` n'en est pas un).
+/// Removes the `INTO [STRICT] targets` clause from a body SQL statement:
+/// - `SELECT … INTO targets FROM …`: first `INTO` at the top level;
+/// - `INSERT/UPDATE/DELETE … RETURNING … INTO targets`: `INTO` following
+///   `RETURNING` (the one of `INSERT INTO` is not one).
 ///
-/// Les autres tokens gardent leurs positions.
+/// The other tokens keep their positions.
 fn extract_into(tokens: &mut Vec<TokenWithSpan>) -> Result<Option<IntoTarget>, String> {
     let significant: Vec<usize> = (0..tokens.len())
         .filter(|&i| !matches!(tokens[i].token, Token::Whitespace(_)))
         .collect();
-    // Verbe principal : le premier token, ou celui qui suit la liste de CTE
-    // d'un `WITH` (les corps des CTE sont entre parenthèses).
+    // Main verb: the first token, or the one following the CTE list
+    // of a `WITH` (CTE bodies are in parentheses).
     const VERBS: [&str; 5] = ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE"];
     let mut depth = 0i32;
     let verb = significant.iter().map(|&i| &tokens[i].token).find(|t| {
@@ -1194,7 +1194,7 @@ fn extract_into(tokens: &mut Vec<TokenWithSpan>) -> Result<Option<IntoTarget>, S
         return Ok(None);
     };
 
-    // Cibles : chemins séparés par des virgules.
+    // Targets: paths separated by commas.
     let mut k = significant.iter().position(|&i| i == into_at).unwrap() + 1;
     let tok = |k: usize| significant.get(k).map(|&i| &tokens[i].token);
     let strict = tok(k).is_some_and(|t| word_is(t, "STRICT"));
@@ -1217,7 +1217,7 @@ fn extract_into(tokens: &mut Vec<TokenWithSpan>) -> Result<Option<IntoTarget>, S
                     });
                     k += 1;
                 }
-                _ => return Err("cible d'INTO attendue".into()),
+                _ => return Err("INTO target expected".into()),
             }
             if tok(k) == Some(&Token::Period) {
                 k += 1;
@@ -1250,7 +1250,7 @@ mod tests {
     }
 
     #[test]
-    fn declarations_de_toutes_sortes() {
+    fn declarations_of_all_kinds() {
         let b = body(
             "DECLARE
                  a CONSTANT integer := 1;
@@ -1276,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    fn select_into_et_returning_into() {
+    fn select_into_and_returning_into() {
         let b = body(
             "DECLARE n int; t text; BEGIN
                  SELECT count(*), max(title) INTO STRICT n, t FROM pages WHERE id > 0;
@@ -1294,7 +1294,7 @@ mod tests {
         };
         assert!(into.strict);
         assert_eq!(into.targets.len(), 2);
-        assert_eq!(s.from.len(), 1, "FROM conservé après retrait de INTO");
+        assert_eq!(s.from.len(), 1, "FROM kept after removing INTO");
         assert!(matches!(
             k[1],
             PlStatementKind::Sql {
@@ -1312,8 +1312,8 @@ mod tests {
     }
 
     #[test]
-    fn ddl_et_cte_dans_un_corps() {
-        // Les constructions qui faisaient échouer l'ancien parser (Mesalia).
+    fn ddl_and_cte_in_a_body() {
+        // The constructs that made the former parser fail (Mesalia).
         let b = body(
             "BEGIN
                  DROP TABLE IF EXISTS tmp;
@@ -1326,7 +1326,7 @@ mod tests {
     }
 
     #[test]
-    fn controle_de_flux() {
+    fn control_flow() {
         let b = body(
             "BEGIN
                  IF a > 1 THEN NULL; ELSIF a = 1 THEN RETURN 1; ELSE RETURN 2; END IF;
@@ -1359,14 +1359,14 @@ mod tests {
     }
 
     #[test]
-    fn case_expression_dans_une_affectation() {
-        // Échouait avec l'ancien parser : `CASE … WHEN` dans une expression.
+    fn case_expression_in_an_assignment() {
+        // Failed with the former parser: `CASE … WHEN` in an expression.
         let b = body("BEGIN v := CASE WHEN a > 0 THEN 1 ELSE 0 END; END");
         assert!(matches!(kinds(&b)[0], PlStatementKind::Assign { .. }));
     }
 
     #[test]
-    fn raise_get_diagnostics_exceptions_curseurs() {
+    fn raise_get_diagnostics_exceptions_cursors() {
         let b = body(
             "DECLARE c CURSOR FOR SELECT 1; r record; n int; BEGIN
                  RAISE NOTICE 'n = %, m = %', n, n + 1 USING HINT = 'h';
@@ -1375,7 +1375,7 @@ mod tests {
                  GET DIAGNOSTICS n = ROW_COUNT;
                  OPEN c; FETCH NEXT FROM c INTO r; CLOSE c;
                  PERFORM pg_sleep(0);
-                 ASSERT n > 0, 'positif';
+                 ASSERT n > 0, 'positive';
              EXCEPTION
                  WHEN unique_violation OR SQLSTATE '23503' THEN NULL;
                  WHEN OTHERS THEN RAISE;
@@ -1386,7 +1386,7 @@ mod tests {
     }
 
     #[test]
-    fn affectation_a_new() {
+    fn assignment_to_new() {
         let b = body("BEGIN NEW.updated_at = now(); RETURN NEW; END");
         let PlStatementKind::Assign { target, .. } = kinds(&b)[0] else {
             panic!()
@@ -1395,7 +1395,7 @@ mod tests {
     }
 
     #[test]
-    fn blocs_imbriques_avec_leurs_declarations() {
+    fn nested_blocks_with_their_declarations() {
         let b = body("BEGIN DECLARE x int := 1; BEGIN RETURN x; END; END");
         let PlStatementKind::Block(inner) = kinds(&b)[0] else {
             panic!()
@@ -1404,7 +1404,7 @@ mod tests {
     }
 
     #[test]
-    fn les_positions_visent_le_corps() {
+    fn positions_target_the_body() {
         let src = "BEGIN\n  UPDATE pages SET title = nope WHERE id = 1;\nEND";
         let b = parse_plpgsql_body_at(src, 100).unwrap();
         let s = &b.block.statements[0];
@@ -1424,7 +1424,7 @@ mod tests {
     }
 
     #[test]
-    fn erreur_signalee() {
+    fn error_reported() {
         assert!(parse_plpgsql_body("BEGIN IF THEN END IF; END").is_err());
         assert!(parse_plpgsql_body("BEGIN NULL;").is_err());
     }

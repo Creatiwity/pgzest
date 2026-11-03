@@ -1,13 +1,13 @@
-//! Toute expression et tout statement PL/pgSQL portent leur position dans le
-//! document : un diagnostic doit pouvoir désigner exactement ce qu'il vise.
+//! Every expression and every PL/pgSQL statement carries its position in the
+//! document: a diagnostic must be able to designate exactly what it targets.
 //!
-//! Le parcours passe par la sérialisation de l'AST : un nœud `{kind, span}`
-//! est une expression ou un statement PL/pgSQL, quel que soit l'endroit où
-//! il se trouve (DDL, DML, corps de routine…).
+//! The traversal goes through AST serialization: a `{kind, span}` node
+//! is an expression or a PL/pgSQL statement, wherever
+//! it is (DDL, DML, routine body…).
 
 use serde_json::Value;
 
-/// Nœuds `{kind, span}` sans position, avec leur nature.
+/// `{kind, span}` nodes without a position, with their kind.
 fn unplaced(v: &Value, out: &mut Vec<String>) {
     match v {
         Value::Object(map) => {
@@ -36,16 +36,16 @@ fn check(sql: &str) {
     let json = serde_json::to_value(&stmts).unwrap();
     let mut out = Vec::new();
     unplaced(&json, &mut out);
-    assert!(out.is_empty(), "nœuds sans position : {out:?}\n{sql}");
+    assert!(out.is_empty(), "nodes without a position: {out:?}\n{sql}");
 }
 
 #[test]
-fn schema_d_exemple() {
+fn example_schema() {
     check(include_str!("../../../examples/schema.sql"));
 }
 
 #[test]
-fn requetes_et_modifications() {
+fn queries_and_modifications() {
     check(
         "CREATE TABLE t (a INT DEFAULT 1 CHECK (a > 0), b TEXT GENERATED ALWAYS AS (upper(c)) STORED, c TEXT);\n\
          SELECT a, count(*) FILTER (WHERE b IS NOT NULL), CASE WHEN a > 1 THEN 'x' END, a::text, ARRAY[1, 2][1]\n\
@@ -59,7 +59,7 @@ fn requetes_et_modifications() {
 }
 
 #[test]
-fn corps_pl_pgsql() {
+fn plpgsql_body() {
     check(
         "CREATE FUNCTION f(n INT) RETURNS INT LANGUAGE plpgsql AS $$\n\
          DECLARE v INT := n * 2; r RECORD;\n\
@@ -69,7 +69,7 @@ fn corps_pl_pgsql() {
            FOR r IN SELECT 1 AS x LOOP v := v + r.x; END LOOP;\n\
            SELECT count(*) INTO v FROM pg_class WHERE relname = 'x';\n\
            RAISE NOTICE 'v = %', v + 1;\n\
-           ASSERT v >= 0, 'négatif';\n\
+           ASSERT v >= 0, 'negative';\n\
            RETURN v;\n\
          EXCEPTION WHEN OTHERS THEN RETURN -1;\n\
          END $$;",
@@ -77,7 +77,7 @@ fn corps_pl_pgsql() {
 }
 
 #[test]
-fn etoile_d_agregat() {
+fn aggregate_star() {
     check("SELECT count(*) FROM t;");
     check("SELECT NULLIF(count(*), 0) FROM t;");
     check("SELECT count(*) FILTER (WHERE true) FROM t;");

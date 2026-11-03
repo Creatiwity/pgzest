@@ -1,5 +1,5 @@
-//! Système de types confronté à PostgreSQL 18 : chaque attendu a été relevé
-//! sur un serveur (`pg_typeof`, messages d'erreur).
+//! Type system checked against PostgreSQL 18: each expectation was taken
+//! from a server (`pg_typeof`, error messages).
 
 use std::sync::OnceLock;
 
@@ -37,14 +37,14 @@ fn ok(name: &str) -> Result<Option<String>, ResolveError> {
 }
 
 #[test]
-fn surcharges_de_fonctions() {
+fn function_overloads() {
     assert_eq!(func("abs", &["int4"]), ok("int4"));
     assert_eq!(func("abs", &["numeric"]), ok("numeric"));
-    // Littéral : le type préféré de la catégorie commune l'emporte.
+    // Literal: the preferred type of the common category wins.
     assert_eq!(func("abs", &["unknown"]), ok("float8"));
-    // `text` et `bpchar` sont des chaînes, `text` est préféré.
+    // `text` and `bpchar` are strings, `text` is preferred.
     assert_eq!(func("length", &["unknown"]), ok("int4"));
-    // int4 → float8 et numeric implicites : float8 est préféré.
+    // int4 → float8 and numeric are implicit: float8 is preferred.
     assert_eq!(func("round", &["int4"]), ok("float8"));
     assert_eq!(
         func("date_trunc", &["unknown", "timestamptz"]),
@@ -61,9 +61,9 @@ fn surcharges_de_fonctions() {
 }
 
 #[test]
-fn polymorphisme() {
+fn polymorphism() {
     assert_eq!(func("array_append", &["_int4", "int4"]), ok("_int4"));
-    // `anycompatible` : type commun de int4 et numeric.
+    // `anycompatible`: common type of int4 and numeric.
     assert_eq!(func("array_append", &["_int4", "numeric"]), ok("_numeric"));
     assert!(matches!(
         func("array_append", &["int4", "int4"]),
@@ -72,7 +72,7 @@ fn polymorphisme() {
 }
 
 #[test]
-fn variadiques() {
+fn variadics() {
     assert_eq!(func("concat", &["unknown", "int4"]), ok("text"));
     assert_eq!(func("format", &["unknown", "int4", "int4"]), ok("text"));
     assert_eq!(
@@ -82,12 +82,12 @@ fn variadiques() {
 }
 
 #[test]
-fn nom_de_type_appele_comme_une_fonction() {
-    // Pas de fonction text(int4) : conversion par le texte.
+fn type_name_called_as_a_function() {
+    // No text(int4) function: conversion through text.
     assert_eq!(func("text", &["int4"]), ok("text"));
-    // int8(int4) existe : c'est elle.
+    // int8(int4) exists: that is the one.
     assert_eq!(func("int8", &["int4"]), ok("int8"));
-    // Conversion binaire (`castmethod = 'b'`), sans fonction du même nom.
+    // Binary conversion (`castmethod = 'b'`), without a function of the same name.
     assert_eq!(func("text", &["varchar"]), ok("text"));
     assert_eq!(func("varchar", &["text"]), ok("varchar"));
     let r = ts()
@@ -97,13 +97,13 @@ fn nom_de_type_appele_comme_une_fonction() {
 }
 
 #[test]
-fn operateurs() {
+fn operators() {
     assert_eq!(op(Some("int4"), "+", "numeric"), ok("numeric"));
-    // Littéral : supposé du type de l'autre opérande.
+    // Literal: assumed to be of the type of the other operand.
     assert_eq!(op(Some("int4"), "+", "unknown"), ok("int4"));
     assert_eq!(op(Some("timestamptz"), "-", "unknown"), ok("interval"));
     assert_eq!(op(Some("unknown"), "||", "unknown"), ok("text"));
-    // text || anynonarray, la catégorie chaîne départageant.
+    // text || anynonarray, the string category breaking the tie.
     assert_eq!(op(Some("unknown"), "||", "int4"), ok("text"));
     assert_eq!(op(Some("_int4"), "||", "int4"), ok("_int4"));
     assert_eq!(op(Some("timestamptz"), "-", "timestamptz"), ok("interval"));
@@ -114,7 +114,7 @@ fn operateurs() {
 }
 
 #[test]
-fn chemins_de_conversion() {
+fn conversion_pathways() {
     let ts = ts();
     let path = |s: &str, d: &str, c| ts.pathway(&t(s), &t(d), c);
     assert_eq!(
@@ -129,7 +129,7 @@ fn chemins_de_conversion() {
         path("int8", "int4", CoercionContext::Assignment),
         Pathway::Cast
     );
-    // Vers une chaîne : par le texte, en affectation seulement.
+    // To a string: through text, in assignment only.
     assert_eq!(
         path("int4", "text", CoercionContext::Implicit),
         Pathway::None
@@ -138,7 +138,7 @@ fn chemins_de_conversion() {
         path("int4", "text", CoercionContext::Assignment),
         Pathway::ViaIo
     );
-    // Depuis une chaîne : en explicite seulement.
+    // From a string: in explicit context only.
     assert_eq!(
         path("text", "uuid", CoercionContext::Assignment),
         Pathway::None
@@ -154,7 +154,7 @@ fn chemins_de_conversion() {
 }
 
 #[test]
-fn type_commun() {
+fn common_type() {
     let ts = ts();
     let common = |types: &[&str]| {
         ts.common_type(&types.iter().map(|x| t(x)).collect::<Vec<_>>())
@@ -164,12 +164,12 @@ fn type_commun() {
     assert_eq!(common(&["int4", "int8"]), Ok("int8".into()));
     assert_eq!(common(&["unknown", "int4"]), Ok("int4".into()));
     assert_eq!(common(&["unknown", "unknown"]), Ok("text".into()));
-    // Un type préféré n'est pas quitté ; numeric rejoint float8.
+    // A preferred type is not left; numeric joins float8.
     assert_eq!(common(&["float8", "numeric"]), Ok("float8".into()));
     assert_eq!(common(&["numeric", "float8"]), Ok("float8".into()));
-    // Conversions implicites dans les deux sens : le premier reste. (Un
-    // `CASE` donne `text` pour `THEN varchar ELSE text` : PostgreSQL place
-    // le `ELSE` en tête.)
+    // Implicit conversions both ways: the first one stays. (A
+    // `CASE` gives `text` for `THEN varchar ELSE text`: PostgreSQL puts
+    // the `ELSE` first.)
     assert_eq!(common(&["varchar", "text"]), Ok("varchar".into()));
     assert_eq!(common(&["text", "varchar"]), Ok("text".into()));
     assert_eq!(common(&["date", "timestamptz"]), Ok("timestamptz".into()));
@@ -180,7 +180,7 @@ fn type_commun() {
 }
 
 #[test]
-fn arguments_nommes() {
+fn named_arguments() {
     let ts = ts();
     let named = |args: &[(&str, Option<&str>)]| {
         let tys: Vec<Ty> = args.iter().map(|(t_, _)| t(t_)).collect();
@@ -188,7 +188,7 @@ fn arguments_nommes() {
         ts.resolve_function_named(None, "make_interval", &tys, &names, &SearchPath::default())
             .map(|r| r.returns.map(|q| q.name))
     };
-    // Les autres paramètres ont une valeur par défaut.
+    // The other parameters have a default value.
     assert_eq!(named(&[("int4", Some("days"))]), ok("interval"));
     assert_eq!(
         named(&[("int4", None), ("int4", Some("hours"))]),
@@ -198,7 +198,7 @@ fn arguments_nommes() {
         named(&[("int4", Some("nope"))]),
         Err(ResolveError::NotFound)
     );
-    // Un paramètre déjà fourni par position ne peut pas être renommé.
+    // A parameter already supplied by position cannot be renamed.
     assert_eq!(
         named(&[("int4", None), ("int4", Some("years"))]),
         Err(ResolveError::NotFound)

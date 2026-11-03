@@ -1,6 +1,6 @@
--- Troisième version : colonne et table supprimées, fonction au type de
--- retour changé (vue dépendante reconstruite), vue élargie, trigger et
--- policy modifiés, commentaire retiré, index redéfini, vue matérialisée.
+-- Third version: dropped column and table, function with a changed return
+-- type (dependent view rebuilt), widened view, modified trigger and
+-- policy, removed comment, redefined index, materialized view.
 CREATE EXTENSION citext;
 CREATE SCHEMA audit;
 
@@ -15,7 +15,7 @@ CREATE TABLE customers (
 );
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY customers_owner ON customers FOR SELECT USING (owner = current_user);
-COMMENT ON COLUMN customers.loyalty IS 'Points de fidélité';
+COMMENT ON COLUMN customers.loyalty IS 'Loyalty points';
 
 CREATE TABLE orders (
   id BIGSERIAL PRIMARY KEY,

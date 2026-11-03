@@ -43,8 +43,8 @@ export function activate(context: vscode.ExtensionContext) {
     documentSelector: [
       { scheme: 'file', language: 'pgsql' },
       { scheme: 'file', language: 'sql' },
-      // Requêtes écrites dans le code Rust (`sql!`, `query!`) : diagnostics,
-      // survol et complétion dans leur chaîne.
+      // Queries written in Rust code (`sql!`, `query!`): diagnostics, hover
+      // and completion inside their string.
       { scheme: 'file', language: 'rust' },
     ],
     initializationOptions: { schemaFile },
@@ -67,8 +67,8 @@ export function activate(context: vscode.ExtensionContext) {
   client.start();
   context.subscriptions.push({ dispose: () => client?.stop() });
 
-  // Commande « Voir l'expansion » : le client est passé par accesseur car
-  // `activate` s'achève avant que le serveur soit prêt.
+  // "Show Macro Expansion" command: the client is passed through an accessor
+  // because `activate` returns before the server is ready.
   registerExpandMacro(context, () => client);
 }
 

@@ -1,5 +1,5 @@
-//! Requêtes nommées compilées dans un crate Rust, depuis `build.rs`
-//! (PLAN.md §5, P5) :
+//! Named queries compiled into a Rust crate, from `build.rs`
+//! (PLAN.md §5, P5):
 //!
 //! ```ignore
 //! // build.rs
@@ -13,12 +13,12 @@
 //! }
 //! ```
 //!
-//! Le projet est celui de `pgweave.toml` (en remontant depuis le crate) :
-//! son catalogue est rejoué, chaque requête de `[queries] directory` est
-//! décrite puis traduite. Aucune connexion à une base. Une requête que
-//! l'analyse ne décrit pas fait échouer la compilation, avec sa position.
-//! Les fichiers lus sont déclarés à Cargo : modifier le schéma, une
-//! migration ou une requête relance la génération.
+//! The project is the one of `pgweave.toml` (searched upwards from the
+//! crate): its catalog is replayed, each query of `[queries] directory` is
+//! described then translated. No database connection. A query the
+//! analysis does not describe fails the build, with its position.
+//! Files read are declared to Cargo: changing the schema, a migration or a
+//! query reruns the generation.
 
 use std::path::{Path, PathBuf};
 
@@ -40,7 +40,7 @@ impl Default for Builder {
 }
 
 impl Builder {
-    /// Projet trouvé depuis le crate en cours de compilation.
+    /// Project found from the crate being compiled.
     pub fn new() -> Self {
         Builder {
             root: std::env::var_os("CARGO_MANIFEST_DIR")
@@ -51,35 +51,35 @@ impl Builder {
         }
     }
 
-    /// Répertoire depuis lequel chercher `pgweave.toml`.
+    /// Directory from which to search for `pgweave.toml`.
     pub fn root(mut self, root: impl Into<PathBuf>) -> Self {
         self.root = root.into();
         self
     }
 
-    /// Dates et heures : `time` (défaut) ou `chrono`.
+    /// Dates and times: `time` (default) or `chrono`.
     pub fn temporal(mut self, t: Temporal) -> Self {
         self.options.temporal = t;
         self
     }
 
-    /// Type Rust d'un type PostgreSQL (`"public.geometry"`, `"geo_types::Geometry"`).
+    /// Rust type of a PostgreSQL type (`"public.geometry"`, `"geo_types::Geometry"`).
     pub fn type_override(mut self, pg: &str, rust: &str) -> Self {
         self.options.overrides.insert(pg.into(), rust.into());
         self
     }
 
-    /// Chemin du runtime dans le crate (défaut : `pgweave_runtime`).
+    /// Path of the runtime in the crate (default: `pgweave_runtime`).
     pub fn runtime_path(mut self, path: &str) -> Self {
         self.options.runtime = path.into();
         self
     }
 
-    /// Génère `$OUT_DIR/pgweave_queries.rs`.
+    /// Generates `$OUT_DIR/pgweave_queries.rs`.
     pub fn generate(self) -> Result<PathBuf, String> {
         let out_dir = std::env::var_os("OUT_DIR")
             .map(PathBuf::from)
-            .ok_or("OUT_DIR absent : `generate` s'appelle depuis build.rs")?;
+            .ok_or("OUT_DIR not set: `generate` must be called from build.rs")?;
         let code = self.generate_code(&mut |path| {
             println!("cargo:rerun-if-changed={}", path.display());
         })?;
@@ -88,7 +88,7 @@ impl Builder {
         Ok(out)
     }
 
-    /// Code Rust des requêtes du projet ; `watch` reçoit chaque fichier lu.
+    /// Rust code of the project's queries; `watch` receives each file read.
     pub fn generate_code(&self, watch: &mut dyn FnMut(&Path)) -> Result<String, String> {
         let project = load_project(&self.root)?;
         for f in &project.files {
@@ -96,7 +96,7 @@ impl Builder {
         }
         let Some(dir) = &project.config.queries.directory else {
             return Err(format!(
-                "aucun répertoire de requêtes : `[queries] directory` dans {}",
+                "no query directory: `[queries] directory` in {}",
                 ProjectConfig::FILENAME
             ));
         };
@@ -109,10 +109,10 @@ impl Builder {
     }
 }
 
-/// Code Rust des requêtes de `path` : un répertoire (un module par fichier,
-/// `order/book.sql` → `order::book`) ou un fichier (ses requêtes à la
-/// racine). `watch` reçoit chaque fichier et répertoire lu. Une requête non
-/// décrite est une erreur positionnée `fichier:ligne:colonne`.
+/// Rust code of the queries of `path`: a directory (one module per file,
+/// `order/book.sql` → `order::book`) or a file (its queries at the root).
+/// `watch` receives each file and directory read. A query that is not
+/// described is an error positioned as `file:line:column`.
 pub fn generate_path(
     project: &Project,
     path: &Path,
@@ -128,7 +128,10 @@ pub fn generate_path(
     } else if path.is_file() {
         vec![path.to_path_buf()]
     } else {
-        return Err(format!("{} : ni fichier ni répertoire", path.display()));
+        return Err(format!(
+            "{}: neither a file nor a directory",
+            path.display()
+        ));
     };
 
     let mut errors = Vec::new();
@@ -185,36 +188,30 @@ pub fn generate_path(
         });
     }
     if !errors.is_empty() {
-        return Err(format!("requêtes non décrites :\n{}", errors.join("\n")));
+        return Err(format!("undescribed queries:\n{}", errors.join("\n")));
     }
     generate_rust_modules(&modules, &project.catalog, options)
-        .map_err(|e| format!("génération Rust :\n{}", e.join("\n")))
+        .map_err(|e| format!("Rust generation:\n{}", e.join("\n")))
 }
 
-/// Projet chargé : sa configuration, son catalogue rejoué, et les fichiers
-/// lus pour le construire (à surveiller).
+/// Loaded project: its configuration, its replayed catalog, and the files
+/// read to build it (to watch).
 pub struct Project {
     pub root: PathBuf,
     pub config: ProjectConfig,
     pub catalog: pgweave_catalog::ProjectCatalog,
-    /// Macros et fragments du projet (`[macros] directory`).
+    /// Project macros and fragments (`[macros] directory`).
     pub macros: pgweave_macro::MacroSet,
     pub files: Vec<PathBuf>,
 }
 
-/// Projet de `pgweave.toml` trouvé en remontant depuis `start`, catalogue
-/// rejoué. Un catalogue incomplet (statement non lu, rejeu en erreur) est
-/// une erreur : il donnerait des types faux.
+/// Project of the `pgweave.toml` found upwards from `start`, catalog
+/// replayed. An incomplete catalog (unread statement, failed replay) is an
+/// error: it would yield wrong types.
 pub fn load_project(start: &Path) -> Result<Project, String> {
     let (root, config) = ProjectConfig::find_and_load(start)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| {
-            format!(
-                "pas de {} au-dessus de {}",
-                ProjectConfig::FILENAME,
-                start.display()
-            )
-        })?;
+        .ok_or_else(|| format!("no {} above {}", ProjectConfig::FILENAME, start.display()))?;
     let mut files = vec![root.join(ProjectConfig::FILENAME)];
 
     let mut macros = pgweave_macro::MacroSet::builtin();
@@ -248,10 +245,10 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
         catalog
             .skipped
             .iter()
-            .map(|(p, s)| format!("{}: statement non lu : {:?}", p.display(), s.reason)),
+            .map(|(p, s)| format!("{}: unread statement: {:?}", p.display(), s.reason)),
     );
     if !errors.is_empty() {
-        return Err(format!("catalogue incomplet :\n{}", errors.join("\n")));
+        return Err(format!("incomplete catalog:\n{}", errors.join("\n")));
     }
     Ok(Project {
         root,
@@ -262,7 +259,7 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
     })
 }
 
-/// Module d'un fichier de requêtes dans l'arbre de `dir` : `order/book.sql`
+/// Module of a query file in the tree of `dir`: `order/book.sql`
 /// → `["order", "book"]`.
 pub fn module_path(dir: &Path, file: &Path) -> Vec<String> {
     file.strip_prefix(dir)

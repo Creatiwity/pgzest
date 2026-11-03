@@ -1,15 +1,15 @@
-//! Tokenisation d'un corps PL/pgSQL par le dialecte de pgweave, avec une
-//! correction : l'opérateur d'intervalle `..` des boucles `FOR`.
+//! Tokenization of a PL/pgSQL body by pgweave's dialect, with one
+//! correction: the `..` range operator of `FOR` loops.
 //!
-//! Le tokenizer SQL lit `1..10` comme `1.` puis `.10` (deux nombres
-//! décimaux). Le lexer de PL/pgSQL reconnaît `..` en priorité : on rétablit
-//! cette lecture sur les tokens, positions comprises, sans toucher au texte.
+//! The SQL tokenizer reads `1..10` as `1.` then `.10` (two decimal
+//! numbers). The PL/pgSQL lexer recognizes `..` first: we restore
+//! that reading on the tokens, positions included, without touching the text.
 
 use sqlparser::tokenizer::{Location, Span, Token, TokenWithSpan, Tokenizer};
 
 use crate::dialect::PgweaveDialect;
 
-/// Tokens du corps, ou (position, message) de l'erreur de tokenisation.
+/// Tokens of the body, or (position, message) of the tokenization error.
 pub(crate) fn tokenize(body: &str) -> Result<Vec<TokenWithSpan>, (Location, String)> {
     let raw = Tokenizer::new(&PgweaveDialect, body)
         .tokenize_with_location()
@@ -20,22 +20,22 @@ pub(crate) fn tokenize(body: &str) -> Result<Vec<TokenWithSpan>, (Location, Stri
 fn split_dot_dot(tokens: Vec<TokenWithSpan>) -> Vec<TokenWithSpan> {
     let mut out: Vec<TokenWithSpan> = Vec::with_capacity(tokens.len());
     for tok in tokens {
-        // `.5` collé à ce qui précède, quand ce qui précède finit par un point :
-        // c'est `..` suivi de `5`.
+        // `.5` glued to what precedes, when what precedes ends with a dot:
+        // it is `..` followed by `5`.
         if let Token::Number(n, long) = &tok.token
             && let Some(rest) = n.strip_prefix('.')
             && let Some(prev) = out.last_mut()
             && prev.span.end == tok.span.start
         {
             let dot_before = match &mut prev.token {
-                // `1.` → `1` puis `.`
+                // `1.` → `1` then `.`
                 Token::Number(p, _) if p.ends_with('.') && p.len() > 1 => {
                     p.pop();
                     let dot = shift(prev.span.end, -1);
                     prev.span.end = dot;
                     Some(dot)
                 }
-                // `n.` est déjà `n` puis `.`
+                // `n.` is already `n` then `.`
                 Token::Period => None,
                 _ => {
                     out.push(tok);
@@ -64,8 +64,8 @@ fn split_dot_dot(tokens: Vec<TokenWithSpan>) -> Vec<TokenWithSpan> {
     out
 }
 
-/// Décale une position sur la même ligne (les nombres sont ASCII, sans saut
-/// de ligne).
+/// Shifts a position on the same line (numbers are ASCII, without line
+/// breaks).
 fn shift(loc: Location, by: i64) -> Location {
     Location {
         line: loc.line,
@@ -87,22 +87,22 @@ mod tests {
     }
 
     #[test]
-    fn intervalle_de_nombres() {
+    fn range_of_numbers() {
         assert_eq!(kinds("1..10"), ["1", ".", ".", "10"]);
     }
 
     #[test]
-    fn intervalle_depuis_une_variable() {
+    fn range_from_a_variable() {
         assert_eq!(kinds("n..1"), ["n", ".", ".", "1"]);
     }
 
     #[test]
-    fn un_decimal_reste_un_decimal() {
+    fn a_decimal_stays_a_decimal() {
         assert_eq!(kinds("1.5 + .5"), ["1.5", "+", ".5"]);
     }
 
     #[test]
-    fn les_positions_suivent() {
+    fn positions_follow() {
         let toks: Vec<_> = tokenize("1..10")
             .unwrap()
             .into_iter()

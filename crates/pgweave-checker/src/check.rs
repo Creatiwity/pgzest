@@ -1,4 +1,4 @@
-//! Vérification d'un script par l'analyse sémantique (`pgweave-sema`).
+//! Checking a script with semantic analysis (`pgweave-sema`).
 
 use pgweave_ast::Statement;
 use pgweave_catalog::ProjectCatalog;
@@ -7,9 +7,9 @@ use pgweave_diagnostics::{Diagnostic, codes};
 use pgweave_parser::ParseOutcome;
 use pgweave_schema::FileRole;
 
-/// Parse `sql`, rejoue son DDL et vérifie chaque statement au moment où il
-/// s'applique (un corps PL/pgSQL, sur l'état final) : le mode d'un fichier
-/// vérifié sans schéma externe.
+/// Parses `sql`, replays its DDL and checks each statement at the point where
+/// it applies (a PL/pgSQL body, on the final state): the mode for a file
+/// checked without an external schema.
 pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
     match pgweave_parser::parse(sql) {
         Ok(stmts) => check_script(&stmts),
@@ -20,8 +20,8 @@ pub fn check_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
     }
 }
 
-/// Statements rejoués sur le catalogue de base, chacun vérifié à son
-/// application (voir [`check_sql_self_contained`]).
+/// Statements replayed on the base catalog, each checked when it is
+/// applied (see [`check_sql_self_contained`]).
 pub fn check_script(stmts: &[Statement]) -> Vec<Diagnostic> {
     let mut b = ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
@@ -39,8 +39,8 @@ pub fn check_script(stmts: &[Statement]) -> Vec<Diagnostic> {
     b.finish().diagnostics.into_iter().map(|(_, d)| d).collect()
 }
 
-/// Parse `sql` et vérifie ses statements contre `catalog`, sans rien y
-/// appliquer : le mode d'un fichier de requêtes.
+/// Parses `sql` and checks its statements against `catalog`, without
+/// applying anything to it: the mode for a query file.
 pub fn check_sql(sql: &str, catalog: &ProjectCatalog) -> Vec<Diagnostic> {
     match pgweave_parser::parse(sql) {
         Ok(stmts) => check_statements(&stmts, catalog),
@@ -51,7 +51,7 @@ pub fn check_sql(sql: &str, catalog: &ProjectCatalog) -> Vec<Diagnostic> {
     }
 }
 
-/// Statements vérifiés contre l'état de `catalog`.
+/// Statements checked against the state of `catalog`.
 pub fn check_statements(stmts: &[Statement], catalog: &ProjectCatalog) -> Vec<Diagnostic> {
     pgweave_sema::check::check_statements(&catalog.catalog, &catalog.search_path, stmts)
 }

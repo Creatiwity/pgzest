@@ -1,10 +1,10 @@
-//! Catalogue PostgreSQL de pgweave (PLAN.md, D2, D9, D11).
+//! pgweave's PostgreSQL catalog (PLAN.md, D2, D9, D11).
 //!
-//! - [`model`] : les objets (schémas, types, routines, relations…), identifiés
-//!   par leur nom qualifié, casse exacte ;
-//! - [`pack`] : fragments générés depuis un PostgreSQL réel, un par
-//!   contributeur du contexte global (version majeure, extensions) ;
-//! - [`catalog`] : le catalogue en mémoire et la résolution par
+//! - [`model`]: the objects (schemas, types, routines, relations…),
+//!   identified by their qualified name, exact case;
+//! - [`pack`]: fragments generated from a real PostgreSQL, one per
+//!   contributor of the global context (major version, extensions);
+//! - [`catalog`]: the in-memory catalog and resolution through
 //!   `search_path`.
 
 pub mod apply;

@@ -1,7 +1,7 @@
-//! Oracle différentiel : le corpus `cases/` confronté à un vrai PostgreSQL 18.
+//! Differential oracle: the `cases/` corpus checked against a real PostgreSQL 18.
 //!
-//! `make oracle` démarre un PostgreSQL 18 dans Docker et lance ces tests. En
-//! CI, un service `postgres:18` joue ce rôle.
+//! `make oracle` starts a PostgreSQL 18 in Docker and runs these tests. In
+//! CI, a `postgres:18` service plays that role.
 
 use std::path::{Path, PathBuf};
 
@@ -13,32 +13,36 @@ fn cases_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("cases")
 }
 
-/// Sans serveur : le corpus doit au moins se charger et s'analyser côté
-/// pgweave. Un cas mal formé casse la CI ordinaire, pas seulement l'oracle.
+/// Without a server: the corpus must at least load and be analyzed on the
+/// pgweave side. A malformed case breaks ordinary CI, not only the oracle.
 #[test]
-fn le_corpus_se_charge() {
-    let cases = load_cases(&cases_dir()).expect("corpus valide");
-    assert!(!cases.is_empty(), "corpus vide");
+fn corpus_loads() {
+    let cases = load_cases(&cases_dir()).expect("valid corpus");
+    assert!(!cases.is_empty(), "empty corpus");
     for case in &cases {
-        assert!(!case.queries.is_empty(), "cas `{}` sans requête", case.name);
+        assert!(
+            !case.queries.is_empty(),
+            "case `{}` has no query",
+            case.name
+        );
         assert_eq!(describe_ours(case).len(), case.queries.len());
     }
 }
 
 #[tokio::test]
-#[ignore = "nécessite PostgreSQL 18 : `make oracle` (variable PGWEAVE_ORACLE_URL)"]
-async fn le_corpus_confronte_a_postgresql() {
+#[ignore = "requires PostgreSQL 18: `make oracle` (PGWEAVE_ORACLE_URL variable)"]
+async fn corpus_checked_against_postgresql() {
     let url = std::env::var(URL_ENV)
-        .unwrap_or_else(|_| panic!("{URL_ENV} doit être défini : lancer `make oracle`"));
+        .unwrap_or_else(|_| panic!("{URL_ENV} must be set: run `make oracle`"));
 
-    let major = server_major_version(&url).await.expect("serveur joignable");
+    let major = server_major_version(&url).await.expect("reachable server");
     assert_eq!(
         major, 18,
-        "l'oracle de référence tourne sur PostgreSQL 18 (serveur : {major})"
+        "the reference oracle runs on PostgreSQL 18 (server: {major})"
     );
 
     let mut reports = Vec::new();
-    for case in load_cases(&cases_dir()).expect("corpus valide") {
+    for case in load_cases(&cases_dir()).expect("valid corpus") {
         let pg = describe_case(&url, &case)
             .await
             .unwrap_or_else(|e| panic!("{e}"));
@@ -49,7 +53,7 @@ async fn le_corpus_confronte_a_postgresql() {
     let (report, totals) = render(&reports, major);
     assert_eq!(
         totals.rejected_by_pg, 0,
-        "le corpus contient des requêtes invalides :\n{report}"
+        "the corpus contains invalid queries:\n{report}"
     );
-    insta::assert_snapshot!("rapport", report);
+    insta::assert_snapshot!("report", report);
 }

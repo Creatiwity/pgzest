@@ -1,6 +1,6 @@
-//! `CREATE TABLE … (LIKE source …)` : les colonnes copiées existent, à leur
-//! position ; une source inconnue ne fabrique pas de table à moitié.
-//! `ANALYZE` / `VACUUM` vérifient leurs tables et colonnes.
+//! `CREATE TABLE … (LIKE source …)`: the copied columns exist, at their
+//! position; an unknown source does not produce a half-built table.
+//! `ANALYZE` / `VACUUM` check their tables and columns.
 
 use pgweave_ast::Statement;
 use pgweave_catalog::ProjectCatalog;
@@ -13,44 +13,45 @@ fn errors<'a>(diags: &'a [Diagnostic], code: &str) -> Vec<&'a Diagnostic> {
 }
 
 #[test]
-fn les_colonnes_copiees_sont_a_leur_position() {
+fn copied_columns_are_at_their_position() {
     let stmts: Vec<Statement> = pgweave_parser::parse(
         "CREATE TABLE src (a INT NOT NULL, b TEXT);\n\
-         CREATE TABLE copie (id BIGINT, LIKE src INCLUDING ALL, extra BOOLEAN);",
+         CREATE TABLE copy_t (id BIGINT, LIKE src INCLUDING ALL, extra BOOLEAN);",
     )
     .expect("parse");
     let schema = ProjectCatalog::from_statements(&stmts);
-    let t = schema.get_table("copie").expect("table copie");
+    let t = schema.get_table("copy_t").expect("table copy_t");
     let names: Vec<&str> = t.columns.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["id", "a", "b", "extra"]);
-    // NOT NULL est toujours copié.
+    // NOT NULL is always copied.
     assert!(!t.columns[1].nullable);
 }
 
 #[test]
-fn une_colonne_copiee_est_visible_des_requetes() {
+fn a_copied_column_is_visible_to_queries() {
     let d = check_sql_self_contained(
         "CREATE TABLE src (a INT, b TEXT);\n\
-         CREATE TABLE copie (LIKE src);\n\
-         SELECT a, b FROM copie;\n\
-         SELECT nope FROM copie;",
+         CREATE TABLE copy_t (LIKE src);\n\
+         SELECT a, b FROM copy_t;\n\
+         SELECT nope FROM copy_t;",
     );
     assert_eq!(errors(&d, codes::COLUMN_NOT_FOUND).len(), 1, "{d:?}");
 }
 
 #[test]
-fn une_source_inconnue_ne_fabrique_pas_de_table() {
-    let stmts = pgweave_parser::parse("CREATE TABLE copie (LIKE absente, id INT);").expect("parse");
+fn an_unknown_source_does_not_produce_a_table() {
+    let stmts =
+        pgweave_parser::parse("CREATE TABLE copy_t (LIKE missing, id INT);").expect("parse");
     let schema = ProjectCatalog::from_statements(&stmts);
-    assert!(schema.get_table("copie").is_none());
+    assert!(schema.get_table("copy_t").is_none());
 }
 
 #[test]
-fn analyze_et_vacuum_verifient_tables_et_colonnes() {
+fn analyze_and_vacuum_check_tables_and_columns() {
     let d = check_sql_self_contained(
         "CREATE TABLE t (a INT, b TEXT);\n\
          ANALYZE t (a, nope);\n\
-         VACUUM (VERBOSE) absente;\n\
+         VACUUM (VERBOSE) missing;\n\
          ANALYZE;",
     );
     assert_eq!(errors(&d, codes::COLUMN_NOT_FOUND).len(), 1, "{d:?}");

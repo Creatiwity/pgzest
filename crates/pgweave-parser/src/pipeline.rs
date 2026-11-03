@@ -1,9 +1,9 @@
-//! Pipeline de parse d'un texte : découpage sur les tokens, grammaire de
-//! pgweave ou de sqlparser pour chaque statement, conversion vers l'AST,
-//! analyse des corps de routines.
+//! Parse pipeline for a text: splitting on tokens, pgweave's or sqlparser's
+//! grammar for each statement, conversion to the AST, analysis of
+//! routine bodies.
 //!
-//! Aucune réécriture du texte : chaque position vient d'un token du texte
-//! soumis, et la seule traduction est celle d'[`Offsets`] vers le document.
+//! No text rewriting: every position comes from a token of the submitted
+//! text, and the only translation is the one of [`Offsets`] into the document.
 
 use pgweave_ast::Statement;
 use pgweave_ast::ddl::{DdlStatement, FunctionBody, FunctionLanguage};
@@ -20,9 +20,9 @@ use crate::{Offsets, ParseOutcome, SkipReason, SkippedStatement};
 
 pub(crate) static DIALECT: PgweaveDialect = PgweaveDialect;
 
-/// Parse `text`, situé à la position `base` du texte soumis au parse
-/// englobant (0 pour un fichier ; le début du corps pour un corps de
-/// routine). Les positions produites sont traduites par `offsets`.
+/// Parses `text`, located at position `base` of the text submitted to the
+/// enclosing parse (0 for a file; the start of the body for a routine
+/// body). The produced positions are translated by `offsets`.
 pub(crate) fn parse_text(
     text: &str,
     base: usize,
@@ -126,10 +126,10 @@ fn parse_statement(
     Ok(())
 }
 
-/// Un statement SQL à partir de ses tokens (sans le `;`), dans le contexte de
-/// position déjà ouvert pour `ctx.text`. Sert aux statements SQL d'un corps
-/// PL/pgSQL : ils sont lus exactement comme ceux d'un fichier. Le corps d'une
-/// routine qui serait définie là n'est pas analysé.
+/// A SQL statement from its tokens (without the `;`), in the position
+/// context already opened for `ctx.text`. Used for the SQL statements of a
+/// PL/pgSQL body: they are read exactly like those of a file. The body of a
+/// routine that would be defined there is not analyzed.
 pub(crate) fn statement_from_tokens(
     tokens: Vec<sqlparser::tokenizer::TokenWithSpan>,
     ctx: &Ctx,
@@ -147,7 +147,7 @@ pub(crate) fn statement_from_tokens(
     Ok(stmt)
 }
 
-/// Un statement par sqlparser, qui doit consommer tous les tokens.
+/// A statement via sqlparser, which must consume all tokens.
 fn sqlparser_statement(p: &mut Parser) -> Result<sqlparser::ast::Statement, ParseError> {
     let stmt = p
         .parse_statement()
@@ -155,7 +155,7 @@ fn sqlparser_statement(p: &mut Parser) -> Result<sqlparser::ast::Statement, Pars
     if p.peek_token_ref().token != Token::EOF {
         let found = p.peek_token_ref().clone();
         return Err(ParseError::Syntax(
-            p.expected_ref::<()>("fin du statement", &found)
+            p.expected_ref::<()>("end of statement", &found)
                 .unwrap_err()
                 .to_string(),
         ));
@@ -163,9 +163,9 @@ fn sqlparser_statement(p: &mut Parser) -> Result<sqlparser::ast::Statement, Pars
     Ok(stmt)
 }
 
-/// Analyse le corps d'une routine et l'installe dans `stmt`. Renvoie la
-/// raison de l'échec si le corps n'a pas pu être analysé — il reste alors en
-/// `Raw`, et l'appelant le signale.
+/// Analyzes a routine's body and installs it in `stmt`. Returns the
+/// reason for failure if the body could not be analyzed — it then stays
+/// `Raw`, and the caller reports it.
 fn analyze_body(
     stmt: &mut Statement,
     body: RoutineBody,
@@ -209,8 +209,8 @@ fn analyze_body(
                         None => (sql_body(inner.statements), None),
                     }
                 }
-                // Langage externe : le corps est un symbole ou du code
-                // étranger, il n'y a rien à analyser.
+                // External language: the body is a symbol or foreign
+                // code, there is nothing to analyze.
                 _ => (FunctionBody::Raw(content), None),
             }
         }

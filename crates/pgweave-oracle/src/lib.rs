@@ -1,25 +1,25 @@
-//! Oracle différentiel (PLAN.md §7).
+//! Differential oracle (PLAN.md §7).
 //!
-//! Pour chaque requête d'un corpus de cas, on confronte ce que pgweave
-//! affirme (types des paramètres et des colonnes de sortie) à ce que renvoie
-//! le `Prepare` d'un vrai PostgreSQL. Tout écart est un bug de pgweave ou une
-//! divergence à documenter ; rien n'est inventé pour faire correspondre.
+//! For each query of a case corpus, what pgweave claims (types of the
+//! parameters and of the output columns) is checked against what the
+//! `Prepare` of a real PostgreSQL returns. Any gap is a pgweave bug or a
+//! divergence to document; nothing is made up to make them match.
 //!
-//! Les cas vivent dans `cases/<nom>/` : un `schema.sql` appliqué sur une base
-//! vierge, et un `queries.sql` au format des requêtes nommées
+//! Cases live in `cases/<name>/`: a `schema.sql` applied to an empty
+//! database, and a `queries.sql` in the named-query format
 //! (`docs/named-queries.md`).
 //!
-//! Le rapport produit est un instantané (`insta`) : il sert de référence.
-//! Une amélioration de l'analyse le fait changer, et la revue de ce
-//! changement montre exactement ce qui a progressé — ou régressé.
+//! The produced report is a snapshot (`insta`): it serves as the reference.
+//! An analysis improvement changes it, and reviewing that change shows
+//! exactly what progressed, or regressed.
 //!
-//! Le module [`schema`] confronte de même les migrations générées (P7) :
-//! migrations appliquées et schéma déclaratif doivent donner la même base.
+//! The [`schema`] module likewise checks the generated migrations (P7):
+//! applied migrations and the declarative schema must yield the same database.
 //!
-//! Limite actuelle : seuls les **types** sont confrontés. PostgreSQL ne
-//! renvoie pas la nullabilité d'une colonne de sortie ; un oracle partiel
-//! (colonnes issues directement d'une table, via `pg_attribute.attnotnull`)
-//! sera ajouté avec l'inférence de nullabilité (P3).
+//! Current limit: only **types** are compared. PostgreSQL does not return
+//! the nullability of an output column; a partial oracle (columns taken
+//! directly from a table, via `pg_attribute.attnotnull`) will be added with
+//! nullability inference (P3).
 
 mod case;
 mod ours;

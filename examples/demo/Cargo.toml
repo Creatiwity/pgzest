@@ -3,7 +3,7 @@ name = "pgweave-demo"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Démo pgweave : requêtes SQL nommées compilées en Rust typé, exécutées sur PostgreSQL"
+description = "pgweave demo: named SQL queries compiled into typed Rust, run against PostgreSQL"
 
 [dependencies]
 pgweave-runtime = { path = "../../crates/pgweave-runtime" }

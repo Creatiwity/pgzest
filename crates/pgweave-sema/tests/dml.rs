@@ -1,5 +1,5 @@
-//! Statements de modification : colonnes que seule la valeur par défaut peut
-//! remplir (messages de PostgreSQL 18).
+//! Data-modifying statements: columns that only the default value can
+//! fill (PostgreSQL 18 messages).
 
 use pgweave_catalog::ProjectCatalog;
 use pgweave_sema::{Analyzer, TypeSystem};
@@ -12,14 +12,14 @@ const SCHEMA: &str = "CREATE TABLE g (
 );";
 
 fn describe(sql: &str) -> Result<(), String> {
-    let p = ProjectCatalog::from_sql(SCHEMA).expect("schéma");
+    let p = ProjectCatalog::from_sql(SCHEMA).expect("schema");
     let stmts = pgweave_parser::parse(sql).expect("parse");
     let mut a = Analyzer::new(TypeSystem::new(&p.catalog), p.search_path.clone());
     a.describe(&stmts[0]).map(|_| ()).map_err(|e| e.message)
 }
 
 #[test]
-fn colonnes_generees_et_identity_always() {
+fn generated_and_identity_always_columns() {
     assert_eq!(
         describe("INSERT INTO g (a) VALUES ($1)"),
         Err("cannot insert a non-DEFAULT value into column \"a\"".into())
@@ -36,7 +36,7 @@ fn colonnes_generees_et_identity_always() {
         describe("UPDATE g SET (d, a) = (1, 2)"),
         Err("column \"a\" can only be updated to DEFAULT".into())
     );
-    // DEFAULT, identity BY DEFAULT et colonne ordinaire : permis.
+    // DEFAULT, identity BY DEFAULT and ordinary column: allowed.
     assert_eq!(
         describe("INSERT INTO g (a, b) VALUES (DEFAULT, DEFAULT)"),
         Ok(())

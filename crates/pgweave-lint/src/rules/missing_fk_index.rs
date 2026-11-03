@@ -18,9 +18,9 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
         return vec![];
     }
 
-    // (table, colonne, span du CREATE TABLE qui la déclare).
-    // Le span est conservé pour situer le diagnostic : cette règle est
-    // cross-statement, donc le driver ne peut pas le lui attacher.
+    // (table, column, span of the CREATE TABLE declaring it).
+    // The span is kept to locate the diagnostic: this rule is
+    // cross-statement, so the driver cannot attach it.
     let mut fk_cols: Vec<(String, String, pgweave_ast::Span)> = Vec::new();
 
     // Collect all indexed (table_name_lower, first_col_lower) pairs from CREATE INDEX
@@ -60,8 +60,8 @@ pub fn check_all(stmts: &[Statement], config: &LintConfig) -> Vec<Diagnostic> {
                     .last()
                     .map(|i| i.value.to_lowercase())
                     .unwrap_or_default();
-                // Un index couvre la colonne de FK si elle en est le premier
-                // élément — une expression en tête ne la couvre pas.
+                // An index covers the FK column if it is its first element — a
+                // leading expression does not cover it.
                 if let Some(pgweave_ast::ddl::IndexElement::Column(first_col)) =
                     ci.elements.first().map(|c| &c.element)
                 {

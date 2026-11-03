@@ -1,20 +1,20 @@
-//! Fidélité de l'AST PL/pgSQL : ne rien affirmer de faux.
+//! Fidelity of the PL/pgSQL AST: assert nothing false.
 //!
-//! Deux court-circuits produisaient un AST **mensonger**, avec un corps
-//! `Parsed` — donc sans dégradation visible, sans repli, sans diagnostic.
+//! Two shortcuts produced a **lying** AST, with a `Parsed`
+//! body — hence with no visible degradation, no fallback, no diagnostic.
 //!
-//! 1. Tout fragment commençant par `NEW.` ou `OLD.` était réduit à une
-//!    référence de champ, le reste jeté. `IF OLD.status = 'x' AND NEW.status
-//!    != 'x'` devenait `OldField("status")`.
-//! 2. Un fragment que sqlparser refusait devenait le littéral `true`. Une
-//!    condition `IF` était donc littéralement vraie dans l'AST.
+//! 1. Any fragment starting with `NEW.` or `OLD.` was reduced to a
+//!    field reference, the rest thrown away. `IF OLD.status = 'x' AND NEW.status
+//!    != 'x'` became `OldField("status")`.
+//! 2. A fragment sqlparser rejected became the literal `true`. An `IF`
+//!    condition was thus literally true in the AST.
 //!
-//! Le lexer était la cause commune de (2) : `||`, `::`, `->>` n'avaient aucun
-//! token et étaient recollés en `"| |"`, `": :"` — du SQL invalide.
+//! The lexer was the common cause of (2): `||`, `::`, `->>` had no
+//! token and were glued back as `"| |"`, `": :"` — invalid SQL.
 
 use pgweave_ast::{DdlStatement, ExprKind, Statement, ddl::FunctionBody, plpgsql::PlStatementKind};
 
-/// Corps PL/pgSQL parsé, ou panique en disant pourquoi.
+/// Parsed PL/pgSQL body, or panic saying why.
 fn body_of(sql: &str) -> pgweave_ast::plpgsql::PlpgsqlBody {
     let stmts = pgweave_parser::parse(sql).expect("parse");
     for st in stmts {
@@ -22,15 +22,15 @@ fn body_of(sql: &str) -> pgweave_ast::plpgsql::PlpgsqlBody {
             return match cf.body {
                 FunctionBody::Parsed(b) => *b,
                 FunctionBody::Raw(raw) => {
-                    panic!("corps non parsé (retombé en Raw) :\n{raw}")
+                    panic!("body not parsed (fell back to Raw):\n{raw}")
                 }
                 FunctionBody::SqlQuery(_) | FunctionBody::Sql(_) | FunctionBody::SqlReturn(_) => {
-                    panic!("corps SQL inattendu")
+                    panic!("unexpected SQL body")
                 }
             };
         }
     }
-    panic!("aucune fonction trouvée");
+    panic!("no function found");
 }
 
 fn trigger_fn(body: &str) -> String {
@@ -59,10 +59,10 @@ fn plain_fn(body: &str) -> String {
     )
 }
 
-// ── 1. La troncature NEW./OLD. ────────────────────────────────────────────────
+// ── 1. The NEW./OLD. truncation ───────────────────────────────────────────────
 
 #[test]
-fn une_condition_composite_sur_old_et_new_est_conservee() {
+fn a_composite_condition_on_old_and_new_is_kept() {
     let body = body_of(&trigger_fn(
         "    IF OLD.status = 'cancelled' AND NEW.status != 'cancelled' THEN\n\
          \x20       RETURN NULL;\n\
@@ -72,37 +72,37 @@ fn une_condition_composite_sur_old_et_new_est_conservee() {
         condition: expr, ..
     } = &body.block.statements[0].kind
     else {
-        panic!("IF attendu, obtenu {:?}", body.block.statements[0])
+        panic!("IF expected, got {:?}", body.block.statements[0])
     };
 
-    // Auparavant : `OldField("status")`, tout le reste jeté.
+    // Previously: `OldField("status")`, all the rest thrown away.
     assert!(
         matches!(&expr.kind, ExprKind::BinaryOp { .. }),
-        "la condition doit rester une comparaison composite, obtenu {:?}",
+        "the condition must stay a composite comparison, got {:?}",
         expr.kind
     );
 }
 
 #[test]
-fn new_point_colonne_seul_reste_reconnu_comme_variable_ligne() {
-    // La cible `NEW.col` reste un chemin : le checker vérifie la colonne
-    // contre la table du trigger.
+fn new_dot_column_alone_is_still_recognized_as_row_variable() {
+    // The target `NEW.col` stays a path: the checker checks the column
+    // against the trigger's table.
     let body = body_of(&trigger_fn("    NEW.updated_at = now();"));
     let PlStatementKind::Assign { target, .. } = &body.block.statements[0].kind else {
-        panic!("Assign attendu, obtenu {:?}", body.block.statements[0])
+        panic!("Assign expected, got {:?}", body.block.statements[0])
     };
-    // La cible d'une assignation `NEW.col` doit rester un champ, pas une colonne.
+    // The target of a `NEW.col` assignment must stay a field, not a column.
     assert!(
         format!("{target:?}").contains("updated_at"),
-        "obtenu {target:?}"
+        "got {target:?}"
     );
 }
 
 #[test]
-fn une_colonne_inexistante_dans_une_condition_composite_est_detectee() {
-    // Le gain concret : la troncature rendait cette erreur invisible.
+fn a_missing_column_in_a_composite_condition_is_detected() {
+    // The concrete gain: the truncation made this error invisible.
     let sql = trigger_fn(
-        "    IF OLD.colonne_bidon = 'x' AND NEW.status != 'x' THEN\n\
+        "    IF OLD.bogus_column = 'x' AND NEW.status != 'x' THEN\n\
          \x20       RETURN NULL;\n\
          \x20   END IF;",
     );
@@ -110,55 +110,55 @@ fn une_colonne_inexistante_dans_une_condition_composite_est_detectee() {
         format!("{sql}CREATE TRIGGER tg BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION fn();\n");
     let diags = pgweave_checker::check_sql_self_contained(&full);
     assert!(
-        diags.iter().any(|d| d.message.contains("colonne_bidon")),
-        "la colonne fautive doit être signalée, obtenu : {diags:?}"
+        diags.iter().any(|d| d.message.contains("bogus_column")),
+        "the faulty column must be reported, got: {diags:?}"
     );
 }
 
-// ── 2. Le littéral `true` de complaisance ─────────────────────────────────────
+// ── 2. The complacent `true` literal ──────────────────────────────────────────
 
 #[test]
-fn une_valeur_assignee_nest_jamais_remplacee_par_true() {
+fn an_assigned_value_is_never_replaced_by_true() {
     let body = body_of(&plain_fn("    v := 'a' || 'b';"));
     let PlStatementKind::Assign { value: expr, .. } = &body.block.statements[0].kind else {
-        panic!("Assign attendu")
+        panic!("Assign expected")
     };
     assert!(
         !matches!(
             &expr.kind,
             ExprKind::Literal(pgweave_ast::Literal::Boolean(true))
         ),
-        "la valeur ne doit pas être remplacée par `true`, obtenu {:?}",
+        "the value must not be replaced by `true`, got {:?}",
         expr.kind
     );
     assert!(
         matches!(&expr.kind, ExprKind::BinaryOp { .. }),
-        "une concaténation doit rester une concaténation, obtenu {:?}",
+        "a concatenation must stay a concatenation, got {:?}",
         expr.kind
     );
 }
 
 #[test]
-fn un_fragment_illisible_se_declare_au_lieu_de_mentir() {
-    // S'il reste un fragment que sqlparser refuse, l'AST doit dire « inconnu »
-    // et non « vrai ». On ne peut pas garantir quel fragment déclenche ce
-    // chemin, donc on vérifie l'invariant : aucun `Boolean(true)` synthétique
-    // ne doit apparaître là où le code source n'en contient pas.
+fn an_unreadable_fragment_declares_itself_instead_of_lying() {
+    // If a fragment sqlparser rejects remains, the AST must say "unknown"
+    // and not "true". We cannot guarantee which fragment triggers this
+    // path, so we check the invariant: no synthetic `Boolean(true)`
+    // must appear where the source code contains none.
     let src = plain_fn("    v := 'x';");
     let body = body_of(&src);
     let rendered = format!("{:?}", body.block.statements);
     assert!(
         !rendered.contains("Boolean(\n                                true"),
-        "aucun `true` ne doit être fabriqué : {rendered}"
+        "no `true` must be fabricated: {rendered}"
     );
 }
 
-// ── 3. Les opérateurs, cause commune ──────────────────────────────────────────
+// ── 3. Operators, the common cause ────────────────────────────────────────────
 
 #[test]
-fn les_operateurs_multi_caracteres_ne_cassent_plus_le_corps() {
-    // Chacun de ces corps retombait entièrement en `Raw` : le lexer n'avait
-    // aucun token pour l'opérateur et le recollait avec des espaces parasites.
+fn multi_character_operators_no_longer_break_the_body() {
+    // Each of these bodies fell back entirely to `Raw`: the lexer had no
+    // token for the operator and glued it back with spurious spaces.
     for (label, body) in [
         ("||", "    v := 'a' || 'b';"),
         ("::", "    v := n::text;"),
@@ -168,7 +168,7 @@ fn les_operateurs_multi_caracteres_ne_cassent_plus_le_corps() {
         ("~*", "    SELECT b INTO v FROM t WHERE b ~* 'x';"),
         ("<<", "    n := 1 << 3;"),
         ("#", "    n := 5 # 3;"),
-        ("indice", "    SELECT arr[1] INTO n FROM t;"),
+        ("subscript", "    SELECT arr[1] INTO n FROM t;"),
     ] {
         let sql = plain_fn(body);
         let stmts = pgweave_parser::parse(&sql).expect("parse");
@@ -179,29 +179,29 @@ fn les_operateurs_multi_caracteres_ne_cassent_plus_le_corps() {
                     if matches!(cf.body, FunctionBody::Parsed(_))
             )
         });
-        assert!(parsed, "l'opérateur {label} fait encore perdre le corps");
+        assert!(parsed, "operator {label} still loses the body");
     }
 }
 
 #[test]
-fn la_notation_exponentielle_conserve_sa_valeur() {
-    // `1e3` se lexait `Number("1")` + `Ident("e3")`, recollé `1 e3`, que
-    // sqlparser lit comme un ALIAS : la valeur devenait silencieusement `1`.
+fn exponential_notation_keeps_its_value() {
+    // `1e3` was lexed as `Number("1")` + `Ident("e3")`, glued back as `1 e3`, which
+    // sqlparser reads as an ALIAS: the value silently became `1`.
     let body = body_of(&plain_fn("    n := 1e3;"));
     let PlStatementKind::Assign { value, .. } = &body.block.statements[0].kind else {
-        panic!("Assign attendu")
+        panic!("Assign expected")
     };
     let rendered = format!("{value:?}");
     assert!(
         rendered.contains("1e3") || rendered.contains("1E3"),
-        "l'exposant doit être conservé, obtenu : {rendered}"
+        "the exponent must be kept, got: {rendered}"
     );
 }
 
-// ── 4. Garde-fou sur la fixture du dépôt ──────────────────────────────────────
+// ── 4. Safeguard on the repository fixture ────────────────────────────────────
 
 #[test]
-fn le_schema_dexemple_na_plus_de_condition_tronquee() {
+fn the_example_schema_has_no_truncated_condition() {
     let sql = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../examples/schema.sql"
@@ -221,17 +221,17 @@ fn le_schema_dexemple_na_plus_de_condition_tronquee() {
         for s in &b.block.statements {
             if let PlStatementKind::If { condition, .. } = &s.kind {
                 total += 1;
-                // Une condition réduite à une simple référence de champ alors
-                // que la source porte une comparaison : c'est la troncature.
+                // A condition reduced to a mere field reference while
+                // the source carries a comparison: that is the truncation.
                 if matches!(condition.kind, ExprKind::Column(_)) {
                     truncated += 1;
                 }
             }
         }
     }
-    assert!(total > 0, "la fixture doit contenir des IF");
+    assert!(total > 0, "the fixture must contain IFs");
     assert_eq!(
         truncated, 0,
-        "aucune condition ne doit être tronquée ({total} IF au total)"
+        "no condition must be truncated ({total} IFs in total)"
     );
 }

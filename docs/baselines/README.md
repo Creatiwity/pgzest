@@ -1,127 +1,125 @@
-# Rapports de référence (P0)
+# Baseline reports (P0)
 
-Deux mesures de départ, à refaire après chaque phase pour suivre les
-progrès. Les chiffres ci-dessous datent du 2026-11-01 (commit `62f1e61`).
+Two starting measurements, to be rerun after each phase to track progress.
+The figures below date from 2026-11-01 (commit `62f1e61`).
 
-| Rapport | Ce qu'il mesure | Comment le régénérer |
+| Report | What it measures | How to regenerate it |
 |---|---|---|
-| [`crates/pgweave-oracle/tests/snapshots/oracle__rapport.snap`](../../crates/pgweave-oracle/tests/snapshots/oracle__rapport.snap) | Types des paramètres et des colonnes, confrontés au `Prepare` de PostgreSQL 18, sur le corpus public `crates/pgweave-oracle/cases` | `make oracle` (vérifie), `make oracle-accept` (met à jour) |
-| [`mesalia.md`](mesalia.md) | Taux d'analyse et faux positifs sur les 220 migrations Prisma de Mesalia (corpus privé, agrégats sans noms) | `PGWEAVE_CORPUS_MESALIA=… cargo xtask corpus mesalia --layout prisma --out docs/baselines/mesalia.md` (avec `make oracle-up` pour le rejeu sur PG 18) |
+| [`crates/pgweave-oracle/tests/snapshots/oracle__report.snap`](../../crates/pgweave-oracle/tests/snapshots/oracle__report.snap) | Parameter and column types, checked against PostgreSQL 18's `Prepare`, on the public corpus `crates/pgweave-oracle/cases` | `make oracle` (check), `make oracle-accept` (update) |
+| [`mesalia.md`](mesalia.md) | Analysis rate and false positives on Mesalia's 220 Prisma migrations (private corpus, aggregates without names) | `PGWEAVE_CORPUS_MESALIA=… cargo xtask corpus mesalia --layout prisma --out docs/baselines/mesalia.md` (with `make oracle-up` for the replay on PG 18) |
 
-## Oracle : ce que pgweave affirme vs PostgreSQL 18
+## Oracle: what pgweave claims vs PostgreSQL 18
 
-- **Colonnes : 73/112 conformes (65 %). Paramètres : 0/29 (0 %)** — aucune
-  inférence de type de paramètre n'existe.
-- **Repli silencieux sur `text`** : quand le type d'une colonne n'est pas
-  inféré, `pgweave-semantic` affirme `text` (`coalesce` numérique, `max` d'un
-  `timestamptz`, `array_length`, sous-requête scalaire, agrégat dans une
-  CTE…). C'est exactement ce que le principe « ne jamais deviner » interdit :
-  un générateur produirait un type faux sans le savoir. À remplacer par un
-  inconnu explicite (P3).
-- **Littéraux et arithmétique** : `1.5` est `numeric` pour PostgreSQL (pas
-  `float8`), `int * numeric` est `numeric`, `sum(int4)` est `int8` — les
-  règles de résolution de PostgreSQL ne sont pas suivies (P3, D1 du système
-  de types).
-- **Syntaxe PG 18 inconnue de sqlparser** : `GENERATED ALWAYS AS (…)
-  VIRTUAL` fait écarter **toute** la table, dont toutes les colonnes passent
-  ensuite en `text` (P1).
-- **Non modélisés** : `CREATE TYPE … AS ENUM`, `CREATE DOMAIN`,
-  `CREATE EXTENSION`, `UNION`, `CALL`, colonnes de `RETURNING` (P1–P3).
-- **Réécriture textuelle** : le `CREATE DOMAIN … CHECK (VALUE > 0)` est cité
-  avec `CHECK (true)` — une réécriture avant parse a altéré le statement
-  (dette D1).
-- **Règle PostgreSQL 18 découverte** : une expression de colonne générée
-  `VIRTUAL` ne peut pas utiliser de type utilisateur (domaine, enum…) ; à
-  porter dans le checker (P3).
-- **Corrigé pendant P0** : l'expansion de `SELECT *` suivait l'ordre d'une
-  `HashMap` (résultat différent à chaque exécution, colonnes en double) et
-  `t.*` ne produisait rien.
+- **Columns: 73/112 match (65 %). Parameters: 0/29 (0 %)** — no parameter
+  type inference exists.
+- **Silent fallback to `text`**: when a column's type is not inferred,
+  `pgweave-semantic` claims `text` (numeric `coalesce`, `max` of a
+  `timestamptz`, `array_length`, scalar subquery, aggregate in a CTE…).
+  This is exactly what the "never guess" principle forbids: a generator
+  would produce a wrong type without knowing it. To be replaced by an
+  explicit unknown (P3).
+- **Literals and arithmetic**: `1.5` is `numeric` for PostgreSQL (not
+  `float8`), `int * numeric` is `numeric`, `sum(int4)` is `int8` —
+  PostgreSQL's resolution rules are not followed (P3, D1 of the type
+  system).
+- **PG 18 syntax unknown to sqlparser**: `GENERATED ALWAYS AS (…)
+  VIRTUAL` causes the **whole** table to be dropped, and all its columns
+  then fall back to `text` (P1).
+- **Not modeled**: `CREATE TYPE … AS ENUM`, `CREATE DOMAIN`,
+  `CREATE EXTENSION`, `UNION`, `CALL`, `RETURNING` columns (P1–P3).
+- **Textual rewriting**: the `CREATE DOMAIN … CHECK (VALUE > 0)` is quoted
+  as `CHECK (true)` — a rewrite before parsing altered the statement
+  (debt D1).
+- **PostgreSQL 18 rule discovered**: a `VIRTUAL` generated column
+  expression cannot use a user-defined type (domain, enum…); to be ported
+  to the checker (P3).
+- **Fixed during P0**: `SELECT *` expansion followed the order of a
+  `HashMap` (a different result on each run, duplicated columns) and
+  `t.*` produced nothing.
 
-## État à la fin de P1 (`e1c6b1f`)
+## State at the end of P1 (`e1c6b1f`)
 
-| Mesure | P0 | P1 |
+| Measure | P0 | P1 |
 |---|--:|--:|
-| Oracle : colonnes conformes | 73/112 | 84/112 |
-| Mesalia : statements analysés | 1519/1740 (87 %) | 1740/1740 (100 %) |
-| Mesalia : corps de routines non analysés | 17/28 | 0/28 |
-| Mesalia : erreurs (faux positifs) | 27 | 10 |
-| siren : statements analysés | — | 294/294 (100 %) |
+| Oracle: matching columns | 73/112 | 84/112 |
+| Mesalia: statements analyzed | 1519/1740 (87 %) | 1740/1740 (100 %) |
+| Mesalia: routine bodies not analyzed | 17/28 | 0/28 |
+| Mesalia: errors (false positives) | 27 | 10 |
+| siren: statements analyzed | — | 294/294 (100 %) |
 
-- Les **10 `column-not-found` Mesalia** viennent de la vérification de
-  chaque migration contre l'état **final** du schéma (colonnes renommées
-  ou supprimées plus tard) : le rejeu migration par migration (P2) les
-  supprime.
-- Les **`function-not-found`** (Mesalia 53, siren 7) portent toutes sur des
-  fonctions intégrées (`pg_trigger_depth`, `normalize`) ou d'extensions
-  (`unaccent`, `levenshtein_less_equal`) : catalogue généré et packs (D9,
-  P2). Leur hausse depuis P0 vient des corps désormais analysés.
-- Rejeu siren sur PG 18 : arrêté à la migration 15 (extension `postgis`
-  absente de l'image de l'oracle) — limite de l'environnement de test.
+- The **10 Mesalia `column-not-found`** come from checking each migration
+  against the **final** state of the schema (columns renamed or dropped
+  later): migration-by-migration replay (P2) removes them.
+- The **`function-not-found`** (Mesalia 53, siren 7) all concern built-in
+  functions (`pg_trigger_depth`, `normalize`) or extension functions
+  (`unaccent`, `levenshtein_less_equal`): generated catalog and packs (D9,
+  P2). Their increase since P0 comes from the bodies now being analyzed.
+- siren replay on PG 18: stopped at migration 15 (`postgis` extension
+  missing from the oracle image) — a limitation of the test environment.
 
-[`siren.md`](siren.md) : corpus Diesel (`--layout diesel`, chemin local).
+[`siren.md`](siren.md): Diesel corpus (`--layout diesel`, local path).
 
-## État en P3 (2026-11-02)
+## State in P3 (2026-11-02)
 
-| Mesure | P1 | P3 |
+| Measure | P1 | P3 |
 |---|--:|--:|
-| Oracle : colonnes conformes | 84/112 | 559/559 |
-| Oracle : paramètres conformes | 0/29 | 115/115 |
-| Mesalia : erreurs de `check` (faux positifs) | 10 | 0 |
-| Mesalia : colonnes du catalogue identiques au réel | — | 1622/1622 |
-| Mesalia : requêtes générées identiques à PG | — | 3342/3342 |
-| Mesalia : requêtes de corps de routines identiques à PG | — | 58/58 |
-| siren : requêtes générées / de corps identiques à PG | — | 476/476 · 10/10 |
+| Oracle: matching columns | 84/112 | 559/559 |
+| Oracle: matching parameters | 0/29 | 115/115 |
+| Mesalia: `check` errors (false positives) | 10 | 0 |
+| Mesalia: catalog columns identical to the real one | — | 1622/1622 |
+| Mesalia: generated queries identical to PG | — | 3342/3342 |
+| Mesalia: routine body queries identical to PG | — | 58/58 |
+| siren: generated / body queries identical to PG | — | 476/476 · 10/10 |
 
-- `check` passe par `pgweave-sema` : chaque migration est vérifiée contre le
-  catalogue rejoué jusqu'à elle, un corps PL/pgSQL contre l'état final.
-- L'ancien analyseur (`pgweave-semantic`, et son repli silencieux sur
-  `text`) est supprimé.
+- `check` goes through `pgweave-sema`: each migration is checked against
+  the catalog replayed up to it, a PL/pgSQL body against the final state.
+- The old analyzer (`pgweave-semantic`, and its silent fallback to
+  `text`) has been removed.
 
 ---
 
-# Historique : mesures P0
+# History: P0 measurements
 
-## Mesalia : taux d'analyse et faux positifs
+## Mesalia: analysis rate and false positives
 
-- **Corpus valide** : les 220 migrations s'appliquent sur un PostgreSQL 18
-  vierge. Tout diagnostic d'erreur de `check` est donc un faux positif.
-- **87 % des statements analysés** (1519/1740). Les écarts se concentrent
-  sur peu de constructions :
-  - **enums** : 116 statements (`CREATE TYPE … AS ENUM` ×75, `ALTER TYPE …
-    ADD VALUE` ×24, `DROP TYPE` ×9, `ALTER TYPE … RENAME` ×8) — central pour
-    Mesalia, priorité P1/P2 ;
-  - **suppressions non modélisées** (`DROP INDEX/TABLE/TRIGGER/FUNCTION/
-    VIEW`, ~64) : l'index continue de croire à des objets supprimés ;
-  - **vues** (11 créations), **blocs `DO`** (10), **contraintes `EXCLUDE
-    USING gist`** (4, extension `btree_gist`), `BEGIN`/`COMMIT`/`SET`.
-- **Fonctions : 17 corps sur 28 non analysés.** Causes : `DROP TABLE` dans
-  un corps (8), statement `WITH …` (CTE) dans un corps (7), `CASE … WHEN`
-  dans une expression (2).
-- **Faux positifs : 27 erreurs `table-not-found`, toutes dans 2 migrations**
-  dont les fonctions de trigger retombent sur le repli textuel. Les « tables
-  inconnues » sont :
-  - des **tables temporaires** créées dans le corps
-    (`CREATE TEMP TABLE IF NOT EXISTS …`) ;
-  - des **tables de transition** de triggers niveau statement
+- **Valid corpus**: all 220 migrations apply on a fresh PostgreSQL 18.
+  Any `check` error diagnostic is therefore a false positive.
+- **87 % of statements analyzed** (1519/1740). The gaps are concentrated
+  in a few constructs:
+  - **enums**: 116 statements (`CREATE TYPE … AS ENUM` ×75, `ALTER TYPE …
+    ADD VALUE` ×24, `DROP TYPE` ×9, `ALTER TYPE … RENAME` ×8) — central for
+    Mesalia, priority P1/P2;
+  - **unmodeled drops** (`DROP INDEX/TABLE/TRIGGER/FUNCTION/
+    VIEW`, ~64): the index still believes in dropped objects;
+  - **views** (11 creations), **`DO` blocks** (10), **`EXCLUDE
+    USING gist` constraints** (4, `btree_gist` extension), `BEGIN`/`COMMIT`/`SET`.
+- **Functions: 17 bodies out of 28 not analyzed.** Causes: `DROP TABLE` in
+  a body (8), `WITH …` statement (CTE) in a body (7), `CASE … WHEN` in an
+  expression (2).
+- **False positives: 27 `table-not-found` errors, all in 2 migrations**
+  whose trigger functions fall back to textual handling. The "unknown
+  tables" are:
+  - **temporary tables** created in the body
+    (`CREATE TEMP TABLE IF NOT EXISTS …`);
+  - **transition tables** of statement-level triggers
     (`REFERENCING OLD TABLE AS … NEW TABLE AS …`).
-  C'est exactement le contexte « tables temporaires et variables propres à
-  une procédure » du catalogue à portées (D2) : à couvrir en P1 (parse) et
-  P2 (portée routine).
-- **27 avertissements `function-not-found`** : uniquement des fonctions
-  intégrées à PostgreSQL absentes du catalogue écrit à la main
-  (`pg_trigger_depth` ×26, `normalize` ×1). Confirme D9 : le catalogue
-  intégré doit être généré depuis un vrai PostgreSQL.
-- **Temps** : parse 176 ms, construction de l'index 307 ms, vérification
-  22 ms pour 220 fichiers. Référence pour le critère du spike salsa
-  (surcoût d'indexation < 2×).
+  This is exactly the "temporary tables and procedure-local variables"
+  context of the scoped catalog (D2): to be covered in P1 (parse) and P2
+  (routine scope).
+- **27 `function-not-found` warnings**: only PostgreSQL built-in functions
+  missing from the hand-written catalog (`pg_trigger_depth` ×26,
+  `normalize` ×1). Confirms D9: the built-in catalog must be generated from
+  a real PostgreSQL.
+- **Time**: parse 176 ms, index construction 307 ms, check 22 ms for 220
+  files. Reference for the salsa spike criterion (indexing overhead < 2×).
 
-## Priorités qui en découlent pour P1
+## Resulting priorities for P1
 
-Par impact sur Mesalia, à coût comparable :
+By impact on Mesalia, at comparable cost:
 
-1. Enums (`CREATE/ALTER/DROP TYPE`) et `DROP …` modélisés.
-2. Corps PL/pgSQL : `DROP TABLE`, statements `WITH`, `CASE … WHEN` — puis
-   suppression du repli textuel.
-3. Tables temporaires et tables de transition (`REFERENCING`) dans la portée
-   de la routine.
-4. `GENERATED … VIRTUAL`, `EXCLUDE USING`, vues, `DO`.
+1. Enums (`CREATE/ALTER/DROP TYPE`) and `DROP …` modeled.
+2. PL/pgSQL bodies: `DROP TABLE`, `WITH` statements, `CASE … WHEN` — then
+   removal of the textual fallback.
+3. Temporary tables and transition tables (`REFERENCING`) in the routine
+   scope.
+4. `GENERATED … VIRTUAL`, `EXCLUDE USING`, views, `DO`.

@@ -1,21 +1,21 @@
-//! Packs : fragments de catalogue fournis par un contributeur du contexte
-//! global (PLAN.md, D9) — la version majeure de PostgreSQL ou une extension.
+//! Packs: catalog fragments provided by a contributor of the global context
+//! (PLAN.md, D9) — the PostgreSQL major version or an extension.
 //!
-//! Un pack est **généré** depuis un PostgreSQL réel (`cargo xtask
-//! catalog-gen`), jamais écrit à la main. Celui d'une extension est le delta
-//! du catalogue avant et après `CREATE EXTENSION`.
+//! A pack is **generated** from a real PostgreSQL (`cargo xtask
+//! catalog-gen`), never written by hand. An extension's pack is the catalog
+//! delta before and after `CREATE EXTENSION`.
 //!
-//! Format : JSON, un objet par ligne dans chaque liste, listes triées — un
-//! changement de PostgreSQL se lit dans le diff.
+//! Format: JSON, one object per line in each list, sorted lists — a
+//! PostgreSQL change shows up in the diff.
 
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Cast, OpClass, Operator, Relation, Routine, Schema, TypeDef};
 
-/// Version du format de pack.
+/// Pack format version.
 pub const PACK_FORMAT: u32 = 1;
 
-/// Contributeur : `postgres@18`, `citext@1.6`…
+/// Contributor: `postgres@18`, `citext@1.6`…
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Contributor {
     pub name: String,
@@ -32,8 +32,8 @@ impl std::fmt::Display for Contributor {
 pub struct Pack {
     pub format: u32,
     pub contributor: Contributor,
-    /// Pour une extension : version de PostgreSQL contre laquelle le delta a
-    /// été calculé.
+    /// For an extension: PostgreSQL version against which the delta was
+    /// computed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postgres: Option<String>,
     pub schemas: Vec<Schema>,
@@ -42,13 +42,13 @@ pub struct Pack {
     pub operators: Vec<Operator>,
     pub casts: Vec<Cast>,
     pub opclasses: Vec<OpClass>,
-    /// Tables et vues fournies (catalogues système, `information_schema`).
+    /// Provided tables and views (system catalogs, `information_schema`).
     pub relations: Vec<Relation>,
 }
 
-/// Schéma d'une extension dans un pack : remplacé au chargement par le
-/// schéma où l'extension est créée (`CREATE EXTENSION … SCHEMA s`), comme
-/// le `@extschema@` des scripts d'extension de PostgreSQL.
+/// Schema of an extension in a pack: replaced at load time by the schema
+/// where the extension is created (`CREATE EXTENSION … SCHEMA s`), like the
+/// `@extschema@` of PostgreSQL extension scripts.
 pub const EXTSCHEMA: &str = "@extschema@";
 
 #[derive(Debug)]
@@ -65,17 +65,17 @@ impl std::error::Error for PackError {}
 impl Pack {
     pub fn from_json(text: &str) -> Result<Pack, PackError> {
         let pack: Pack =
-            serde_json::from_str(text).map_err(|e| PackError(format!("pack illisible : {e}")))?;
+            serde_json::from_str(text).map_err(|e| PackError(format!("unreadable pack: {e}")))?;
         if pack.format != PACK_FORMAT {
             return Err(PackError(format!(
-                "pack {} au format {}, format attendu {PACK_FORMAT}",
+                "pack {} has format {}, expected format {PACK_FORMAT}",
                 pack.contributor, pack.format
             )));
         }
         Ok(pack)
     }
 
-    /// Trie toutes les listes : même catalogue, même texte.
+    /// Sorts every list: same catalog, same text.
     pub fn normalize(&mut self) {
         self.schemas.sort_by(|a, b| a.name.cmp(&b.name));
         self.types.sort_by(|a, b| a.name.cmp(&b.name));
@@ -91,13 +91,13 @@ impl Pack {
         self.relations.sort_by(|a, b| a.name.cmp(&b.name));
     }
 
-    /// JSON stable : un élément par ligne.
+    /// Stable JSON: one element per line.
     pub fn to_json(&self) -> String {
         fn list<T: Serialize>(out: &mut String, key: &str, items: &[T], last: bool) {
             out.push_str(&format!("  \"{key}\": ["));
             for (i, item) in items.iter().enumerate() {
                 out.push_str(if i == 0 { "\n    " } else { ",\n    " });
-                out.push_str(&serde_json::to_string(item).expect("sérialisation du pack"));
+                out.push_str(&serde_json::to_string(item).expect("pack serialization"));
             }
             out.push_str(if items.is_empty() { "]" } else { "\n  ]" });
             out.push_str(if last { "\n" } else { ",\n" });
@@ -126,7 +126,7 @@ impl Pack {
     }
 }
 
-/// Signature d'entrée d'une routine, pour l'ordre et les doublons.
+/// Input signature of a routine, for ordering and duplicates.
 pub(crate) fn signature(r: &Routine) -> Vec<String> {
     r.input_types().map(|t| t.to_string()).collect()
 }

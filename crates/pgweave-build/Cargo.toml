@@ -2,7 +2,7 @@
 name = "pgweave-build"
 version = "0.1.0"
 edition = "2024"
-description = "Génération des requêtes nommées pour build.rs (PLAN.md §5, P5)"
+description = "Named query generation for build.rs (PLAN.md §5, P5)"
 
 [dependencies]
 pgweave-catalog = { path = "../pgweave-catalog" }

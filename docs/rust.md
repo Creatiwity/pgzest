@@ -1,24 +1,24 @@
-# Requêtes typées en Rust
+# Typed queries in Rust
 
-> Statut : **utilisable** (P5 en cours, 2026-11-02). Exemple complet :
-> [`examples/rust-service`](../examples/rust-service), testé contre
-> PostgreSQL 18 en CI.
+> Status: **usable** (P5 in progress, 2026-11-02). Full example:
+> [`examples/rust-service`](../examples/rust-service), tested against
+> PostgreSQL 18 in CI.
 
-Les requêtes SQL d'un projet deviennent des fonctions Rust typées, à la
-compilation et **sans connexion à une base**. Les types viennent du
-catalogue que pgweave reconstruit en rejouant le schéma et les migrations
-du projet (`pgweave.toml`). L'exécution passe par `tokio-postgres`.
+A project's SQL queries become typed Rust functions, at compile time and
+**without a database connection**. Types come from the catalog that
+pgweave rebuilds by replaying the project's schema and migrations
+(`pgweave.toml`). Execution goes through `tokio-postgres`.
 
-Deux façons d'écrire une requête :
+Three ways to write a query:
 
-- **requête nommée** dans `queries/**/*.sql`, compilée par la macro
-  `queries!` ou par `build.rs` : c'est la forme principale (enums générés,
-  `COPY`, fragments, lignes partagées), un module Rust par fichier ;
-- **`sql!`**, une requête définie dans le code Rust : même génération
-  qu'une requête nommée, la chaîne ne contenant que le SQL ;
-- **`query!`**, en ligne dans une expression, pour une requête ponctuelle.
+- **named query** in `queries/**/*.sql`, compiled by the `queries!` macro
+  or by `build.rs`: this is the main form (generated enums, `COPY`,
+  fragments, shared rows), one Rust module per file;
+- **`sql!`**, a query defined in Rust code: same generation as a named
+  query, the string containing only the SQL;
+- **`query!`**, inline in an expression, for a one-off query.
 
-## Mise en place
+## Setup
 
 ```toml
 # pgweave.toml
@@ -26,7 +26,7 @@ Deux façons d'écrire une requête :
 version = 18
 
 [schema]
-directory = "schema"        # ou [migrations] directory = "migrations"
+directory = "schema"        # or [migrations] directory = "migrations"
 
 [queries]
 directory = "queries"
@@ -38,67 +38,67 @@ directory = "queries"
 pgweave-runtime = { path = "…/crates/pgweave-runtime" }
 pgweave-macros  = { path = "…/crates/pgweave-macros" }   # queries!, query!
 tokio-postgres  = { version = "0.7", features = ["with-time-0_3", "with-uuid-1"] }
-time = "0.3"      # dates (ou chrono, voir plus bas)
-uuid = "1"        # si le schéma a des uuid
+time = "0.3"      # dates (or chrono, see below)
+uuid = "1"        # if the schema has uuids
 ```
 
 ```rust
-// src/queries.rs — tout le contenu est généré à la compilation
+// src/queries.rs — all content is generated at compile time
 pgweave_macros::queries!("queries");
 ```
 
 ```rust
 // src/lib.rs
 pub mod queries;
-// queries/order/book.sql, requête `get` → crate::queries::order::book::get
+// queries/order/book.sql, query `get` → crate::queries::order::book::get
 ```
 
-`queries!` prend un répertoire (un module par fichier et par
-sous-répertoire, les enums PostgreSQL à la racine) ou un fichier (ses
-requêtes à l'endroit de l'appel). Des requêtes peuvent vivre près du code
-qui les utilise : déclarez leur répertoire dans `[queries] include`, puis
-`pgweave_macros::queries!("src/order/queries");` dans `src/order/mod.rs`.
-Chaque fichier lu est surveillé ; un fichier **ajouté** à un répertoire
-n'est vu qu'à la recompilation du module qui appelle la macro.
+`queries!` takes a directory (one module per file and per subdirectory,
+PostgreSQL enums at the root) or a file (its queries at the call site).
+Queries can live close to the code that uses them: declare their directory
+in `[queries] include`, then
+`pgweave_macros::queries!("src/order/queries");` in `src/order/mod.rs`.
+Each file read is tracked; a file **added** to a directory is only seen
+when the module calling the macro is recompiled.
 
-### Requêtes dans le code : `sql!`
+### Queries in code: `sql!`
 
 ```rust
-// src/carte.rs
+// src/inline.rs
 pgweave_macros::sql! {
-    /// Les plats d'un restaurant, du moins cher au plus cher.
+    /// A restaurant's dishes, from cheapest to most expensive.
     pub dishes_by_price: many -> crate::queries::menu::DishCardRow,
     r#"SELECT @dish_card(d) FROM dishes d
        WHERE d.restaurant_id = $restaurant ORDER BY d.price"#
 }
-// crate::carte::dishes_by_price(&client, DishesByPriceParams { restaurant })
+// crate::inline::dishes_by_price(&client, DishesByPriceParams { restaurant })
 ```
 
-- Une requête par macro ; nom, cardinalité (optionnelle, inférée sinon),
-  documentation et visibilité sont des paramètres, la chaîne ne contient que
-  le SQL (fragments `@nom` compris).
-- `-> Chemin` reprend la struct de ligne d'une autre requête, `sql!` ou
-  fichier, par son chemin Rust. La compatibilité (noms, ordre, types,
-  nullabilité jamais relâchée) est vérifiée à la compilation, par des
-  assertions constantes : `` `price` peut être nulle ici, pas dans
+- One query per macro; name, cardinality (optional, inferred otherwise),
+  documentation and visibility are parameters, the string contains only
+  the SQL (`@name` fragments included).
+- `-> Path` reuses the row struct of another query, `sql!` or file, by its
+  Rust path. Compatibility (names, order, types, nullability never
+  loosened) is checked at compile time, through constant assertions:
+  `` `price` can be null here, but not in
   crate::queries::menu::DishCardRow ``.
-- Modifier la chaîne relance l'analyse immédiatement, dans l'éditeur aussi
-  (l'entrée de la macro change) ; « aller à la définition » mène au nom
-  écrit dans la macro.
+- Editing the string reruns the analysis immediately, in the editor too
+  (the macro's input changes); "go to definition" leads to the name
+  written in the macro.
 
-Dans VS Code, l'extension pgweave traite la chaîne comme un fichier de
-requêtes : coloration SQL (`$param`, `@fragment` compris), diagnostics
-positionnés dans la chaîne, survol (descripteur sur le nom, type d'une
-colonne, fragment), complétion. Elle désactive les jetons sémantiques de
-rust-analyzer sur les chaînes (`rust-analyzer.semanticHighlighting.strings.enable`),
-qui recouvriraient la coloration. Hors d'un projet pgweave (`pgweave.toml`),
-un `query!` homonyme (sqlx…) n'est pas analysé.
+In VS Code, the pgweave extension treats the string like a query file: SQL
+highlighting (`$param`, `@fragment` included), diagnostics positioned in
+the string, hover (descriptor on the name, a column's type, fragment),
+completion. It disables rust-analyzer's semantic tokens on strings
+(`rust-analyzer.semanticHighlighting.strings.enable`), which would cover
+the highlighting. Outside a pgweave project (`pgweave.toml`), a `query!`
+with the same name (sqlx…) is not analyzed.
 
-### Enums : `#[types]`
+### Enums: `#[types]`
 
-Une requête `sql!` qui utilise un enum PostgreSQL ne peut pas le définir
-elle-même (deux requêtes du même module le définiraient deux fois). Les
-enums du projet sont générés une fois, dans un module déclaré :
+A `sql!` query that uses a PostgreSQL enum cannot define it itself (two
+queries in the same module would define it twice). The project's enums are
+generated once, in a declared module:
 
 ```toml
 # pgweave.toml
@@ -113,27 +113,26 @@ pub mod db {}
 // crate::db::DishKind, crate::db::OrderStatus…
 ```
 
-Avec `[rust] types`, `queries!` et `build.rs` y renvoient aussi au lieu de
-générer leurs propres enums.
+With `[rust] types`, `queries!` and `build.rs` also refer to it instead of
+generating their own enums.
 
-### Rafraîchissement dans l'éditeur
+### Refreshing in the editor
 
-rust-analyzer ne relance une macro que si son entrée change. Pour `sql!`
-et `query!`, l'entrée est le SQL : toute modification est prise en compte
-à la frappe. Pour `queries!("dossier")`, l'entrée est le chemin : une
-modification d'un `.sql` n'est vue par rust-analyzer qu'au redémarrage du
-serveur (`cargo check`, lui, la voit toujours). Un changement de schéma
-est dans le même cas pour toutes les formes.
+rust-analyzer only reruns a macro if its input changes. For `sql!` and
+`query!`, the input is the SQL: every change is picked up as you type. For
+`queries!("directory")`, the input is the path: a change to a `.sql` is
+only seen by rust-analyzer when the server restarts (`cargo check` always
+sees it). A schema change is in the same situation for all forms.
 
-Variante sans macro, depuis `build.rs` (le répertoire `[queries] directory`
-entier, y compris ses fichiers ajoutés, surveillés par Cargo) :
+Macro-free variant, from `build.rs` (the whole `[queries] directory`,
+including files added to it, tracked by Cargo):
 
 ```rust
 // build.rs  ([build-dependencies] pgweave-build)
 fn main() {
     pgweave_build::Builder::new()
         .generate()
-        .unwrap_or_else(|e| panic!("pgweave : {e}"));
+        .unwrap_or_else(|e| panic!("pgweave: {e}"));
 }
 
 // src/lib.rs
@@ -142,34 +141,34 @@ pub mod queries {
 }
 ```
 
-Le schéma vient de fichiers déclaratifs (`[schema]`) ou des migrations
-(`[migrations] directory`), rejouées dans l'ordre. Formats reconnus :
-fichiers numérotés (`0001_init.sql`), Prisma
-(`<horodatage>_<nom>/migration.sql`), Diesel (`<date>_<nom>/up.sql`, les
-`down.sql` n'étant jamais appliqués). Un projet Prisma existant se branche
-donc sans conversion :
+The schema comes from declarative files (`[schema]`) or from migrations
+(`[migrations] directory`), replayed in order. Recognized formats:
+numbered files (`0001_init.sql`), Prisma
+(`<timestamp>_<name>/migration.sql`), Diesel (`<date>_<name>/up.sql`,
+`down.sql` files are never applied). An existing Prisma project therefore
+plugs in without conversion:
 
 ```toml
 [migrations]
 directory = "packages/models/prisma/migrations"
 ```
 
-Une requête que l'analyse ne décrit pas fait **échouer la compilation**, avec
-sa position dans le fichier SQL. Modifier le schéma, une migration ou une
-requête relance la génération : rust-analyzer suit, sans watcher à lancer. `pgweave describe --rust queries/x.sql`
-affiche le code généré sans compiler ; `pgweave describe` seul affiche les
-descripteurs JSON.
+A query the analysis cannot describe **fails the build**, with its
+position in the SQL file. Changing the schema, a migration or a query
+reruns the generation: rust-analyzer follows, with no watcher to start.
+`pgweave describe --rust queries/x.sql` prints the generated code without
+compiling; `pgweave describe` alone prints the JSON descriptors.
 
-## Requêtes nommées
+## Named queries
 
-Format des fichiers : [`named-queries.md`](named-queries.md).
+File format: [`named-queries.md`](named-queries.md).
 
 ```sql
 -- name: page_by_id
 SELECT id, slug, title, status, published_on FROM pages WHERE id = $id;
 ```
 
-devient :
+becomes:
 
 ```rust
 pub struct PageByIdParams { pub id: i64 }
@@ -177,46 +176,43 @@ pub struct PageByIdRow {
     pub id: i64,
     pub slug: String,
     pub title: String,
-    pub status: PageStatus,               // enum PostgreSQL → enum Rust
-    pub published_on: Option<time::Date>, // colonne nullable → Option
+    pub status: PageStatus,               // PostgreSQL enum → Rust enum
+    pub published_on: Option<time::Date>, // nullable column → Option
 }
 pub async fn page_by_id<C: GenericClient + ?Sized>(client: &C, params: PageByIdParams)
     -> Result<Option<PageByIdRow>, pgweave_runtime::Error>;
 ```
 
-`client` est tout ce qui implémente `GenericClient` : client, transaction,
-connexion de pool.
+`client` is anything implementing `GenericClient`: client, transaction,
+pool connection.
 
-### Cardinalité
+### Cardinality
 
-Le type de retour suit le nombre de lignes, **inféré** de façon
-conservatrice :
+The return type follows the number of rows, **inferred** conservatively:
 
-| Requête | Cardinalité | Retour |
+| Query | Cardinality | Return |
 |---|---|---|
-| égalités sur toutes les colonnes d'une clé primaire, d'une contrainte ou d'un index unique (sans prédicat) | `optional` | `Option<Row>` |
-| `INSERT … VALUES (une ligne) RETURNING` | `one` | `Row` |
-| agrégat sans `GROUP BY` (`count(*)`…) | `one` | `Row` |
+| equalities on all columns of a primary key, a unique constraint or a unique index (without predicate) | `optional` | `Option<Row>` |
+| `INSERT … VALUES (one row) RETURNING` | `one` | `Row` |
+| aggregate without `GROUP BY` (`count(*)`…) | `one` | `Row` |
 | `LIMIT 1` | `optional` | `Option<Row>` |
-| sans `RETURNING` | `none` | `u64` (lignes touchées) |
-| sinon | `many` | `Vec<Row>`, et `x_stream` en flux |
+| without `RETURNING` | `none` | `u64` (rows affected) |
+| otherwise | `many` | `Vec<Row>`, and `x_stream` as a stream |
 
-Une déclaration dans l'en-tête (`-- name: x :one`) **restreint**
-l'inférence : `:one` sur une requête `optional` affirme que la ligne
-existe, et c'est vérifié à l'exécution (`Error::RowCount`). Elle ne peut
-pas la contredire (`:none` sur une requête qui renvoie des lignes est une
-erreur).
+A declaration in the header (`-- name: x :one`) **narrows** the inference:
+`:one` on an `optional` query asserts that the row exists, and this is
+checked at run time (`Error::RowCount`). It cannot contradict it (`:none`
+on a query that returns rows is an error).
 
-### Nullabilité
+### Nullability
 
-Jamais supposée (PLAN.md D5) :
+Never assumed (PLAN.md D5):
 
-- **colonne** : `T` seulement si sa non-nullité est établie (`NOT NULL`
-  conservé à travers les jointures, `count(*)`, littéral…), sinon
-  `Option<T>` ;
-- **paramètre** : affecté à une colonne (`VALUES`, `SET`), il en prend la
-  nullabilité (`Option<T>` pour une colonne nullable) ; ailleurs
-  (`WHERE id = $id`), il est attendu non nul.
+- **column**: `T` only if its non-nullability is established (`NOT NULL`
+  preserved through joins, `count(*)`, literal…), otherwise `Option<T>`;
+- **parameter**: assigned to a column (`VALUES`, `SET`), it takes that
+  column's nullability (`Option<T>` for a nullable column); elsewhere
+  (`WHERE id = $id`), it is expected non-null.
 
 ### Types
 
@@ -226,17 +222,17 @@ Jamais supposée (PLAN.md D5) :
 | `int2`, `int4`, `int8` | `i16`, `i32`, `i64` |
 | `float4`, `float8` | `f32`, `f64` |
 | `numeric` | `rust_decimal::Decimal` |
-| `text`, `varchar`, `char(n)`, `name`, `citext` | `String` (paramètre : `&str`) |
-| `bytea` | `Vec<u8>` (paramètre : `&[u8]`) |
+| `text`, `varchar`, `char(n)`, `name`, `citext` | `String` (parameter: `&str`) |
+| `bytea` | `Vec<u8>` (parameter: `&[u8]`) |
 | `uuid` | `uuid::Uuid` |
 | `json`, `jsonb` | `serde_json::Value` |
-| `date`, `time`, `timestamp`, `timestamptz` | `time::Date`, `time::Time`, `time::PrimitiveDateTime`, `time::OffsetDateTime` (ou `chrono`) |
-| tableau `T[]` | `Vec<Option<T>>` (paramètre : `&[T]`) |
-| enum du projet | enum Rust généré (variantes en PascalCase) |
-| domaine | type de son type de base |
+| `date`, `time`, `timestamp`, `timestamptz` | `time::Date`, `time::Time`, `time::PrimitiveDateTime`, `time::OffsetDateTime` (or `chrono`) |
+| array `T[]` | `Vec<Option<T>>` (parameter: `&[T]`) |
+| project enum | generated Rust enum (PascalCase variants) |
+| domain | type of its base type |
 
-Un type absent de la table est un **refus**, jamais un repli : on le
-déclare dans `build.rs`.
+A type missing from the table is a **refusal**, never a fallback: declare
+it in `build.rs`.
 
 ```rust
 pgweave_build::Builder::new()
@@ -245,21 +241,21 @@ pgweave_build::Builder::new()
     .generate()
 ```
 
-Les noms de colonnes deviennent des champs en snake_case (`"createdAt"` →
-`created_at`). Une colonne sans nom Rust (`?column?`) ou deux colonnes de
-même nom sont refusées : leur donner un alias.
+Column names become snake_case fields (`"createdAt"` → `created_at`). A
+column without a Rust name (`?column?`) or two columns with the same name
+are refused: give them an alias.
 
-### Exécution
+### Execution
 
-- Types des paramètres tous intégrés : `query_typed`, en un seul aller-retour.
-- Type du projet en paramètre (enum) : la requête est préparée par le
-  serveur, qui en fixe les types (un aller-retour de plus).
-- Coût mesuré (`make bench`) : identique à `tokio-postgres` écrit à la
-  main (rapport 0,995 sur `page_by_id`).
+- All parameter types built in: `query_typed`, in a single round trip.
+- Project type as a parameter (enum): the query is prepared by the server,
+  which fixes its types (one more round trip).
+- Measured cost (`make bench`): identical to hand-written `tokio-postgres`
+  (ratio 0.995 on `page_by_id`).
 
 ## `COPY … FROM STDIN`
 
-Une requête nommée peut être un `COPY` :
+A named query can be a `COPY`:
 
 ```sql
 -- name: load_staging
@@ -269,15 +265,14 @@ COPY etablissements_staging (siret, nom, effectif, ouvert) FROM STDIN (FORMAT bi
 COPY etablissements_staging FROM STDIN (FORMAT csv, HEADER true);
 ```
 
-- format binaire : `load_staging(&tx, records)` où `records` itère sur des
-  `LoadStagingRecord { siret: &str, nom: &str, effectif: Option<i32>, … }` ;
-- texte ou CSV : `load_staging_csv(&tx, reader)` où `reader` est un
-  `tokio::io::AsyncRead`, transmis tel quel.
+- binary format: `load_staging(&tx, records)` where `records` iterates over
+  `LoadStagingRecord { siret: &str, nom: &str, effectif: Option<i32>, … }`;
+- text or CSV: `load_staging_csv(&tx, reader)` where `reader` is a
+  `tokio::io::AsyncRead`, passed through as-is.
 
-`COPY` demande un `Client` ou une `Transaction` (trait `CopyClient`). Les
-colonnes générées ne sont pas alimentées (et refusées si on les cite).
-L'exemple enchaîne staging, `COPY` et bascule `INSERT … ON CONFLICT` dans
-une transaction.
+`COPY` requires a `Client` or a `Transaction` (`CopyClient` trait).
+Generated columns are not fed (and refused if listed). The example chains
+staging, `COPY` and an `INSERT … ON CONFLICT` switchover in a transaction.
 
 ## `query!`
 
@@ -289,29 +284,28 @@ let title = pgweave_macros::query!("SELECT title FROM pages WHERE id = $id", id 
 
 let n = pgweave_macros::query!(
     "UPDATE pages SET title = $title WHERE author = $author",
-    title = "Bonjour",
+    title = "Hello",
     author = author,
 )
-.execute(&client)            // sans ligne → u64
+.execute(&client)            // no row → u64
 .await?;
 ```
 
-- paramètres nommés (`$nom`), liés par `nom = valeur` ; chaque valeur est
-  vérifiée au type attendu ;
-- `fetch` renvoie ce que promet la cardinalité ; `fetch_one` /
-  `fetch_optional` restreignent (vérifié à l'exécution) ;
-- une erreur SQL est une erreur de compilation sur la chaîne ;
-- pas d'enum ni de `COPY` en ligne : ils demandent des types uniques dans
-  le crate, donc une requête nommée.
+- named parameters (`$name`), bound with `name = value`; each value is
+  checked against the expected type;
+- `fetch` returns what the cardinality promises; `fetch_one` /
+  `fetch_optional` narrow it (checked at run time);
+- a SQL error is a compile error on the string;
+- no enum or `COPY` inline: they require unique types in the crate, hence
+  a named query.
 
-`query_file!("sql/live_pages.sql", pattern = p)` fait de même avec une
-requête lue dans un fichier du crate (chemin relatif à son `Cargo.toml`) :
-le fichier est inclus pour la recompilation, et une erreur est positionnée
-dedans (`sql/live_pages.sql:5:7: [column-not-found] …`).
+`query_file!("sql/live_pages.sql", pattern = p)` does the same with a query
+read from a file of the crate (path relative to its `Cargo.toml`): the file
+is included for recompilation, and an error is positioned inside it
+(`sql/live_pages.sql:5:7: [column-not-found] …`).
 
-## Erreurs
+## Errors
 
-`pgweave_runtime::Error` : `Db` (erreur PostgreSQL ou de connexion),
-`RowCount` (nombre de lignes contraire à la cardinalité), `Decode`
-(valeur non décodable), `Io` (lecture des données d'un `COPY`). Chacune
-nomme la requête.
+`pgweave_runtime::Error`: `Db` (PostgreSQL or connection error),
+`RowCount` (number of rows contrary to the cardinality), `Decode`
+(undecodable value), `Io` (reading `COPY` data). Each one names the query.

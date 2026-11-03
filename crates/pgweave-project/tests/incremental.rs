@@ -1,5 +1,4 @@
-//! Critère de sortie de P2 : modifier un fichier ne recalcule que ce qui en
-//! dépend.
+//! P2 exit criterion: editing a file only recomputes what depends on it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -61,14 +60,14 @@ fn check_all(f: &Fixture) -> (usize, usize) {
 }
 
 #[test]
-fn premier_calcul() {
+fn first_computation() {
     let f = fixture();
-    // q2 cite une colonne absente.
+    // q2 references a missing column.
     assert_eq!(check_all(&f), (0, 1));
 }
 
 #[test]
-fn modifier_une_requete_ne_relance_qu_elle() {
+fn editing_a_query_only_reruns_that_query() {
     let mut f = fixture();
     check_all(&f);
     f.db.take_executions();
@@ -79,17 +78,17 @@ fn modifier_une_requete_ne_relance_qu_elle() {
     assert_eq!(
         executed,
         ["parse_file(q1.sql)", "check_file(q1.sql)"],
-        "ni le catalogue ni q2 ne sont recalculés"
+        "neither the catalog nor q2 is recomputed"
     );
 }
 
 #[test]
-fn un_schema_inchange_en_substance_coupe_la_propagation() {
+fn a_substantially_unchanged_schema_stops_propagation() {
     let mut f = fixture();
     check_all(&f);
     f.db.take_executions();
 
-    // Même DDL, mise en forme et commentaire différents.
+    // Same DDL, different formatting and comment.
     f.schema
         .set_text(&mut f.db)
         .to("-- tables\nCREATE TABLE t (\n  a INT,\n  b TEXT\n);\n".into());
@@ -101,12 +100,12 @@ fn un_schema_inchange_en_substance_coupe_la_propagation() {
     );
     assert!(
         !executed.iter().any(|e| e.starts_with("check_file")),
-        "catalogue identique : aucune vérification relancée — {executed:?}"
+        "identical catalog: no check rerun — {executed:?}"
     );
 }
 
 #[test]
-fn changer_les_macros_relit_tous_les_fichiers() {
+fn changing_macros_rereads_every_file() {
     let mut f = fixture();
     check_all(&f);
     f.db.take_executions();
@@ -136,7 +135,7 @@ fn chunk(path: &str, sql: &str, role: FileRole) -> SqlChunk {
 }
 
 #[test]
-fn espace_de_travail_suit_le_texte_de_l_editeur() {
+fn workspace_follows_editor_text() {
     let mut ws = Workspace::new(
         &[
             chunk("schema.sql", "CREATE TABLE t (a INT);", FileRole::Schema),
@@ -165,13 +164,13 @@ fn espace_de_travail_suit_le_texte_de_l_editeur() {
     assert_eq!(not_found(&ws), 1);
     assert!(ws.replay_diagnostics(Path::new("schema.sql")).is_empty());
 
-    // Texte non sauvegardé : pris en compte sans relire le disque.
+    // Unsaved text: taken into account without re-reading the disk.
     assert!(ws.set_text(Path::new("m1.sql"), "SELECT 1;"));
     assert!(!has_b(&ws));
     assert_eq!(not_found(&ws), 0);
-    assert!(!ws.set_text(Path::new("inconnu.sql"), "SELECT 1;"));
+    assert!(!ws.set_text(Path::new("unknown.sql"), "SELECT 1;"));
 
-    // Même texte : rien n'est recalculé.
+    // Same text: nothing is recomputed.
     ws.take_executions();
     assert!(ws.set_text(Path::new("m1.sql"), "SELECT 1;"));
     ws.catalog();
@@ -179,7 +178,7 @@ fn espace_de_travail_suit_le_texte_de_l_editeur() {
 }
 
 #[test]
-fn un_changement_de_schema_relance_les_dependants() {
+fn a_schema_change_reruns_dependents() {
     let mut f = fixture();
     check_all(&f);
     f.db.take_executions();

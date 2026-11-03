@@ -1,27 +1,27 @@
-# Requêtes nommées — format de fichier, v1
+# Named queries — file format, v1
 
-> Statut : **figé** (P0, 2026-11-01). Les évolutions seront additives.
-> Implémentation de référence : `crates/pgweave-query`.
+> Status: **frozen** (P0, 2026-11-01). Changes will be additive.
+> Reference implementation: `crates/pgweave-query`.
 
-Une requête nommée est un statement SQL, écrit dans un fichier `.sql` du
-répertoire `[queries] directory` (voir [`config.md`](config.md)), précédé
-d'un en-tête qui lui donne un nom. C'est l'unité à partir de laquelle seront
-générés les appels typés (Rust en P5, TypeScript en P8) : une fonction par
-requête, une struct de paramètres, une struct de ligne.
+A named query is a SQL statement, written in a `.sql` file of the
+`[queries] directory` (see [`config.md`](config.md)), preceded by a header
+that gives it a name. It is the unit from which typed calls are generated
+(Rust in P5, TypeScript in P8): one function per query, one parameter
+struct, one row struct.
 
-`pgweave check` et l'éditeur vérifient le format de ces fichiers, chaque
-requête contre le schéma, et ce qui empêcherait de la décrire (paramètre
-non typé, cardinalité contredite). `pgweave describe` produit les
-descripteurs ; leur usage en Rust est décrit dans [`rust.md`](rust.md).
+`pgweave check` and the editor check the format of these files, each query
+against the schema, and anything that would prevent describing it (untyped
+parameter, contradicted cardinality). `pgweave describe` produces the
+descriptors; their use in Rust is described in [`rust.md`](rust.md).
 
-## Exemple
+## Example
 
 ```sql
 -- queries/pages.sql
--- Les commentaires avant le premier en-tête documentent le fichier.
+-- Comments before the first header document the file.
 
 -- name: page_by_id :optional
--- Une page par son identifiant.
+-- A page by its identifier.
 SELECT id, title, creation_date
 FROM pages
 WHERE id = $id;
@@ -39,80 +39,79 @@ WHERE id = $id
 RETURNING id, title;
 ```
 
-## Grammaire
+## Grammar
 
 ```
-fichier      := préambule? requête*
-préambule    := (commentaire | ligne vide)*
-requête      := en-tête doc* statement
-en-tête      := "-- name:" nom cardinalité? référence? FIN_DE_LIGNE  (en début de ligne)
-nom          := [a-z_][a-z0-9_]*
-cardinalité  := ":one" | ":optional" | ":many" | ":none"
-référence    := "->" (module "::")* nom     (ajouté en P6, 2026-11-03)
-doc          := "--" texte FIN_DE_LIGNE                       (avant le statement)
-statement    := un seul statement SQL, ";" final optionnel
+file         := preamble? query*
+preamble     := (comment | blank line)*
+query        := header doc* statement
+header       := "-- name:" name cardinality? reference? END_OF_LINE  (at start of line)
+name         := [a-z_][a-z0-9_]*
+cardinality  := ":one" | ":optional" | ":many" | ":none"
+reference    := "->" (module "::")* name     (added in P6, 2026-11-03)
+doc          := "--" text END_OF_LINE                         (before the statement)
+statement    := a single SQL statement, optional trailing ";"
 ```
 
-### En-tête
+### Header
 
-- Commence la ligne : `-- name:` en fin de ligne de code n'est pas un en-tête
-  (et c'est une erreur, pour ne pas le perdre en silence).
-- Les espaces autour de `name:` sont libres ; `-- name: x` est la forme
-  canonique.
-- Un `-- name:` dans une chaîne ou un corps `$$…$$` n'est jamais un en-tête :
-  le découpage s'appuie sur le tokenizer SQL, pas sur les lignes.
+- Starts the line: `-- name:` at the end of a line of code is not a header
+  (and it is an error, so that it is not silently lost).
+- Whitespace around `name:` is free; `-- name: x` is the canonical form.
+- A `-- name:` inside a string or a `$$…$$` body is never a header: the
+  splitting relies on the SQL tokenizer, not on lines.
 
-### Nom
+### Name
 
-- `snake_case` ASCII : `[a-z_][a-z0-9_]*`. Utilisable tel quel comme
-  identifiant Rust, convertible sans perte en `camelCase` pour TypeScript.
-- Unique dans le fichier. Le **module** est le chemin du fichier relatif à
-  son répertoire de requêtes, sans extension : `queries/admin/pages.sql` →
-  `admin::pages` en Rust (`queries::admin::pages::page_by_id`). Deux
-  fichiers peuvent donc définir le même nom. Chaque segment doit faire un
-  nom de module Rust (snake_case).
+- ASCII `snake_case`: `[a-z_][a-z0-9_]*`. Usable as-is as a Rust
+  identifier, losslessly convertible to `camelCase` for TypeScript.
+- Unique within the file. The **module** is the file's path relative to its
+  query directory, without extension: `queries/admin/pages.sql` →
+  `admin::pages` in Rust (`queries::admin::pages::page_by_id`). Two files
+  can therefore define the same name. Each segment must be a valid Rust
+  module name (snake_case).
 
-### Cardinalité
+### Cardinality
 
-Nombre de lignes renvoyées :
+Number of rows returned:
 
-| Marqueur | Sens | Appel généré (P5, indicatif) |
+| Marker | Meaning | Generated call (P5, indicative) |
 |---|---|---|
-| `:one` | exactement une ligne | `fetch_one` → `Row` |
-| `:optional` | zéro ou une ligne | `fetch_optional` → `Option<Row>` |
-| `:many` | zéro, une ou plusieurs | `fetch_all` / flux → `Vec<Row>` |
-| `:none` | pas de ligne (sans `RETURNING`) | `execute` → nombre de lignes affectées |
+| `:one` | exactly one row | `fetch_one` → `Row` |
+| `:optional` | zero or one row | `fetch_optional` → `Option<Row>` |
+| `:many` | zero, one or more | `fetch_all` / stream → `Vec<Row>` |
+| `:none` | no row (no `RETURNING`) | `execute` → number of affected rows |
 
-Le marqueur est **optionnel**. À partir de P4, la cardinalité est inférée
-(égalité sur une clé unique → `:optional`, etc. — PLAN.md §4) :
+The marker is **optional**. From P4 on, cardinality is inferred (equality
+on a unique key → `:optional`, etc. — PLAN.md §4):
 
-- sans marqueur, l'inférence fait foi ;
-- avec marqueur, il est vérifié contre l'inférence : il peut **resserrer**
-  une inférence prudente (`:one` là où l'analyse voit `:optional`, quand
-  l'appelant sait qu'une ligne existe) mais pas la contredire (`:none` sur
-  un `SELECT` est une erreur).
+- without a marker, the inference is authoritative;
+- with a marker, it is checked against the inference: it can **tighten** a
+  cautious inference (`:one` where the analysis sees `:optional`, when the
+  caller knows a row exists) but not contradict it (`:none` on a `SELECT`
+  is an error).
 
-D'ici P4, le marqueur est lu et validé (valeur connue) mais pas encore
-confronté à l'inférence.
+Until P4, the marker is read and validated (known value) but not yet
+checked against the inference.
 
 ### Documentation
 
-Les lignes `--` entre l'en-tête et le statement sont la documentation de la
-requête, reprise dans le code généré.
+The `--` lines between the header and the statement are the query's
+documentation, carried over into the generated code.
 
 ### Statement
 
-- **Un seul** statement par requête ; le `;` final est optionnel.
-- Tout SQL hors d'une requête (avant le premier en-tête, ou un second
-  statement sous un même en-tête) est une erreur.
-- Un fichier de requêtes est un `.sql`. Il peut insérer les **fragments**
-  du projet (`@nom`, voir plus bas) ; les macros de statement (`@function`…)
-  n'y ont pas leur place.
+- **A single** statement per query; the trailing `;` is optional.
+- Any SQL outside a query (before the first header, or a second statement
+  under the same header) is an error.
+- A query file is a `.sql`. It can insert the project's **fragments**
+  (`@name`, see below); statement macros (`@function`…) have no place
+  there.
 
-## Requêtes à variantes
+## Variant queries
 
-Quand le plan doit dépendre des filtres présents, ou que le tri varie,
-blocs conditionnels et choix (ajoutés le 2026-11-03) :
+When the plan must depend on which filters are present, or the ordering
+varies, use conditional blocks and choices (added on 2026-11-03):
 
 ```sql
 -- name: orders_page :many
@@ -121,34 +120,33 @@ FROM orders o
 WHERE o.restaurant_id = $restaurant
 [[ AND o.status = $status ]]
 [[ AND o.placed_at >= $since ]]
-ORDER BY {{ tri: recent = o.placed_at DESC NULLS LAST, o.id DESC | ancien = o.id }}
+ORDER BY {{ sort: recent = o.placed_at DESC NULLS LAST, o.id DESC | oldest = o.id }}
 LIMIT $limit;
 ```
 
-- `[[ … ]]` : inclus si son paramètre est fourni (`Option<T>` en Rust). Un
-  bloc dépend d'**un seul** paramètre, utilisé seulement dans des blocs,
-  sans `?` ; un filtre à deux valeurs s'écrit en deux blocs.
-- `{{ nom: a = … | b = … }}` : un choix, enum Rust (`OrdersPageTri::Recent`).
-  Une possibilité ne contient pas de paramètre.
-- Chaque combinaison est une **variante**, décrite à la compilation (au
-  plus 256) ; toutes doivent renvoyer les mêmes colonnes. Une erreur d'une
-  variante est rapportée à sa position, la variante en indice.
-- À l'exécution, la fonction générée choisit la variante par un `match`
-  exhaustif ; aucun SQL n'est composé.
-- `[[` après une expression (indice ou constructeur de tableau, `ARRAY[[`)
-  n'ouvre pas de bloc ; rien n'est reconnu dans une chaîne ou un
-  commentaire. Pas de bloc dans un bloc, ni de choix dans un bloc.
+- `[[ … ]]`: included if its parameter is provided (`Option<T>` in Rust).
+  A block depends on **a single** parameter, used only in blocks, without
+  `?`; a two-value filter is written as two blocks.
+- `{{ name: a = … | b = … }}`: a choice, a Rust enum
+  (`OrdersPageSort::Recent`). An alternative contains no parameter.
+- Each combination is a **variant**, described at compile time (at most
+  256); all must return the same columns. An error in a variant is
+  reported at its position, with the variant as a note.
+- At run time, the generated function picks the variant with an
+  exhaustive `match`; no SQL is composed.
+- `[[` after an expression (subscript or array constructor, `ARRAY[[`)
+  does not open a block; nothing is recognized inside a string or a
+  comment. No block inside a block, nor a choice inside a block.
 
 ## Fragments
 
-Un morceau de SQL qui revient (liste de colonnes, expression, prédicat)
-s'écrit une fois, dans un `.sql` de `[macros] directory`, et s'insère par
-`@nom` :
+A recurring piece of SQL (column list, expression, predicate) is written
+once, in a `.sql` of `[macros] directory`, and inserted with `@name`:
 
 ```sql
 -- macros/pages.sql
 -- fragment: page_card(p)
--- La fiche d'une page, telle que l'affichent les listes.
+-- A page's card, as lists display it.
 p.id, p.title, p.status
 
 -- fragment: published(p)
@@ -158,33 +156,32 @@ p.status = 'live' AND p.published_on <= current_date
 ```sql
 -- name: recent_pages :many
 SELECT @page_card(x) FROM pages x WHERE @published(x) ORDER BY x.id DESC;
--- analysé et envoyé :
+-- analyzed and sent:
 SELECT x.id, x.title, x.status FROM pages x
 WHERE (x.status = 'live' AND x.published_on <= current_date) ORDER BY x.id DESC
 ```
 
-- Les paramètres d'un fragment sont des **qualificatifs** : `@page_card(x)`
-  remplace `p.` par `x.`, `@page_card` le retire (`id, title, status`).
-  Rien d'autre n'est substitué.
-- Un corps qui est une expression non atomique est inséré entre
-  parenthèses (l'opérateur voisin ne peut pas le découper) ; une liste, un
-  élément aliasé ou un atome est inséré tel quel.
-- Un fragment peut contenir des paramètres (`$status`) : ils deviennent
-  ceux de la requête, dans l'ordre de première apparition **après**
-  insertion.
-- Le fragment est vérifié là où il est inséré ; une erreur qui vient de son
-  texte est rapportée à l'invocation (`@page_card(x)`).
-- Les fragments servent aussi dans le schéma (`CREATE INDEX … ((@expr))`) :
-  l'expression d'un index et celle des requêtes qui doivent l'utiliser ne
-  peuvent plus diverger.
+- A fragment's parameters are **qualifiers**: `@page_card(x)` replaces
+  `p.` with `x.`, `@page_card` removes it (`id, title, status`). Nothing
+  else is substituted.
+- A body that is a non-atomic expression is inserted in parentheses (the
+  neighboring operator cannot split it); a list, an aliased item or an
+  atom is inserted as-is.
+- A fragment can contain parameters (`$status`): they become the query's,
+  in order of first appearance **after** insertion.
+- The fragment is checked where it is inserted; an error coming from its
+  text is reported at the invocation (`@page_card(x)`).
+- Fragments are also usable in the schema (`CREATE INDEX … ((@expr))`):
+  the expression of an index and that of the queries that must use it can
+  no longer diverge.
 
-## Lignes de référence
+## Reference rows
 
-`-> autre` déclare que la requête renvoie des lignes de la même forme que
-celles de la requête `autre` du même fichier ; `-> admin::pages::autre`
-désigne celle d'un autre fichier, par son module depuis la racine du
-répertoire de requêtes. Le code généré reprend sa struct de ligne
-(`AutreRow`, ou `super::admin::pages::AutreRow`) au lieu d'en créer une.
+`-> other` declares that the query returns rows of the same shape as those
+of query `other` in the same file; `-> admin::pages::other` designates one
+in another file, by its module from the root of the query directory. The
+generated code reuses its row struct (`OtherRow`, or
+`super::admin::pages::OtherRow`) instead of creating one.
 
 ```sql
 -- name: page_card :optional
@@ -194,38 +191,38 @@ SELECT @page_card(p) FROM pages p WHERE p.id = $id;
 SELECT @page_card(p) FROM pages p WHERE p.author = $author;
 ```
 
-Vérifié, jamais forcé : mêmes colonnes dans le même ordre, du même type ;
-une colonne non nulle dans la référence doit l'être aussi ici (une colonne
-nullable dans la référence accepte une valeur toujours présente). La
-référence est une requête du même répertoire de requêtes, qui ne reprend
-pas elle-même les lignes d'une autre.
+Checked, never forced: same columns in the same order, of the same type; a
+column that is non-null in the reference must be non-null here too (a
+nullable column in the reference accepts an always-present value). The
+reference is a query in the same query directory, which does not itself
+reuse the rows of another.
 
-## Paramètres
+## Parameters
 
-Deux notations, **jamais mélangées** dans une même requête :
+Two notations, **never mixed** within the same query:
 
-| Notation | Exemple | Recommandée |
+| Notation | Example | Recommended |
 |---|---|---|
-| Nommée | `$page_id` | oui |
-| Positionnelle | `$1`, `$2` | pour du SQL existant |
+| Named | `$page_id` | yes |
+| Positional | `$1`, `$2` | for existing SQL |
 
-Paramètres nommés :
+Named parameters:
 
-- même règle que les noms de requête : `snake_case` ASCII (`$page_id`, pas
-  `$pageId`) ;
-- un même nom utilisé plusieurs fois est **un seul** paramètre ;
-- l'ordre des paramètres est l'ordre de **première apparition** ;
-- `$name` immédiatement suivi de `$` est un début de chaîne dollar
-  (`$tag$…$tag$`), pas un paramètre — règle de PostgreSQL ;
-- un `$name` dans une chaîne ou un commentaire n'est pas un paramètre.
+- same rule as query names: ASCII `snake_case` (`$page_id`, not
+  `$pageId`);
+- the same name used several times is **a single** parameter;
+- the order of parameters is the order of **first appearance**;
+- `$name` immediately followed by `$` is the start of a dollar-quoted
+  string (`$tag$…$tag$`), not a parameter — a PostgreSQL rule;
+- a `$name` inside a string or a comment is not a parameter.
 
-Paramètres positionnels : de `$1` à `$n` sans trou.
+Positional parameters: from `$1` to `$n` with no gap.
 
-### Paramètre optionnel : `$nom?`
+### Optional parameter: `$name?`
 
-Un `?` collé au nom (ajouté le 2026-11-03) déclare que la valeur peut
-manquer : le paramètre est nullable dans le descripteur, `Option<T>` en
-Rust, quoi que déduise l'analyse. La requête est écrite pour :
+A `?` attached to the name (added on 2026-11-03) declares that the value
+may be missing: the parameter is nullable in the descriptor, `Option<T>` in
+Rust, whatever the analysis infers. The query is written for it:
 
 ```sql
 -- name: orders_of_restaurant :many
@@ -234,66 +231,67 @@ WHERE o.restaurant_id = $restaurant
   AND ($status?::order_status IS NULL OR o.status = $status);
 ```
 
-- Le marqueur sur une occurrence suffit ; il est retiré du SQL envoyé
+- The marker on one occurrence is enough; it is removed from the SQL sent
   (`$2::order_status IS NULL OR o.status = $2`).
-- Une seule requête préparée : un filtre absent est une condition vraie.
-  Quand le plan doit dépendre des filtres présents, voir les
-  [requêtes à variantes](#requêtes-à-variantes).
-- L'opérateur jsonb `?` s'écrit entouré d'espaces (`$doc ? 'clé'`) ; un
-  paramètre positionnel (`$1?`) n'est jamais optionnel.
+- A single prepared query: a missing filter is a true condition. When the
+  plan must depend on which filters are present, see
+  [variant queries](#variant-queries).
+- The jsonb `?` operator is written surrounded by spaces
+  (`$doc ? 'key'`); a positional parameter (`$1?`) is never optional.
 
-### Réécriture
+### Rewriting
 
-Le SQL envoyé au serveur est toujours positionnel. Chaque `$name` est
-remplacé par `$n`, `n` étant son rang de première apparition :
+The SQL sent to the server is always positional. Each `$name` is replaced
+by `$n`, `n` being its rank of first appearance:
 
 ```sql
 UPDATE pages SET title = $title WHERE id = $id
--- envoyé :
+-- sent:
 UPDATE pages SET title = $1 WHERE id = $2
 ```
 
-Le reste du texte est conservé à l'octet près (casts `$id::bigint`,
-commentaires, mise en forme).
+The rest of the text is preserved byte for byte (`$id::bigint` casts,
+comments, formatting).
 
 ## Diagnostics
 
-| Code | Cas |
+| Code | Case |
 |---|---|
-| `query-header-invalid` | nom invalide, cardinalité inconnue, texte en trop, en-tête hors début de ligne |
-| `query-without-name` | SQL hors d'une requête nommée (signalé une fois par fichier) |
-| `query-empty` | en-tête sans statement |
-| `query-multiple-statements` | plus d'un statement sous un en-tête |
-| `query-duplicate-name` | nom déjà utilisé dans le fichier (la première définition est gardée) |
-| `query-mixed-parameters` | `$nom` et `$n` dans une même requête |
-| `query-parameter-gap` | `$1`, `$3` sans `$2` |
+| `query-header-invalid` | invalid name, unknown cardinality, extra text, header not at start of line |
+| `query-without-name` | SQL outside a named query (reported once per file) |
+| `query-empty` | header without a statement |
+| `query-multiple-statements` | more than one statement under a header |
+| `query-duplicate-name` | name already used in the file (the first definition is kept) |
+| `query-mixed-parameters` | `$name` and `$n` in the same query |
+| `query-parameter-gap` | `$1`, `$3` without `$2` |
 | `query-parameter-invalid` | `$0`, `$pageId` |
-| `query-file-extension` | fichier de requêtes qui n'est pas un `.sql` |
-| `parse-error` | fichier que le tokenizer SQL ne sait pas lire (chaîne non terminée…) |
-| `macro-error` | fragment inconnu en position de macro, arguments invalides, fragments récursifs |
-| `query-row-mismatch` | `-> autre` : référence introuvable ou lignes incompatibles |
+| `query-file-extension` | query file that is not a `.sql` |
+| `parse-error` | file the SQL tokenizer cannot read (unterminated string…) |
+| `macro-error` | unknown fragment in macro position, invalid arguments, recursive fragments |
+| `query-row-mismatch` | `-> other`: reference not found or incompatible rows |
 
-Ils s'ajoutent aux diagnostics habituels (`column-not-found`, …) et suivent
-`[rules]` et les directives `-- pgweave-disable…` comme tous les autres.
+They add to the usual diagnostics (`column-not-found`, …) and follow
+`[rules]` and the `-- pgweave-disable…` directives like all the others.
 
-## Écrire du code appelant avant P5 (trajectoire Mesalia)
+## Writing calling code before P5 (Mesalia path)
 
-Tant que la génération Rust (P5) n'existe pas, le code appelant s'écrit à la
-main. Pour que la bascule vers le code généré soit mécanique, il reprend la
-forme qui sera générée :
+As long as Rust generation (P5) does not exist, calling code is written by
+hand. So that switching to generated code is mechanical, it follows the
+shape that will be generated:
 
-- un module par fichier de requêtes, une fonction par requête, du même nom ;
-- une struct de paramètres (champs = paramètres nommés, dans l'ordre de
-  première apparition) et une struct de ligne (champs = colonnes, dans
-  l'ordre du `SELECT`/`RETURNING`) ;
-- le SQL est **lu depuis le fichier** de requêtes (pas recopié dans le code
-  Rust), réécrit en positionnel avec `pgweave_query`, puis exécuté via
-  `tokio-postgres` ;
-- la fonction d'appel suit la cardinalité (`Option<Row>` pour `:optional`…).
+- one module per query file, one function per query, with the same name;
+- a parameter struct (fields = named parameters, in order of first
+  appearance) and a row struct (fields = columns, in the order of the
+  `SELECT`/`RETURNING`);
+- the SQL is **read from the query file** (not copied into the Rust code),
+  rewritten as positional with `pgweave_query`, then executed via
+  `tokio-postgres`;
+- the calling function follows the cardinality (`Option<Row>` for
+  `:optional`…).
 
 ```rust
-// Forme cible ; à la livraison de P5 ce module est remplacé par le code
-// généré, et le compilateur signale tout écart de type ou de nullabilité.
+// Target shape; when P5 ships, this module is replaced by the generated
+// code, and the compiler reports any type or nullability mismatch.
 pub mod pages {
     pub struct PageByIdParams { pub id: i64 }
     pub struct PageByIdRow { pub id: i64, pub title: String, pub creation_date: Option<time::OffsetDateTime> }
@@ -307,5 +305,5 @@ pub mod pages {
 }
 ```
 
-`pgweave check queries/*.sql` en CI garantit dès maintenant que ces requêtes
-respectent le format et référencent des tables et colonnes existantes.
+`pgweave check queries/*.sql` in CI already guarantees that these queries
+follow the format and reference existing tables and columns.

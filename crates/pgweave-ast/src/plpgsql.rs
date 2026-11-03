@@ -1,9 +1,9 @@
-//! AST du PL/pgSQL.
+//! PL/pgSQL AST.
 //!
-//! Les expressions sont des [`Expr`] SQL ordinaires : en PL/pgSQL, un
-//! identifiant d'expression peut désigner une variable, un paramètre, une
-//! colonne ou une variable spéciale, et seule l'analyse sémantique — qui
-//! connaît la portée — peut trancher. Le parser ne devine pas.
+//! Expressions are ordinary SQL [`Expr`]s: in PL/pgSQL, an expression
+//! identifier can denote a variable, a parameter, a column or a special
+//! variable, and only semantic analysis — which knows the scope — can
+//! decide. The parser does not guess.
 
 use crate::expr::{Expr, Ident, ObjectName};
 use crate::node::Span;
@@ -11,16 +11,16 @@ use crate::stmt::{SelectStmt, Statement};
 use crate::types::DataType;
 use serde::{Deserialize, Serialize};
 
-// ── Corps ─────────────────────────────────────────────────────────────────────
+// ── Body ──────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlpgsqlBody {
-    /// Bloc principal, avec ses déclarations.
+    /// Main block, with its declarations.
     pub block: Block,
-    /// Texte du corps tel qu'écrit, entre ses délimiteurs. C'est lui que
-    /// restitue l'émission SQL : régénérer le PL/pgSQL depuis l'AST perdrait
-    /// la mise en forme et les commentaires, et une migration doit déployer
-    /// le corps que le développeur a écrit.
+    /// Body text as written, between its delimiters. This is what SQL
+    /// emission restores: regenerating the PL/pgSQL from the AST would lose
+    /// formatting and comments, and a migration must deploy the body the
+    /// developer wrote.
     pub source: String,
 }
 
@@ -28,23 +28,23 @@ pub struct PlpgsqlBody {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Block {
     pub label: Option<String>,
-    /// Déclarations de ce bloc, visibles dans ce bloc et ses blocs imbriqués.
+    /// Declarations of this block, visible in this block and its nested blocks.
     pub declarations: Vec<Declaration>,
     pub statements: Vec<PlStatement>,
     pub exception: Option<ExceptionBlock>,
 }
 
-// ── Déclarations ──────────────────────────────────────────────────────────────
+// ── Declarations ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Declaration {
     Variable(VarDecl),
-    /// `nom ALIAS FOR $1` / `ALIAS FOR autre`.
+    /// `name ALIAS FOR $1` / `ALIAS FOR other`.
     Alias {
         name: Ident,
         target: String,
     },
-    /// `nom CURSOR [(paramètres)] FOR requête`.
+    /// `name CURSOR [(parameters)] FOR query`.
     Cursor {
         name: Ident,
         params: Vec<(Ident, DataType)>,
@@ -62,15 +62,15 @@ pub struct VarDecl {
     pub span: Span,
 }
 
-/// Type d'une variable PL/pgSQL.
+/// Type of a PL/pgSQL variable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum VarType {
     Data(DataType),
-    /// `table%ROWTYPE` : une ligne de la table.
+    /// `table%ROWTYPE`: a row of the table.
     RowTypeOf(ObjectName),
-    /// `table.colonne%TYPE` ou `variable%TYPE`.
+    /// `table.column%TYPE` or `variable%TYPE`.
     TypeOf(ObjectName),
-    /// `RECORD` : structure fixée par la première affectation.
+    /// `RECORD`: structure fixed by the first assignment.
     Record,
 }
 
@@ -104,21 +104,21 @@ pub struct PlStatement {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PlStatementKind {
-    /// `cible := expr` (ou `=`). La cible est un chemin : `v`, `rec.champ`,
-    /// `NEW.colonne`.
+    /// `target := expr` (or `=`). The target is a path: `v`, `rec.field`,
+    /// `NEW.column`.
     Assign {
         target: Vec<Ident>,
         value: Expr,
     },
-    /// Statement SQL, avec ses cibles `INTO` éventuelles (`SELECT … INTO`,
+    /// SQL statement, with its optional `INTO` targets (`SELECT … INTO`,
     /// `INSERT … RETURNING … INTO`).
     Sql {
         statement: Statement,
         into: Option<IntoTarget>,
     },
-    /// `PERFORM requête` : exécute et ignore le résultat.
+    /// `PERFORM query`: executes and discards the result.
     Perform(SelectStmt),
-    /// `EXECUTE chaîne [INTO …] [USING …]` : SQL dynamique, non analysable.
+    /// `EXECUTE string [INTO …] [USING …]`: dynamic SQL, not analyzable.
     Execute {
         sql: Expr,
         into: Option<IntoTarget>,
@@ -133,7 +133,7 @@ pub enum PlStatementKind {
     },
     Raise {
         level: RaiseLevel,
-        /// Chaîne de format (`'… % …'`), ou nom de condition / SQLSTATE.
+        /// Format string (`'… % …'`), or condition name / SQLSTATE.
         message: Option<String>,
         args: Vec<Expr>,
         options: Vec<RaiseOption>,
@@ -148,7 +148,7 @@ pub enum PlStatementKind {
         elsif_branches: Vec<(Expr, Vec<PlStatement>)>,
         else_branch: Option<Vec<PlStatement>>,
     },
-    /// `CASE [opérande] WHEN valeurs THEN … [ELSE …] END CASE`.
+    /// `CASE [operand] WHEN values THEN … [ELSE …] END CASE`.
     Case {
         operand: Option<Expr>,
         whens: Vec<(Vec<Expr>, Vec<PlStatement>)>,
@@ -163,7 +163,7 @@ pub enum PlStatementKind {
         condition: Expr,
         body: Vec<PlStatement>,
     },
-    /// `FOR i IN [REVERSE] a .. b [BY pas] LOOP`.
+    /// `FOR i IN [REVERSE] a .. b [BY step] LOOP`.
     ForRange {
         label: Option<String>,
         var: Ident,
@@ -173,14 +173,14 @@ pub enum PlStatementKind {
         by: Option<Expr>,
         body: Vec<PlStatement>,
     },
-    /// `FOR cibles IN requête LOOP`.
+    /// `FOR targets IN query LOOP`.
     ForQuery {
         label: Option<String>,
         targets: Vec<Ident>,
         query: SelectStmt,
         body: Vec<PlStatement>,
     },
-    /// `FOR cibles IN EXECUTE chaîne [USING …] LOOP`.
+    /// `FOR targets IN EXECUTE string [USING …] LOOP`.
     ForExecute {
         label: Option<String>,
         targets: Vec<Ident>,
@@ -188,7 +188,7 @@ pub enum PlStatementKind {
         using: Vec<Expr>,
         body: Vec<PlStatement>,
     },
-    /// `FOR rec IN curseur [(arguments)] LOOP`.
+    /// `FOR rec IN cursor [(arguments)] LOOP`.
     ForCursor {
         label: Option<String>,
         var: Ident,
@@ -196,7 +196,7 @@ pub enum PlStatementKind {
         args: Vec<Expr>,
         body: Vec<PlStatement>,
     },
-    /// `FOREACH cibles [SLICE n] IN ARRAY tableau LOOP`.
+    /// `FOREACH targets [SLICE n] IN ARRAY array LOOP`.
     Foreach {
         label: Option<String>,
         targets: Vec<Ident>,
@@ -216,27 +216,27 @@ pub enum PlStatementKind {
         stacked: bool,
         items: Vec<DiagnosticsAssignment>,
     },
-    /// `OPEN curseur [(arguments)]` ou `OPEN curseur FOR requête`.
+    /// `OPEN cursor [(arguments)]` or `OPEN cursor FOR query`.
     Open {
         cursor: Ident,
         args: Vec<Expr>,
         query: Option<SelectStmt>,
     },
-    /// `FETCH [direction FROM] curseur INTO cibles`.
+    /// `FETCH [direction FROM] cursor INTO targets`.
     Fetch {
         cursor: Ident,
         into: IntoTarget,
     },
     Close(Ident),
-    /// Bloc imbriqué, avec ses propres déclarations.
+    /// Nested block, with its own declarations.
     Block(Block),
     Null,
 }
 
-/// Cibles d'un `INTO` : chacune est un chemin (`v`, `rec.champ`).
+/// Targets of an `INTO`: each is a path (`v`, `rec.field`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IntoTarget {
-    /// `INTO STRICT` : exactement une ligne attendue.
+    /// `INTO STRICT`: exactly one row expected.
     pub strict: bool,
     pub targets: Vec<Vec<Ident>>,
 }

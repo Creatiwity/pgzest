@@ -1,21 +1,21 @@
-//! Portée d'une requête : les sources de `FROM` et leurs colonnes, la portée
-//! englobante (sous-requêtes corrélées), les CTE visibles.
+//! Scope of a query: the `FROM` sources and their columns, the enclosing
+//! scope (correlated subqueries), the visible CTEs.
 
 use pgweave_ast::Span;
 
 use crate::types::Ty;
 
-/// Nullabilité (PLAN.md D5).
+/// Nullability (PLAN.md D5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Nullability {
     NonNull,
     Nullable,
-    /// Non établie : ni affirmée nulle, ni affirmée non nulle.
+    /// Not established: neither asserted null nor asserted non-null.
     Unknown,
 }
 
 impl Nullability {
-    /// Résultat d'une opération stricte : nulle dès qu'une entrée l'est.
+    /// Result of a strict operation: null as soon as an input is.
     pub fn strict<I: IntoIterator<Item = Nullability>>(inputs: I) -> Self {
         let mut out = Nullability::NonNull;
         for n in inputs {
@@ -28,36 +28,36 @@ impl Nullability {
         out
     }
 
-    /// Côté optionnel d'une jointure externe.
+    /// Optional side of an outer join.
     pub fn outer(self) -> Self {
         Nullability::Nullable
     }
 }
 
-/// Colonne visible dans une portée.
+/// Column visible in a scope.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     pub name: String,
-    /// `None` : type non établi (colonne de vue avant P3, par exemple).
+    /// `None`: type not established (view column before P3, for example).
     pub ty: Option<Ty>,
-    /// Modificateurs du type (`varchar(20)` : `["20"]`), vides si aucun.
+    /// Type modifiers (`varchar(20)`: `["20"]`), empty if none.
     pub modifiers: Vec<String>,
     pub nullable: Nullability,
 }
 
-/// Source de `FROM` : table, vue, CTE, sous-requête ou fonction.
+/// `FROM` source: table, view, CTE, subquery or function.
 #[derive(Debug, Clone)]
 pub struct Source {
-    /// Nom sous lequel la source est visible (alias, sinon nom).
+    /// Name under which the source is visible (alias, otherwise name).
     pub name: Option<String>,
     pub columns: Vec<Column>,
-    /// Colonnes visibles par leur nom mais absentes de `*` : colonnes
-    /// système d'une table (`ctid`, `xmin`, `xmax`…).
+    /// Columns visible by name but absent from `*`: system columns
+    /// of a table (`ctid`, `xmin`, `xmax`…).
     pub hidden: Vec<Column>,
-    /// Type ligne de la source : celui de la relation, `record` sinon.
+    /// Row type of the source: the relation's, `record` otherwise.
     pub rowtype: Option<Ty>,
-    /// Relation désignée sans alias : visible aussi comme
-    /// `schéma.table.colonne`.
+    /// Relation designated without an alias: also visible as
+    /// `schema.table.column`.
     pub relation: Option<crate::types::Ty>,
 }
 
@@ -72,7 +72,7 @@ impl Source {
         }
     }
 
-    /// Ajoute les colonnes système d'une table (`heap.c`, `SysAtt`).
+    /// Adds the system columns of a table (`heap.c`, `SysAtt`).
     pub fn with_system_columns(mut self) -> Self {
         let sys = [
             ("tableoid", "oid"),
@@ -95,13 +95,13 @@ impl Source {
     }
 }
 
-/// Erreur d'analyse, avec le code du diagnostic qu'elle produit.
+/// Analysis error, with the code of the diagnostic it produces.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SemaError {
     pub code: &'static str,
     pub message: String,
     pub span: Span,
-    /// Piste de correction, s'il y en a une.
+    /// Fix suggestion, if there is one.
     pub hint: Option<String>,
 }
 
@@ -120,19 +120,19 @@ impl SemaError {
         self
     }
 
-    /// Construction que l'analyse ne couvre pas : signalée, jamais devinée.
+    /// Construct the analysis does not cover: reported, never guessed.
     pub fn not_analyzed(what: impl std::fmt::Display, span: Span) -> Self {
-        SemaError::new("not-analyzed", format!("non analysé : {what}"), span)
+        SemaError::new("not-analyzed", format!("not analyzed: {what}"), span)
     }
 }
 
-/// Portée d'un niveau de requête.
+/// Scope of one query level.
 #[derive(Debug, Clone, Default)]
 pub struct Scope<'p> {
     pub sources: Vec<Source>,
-    /// Colonnes de `SELECT *`, dans l'ordre de PostgreSQL : (source,
-    /// colonne). Une jointure `USING` place ses colonnes communes en tête et
-    /// ne les répète pas.
+    /// Columns of `SELECT *`, in PostgreSQL order: (source,
+    /// column). A `USING` join puts its common columns first and
+    /// does not repeat them.
     pub star: Vec<(usize, usize)>,
     pub parent: Option<&'p Scope<'p>>,
 }
@@ -145,7 +145,7 @@ impl<'p> Scope<'p> {
         }
     }
 
-    /// Ajoute une source ; ses colonnes rejoignent `*` à la suite.
+    /// Adds a source; its columns are appended to `*`.
     pub fn push(&mut self, source: Source) -> usize {
         let i = self.sources.len();
         self.star.extend((0..source.columns.len()).map(|c| (i, c)));
@@ -153,8 +153,8 @@ impl<'p> Scope<'p> {
         i
     }
 
-    /// Colonne `table.column` ou `column`, ici puis dans les portées
-    /// englobantes.
+    /// Column `table.column` or `column`, here then in the enclosing
+    /// scopes.
     pub fn lookup(
         &self,
         table: Option<&str>,
@@ -186,15 +186,15 @@ impl<'p> Scope<'p> {
                 format!("column reference \"{column}\" is ambiguous"),
                 span,
             )),
-            // Colonne fusionnée par `USING` : celle de `*`.
+            // Column merged by `USING`: the one from `*`.
             [first, ..] => Ok(self
                 .star
                 .iter()
                 .map(|(s, c)| &self.sources[*s].columns[*c])
                 .find(|c| c.name == column)
                 .unwrap_or(first)),
-            // Source trouvée à ce niveau, colonne absente : PostgreSQL ne
-            // cherche pas plus loin.
+            // Source found at this level, column absent: PostgreSQL does not
+            // look further.
             [] if table_seen => Err(SemaError::new(
                 "column-not-found",
                 format!(
@@ -225,8 +225,8 @@ impl<'p> Scope<'p> {
         }
     }
 
-    /// Colonne d'une référence `colonne`, `table.colonne` ou
-    /// `schéma.table.colonne`.
+    /// Column of a reference `column`, `table.column` or
+    /// `schema.table.column`.
     pub fn lookup_ref(
         &self,
         c: &pgweave_ast::expr::ColumnRef,
@@ -271,20 +271,20 @@ impl<'p> Scope<'p> {
         ))
     }
 
-    /// Aucune source, à aucun niveau : une expression hors requête.
+    /// No source, at any level: an expression outside a query.
     pub fn is_empty(&self) -> bool {
         self.sources.is_empty() && self.parent.is_none_or(|p| p.is_empty())
     }
 
-    /// Une source de ce niveau (sans les portées englobantes) a une colonne
-    /// de ce nom.
+    /// A source of this level (without the enclosing scopes) has a column
+    /// with this name.
     pub fn has_local_column(&self, column: &str) -> bool {
         self.sources
             .iter()
             .any(|s| s.columns.iter().chain(&s.hidden).any(|c| c.name == column))
     }
 
-    /// Colonne fusionnée par `USING` : visible une seule fois dans `*`.
+    /// Column merged by `USING`: visible only once in `*`.
     fn using_merged(&self, column: &str) -> bool {
         self.star
             .iter()
@@ -293,8 +293,8 @@ impl<'p> Scope<'p> {
             == 1
     }
 
-    /// Type de la ligne entière de la source nommée `name`, ici puis dans
-    /// les portées englobantes.
+    /// Type of the whole row of the source named `name`, here then in
+    /// the enclosing scopes.
     pub fn whole_row(&self, name: &str) -> Option<Ty> {
         match self.source(name) {
             Some(s) => Some(
@@ -306,7 +306,7 @@ impl<'p> Scope<'p> {
         }
     }
 
-    /// Source visible sous ce nom.
+    /// Source visible under this name.
     pub fn source(&self, name: &str) -> Option<&Source> {
         self.sources
             .iter()

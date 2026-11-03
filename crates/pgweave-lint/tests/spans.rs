@@ -1,24 +1,24 @@
-//! Les diagnostics de lint doivent porter le span du statement concerné.
+//! Lint diagnostics must carry the span of the statement concerned.
 //!
-//! Régression : toutes les règles renvoyaient un diagnostic sans span, donc
-//! rapporté en `1:1`. Inexploitable dans l'éditeur (soulignement en tête de
-//! fichier) et impossible à cibler avec `-- pgweave-disable-next-line`.
+//! Regression: every rule returned a diagnostic without a span, hence
+//! reported at `1:1`. Useless in the editor (underline at the top of the
+//! file) and impossible to target with `-- pgweave-disable-next-line`.
 
 use pgweave_lint::{LintConfig, lint_statements};
 
-/// Ligne 1-indexée de l'offset octet, comme le fait la CLI.
+/// 1-indexed line of the byte offset, as the CLI computes it.
 fn line_of(sql: &str, offset: usize) -> usize {
     sql[..offset].matches('\n').count() + 1
 }
 
-/// (code, ligne) de chaque diagnostic, trié — pour des assertions stables.
+/// (code, line) of each diagnostic, sorted — for stable assertions.
 fn diag_lines(sql: &str) -> Vec<(String, usize)> {
     let stmts = pgweave_parser::parse(sql).expect("parse");
     let mut out: Vec<(String, usize)> = lint_statements(&stmts, &LintConfig::default())
         .diagnostics
         .iter()
         .map(|d| {
-            let line = d.span.as_ref().map(|s| line_of(sql, s.start)).unwrap_or(0); // 0 = pas de span, ce qu'on veut éliminer
+            let line = d.span.as_ref().map(|s| line_of(sql, s.start)).unwrap_or(0); // 0 = no span, what we want to eliminate
             (d.code.to_string(), line)
         })
         .collect();
@@ -27,7 +27,7 @@ fn diag_lines(sql: &str) -> Vec<(String, usize)> {
 }
 
 #[test]
-fn tous_les_diagnostics_ont_un_span() {
+fn every_diagnostic_has_a_span() {
     let sql = "\
 CREATE TABLE t (a INT PRIMARY KEY);
 
@@ -39,53 +39,53 @@ SELECT a FROM t WHERE a::text LIKE '%x';
 ";
     let stmts = pgweave_parser::parse(sql).expect("parse");
     let diags = lint_statements(&stmts, &LintConfig::default()).diagnostics;
-    assert!(!diags.is_empty(), "des diagnostics sont attendus");
+    assert!(!diags.is_empty(), "diagnostics are expected");
     for d in &diags {
         assert!(
             d.span.is_some(),
-            "le diagnostic {} n'a pas de span — il serait rapporté en 1:1",
+            "diagnostic {} has no span — it would be reported at 1:1",
             d.code
         );
     }
 }
 
 #[test]
-fn le_span_pointe_la_bonne_ligne() {
+fn the_span_points_to_the_right_line() {
     let sql = "\
 CREATE TABLE t (a INT PRIMARY KEY);
 
 SELECT * FROM t;
 ";
-    // SELECT * est ligne 3.
+    // SELECT * is on line 3.
     assert_eq!(diag_lines(sql), vec![("L001".to_string(), 3)]);
 }
 
 #[test]
-fn les_commentaires_en_tete_ne_decalent_pas() {
+fn leading_comments_do_not_shift() {
     let sql = "\
 CREATE TABLE t (a INT PRIMARY KEY);
 
--- un commentaire
--- et un deuxième
+-- a comment
+-- and a second one
 SELECT * FROM t;
 ";
-    // Le span doit démarrer sur SELECT (ligne 5), pas sur le commentaire.
+    // The span must start at SELECT (line 5), not at the comment.
     assert_eq!(diag_lines(sql), vec![("L001".to_string(), 5)]);
 }
 
 #[test]
-fn un_accent_ne_decale_pas_le_span() {
+fn an_accent_does_not_shift_the_span() {
     let sql = "\
 CREATE TABLE t (a INT PRIMARY KEY);
 
--- commentaire accentué : é à ù → ok
+-- accented comment: é à ù → ok
 SELECT * FROM t;
 ";
     assert_eq!(diag_lines(sql), vec![("L001".to_string(), 4)]);
 }
 
 #[test]
-fn plusieurs_statements_chacun_sa_ligne() {
+fn several_statements_each_on_its_line() {
     let sql = "\
 CREATE TABLE a_t (x INT PRIMARY KEY);
 SELECT * FROM a_t;
@@ -95,22 +95,22 @@ SELECT * FROM no_pk;
     let got = diag_lines(sql);
     assert!(
         got.contains(&("L001".to_string(), 2)),
-        "premier SELECT * ligne 2, obtenu: {got:?}"
+        "first SELECT * on line 2, got: {got:?}"
     );
     assert!(
         got.contains(&("L001".to_string(), 4)),
-        "second SELECT * ligne 4, obtenu: {got:?}"
+        "second SELECT * on line 4, got: {got:?}"
     );
     assert!(
         got.contains(&("L002".to_string(), 3)),
-        "table sans PK ligne 3, obtenu: {got:?}"
+        "table without PK on line 3, got: {got:?}"
     );
 }
 
 #[test]
-fn la_regle_cross_statement_l005_porte_son_span() {
-    // L005 est calculée sur l'ensemble des statements : le driver ne peut pas
-    // lui attacher le span, elle doit le porter elle-même.
+fn cross_statement_rule_l005_carries_its_span() {
+    // L005 is computed over all statements: the driver cannot attach the
+    // span, the rule must carry it itself.
     let sql = "\
 CREATE TABLE parent (id UUID PRIMARY KEY);
 
@@ -121,17 +121,17 @@ CREATE TABLE child (
 ";
     let got = diag_lines(sql);
     let l005: Vec<_> = got.iter().filter(|(c, _)| c == "L005").collect();
-    assert_eq!(l005.len(), 1, "un L005 attendu, obtenu: {got:?}");
+    assert_eq!(l005.len(), 1, "one L005 expected, got: {got:?}");
     assert_eq!(
         l005[0].1, 3,
-        "le span doit pointer le CREATE TABLE child (ligne 3), obtenu: {got:?}"
+        "the span must point to CREATE TABLE child (line 3), got: {got:?}"
     );
 }
 
 #[test]
-fn une_directive_peut_cibler_une_regle_de_lint() {
-    // C'était impossible avant : sans span, la suppression positionnelle
-    // ne pouvait pas savoir sur quelle ligne s'appliquer.
+fn a_directive_can_target_a_lint_rule() {
+    // This was impossible before: without a span, positional suppression
+    // could not know which line to apply to.
     let sql = "\
 CREATE TABLE t (a INT PRIMARY KEY);
 
@@ -148,9 +148,9 @@ SELECT * FROM t;
     assert_eq!(
         l001.len(),
         1,
-        "un seul L001 doit survivre, obtenu: {:?}",
+        "only one L001 must survive, got: {:?}",
         diags.iter().map(|d| d.code).collect::<Vec<_>>()
     );
     let line = line_of(sql, l001[0].span.as_ref().unwrap().start);
-    assert_eq!(line, 6, "le survivant est celui de la ligne 6");
+    assert_eq!(line, 6, "the survivor is the one on line 6");
 }

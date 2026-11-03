@@ -44,7 +44,7 @@ fn visit_stmt(stmt: &Statement, config: &LintConfig, out: &mut Vec<Diagnostic>) 
 
 fn visit_select(sel: &SelectStmt, config: &LintConfig, out: &mut Vec<Diagnostic>) {
     // CTEs
-    // Corps SELECT des CTE (un corps modifiant est un statement à part).
+    // SELECT bodies of CTEs (a data-modifying body is a separate statement).
     for cte_query in sel.with.iter().filter_map(|c| c.select()) {
         visit_select(cte_query, config, out);
     }
@@ -133,8 +133,8 @@ fn visit_expr(expr: &Expr, config: &LintConfig, out: &mut Vec<Diagnostic>) {
             visit_expr(low, config, out);
             visit_expr(high, config, out);
         }
-        // Descendre dans les nouvelles variantes : un `NOT IN` peut se cacher
-        // dans la sous-requête d'un `EXISTS` ou dans un constructeur de ligne.
+        // Descend into the newer variants: a `NOT IN` can hide in the subquery
+        // of an `EXISTS` or in a row constructor.
         ExprKind::Exists { subquery, .. } => visit_select(subquery, config, out),
         ExprKind::AtTimeZone {
             timestamp,

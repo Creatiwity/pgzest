@@ -1,11 +1,11 @@
-//! Service d'exemple : les requêtes de `queries/` compilées en fonctions
-//! Rust typées par `pgweave-build` (voir `build.rs`).
+//! Example service: the queries in `queries/` compiled into typed Rust
+//! functions by `pgweave-build` (see `build.rs`).
 
 pub mod queries {
     include!(concat!(env!("OUT_DIR"), "/pgweave_queries.rs"));
 }
 
-/// Titre d'une page : requête inline, analysée à la compilation.
+/// A page's title: inline query, analyzed at compile time.
 pub async fn page_title<C: pgweave_runtime::GenericClient + ?Sized>(
     client: &C,
     id: i64,
@@ -16,7 +16,7 @@ pub async fn page_title<C: pgweave_runtime::GenericClient + ?Sized>(
     Ok(row.map(|r| r.title))
 }
 
-/// Renomme les pages d'un auteur : requête inline sans ligne renvoyée.
+/// Renames an author's pages: inline query returning no row.
 pub async fn rename_by_author<C: pgweave_runtime::GenericClient + ?Sized>(
     client: &C,
     author: uuid::Uuid,
@@ -31,7 +31,7 @@ pub async fn rename_by_author<C: pgweave_runtime::GenericClient + ?Sized>(
     .await
 }
 
-/// Pages publiées dont le titre correspond : requête lue dans
+/// Published pages whose title matches: query read from
 /// `sql/live_pages.sql`.
 pub async fn live_pages<C: pgweave_runtime::GenericClient + ?Sized>(
     client: &C,

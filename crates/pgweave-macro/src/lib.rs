@@ -1,7 +1,7 @@
-//! Macros de surface : une syntaxe compacte qui se désucre en SQL standard.
+//! Surface macros: a compact syntax that desugars into standard SQL.
 //!
-//! Objectif : supprimer le boilerplate des fonctions et des triggers, sans rien
-//! deviner. Toute l'information est portée par la syntaxe.
+//! Goal: remove the boilerplate of functions and triggers without guessing
+//! anything. All information is carried by the syntax.
 //!
 //! ```text
 //! @function user_count(target_org UUID): INTEGER {
@@ -11,19 +11,19 @@
 //! }
 //! ```
 //!
-//! # Les macros sont des données
+//! # Macros are data
 //!
-//! Aucune macro n'est codée en dur : `@function` et `@trigger` sont écrites
-//! dans le même format déclaratif que celui offert à l'utilisateur (voir
-//! [`def`] et `builtins/`). C'est volontaire — un mécanisme d'extension dont
-//! les macros fournies ne se servent pas est un mécanisme non testé.
+//! No macro is hard-coded: `@function` and `@trigger` are written in the same
+//! declarative format as the one offered to the user (see [`def`] and
+//! `builtins/`). This is deliberate — an extension mechanism that the bundled
+//! macros do not use is an untested mechanism.
 //!
 //! # Positions
 //!
-//! Le corps des macros est recopié verbatim, et [`SourceMap`] conserve la
-//! correspondance offset généré → offset source. Un diagnostic portant sur le
-//! corps d'une fonction pointe donc la bonne ligne du `.pgsql`, pas une
-//! position dans le SQL généré.
+//! Macro bodies are copied verbatim, and [`SourceMap`] keeps the mapping
+//! generated offset → source offset. A diagnostic on a function body therefore
+//! points to the right line of the `.pgsql`, not to a position in the
+//! generated SQL.
 
 pub mod def;
 pub mod expand;
@@ -34,6 +34,6 @@ mod lex;
 pub use def::{MacroDef, MacroSet};
 pub use expand::{Expansion, expand_source, expand_source_at};
 pub use fragment::{FragmentDef, fragment_file_diagnostics, parse_fragment_file};
-/// Réexport : la correspondance de positions vit dans `pgweave-ast`, aux côtés
-/// de `Span`, pour que le parser y accède sans dépendre de ce crate.
+/// Re-export: the position mapping lives in `pgweave-ast`, next to `Span`, so
+/// that the parser can use it without depending on this crate.
 pub use pgweave_ast::SourceMap;

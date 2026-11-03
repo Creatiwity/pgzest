@@ -1,4 +1,4 @@
-//! Colonnes de vues typées pendant le rejeu du catalogue.
+//! View columns typed during the catalog replay.
 
 use std::path::Path;
 
@@ -30,10 +30,10 @@ fn columns(p: &ProjectCatalog, view: &str) -> Vec<(String, String)> {
 }
 
 #[test]
-fn types_des_colonnes_de_vues() {
+fn view_column_types() {
     let p = replay(SCHEMA, true);
     assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
-    // Modificateur conservé pour une colonne, perdu pour un calcul.
+    // Modifier kept for a column, lost for a computation.
     assert_eq!(
         columns(&p, "v"),
         [
@@ -43,7 +43,7 @@ fn types_des_colonnes_de_vues() {
             ("n".into(), "pg_catalog.int8".into()),
         ]
     );
-    // Une vue sur une vue voit les types établis.
+    // A view over a view sees the established types.
     assert_eq!(
         columns(&p, "w"),
         [
@@ -54,14 +54,14 @@ fn types_des_colonnes_de_vues() {
 }
 
 #[test]
-fn sans_typeur_les_types_restent_inconnus() {
+fn without_typer_types_remain_unknown() {
     let p = replay(SCHEMA, false);
     let r = &p.catalog.relations[&QName::new("public", "v")];
     assert!(r.columns.iter().all(|c| c.ty == TypeRef::Unknown));
 }
 
 #[test]
-fn une_vue_non_analysable_est_signalee() {
+fn an_unanalyzable_view_is_reported() {
     let p = replay(
         "CREATE TABLE t (a int); CREATE VIEW v AS SELECT nope FROM t;",
         true,

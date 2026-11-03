@@ -28,8 +28,8 @@ impl ObjectName {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnRef {
-    /// Premier nom d'une référence en trois parties : `schema` de
-    /// `schema.table.colonne`, ou, en PL/pgSQL, label de `bloc.variable.champ`.
+    /// First name of a three-part reference: `schema` in
+    /// `schema.table.column`, or, in PL/pgSQL, the label in `block.variable.field`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Ident>,
     pub table: Option<Ident>,
@@ -37,7 +37,7 @@ pub struct ColumnRef {
 }
 
 impl ColumnRef {
-    /// Colonne `column`, qualifiée ou non par `table`.
+    /// Column `column`, qualified or not by `table`.
     pub fn new(table: Option<Ident>, column: Ident) -> Self {
         ColumnRef {
             schema: None,
@@ -53,12 +53,12 @@ pub enum Literal {
     String(String),
     Boolean(bool),
     Null,
-    /// Chaîne de bits `B'0101'` ou `X'1F'` : préfixe (`b` ou `x`) suivi des
-    /// chiffres, comme `T_BitString` dans PostgreSQL. Type `bit`.
+    /// Bit string `B'0101'` or `X'1F'`: prefix (`b` or `x`) followed by the
+    /// digits, like `T_BitString` in PostgreSQL. Type `bit`.
     BitString(String),
 }
 
-/// Forme d'un regroupement multiple de `GROUP BY`.
+/// Form of a multiple grouping in `GROUP BY`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GroupingKind {
     Rollup,
@@ -66,10 +66,10 @@ pub enum GroupingKind {
     Sets,
 }
 
-/// Quantificateur d'une comparaison à un ensemble.
+/// Quantifier of a comparison against a set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Quantifier {
-    /// `ANY` (synonyme : `SOME`).
+    /// `ANY` (synonym: `SOME`).
     Any,
     All,
 }
@@ -96,19 +96,19 @@ pub enum BinaryOp {
     ILike,
     Is,
     IsNot,
-    /// `||` — concaténation de chaînes.
+    /// `||` — string concatenation.
     ///
-    /// Variante à part et non `Custom("||")` : c'est l'opérateur non standard le
-    /// plus fréquent de PostgreSQL, et son type de résultat est connu (texte),
-    /// ce dont l'inférence a besoin.
+    /// A separate variant rather than `Custom("||")`: it is PostgreSQL's most
+    /// frequent non-standard operator, and its result type is known (text),
+    /// which inference needs.
     Concat,
-    /// Tout opérateur non standard ou d'extension (PostGIS, JSONB, défini par
-    /// l'utilisateur). La chaîne est le symbole : `<->`, `&&`, `@>`, `#>>`.
+    /// Any non-standard or extension operator (PostGIS, JSONB, user-defined).
+    /// The string is the symbol: `<->`, `&&`, `@>`, `#>>`.
     ///
-    /// C'est le point d'extensibilité de cet enum : un opérateur inconnu se
-    /// range ici plutôt que de faire échouer la conversion.
+    /// This is the extensibility point of this enum: an unknown operator
+    /// lands here rather than making the conversion fail.
     Custom(String),
-    /// `IS DISTINCT FROM` : différence où NULL est une valeur comparable.
+    /// `IS DISTINCT FROM`: inequality where NULL is a comparable value.
     IsDistinctFrom,
     /// `IS NOT DISTINCT FROM`.
     IsNotDistinctFrom,
@@ -120,7 +120,7 @@ pub enum UnaryOp {
     Neg,
     IsNull,
     IsNotNull,
-    /// Autre opérateur préfixe, par son symbole : `+`, `@`, `~`, `|/`, `||/`.
+    /// Other prefix operator, by its symbol: `+`, `@`, `~`, `|/`, `||/`.
     Prefix(String),
 }
 
@@ -140,15 +140,15 @@ pub enum ExprKind {
     FunctionCall {
         name: ObjectName,
         args: Vec<Expr>,
-        /// `ORDER BY` entre les parenthèses d'un agrégat :
+        /// `ORDER BY` inside an aggregate's parentheses:
         /// `string_agg(x, ',' ORDER BY y)`.
         order_by: Vec<crate::stmt::OrderByExpr>,
         filter: Option<Box<Expr>>,
         distinct: bool,
-        /// `WITHIN GROUP (ORDER BY …)` : agrégat d'ensemble ordonné
+        /// `WITHIN GROUP (ORDER BY …)`: ordered-set aggregate
         /// (`percentile_cont(0.5) WITHIN GROUP (ORDER BY x)`).
         within_group: Vec<crate::stmt::OrderByExpr>,
-        /// `OVER …` : appel de fonction de fenêtre.
+        /// `OVER …`: window function call.
         over: Option<Box<Window>>,
     },
     Cast {
@@ -180,88 +180,88 @@ pub enum ExprKind {
     Wildcard,
     QualifiedWildcard(Ident),
 
-    // ── Ajouts : constructions PostgreSQL courantes ────────────────────────────
-    /// `EXISTS (subquery)` / `NOT EXISTS (…)` — résultat booléen.
+    // ── Additions: common PostgreSQL constructs ───────────────────────────────
+    /// `EXISTS (subquery)` / `NOT EXISTS (…)` — boolean result.
     Exists {
         subquery: Box<SelectStmt>,
         negated: bool,
     },
-    /// `INTERVAL '1 day'`. Le littéral est conservé tel quel : sa décomposition
-    /// en champs n'intéresse pas encore l'analyse, son type suffit.
+    /// `INTERVAL '1 day'`. The literal is kept as is: its breakdown into
+    /// fields does not matter to the analysis yet, its type is enough.
     Interval(String),
     /// `timestamp AT TIME ZONE zone`.
     AtTimeZone {
         timestamp: Box<Expr>,
         time_zone: Box<Expr>,
     },
-    /// `expr COLLATE "C"` — même type que `expr`.
+    /// `expr COLLATE "C"` — same type as `expr`.
     Collate {
         expr: Box<Expr>,
         collation: String,
     },
-    /// `ROW(a, b)` ou `(a, b)` — constructeur de ligne.
+    /// `ROW(a, b)` or `(a, b)` — row constructor.
     Tuple(Vec<Expr>),
-    /// Accès composé : `arr[1]`, `(rec).champ`, `payload['clé']`.
+    /// Composite access: `arr[1]`, `(rec).field`, `payload['key']`.
     ///
-    /// `path` conserve les accesseurs sous forme textuelle, dans l'ordre. Le
-    /// type de l'élément n'est pas résolu ici.
+    /// `path` keeps the accessors in textual form, in order. The element
+    /// type is not resolved here.
     FieldAccess {
         root: Box<Expr>,
         path: Vec<String>,
     },
-    /// `expr op ANY (tableau | sous-requête)` / `ALL (…)` : comparaison de
-    /// `left` à chaque élément de `right`. Le résultat est booléen ; `right`
-    /// est un tableau (ou une sous-requête), pas une valeur du type de `left`.
+    /// `expr op ANY (array | subquery)` / `ALL (…)`: comparison of
+    /// `left` with each element of `right`. The result is boolean; `right`
+    /// is an array (or a subquery), not a value of `left`'s type.
     Quantified {
         left: Box<Expr>,
         op: BinaryOp,
         quantifier: Quantifier,
         right: Box<Expr>,
     },
-    /// Argument nommé d'un appel de fonction : `nom => valeur`. N'apparaît
-    /// que dans les arguments d'un `FunctionCall` ou d'une fonction en `FROM`.
+    /// Named argument of a function call: `name => value`. Only appears
+    /// in the arguments of a `FunctionCall` or of a function in `FROM`.
     NamedArgument {
         name: Ident,
         value: Box<Expr>,
     },
-    /// Paramètre lié : `$1`, `:nom`.
+    /// Bound parameter: `$1`, `:name`.
     ///
-    /// Son type dépend du contexte d'appel, donc il n'est pas décidé ici — mais
-    /// le nœud existe, là où il faisait auparavant échouer tout le statement.
+    /// Its type depends on the call context, so it is not decided here — but
+    /// the node exists, where it previously made the whole statement fail.
     Parameter(String),
 
-    /// `ROLLUP (…)`, `CUBE (…)`, `GROUPING SETS (…)` : élément de
-    /// `GROUP BY` seulement. Chaque ensemble est une liste d'expressions.
+    /// `ROLLUP (…)`, `CUBE (…)`, `GROUPING SETS (…)`: `GROUP BY` element
+    /// only. Each set is a list of expressions.
     GroupingSets {
         kind: GroupingKind,
         sets: Vec<Vec<Expr>>,
     },
 
-    /// Expression que cet AST ne modélise pas.
+    /// Expression this AST does not model.
     ///
-    /// Remplace un ancien `Literal(Null)` attrape-tout : affirmer `NULL` était
-    /// un mensonge sur le contenu de la requête — un `WHERE EXISTS (…)` devenait
-    /// `WHERE NULL`, ce qui veut dire « aucune ligne ». Ne rien affirmer permet
-    /// aux consommateurs de passer leur tour sans conclure de travers, et au
-    /// checker de signaler qu'il n'a pas tout compris.
+    /// Replaces a former catch-all `Literal(Null)`: asserting `NULL` was
+    /// a lie about the query's content — a `WHERE EXISTS (…)` became
+    /// `WHERE NULL`, which means "no rows". Asserting nothing lets
+    /// consumers skip it without drawing wrong conclusions, and lets the
+    /// checker report that it did not understand everything.
     ///
-    /// La chaîne décrit la construction, pour le diagnostic.
+    /// The string describes the construct, for the diagnostic.
     Unsupported(String),
 }
 
 // Forward-declare SelectStmt so Expr can reference it
 use crate::stmt::SelectStmt;
 
-/// Une expression, avec sa position dans la source.
+/// An expression, with its position in the source.
 ///
-/// `Expr` enveloppe [`ExprKind`] plutôt que d'être l'énumération elle-même :
-/// on ne peut pas ajouter un champ à un enum, et c'est le découpage retenu par
-/// rustc et oxc pour la même raison. Le motif se lit `match &expr.kind`.
+/// `Expr` wraps [`ExprKind`] rather than being the enum itself:
+/// a field cannot be added to an enum, and this is the split chosen by
+/// rustc and oxc for the same reason. The pattern reads `match &expr.kind`.
 ///
-/// Le span est en offsets octets dans le document, comme celui des statements.
-/// Il vaut [`Span::DUMMY`] quand la position n'est pas connue de façon fiable :
-/// expression synthétisée (codegen, desugaring, tests), ou statement dont le
-/// texte a été réécrit avant le parse — mieux vaut pas de span qu'un span faux.
+/// The span is in byte offsets in the document, like that of statements.
+/// It is [`Span::DUMMY`] when the position is not reliably known:
+/// synthesized expression (codegen, desugaring, tests), or statement whose
+/// text was rewritten before parsing — better no span than a wrong span.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Expr {
     pub kind: ExprKind,
@@ -269,12 +269,12 @@ pub struct Expr {
 }
 
 impl Expr {
-    /// Expression avec un span connu.
+    /// Expression with a known span.
     pub fn new(kind: ExprKind, span: Span) -> Self {
         Self { kind, span }
     }
 
-    /// Expression sans span — synthétisée, ou position indisponible.
+    /// Expression without a span — synthesized, or position unavailable.
     pub fn bare(kind: ExprKind) -> Self {
         Self {
             kind,
@@ -282,9 +282,9 @@ impl Expr {
         }
     }
 
-    /// Sous-expressions directes, dans l'ordre d'écriture, sous-requêtes
-    /// exclues (voir [`Self::subqueries`]). Point de vérité unique pour les
-    /// parcours : une variante ajoutée ici est vue de tous.
+    /// Direct sub-expressions, in writing order, subqueries
+    /// excluded (see [`Self::subqueries`]). Single source of truth for
+    /// traversals: a variant added here is seen by all.
     pub fn children(&self) -> Vec<&Expr> {
         let mut out: Vec<&Expr> = Vec::new();
         match &self.kind {
@@ -365,7 +365,7 @@ impl Expr {
         out
     }
 
-    /// Sous-requêtes directes (`(SELECT …)`, `IN (SELECT …)`, `EXISTS`).
+    /// Direct subqueries (`(SELECT …)`, `IN (SELECT …)`, `EXISTS`).
     pub fn subqueries(&self) -> Vec<&SelectStmt> {
         match &self.kind {
             ExprKind::Subquery(q)
@@ -375,10 +375,10 @@ impl Expr {
         }
     }
 
-    /// Le span, ou `None` s'il est resté à [`Span::DUMMY`].
+    /// The span, or `None` if it remained [`Span::DUMMY`].
     ///
-    /// À préférer à la lecture directe de `span` pour émettre un diagnostic :
-    /// un span nul pointerait en 1:1.
+    /// Prefer this over reading `span` directly to emit a diagnostic:
+    /// a null span would point at 1:1.
     pub fn real_span(&self) -> Option<Span> {
         if self.span == Span::DUMMY {
             None
@@ -387,33 +387,33 @@ impl Expr {
         }
     }
 
-    /// Remplace le span, en conservant le `kind`.
+    /// Replaces the span, keeping the `kind`.
     pub fn with_span(mut self, span: Span) -> Self {
         self.span = span;
         self
     }
 }
 
-/// Permet `ExprKind::Wildcard.into()` là où la position n'importe pas.
+/// Allows `ExprKind::Wildcard.into()` where the position does not matter.
 impl From<ExprKind> for Expr {
     fn from(kind: ExprKind) -> Self {
         Self::bare(kind)
     }
 }
 
-// ── Fenêtres ──────────────────────────────────────────────────────────────────
+// ── Windows ───────────────────────────────────────────────────────────────────
 
-/// Fenêtre d'un appel `OVER` : nommée (`OVER w`) ou décrite sur place.
+/// Window of an `OVER` call: named (`OVER w`) or described inline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Window {
     Named(Ident),
     Spec(WindowSpec),
 }
 
-/// `([fenêtre_de_base] [PARTITION BY …] [ORDER BY …] [cadre])`.
+/// `([base_window] [PARTITION BY …] [ORDER BY …] [frame])`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowSpec {
-    /// Fenêtre nommée dont celle-ci hérite.
+    /// Named window this one inherits from.
     pub base: Option<Ident>,
     pub partition_by: Vec<Expr>,
     pub order_by: Vec<crate::stmt::OrderByExpr>,
@@ -421,7 +421,7 @@ pub struct WindowSpec {
 }
 
 impl WindowSpec {
-    /// Expressions de la fenêtre : partition, tri, bornes du cadre.
+    /// Window expressions: partition, ordering, frame bounds.
     pub fn exprs(&self) -> Vec<&Expr> {
         let mut out: Vec<&Expr> = self.partition_by.iter().collect();
         out.extend(self.order_by.iter().map(|o| &o.expr));
@@ -436,12 +436,12 @@ impl WindowSpec {
     }
 }
 
-/// `{ROWS | RANGE | GROUPS} début` ou `… BETWEEN début AND fin`.
+/// `{ROWS | RANGE | GROUPS} start` or `… BETWEEN start AND end`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowFrame {
     pub units: FrameUnits,
     pub start: FrameBound,
-    /// `None` : forme sans `BETWEEN` (la fin est `CURRENT ROW`).
+    /// `None`: form without `BETWEEN` (the end is `CURRENT ROW`).
     pub end: Option<FrameBound>,
 }
 

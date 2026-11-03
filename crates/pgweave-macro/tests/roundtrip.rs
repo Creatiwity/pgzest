@@ -1,7 +1,7 @@
-//! Le SQL généré doit être du PostgreSQL valide, analysable par notre parser.
+//! The generated SQL must be valid PostgreSQL, parseable by our parser.
 //!
-//! C'est le test qui compte : un désucrage qui produit du SQL que l'outil
-//! lui-même refuse ne sert à rien.
+//! This is the test that matters: a desugaring that produces SQL the tool
+//! itself rejects is useless.
 
 use pgweave_macro::{MacroSet, expand_source};
 
@@ -12,27 +12,27 @@ fn expand(src: &str) -> String {
         .iter()
         .filter(|d| d.severity == pgweave_diagnostics::Severity::Error)
         .collect();
-    assert!(errors.is_empty(), "erreurs de macro : {errors:?}");
+    assert!(errors.is_empty(), "macro errors: {errors:?}");
     e.sql
 }
 
-/// Le SQL généré parse-t-il sans statement écarté ?
+/// Does the generated SQL parse without any skipped statement?
 fn assert_parses(sql: &str) {
     let out = pgweave_parser::parse_with_outcome(sql)
-        .unwrap_or_else(|e| panic!("parse impossible : {e}\n---\n{sql}"));
+        .unwrap_or_else(|e| panic!("parse failed: {e}\n---\n{sql}"));
     assert!(
         out.skipped.is_empty(),
-        "statements écartés : {:?}\n---\n{sql}",
+        "skipped statements: {:?}\n---\n{sql}",
         out.skipped
             .iter()
             .map(|s| (&s.sql, &s.reason))
             .collect::<Vec<_>>()
     );
-    assert!(!out.statements.is_empty(), "aucun statement produit");
+    assert!(!out.statements.is_empty(), "no statement produced");
 }
 
 #[test]
-fn une_fonction_avec_declare_produit_du_plpgsql_valide() {
+fn function_with_declare_produces_valid_plpgsql() {
     let sql = expand(
         "@function user_count(target_org UUID): INTEGER {\n\
          \x20   DECLARE total INTEGER;\n\
@@ -40,16 +40,16 @@ fn une_fonction_avec_declare_produit_du_plpgsql_valide() {
          \x20   RETURN total;\n\
          }",
     );
-    // La section DECLARE doit précéder BEGIN, sinon PostgreSQL refuse.
-    let decl = sql.find("DECLARE").expect("section DECLARE");
+    // The DECLARE section must precede BEGIN, otherwise PostgreSQL rejects it.
+    let decl = sql.find("DECLARE").expect("DECLARE section");
     let begin = sql.find("BEGIN").expect("BEGIN");
-    assert!(decl < begin, "DECLARE doit précéder BEGIN :\n{sql}");
-    assert_eq!(sql.matches("DECLARE").count(), 1, "une seule section");
+    assert!(decl < begin, "DECLARE must precede BEGIN:\n{sql}");
+    assert_eq!(sql.matches("DECLARE").count(), 1, "a single section");
     assert_parses(&sql);
 }
 
 #[test]
-fn plusieurs_declare_se_regroupent_en_une_section() {
+fn several_declares_merge_into_one_section() {
     let sql = expand(
         "@function f(): INTEGER {\n\
          \x20   DECLARE a INTEGER;\n\
@@ -60,7 +60,7 @@ fn plusieurs_declare_se_regroupent_en_une_section() {
     assert_eq!(
         sql.matches("DECLARE").count(),
         1,
-        "une seule section :\n{sql}"
+        "a single section:\n{sql}"
     );
     assert!(sql.contains("a INTEGER;"));
     assert!(sql.contains("b TEXT;"));
@@ -68,17 +68,17 @@ fn plusieurs_declare_se_regroupent_en_une_section() {
 }
 
 #[test]
-fn une_fonction_sans_declare_nemet_pas_de_section() {
+fn function_without_declare_emits_no_section() {
     let sql = expand("@function f(): INTEGER {\n    RETURN 1;\n}");
     assert!(
         !sql.contains("DECLARE"),
-        "pas de section vide attendue :\n{sql}"
+        "no empty section expected:\n{sql}"
     );
     assert_parses(&sql);
 }
 
 #[test]
-fn un_trigger_produit_deux_statements_valides() {
+fn trigger_produces_two_valid_statements() {
     let sql = expand(
         "@trigger touch before update on users for each row {\n\
          \x20   NEW.updated_at = now();\n\
@@ -88,14 +88,14 @@ fn un_trigger_produit_deux_statements_valides() {
     let out = pgweave_parser::parse_with_outcome(&sql).expect("parse");
     assert!(
         out.statements.len() >= 2,
-        "fonction + trigger attendus, obtenu {} :\n{sql}",
+        "function + trigger expected, got {}:\n{sql}",
         out.statements.len()
     );
-    assert!(out.skipped.is_empty(), "écartés : {:?}", out.skipped);
+    assert!(out.skipped.is_empty(), "skipped: {:?}", out.skipped);
 }
 
 #[test]
-fn le_multi_tables_produit_du_sql_valide() {
+fn multi_tables_produces_valid_sql() {
     let sql = expand(
         "@trigger touch before update on (organizations, users, projects) for each row {\n\
          \x20   NEW.updated_at = now();\n\
@@ -107,7 +107,7 @@ fn le_multi_tables_produit_du_sql_valide() {
 }
 
 #[test]
-fn une_procedure_produit_du_sql_valide() {
+fn procedure_produces_valid_sql() {
     let sql =
         expand("@procedure archive(target UUID) {\n    DELETE FROM users WHERE id = target;\n}");
     assert!(sql.contains("CREATE OR REPLACE PROCEDURE archive(target UUID)"));
@@ -115,7 +115,7 @@ fn une_procedure_produit_du_sql_valide() {
 }
 
 #[test]
-fn les_attributs_produisent_du_sql_valide() {
+fn attributes_produce_valid_sql() {
     let sql = expand("@function slug(t TEXT): TEXT immutable strict {\n    RETURN lower(t);\n}");
     assert!(sql.contains("IMMUTABLE"));
     assert!(sql.contains("STRICT"));
@@ -123,7 +123,7 @@ fn les_attributs_produisent_du_sql_valide() {
 }
 
 #[test]
-fn du_sql_melange_a_des_macros_parse_entierement() {
+fn sql_mixed_with_macros_parses_fully() {
     let sql = expand(
         "CREATE TABLE users (id UUID PRIMARY KEY, updated_at TIMESTAMPTZ);\n\
          \n\
@@ -145,98 +145,98 @@ fn du_sql_melange_a_des_macros_parse_entierement() {
     assert!(sql.contains("SELECT id FROM users;"));
 }
 
-/// Régression : la détection regardait en arrière et tombait sur le commentaire
-/// précédant la macro, donc seule la première d'un fichier était désucrée.
+/// Regression: detection looked backwards and hit the comment preceding the
+/// macro, so only the first one of a file was desugared.
 #[test]
-fn des_macros_separees_par_des_commentaires_sont_toutes_desucrees() {
+fn macros_separated_by_comments_are_all_desugared() {
     let src = "\
--- premier commentaire
+-- first comment
 @function a(): INT {
     RETURN 1;
 }
 
--- deuxième commentaire, qui précède la macro suivante
+-- second comment, preceding the next macro
 @function b(): INT {
     RETURN 2;
 }
 
-/* commentaire bloc */
+/* block comment */
 @function c(): INT {
     RETURN 3;
 }
 ";
     let e = expand_source(src, &MacroSet::builtin());
-    assert_eq!(e.expanded, 3, "les trois macros doivent être désucrées");
+    assert_eq!(e.expanded, 3, "all three macros must be desugared");
     assert!(
         !e.sql.contains("@function"),
-        "aucune macro ne doit subsister :\n{}",
+        "no macro must remain:\n{}",
         e.sql
     );
     assert_parses(&expand(src));
 }
 
 #[test]
-fn une_macro_suivant_immediatement_une_autre_est_desucree() {
+fn macro_immediately_following_another_is_desugared() {
     let src = "@function a(): INT {\n RETURN 1;\n}\n@function b(): INT {\n RETURN 2;\n}";
     let e = expand_source(src, &MacroSet::builtin());
     assert_eq!(e.expanded, 2);
 }
 
 #[test]
-fn loperateur_valeur_absolue_reste_intact_apres_un_statement() {
+fn absolute_value_operator_stays_intact_after_a_statement() {
     let src = "SELECT 1;\nSELECT @ -5;";
     let e = expand_source(src, &MacroSet::builtin());
-    assert_eq!(e.expanded, 0, "aucune expansion attendue");
+    assert_eq!(e.expanded, 0, "no expansion expected");
     assert_eq!(e.sql, src);
 }
 
-// ── Localisation d'une expansion ──────────────────────────────────────────────
+// ── Locating an expansion ─────────────────────────────────────────────────────
 
 #[test]
-fn expansion_at_retrouve_la_macro_sous_le_curseur() {
+fn expansion_at_finds_the_macro_under_the_cursor() {
     let src = "\
 CREATE TABLE t (a INT);
 
-@function un(): INT {
+@function one(): INT {
     RETURN 1;
 }
 
-@function deux(): INT {
+@function two(): INT {
     RETURN 2;
 }
 ";
     let e = expand_source(src, &MacroSet::builtin());
     assert_eq!(e.regions.len(), 2);
 
-    // Curseur dans la première macro.
+    // Cursor in the first macro.
     let in_first = src.find("RETURN 1").unwrap();
-    let first = e.expansion_at(in_first).expect("expansion attendue");
-    assert!(first.contains("FUNCTION un()"), "obtenu:\n{first}");
+    let first = e.expansion_at(in_first).expect("expansion expected");
+    assert!(first.contains("FUNCTION one()"), "got:\n{first}");
     assert!(
-        !first.contains("FUNCTION deux()"),
-        "ne doit pas déborder sur la macro suivante:\n{first}"
+        !first.contains("FUNCTION two()"),
+        "must not spill over into the next macro:\n{first}"
     );
 
-    // Curseur dans la seconde.
+    // Cursor in the second one.
     let in_second = src.find("RETURN 2").unwrap();
-    let second = e.expansion_at(in_second).expect("expansion attendue");
-    assert!(second.contains("FUNCTION deux()"), "obtenu:\n{second}");
-    assert!(!second.contains("FUNCTION un()"));
+    let second = e.expansion_at(in_second).expect("expansion expected");
+    assert!(second.contains("FUNCTION two()"), "got:\n{second}");
+    assert!(!second.contains("FUNCTION one()"));
 }
 
 #[test]
-fn expansion_at_ne_repond_rien_hors_macro() {
+fn expansion_at_returns_nothing_outside_macro() {
     let src = "CREATE TABLE t (a INT);\n\n@function f(): INT {\n RETURN 1;\n}\n";
     let e = expand_source(src, &MacroSet::builtin());
     let in_table = src.find("CREATE TABLE").unwrap();
     assert!(
         e.expansion_at(in_table).is_none(),
-        "le curseur hors macro ne doit rien retourner"
+        "a cursor outside a macro must return nothing"
     );
 }
 
 #[test]
-fn la_region_nomme_la_macro() {
+fn region_names_the_macro() {
     let src = "@trigger t before update on users for each row {\n RETURN NEW;\n}\n";
     let e = expand_source(src, &MacroSet::builtin());
     assert_eq!(e.regions[0].macro_name, "trigger");

@@ -1,11 +1,11 @@
-//! Export du catalogue d'un projet en SQL : le schéma déclaratif obtenu en
-//! rejouant des migrations (import brownfield, PLAN.md P2).
+//! Export of a project catalog as SQL: the declarative schema obtained by
+//! replaying migrations (brownfield import, PLAN.md P2).
 //!
-//! L'ordre d'émission respecte les dépendances : schémas, extensions,
-//! types, séquences autonomes, tables (contraintes hors clés étrangères),
-//! routines et vues dans leur ordre de création, clés étrangères, index,
-//! triggers, policies, commentaires. Seuls les objets du projet sont émis :
-//! ni le catalogue intégré, ni les membres d'extensions.
+//! Emission order follows dependencies: schemas, extensions, types,
+//! standalone sequences, tables (constraints except foreign keys), routines
+//! and views in their creation order, foreign keys, indexes, triggers,
+//! policies, comments. Only project objects are emitted: neither the
+//! built-in catalog nor extension members.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -16,11 +16,11 @@ use crate::model::{
     quote_sql_ident as quote_ident,
 };
 
-/// Résultat de l'export.
+/// Export result.
 pub struct Dump {
-    /// Un fichier par schéma : `nom du schéma → SQL`.
+    /// One file per schema: `schema name → SQL`.
     pub schemas: BTreeMap<String, String>,
-    /// Migration de référence : tout le projet, en-tête `-- pgweave:` compris.
+    /// Baseline migration: the whole project, `-- pgweave:` header included.
     pub baseline: String,
 }
 
@@ -28,7 +28,7 @@ pub(crate) fn is_system(schema: &str) -> bool {
     schema == "pg_catalog" || schema == "information_schema" || schema == "pg_temp"
 }
 
-/// Nom d'objet en SQL : non qualifié dans `public`.
+/// Object name in SQL: unqualified in `public`.
 pub(crate) fn name_sql(q: &QName) -> String {
     if q.schema == "public" {
         quote_ident(&q.name)
@@ -37,7 +37,7 @@ pub(crate) fn name_sql(q: &QName) -> String {
     }
 }
 
-/// Type en SQL : noms usuels pour les types intégrés.
+/// Type in SQL: usual names for built-in types.
 pub fn type_sql(t: &TypeRef) -> String {
     match t {
         TypeRef::Array(inner) => format!("{}[]", type_sql(inner)),
@@ -71,7 +71,7 @@ pub fn type_sql(t: &TypeRef) -> String {
     }
 }
 
-/// Phases d'émission, par schéma.
+/// Emission phases, per schema.
 #[derive(Default)]
 struct Out {
     phases: BTreeMap<(u8, String), Vec<(u64, String)>>,
@@ -106,7 +106,7 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
     let mut out = Out::default();
     let mut graph: Vec<Node> = Vec::new();
 
-    // 1. Schémas.
+    // 1. Schemas.
     for s in cat.schemas.values() {
         if is_system(&s.name) || s.name == "public" {
             continue;
@@ -143,7 +143,7 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
         );
     }
 
-    // 3. Types : énumérations et composites, puis domaines.
+    // 3. Types: enums and composites, then domains.
     for t in cat.types.values() {
         if is_system(&t.name.schema) || ext_types.contains(&t.name) {
             continue;
@@ -159,14 +159,14 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
         out.push(phase, &t.name.schema, 0, sql);
     }
 
-    // 4. Séquences créées explicitement.
+    // 4. Explicitly created sequences.
     for s in cat.sequences.values() {
         if let Some(def) = &s.definition {
             out.push(5, &s.name.schema, 0, def.clone());
         }
     }
 
-    // 5. Tables, puis 7. clés étrangères et contraintes NOT VALID.
+    // 5. Tables, then 7. foreign keys and NOT VALID constraints.
     for r in cat.relations.values() {
         if is_system(&r.name.schema)
             || ext_relations.contains(&r.name)
@@ -186,8 +186,8 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
             if !deferred {
                 continue;
             }
-            // Après les index : une FK peut viser une colonne rendue unique
-            // par un `CREATE UNIQUE INDEX`.
+            // After indexes: an FK may target a column made unique by a
+            // `CREATE UNIQUE INDEX`.
             out.push(
                 10,
                 &r.name.schema,
@@ -214,8 +214,8 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
         }
     }
 
-    // 6. Routines et vues, dans leur ordre de création (une fonction SQL et
-    //    une vue peuvent dépendre l'une de l'autre).
+    // 6. Routines and views, in their creation order (a SQL function and a
+    //    view may depend on each other).
     for overloads in cat.routines.values() {
         for r in overloads {
             if is_system(&r.name.schema) || ext_routines.contains(&r.name) {
@@ -225,7 +225,7 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
                 let deps = if r.language == "sql" {
                     references(cat, def)
                 } else {
-                    // Corps PL/pgSQL : non vérifié à la création.
+                    // PL/pgSQL body: not checked at creation.
                     Vec::new()
                 };
                 graph.push(Node {
@@ -233,8 +233,8 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
                     schema: r.name.schema.clone(),
                     order: r.order,
                     deps,
-                    // Le corps tel qu'écrit, quand il est connu : PostgreSQL
-                    // le garde à la lettre.
+                    // The body as written, when known: PostgreSQL keeps it
+                    // verbatim.
                     sql: r.source.clone().unwrap_or_else(|| def.clone()),
                 });
             }
@@ -260,13 +260,13 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
         out.push(6, &node.schema, rank as u64, node.sql);
     }
 
-    // 9. Index.
+    // 9. Indexes.
     for i in cat.indexes.values() {
         if !is_system(&i.name.schema) {
             out.push(9, &i.name.schema, 0, i.definition.clone());
         }
     }
-    // 10. Triggers. 11. Policies. 12. Commentaires.
+    // 10. Triggers. 11. Policies. 12. Comments.
     for t in cat.triggers.values().flat_map(|m| m.values()) {
         if let Some(def) = &t.definition {
             out.push(11, &t.table.schema, 0, def.clone());
@@ -281,12 +281,11 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
         out.push(13, "public", 0, c.clone());
     }
 
-    // Assemblage.
+    // Assembly.
     let mut schemas: BTreeMap<String, String> = BTreeMap::new();
     let mut baseline = String::new();
     baseline.push_str(&header(cat, postgres));
-    baseline
-        .push_str("\n-- Migration de référence : état reconstruit par `pgweave schema import`.\n");
+    baseline.push_str("\n-- Baseline migration: state rebuilt by `pgweave schema import`.\n");
 
     let mut phases: Vec<_> = out.phases.into_iter().collect();
     phases.sort_by(|a, b| a.0.cmp(&b.0));
@@ -309,8 +308,8 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
     Dump { schemas, baseline }
 }
 
-/// En-tête de contexte d'une migration (D9) : version de PostgreSQL et
-/// extensions actives dans l'état `cat`, sans fin de ligne.
+/// Context header of a migration (D9): PostgreSQL version and active
+/// extensions in the `cat` state, without a trailing newline.
 pub fn header(cat: &Catalog, postgres: u32) -> String {
     let mut exts: Vec<String> = cat
         .extensions
@@ -325,7 +324,7 @@ pub fn header(cat: &Catalog, postgres: u32) -> String {
     out
 }
 
-/// Corps d'une contrainte : sa définition conservée, ou reconstruite.
+/// Body of a constraint: its kept definition, or a rebuilt one.
 pub(crate) fn constraint_body(c: &crate::model::Constraint) -> String {
     if let Some(d) = &c.definition {
         return d.clone();
@@ -381,10 +380,10 @@ pub(crate) fn create_table(cat: &Catalog, r: &Relation) -> String {
     )
 }
 
-/// Définition d'une colonne (`nom type …`), telle que `CREATE TABLE` ou
-/// `ADD COLUMN` l'écrit : `serial` reconnu par sa séquence possédée.
+/// Definition of a column (`name type …`), as `CREATE TABLE` or `ADD COLUMN`
+/// writes it: `serial` recognized through its owned sequence.
 pub(crate) fn column_sql(cat: &Catalog, r: &Relation, c: &crate::model::Column) -> String {
-    // `serial` : type entier, défaut tiré de la séquence possédée.
+    // `serial`: integer type, default taken from the owned sequence.
     let owned_seq = cat.sequences.values().find(|s| {
         s.definition.is_none() && s.owned_by.as_ref() == Some(&(r.name.clone(), c.name.clone()))
     });
@@ -434,8 +433,8 @@ pub(crate) fn column_sql(cat: &Catalog, r: &Relation, c: &crate::model::Column) 
     line
 }
 
-/// `CREATE TYPE` ou `CREATE DOMAIN` d'un type du projet ; rien pour un type
-/// tableau, créé avec son type.
+/// `CREATE TYPE` or `CREATE DOMAIN` of a project type; nothing for an array
+/// type, created with its type.
 pub(crate) fn create_type(t: &crate::model::TypeDef) -> Option<String> {
     Some(match &t.kind {
         TypeKind::Enum { labels } => format!(
@@ -482,7 +481,7 @@ pub(crate) fn create_type(t: &crate::model::TypeDef) -> Option<String> {
     })
 }
 
-/// Objet ordonné par ses dépendances : table, routine ou vue.
+/// Object ordered by its dependencies: table, routine or view.
 pub(crate) struct Node {
     pub key: String,
     pub schema: String,
@@ -491,8 +490,8 @@ pub(crate) struct Node {
     pub sql: String,
 }
 
-/// Tri topologique ; l'ordre de création départage, et rompt un éventuel
-/// cycle (que PostgreSQL n'aurait de toute façon pas accepté tel quel).
+/// Topological sort; creation order breaks ties, and breaks a possible cycle
+/// (which PostgreSQL would not have accepted as is anyway).
 pub(crate) fn sort_by_dependencies(mut nodes: Vec<Node>) -> Vec<Node> {
     nodes.sort_by_key(|n| n.order);
     let keys: BTreeSet<String> = nodes.iter().map(|n| n.key.clone()).collect();
@@ -513,9 +512,9 @@ pub(crate) fn sort_by_dependencies(mut nodes: Vec<Node>) -> Vec<Node> {
     out
 }
 
-/// Relations et routines du projet citées par un texte SQL (définition de
-/// vue ou de fonction SQL, expression) : noms de `FROM` et appels de
-/// fonction, résolus par le `search_path` par défaut.
+/// Project relations and routines referenced by a SQL text (view or SQL
+/// function definition, expression): `FROM` names and function calls,
+/// resolved through the default `search_path`.
 pub(crate) fn references(cat: &Catalog, sql: &str) -> Vec<String> {
     let Ok(stmts) = pgweave_parser::parse(sql) else {
         return Vec::new();
@@ -525,7 +524,7 @@ pub(crate) fn references(cat: &Catalog, sql: &str) -> Vec<String> {
         if let Ok(v) = serde_json::to_value(st) {
             collect_names(&v, &mut names);
         }
-        // Corps d'une fonction SQL.
+        // Body of a SQL function.
         if let pgweave_ast::Statement::Ddl(pgweave_ast::DdlStatement::CreateFunction(f)) = st
             && let Ok(v) = serde_json::to_value(&f.body)
         {
@@ -551,7 +550,7 @@ pub(crate) fn references(cat: &Catalog, sql: &str) -> Vec<String> {
     out
 }
 
-/// Parcourt l'AST sérialisé : `{"Table": [idents]}` (source de `FROM`) et
+/// Walks the serialized AST: `{"Table": [idents]}` (`FROM` source) and
 /// `{"FunctionCall": {"name": [idents], …}}`.
 fn collect_names(v: &serde_json::Value, out: &mut Vec<(bool, Vec<String>)>) {
     let idents = |a: &serde_json::Value| -> Option<Vec<String>> {
@@ -581,8 +580,8 @@ fn collect_names(v: &serde_json::Value, out: &mut Vec<(bool, Vec<String>)>) {
     }
 }
 
-/// Dépendances d'une table : routines appelées par ses défauts, colonnes
-/// générées et contraintes CHECK.
+/// Dependencies of a table: routines called by its defaults, generated
+/// columns and CHECK constraints.
 pub(crate) fn table_deps(cat: &Catalog, r: &Relation) -> Vec<String> {
     let mut exprs: Vec<String> = Vec::new();
     for c in &r.columns {

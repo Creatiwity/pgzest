@@ -1,22 +1,22 @@
--- Plats et menu.
+-- Dishes and menu.
 
 -- name: add_dish
--- `kind` est un enum PostgreSQL (enum Rust généré), `price` un domaine
--- (passé sous son type de base, `i32`).
+-- `kind` is a PostgreSQL enum (generated Rust enum), `price` a domain
+-- (passed as its base type, `i32`).
 INSERT INTO dishes (restaurant_id, name, kind, price, vegetarian, tags)
 VALUES ($restaurant, $name, $kind, $price, $vegetarian, $tags)
 RETURNING id;
 
 -- name: menu_of
--- Lecture d'une vue : ses colonnes sont typées depuis sa requête.
--- Plusieurs lignes : `Vec<…>`, et `menu_of_stream` en flux.
+-- Reading a view: its columns are typed from its query.
+-- Several rows: `Vec<…>`, and `menu_of_stream` as a stream.
 SELECT name, kind, price, vegetarian
 FROM menu
 WHERE restaurant = $restaurant
 ORDER BY kind, name;
 
 -- name: dish_counts
--- Agrégat sans GROUP BY : exactement une ligne ; `count(*)` n'est jamais NULL.
+-- Aggregate without GROUP BY: exactly one row; `count(*)` is never NULL.
 SELECT count(*) AS total,
        count(*) FILTER (WHERE vegetarian) AS vegetarian,
        min(price) AS cheapest
@@ -24,8 +24,8 @@ FROM dishes
 WHERE restaurant_id = $restaurant;
 
 -- name: dish_card :optional
--- La fiche d'un plat. Les requêtes suivantes renvoient la même fiche
--- (`-> dish_card`) : une seule struct Rust, `DishCardRow`, pour toutes.
+-- A dish's card. The following queries return the same card
+-- (`-> dish_card`): a single Rust struct, `DishCardRow`, for all of them.
 SELECT @dish_card(d)
 FROM dishes d
 WHERE d.id = $id;
@@ -38,5 +38,5 @@ WHERE r.slug = $restaurant AND d.vegetarian
 ORDER BY d.price;
 
 -- name: import_dishes
--- COPY typé : la fonction générée lit un flux CSV.
+-- Typed COPY: the generated function reads a CSV stream.
 COPY dishes (restaurant_id, name, kind, price, vegetarian) FROM STDIN (FORMAT csv, HEADER true);

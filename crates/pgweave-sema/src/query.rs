@@ -1,5 +1,5 @@
-//! Analyse des requêtes (`analyze.c`, `parse_clause.c`, `parse_target.c`) :
-//! portée de `FROM`, colonnes de sortie nommées et typées, paramètres.
+//! Query analysis (`analyze.c`, `parse_clause.c`, `parse_target.c`):
+//! `FROM` scope, named and typed output columns, parameters.
 
 use pgweave_ast::Span;
 use pgweave_ast::expr::{Expr, ExprKind, Ident};
@@ -17,12 +17,12 @@ use crate::expr::{Analyzer, split_name};
 use crate::scope::{Column, Nullability, Scope, SemaError, Source};
 use crate::types::{Ty, pg};
 
-/// Colonne de sortie d'une requête.
+/// Output column of a query.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutputColumn {
     pub name: String,
     pub ty: Ty,
-    /// Modificateurs du type (`exprTypmod`), vides s'il n'en a pas.
+    /// Type modifiers (`exprTypmod`), empty if it has none.
     pub modifiers: Vec<String>,
     pub nullable: Nullability,
 }
@@ -38,13 +38,13 @@ impl From<&OutputColumn> for Column {
     }
 }
 
-/// Nom donné par PostgreSQL à une colonne de sortie sans alias
-/// (`FigureColname`) ; `?column?` à défaut.
+/// Name PostgreSQL gives an output column without an alias
+/// (`FigureColname`); `?column?` by default.
 pub fn figure_colname(e: &Expr) -> String {
     figure(e).map_or_else(|| "?column?".to_string(), |(n, _)| n)
 }
 
-/// Nom et force (2 : nom réel, 1 : nom de type) — `FigureColnameInternal`.
+/// Name and strength (2: real name, 1: type name) — `FigureColnameInternal`.
 fn figure(e: &Expr) -> Option<(String, u8)> {
     match &e.kind {
         ExprKind::Column(c) => Some((c.column.value.clone(), 2)),
@@ -62,7 +62,7 @@ fn figure(e: &Expr) -> Option<(String, u8)> {
             _ => Some((cast_type_name(data_type), 1)),
         },
         ExprKind::Collate { expr, .. } => figure(expr),
-        // Le nom du `ELSE` s'il est réel, sinon `case`.
+        // The name of the `ELSE` if it is real, otherwise `case`.
         ExprKind::Case { else_clause, .. } => match else_clause.as_deref().and_then(figure) {
             Some((n, 2)) => Some((n, 2)),
             _ => Some(("case".into(), 1)),
@@ -80,7 +80,7 @@ fn figure(e: &Expr) -> Option<(String, u8)> {
     }
 }
 
-/// Dernier segment du nom de type tel que la grammaire l'écrit (`int` →
+/// Last segment of the type name as the grammar writes it (`int` →
 /// `int4`, `varchar(3)` → `varchar`).
 fn cast_type_name(dt: &pgweave_ast::types::DataType) -> String {
     use pgweave_ast::types::DataType::*;
@@ -110,7 +110,7 @@ fn cast_type_name(dt: &pgweave_ast::types::DataType) -> String {
     }
 }
 
-/// Ce que décrit un statement : colonnes renvoyées et paramètres.
+/// What a statement describes: returned columns and parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Description {
     pub columns: Vec<OutputColumn>,
@@ -118,8 +118,8 @@ pub struct Description {
 }
 
 impl<'c> Analyzer<'c> {
-    /// Analyse un statement DML : colonnes renvoyées (vide sans
-    /// `RETURNING`) et types des paramètres.
+    /// Analyzes a DML statement: returned columns (empty without
+    /// `RETURNING`) and parameter types.
     pub fn describe(&mut self, stmt: &Statement) -> Result<Description, SemaError> {
         let columns = match stmt {
             Statement::Select(s) => self.select(s, None, true)?,
@@ -128,10 +128,10 @@ impl<'c> Analyzer<'c> {
             Statement::Delete(s) => self.delete(s)?,
             Statement::Utility(u) => match &u.kind {
                 UtilityKind::Call { name, args } => self.call(name, args, u.span)?,
-                _ => return Err(SemaError::not_analyzed("statement utilitaire", u.span)),
+                _ => return Err(SemaError::not_analyzed("utility statement", u.span)),
             },
             Statement::Ddl(_) => {
-                return Err(SemaError::not_analyzed("statement hors DML", Span::DUMMY));
+                return Err(SemaError::not_analyzed("non-DML statement", Span::DUMMY));
             }
         };
         Ok(Description {
@@ -140,7 +140,7 @@ impl<'c> Analyzer<'c> {
         })
     }
 
-    /// Enregistre les CTE d'un `WITH`, visibles du reste du statement.
+    /// Registers the CTEs of a `WITH`, visible to the rest of the statement.
     fn with(
         &mut self,
         ctes: &[pgweave_ast::stmt::Cte],
@@ -151,19 +151,19 @@ impl<'c> Analyzer<'c> {
             let name = cte.name.value.clone();
             let query = match &cte.query {
                 CteQuery::Select(q) => q,
-                // Corps modifiant : ses lignes sont celles de son `RETURNING`.
+                // Data-modifying body: its rows are those of its `RETURNING`.
                 CteQuery::Modify(stmt) => {
                     let cols = match &**stmt {
                         Statement::Insert(s) => self.insert(s)?,
                         Statement::Update(s) => self.update(s)?,
                         Statement::Delete(s) => self.delete(s)?,
-                        _ => return Err(SemaError::not_analyzed("corps de CTE", Span::DUMMY)),
+                        _ => return Err(SemaError::not_analyzed("CTE body", Span::DUMMY)),
                     };
                     self.ctes.push((name, rename(&cols, &cte.columns)));
                     continue;
                 }
             };
-            // Récursive : le terme non récursif fixe les types.
+            // Recursive: the non-recursive term fixes the types.
             if recursive && !query.set_ops.is_empty() {
                 let mut base = (**query).clone();
                 base.set_ops.clear();
@@ -182,9 +182,9 @@ impl<'c> Analyzer<'c> {
         Ok(())
     }
 
-    /// Colonnes d'une requête `SELECT` (avec ses opérations ensemblistes).
-    /// `resolve_unknowns` : un littéral sans type en sortie devient `text`
-    /// (sauf dans une branche d'opération ensembliste).
+    /// Columns of a `SELECT` query (with its set operations).
+    /// `resolve_unknowns`: an untyped literal in the output becomes `text`
+    /// (except in a set operation branch).
     pub(crate) fn select(
         &mut self,
         stmt: &SelectStmt,
@@ -226,7 +226,7 @@ impl<'c> Analyzer<'c> {
         if let Some(h) = &n.having {
             self.boolean(h, &scope)?;
         }
-        // `WINDOW w AS (…)` : partitions et tris sur la portée de `FROM`.
+        // `WINDOW w AS (…)`: partitions and sorts over the `FROM` scope.
         for w in &n.windows {
             for x in w.spec.exprs() {
                 self.expr(x, &scope)?;
@@ -244,8 +244,8 @@ impl<'c> Analyzer<'c> {
             self.group_or_order(d, &n.columns, &scope, Clause::DistinctOn)?;
         }
 
-        // Opérations ensemblistes : type commun colonne à colonne, de gauche
-        // à droite ; les noms viennent du premier SELECT.
+        // Set operations: common type column by column, from left to
+        // right; the names come from the first SELECT.
         for op in &n.set_ops {
             let other = self.select(&op.select, outer, false)?;
             if other.len() != columns.len() {
@@ -267,7 +267,7 @@ impl<'c> Analyzer<'c> {
                         )
                     })?;
                 c.nullable = Nullability::strict([c.nullable, o.nullable]);
-                // Le modificateur ne survit que s'il est le même partout.
+                // The modifier only survives if it is the same everywhere.
                 if c.modifiers != o.modifiers || c.ty != o.ty {
                     c.modifiers.clear();
                 }
@@ -281,7 +281,7 @@ impl<'c> Analyzer<'c> {
             }
         }
 
-        // ORDER BY voit les colonnes de sortie (alias) et la portée.
+        // ORDER BY sees the output columns (aliases) and the scope.
         if n.set_ops.is_empty() {
             for o in &n.order_by {
                 self.group_or_order(&o.expr, &n.columns, &scope, Clause::OrderBy)?;
@@ -310,8 +310,8 @@ impl<'c> Analyzer<'c> {
         Ok(columns)
     }
 
-    /// `VALUES` (`transformValuesClause`) : colonnes `column1`… du type
-    /// commun de leurs lignes.
+    /// `VALUES` (`transformValuesClause`): columns `column1`… of the common
+    /// type of their rows.
     fn values(
         &mut self,
         rows: &[Vec<Expr>],
@@ -356,8 +356,8 @@ impl<'c> Analyzer<'c> {
         Ok(out)
     }
 
-    /// `GROUP BY` / `ORDER BY` / `DISTINCT ON` : position, colonne de
-    /// sortie, ou expression (`findTargetlistEntrySQL92`).
+    /// `GROUP BY` / `ORDER BY` / `DISTINCT ON`: position, output column,
+    /// or expression (`findTargetlistEntrySQL92`).
     fn group_or_order(
         &mut self,
         e: &Expr,
@@ -374,8 +374,8 @@ impl<'c> Analyzer<'c> {
             }
             return Ok(());
         }
-        // Un nom seul désigne la colonne de sortie de ce nom ; en `GROUP BY`,
-        // une colonne de `FROM` du même nom passe avant.
+        // A bare name designates the output column of that name; in `GROUP BY`,
+        // a `FROM` column with the same name takes precedence.
         if let ExprKind::Column(c) = &e.kind
             && c.table.is_none()
             && !(clause == Clause::GroupBy && scope.has_local_column(&c.column.value))
@@ -413,7 +413,7 @@ impl<'c> Analyzer<'c> {
         self.expr(e, scope).map(|_| ())
     }
 
-    /// Liste `SELECT` : `*` développé, chaque expression typée et nommée.
+    /// `SELECT` list: `*` expanded, each expression typed and named.
     fn projection(
         &mut self,
         items: &[SelectItem],
@@ -472,9 +472,9 @@ impl<'c> Analyzer<'c> {
         Ok(out)
     }
 
-    /// Source de `FROM`.
+    /// `FROM` source.
     fn table_ref(&mut self, t: &TableRef, scope: &Scope) -> Result<Source, SemaError> {
-        // Table (pas une vue ni une CTE) : colonnes système visibles.
+        // Table (not a view nor a CTE): system columns visible.
         let mut system = false;
         let mut rowtype = None;
         let (name, mut columns) = match &t.source {
@@ -528,7 +528,7 @@ impl<'c> Analyzer<'c> {
                 ..
             } => {
                 let (schema_part, fname) = split_name(name);
-                // `unnest(a, b)` en FROM : `ROWS FROM (unnest(a), unnest(b))`.
+                // `unnest(a, b)` in FROM: `ROWS FROM (unnest(a), unnest(b))`.
                 let (mut cols, scalar) =
                     if schema_part.is_none() && fname == "unnest" && args.len() > 1 {
                         let mut all = Vec::new();
@@ -541,7 +541,7 @@ impl<'c> Analyzer<'c> {
                     } else {
                         self.table_function(name, args, scope)?
                     };
-                // Fonction scalaire : sa colonne porte l'alias de la source.
+                // Scalar function: its column carries the source's alias.
                 if scalar
                     && t.column_aliases.is_empty()
                     && let Some(a) = &t.alias
@@ -564,8 +564,8 @@ impl<'c> Analyzer<'c> {
                 c.name = a.value.clone();
             }
         } else {
-            // Liste de définition de colonnes : elle donne les colonnes d'une
-            // fonction renvoyant `record`.
+            // Column definition list: it gives the columns of a
+            // function returning `record`.
             if !matches!(t.source, TableSource::Function { .. })
                 || columns.len() != 1
                 || columns[0].ty != Some(pg("record"))
@@ -602,8 +602,8 @@ impl<'c> Analyzer<'c> {
         })
     }
 
-    /// Colonnes d'une fonction en `FROM` : colonnes `OUT`/`TABLE`, attributs
-    /// d'un composite, sinon une colonne nommée comme la fonction.
+    /// Columns of a function in `FROM`: `OUT`/`TABLE` columns, attributes
+    /// of a composite, otherwise one column named like the function.
     fn table_function(
         &mut self,
         name: &pgweave_ast::ObjectName,
@@ -638,8 +638,8 @@ impl<'c> Analyzer<'c> {
                 .iter()
                 .filter(|a| matches!(a.mode, ArgMode::Out | ArgMode::InOut | ArgMode::Table))
                 .collect();
-            // Colonnes nommées par les paramètres `OUT` / `TABLE`, même un
-            // seul (`jsonb_array_elements` → `value`).
+            // Columns named by the `OUT` / `TABLE` parameters, even a single
+            // one (`jsonb_array_elements` → `value`).
             let named = outs.len() == 1 && outs[0].name.is_some();
             if outs.len() > 1 || (outs.len() == 1 && (t.ty == pg("record") || named)) {
                 let single = outs.len() == 1;
@@ -647,7 +647,7 @@ impl<'c> Analyzer<'c> {
                     .iter()
                     .map(|a| Column {
                         name: a.name.clone().unwrap_or_default(),
-                        // Seul : le type résolu de l'appel (polymorphisme).
+                        // Single: the resolved type of the call (polymorphism).
                         ty: if single {
                             Some(t.ty.clone())
                         } else {
@@ -696,13 +696,13 @@ impl<'c> Analyzer<'c> {
         ))
     }
 
-    /// Jointure : nullabilité des côtés externes, colonnes `USING`
-    /// fusionnées en tête de `*`.
+    /// Join: nullability of the outer sides, `USING` columns merged
+    /// at the head of `*`.
     fn join(&mut self, j: &pgweave_ast::stmt::Join, scope: &mut Scope) -> Result<(), SemaError> {
         let left_sources = scope.sources.len();
         let mut src = self.table_ref(&j.table, scope)?;
-        // Colonnes avant l'effet de la jointure externe : la colonne fusionnée
-        // d'un `USING` en dépend.
+        // Columns before the effect of the outer join: the merged column
+        // of a `USING` depends on it.
         let left_before: Vec<Column> = scope
             .star
             .iter()
@@ -742,14 +742,14 @@ impl<'c> Analyzer<'c> {
         if using.is_empty() {
             scope.star.extend((0..right_cols).map(|c| (right, c)));
         } else {
-            // Colonnes communes d'abord (côté gauche), puis le reste à gauche,
-            // puis le reste à droite.
+            // Common columns first (left side), then the rest on the left,
+            // then the rest on the right.
             let left_star: Vec<(usize, usize)> = std::mem::take(&mut scope.star);
             let name_of =
                 |s: &Scope, (si, ci): (usize, usize)| s.sources[si].columns[ci].name.clone();
-            // Colonnes fusionnées (`buildMergedJoinVar`) : type commun des deux
-            // côtés ; à gauche ou à droite selon le côté conservé, `COALESCE`
-            // des deux pour une jointure complète.
+            // Merged columns (`buildMergedJoinVar`): common type of both
+            // sides; left or right depending on the preserved side, `COALESCE`
+            // of both for a full join.
             let mut merged = Vec::new();
             for u in &using {
                 let Some(l) = left_before.iter().find(|c| c.name == *u) else {
@@ -831,7 +831,7 @@ impl<'c> Analyzer<'c> {
         Ok(())
     }
 
-    /// Table cible d'une modification, visible sous son alias.
+    /// Target table of a modification, visible under its alias.
     fn target(
         &mut self,
         name: &pgweave_ast::ObjectName,
@@ -872,7 +872,7 @@ impl<'c> Analyzer<'c> {
         Ok((source, qname))
     }
 
-    /// Valeur affectée à une colonne (contexte d'affectation).
+    /// Value assigned to a column (assignment context).
     fn assign(&mut self, value: &Expr, column: &Column, scope: &Scope) -> Result<(), SemaError> {
         if let ExprKind::Unsupported(_) = value.kind {
             return self.expr(value, scope).map(|_| ());
@@ -908,8 +908,8 @@ impl<'c> Analyzer<'c> {
         Ok(())
     }
 
-    /// `RETURNING` : la portée du statement, plus les lignes avant (`old`)
-    /// et après (`new`) modification (PostgreSQL 18), hors de `*`.
+    /// `RETURNING`: the statement's scope, plus the rows before (`old`)
+    /// and after (`new`) modification (PostgreSQL 18), outside `*`.
     fn returning(
         &mut self,
         items: &[SelectItem],
@@ -986,8 +986,8 @@ impl<'c> Analyzer<'c> {
                 }
             }
             InsertSource::Select(q) => {
-                // Les littéraux et paramètres sans type de la liste sont
-                // convertis vers les colonnes cibles, pas figés en `text`.
+                // Untyped literals and parameters of the list are
+                // converted to the target columns, not frozen as `text`.
                 let mut cols = self.select(q, None, false)?;
                 for c in targets.iter().take(cols.len()) {
                     self.check_writable(&rel, &c.name, "insert", q.span)?;
@@ -1062,7 +1062,7 @@ impl<'c> Analyzer<'c> {
         rel: &QName,
         scope: &Scope,
     ) -> Result<(), SemaError> {
-        // Colonne générée ou identity `ALWAYS` : seulement `DEFAULT`.
+        // Generated column or `ALWAYS` identity: only `DEFAULT`.
         for (i, c) in a.columns.iter().enumerate() {
             let value = match (&a.value.kind, a.columns.len()) {
                 (_, 1) => Some(&a.value),
@@ -1092,7 +1092,7 @@ impl<'c> Analyzer<'c> {
             })
             .collect::<Result<_, _>>()?;
         match (cols.as_slice(), &a.value.kind) {
-            // `SET home.city = …` : le champ du composite reçoit la valeur.
+            // `SET home.city = …`: the composite's field receives the value.
             ([c], _) if !a.subfields.is_empty() => {
                 let mut target = c.clone();
                 let mut ty = c.ty.clone();
@@ -1122,8 +1122,8 @@ impl<'c> Analyzer<'c> {
                 }
                 Ok(())
             }
-            // `SET (a, b) = (SELECT x, y …)` : une colonne de la sous-requête
-            // par cible (`MULTIEXPR_SUBLINK`).
+            // `SET (a, b) = (SELECT x, y …)`: one subquery column
+            // per target (`MULTIEXPR_SUBLINK`).
             (_, ExprKind::Subquery(q)) => {
                 let out = self.subquery(q, scope)?;
                 if out.len() != cols.len() {
@@ -1217,8 +1217,8 @@ impl<'c> Analyzer<'c> {
 }
 
 impl Analyzer<'_> {
-    /// `CALL procédure(…)` : résolue parmi les procédures ; ses arguments
-    /// `INOUT` forment la ligne renvoyée.
+    /// `CALL procedure(…)`: resolved among procedures; its `INOUT`
+    /// arguments form the returned row.
     fn call(
         &mut self,
         name: &pgweave_ast::ObjectName,
@@ -1229,7 +1229,7 @@ impl Analyzer<'_> {
         let mut inputs = Vec::new();
         for a in args {
             if let ExprKind::NamedArgument { .. } = a.kind {
-                return Err(SemaError::not_analyzed("argument nommé", a.span));
+                return Err(SemaError::not_analyzed("named argument", a.span));
             }
             inputs.push(self.expr(a, &empty)?.ty);
         }
@@ -1259,7 +1259,10 @@ impl Analyzer<'_> {
             ));
         }
         if r.args.iter().any(|a| a.mode == ArgMode::Out) {
-            return Err(SemaError::not_analyzed("procédure à arguments OUT", span));
+            return Err(SemaError::not_analyzed(
+                "procedure with OUT arguments",
+                span,
+            ));
         }
         for (a, t) in args.iter().zip(&call.arg_types) {
             self.coerce_to(a, t);
@@ -1278,7 +1281,7 @@ impl Analyzer<'_> {
     }
 }
 
-/// Clause qui désigne une colonne de sortie.
+/// Clause that designates an output column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Clause {
     GroupBy,
@@ -1296,14 +1299,14 @@ impl Clause {
     }
 }
 
-/// Mot-clé `DEFAULT` à la place d'une valeur.
+/// `DEFAULT` keyword in place of a value.
 fn is_default_keyword(e: &Expr) -> bool {
     matches!(&e.kind, ExprKind::Column(c) if c.table.is_none() && c.column.value == "default" && !c.column.quoted)
 }
 
 impl Analyzer<'_> {
-    /// Une valeur explicite peut-elle être écrite dans `rel.column` ? Non
-    /// pour une colonne générée ou identity `GENERATED ALWAYS`.
+    /// Can an explicit value be written into `rel.column`? No for a
+    /// generated column or a `GENERATED ALWAYS` identity.
     fn check_writable(
         &self,
         rel: &QName,
@@ -1337,15 +1340,15 @@ fn star_column(c: &Column) -> Result<OutputColumn, SemaError> {
     Ok(OutputColumn {
         name: c.name.clone(),
         ty: c.ty.clone().ok_or_else(|| {
-            SemaError::not_analyzed(format!("type de la colonne « {} »", c.name), Span::DUMMY)
+            SemaError::not_analyzed(format!("type of column \"{}\"", c.name), Span::DUMMY)
         })?,
         modifiers: c.modifiers.clone(),
         nullable: c.nullable,
     })
 }
 
-/// Modificateurs d'une référence de type du catalogue (ceux de l'élément
-/// pour un tableau, comme le `typmod` de PostgreSQL).
+/// Modifiers of a catalog type reference (those of the element for
+/// an array, like PostgreSQL's `typmod`).
 pub(crate) fn ref_modifiers(r: &pgweave_catalog::TypeRef) -> Vec<String> {
     match r {
         pgweave_catalog::TypeRef::Named { modifiers, .. } => modifiers.clone(),
@@ -1354,7 +1357,7 @@ pub(crate) fn ref_modifiers(r: &pgweave_catalog::TypeRef) -> Vec<String> {
     }
 }
 
-/// Modificateurs d'un type écrit (`varchar(20)`, `numeric(12, 2)`).
+/// Modifiers of a written type (`varchar(20)`, `numeric(12, 2)`).
 fn data_type_modifiers(dt: &pgweave_ast::types::DataType) -> Vec<String> {
     use pgweave_ast::types::DataType::*;
     match dt {
@@ -1374,8 +1377,8 @@ fn data_type_modifiers(dt: &pgweave_ast::types::DataType) -> Vec<String> {
     }
 }
 
-/// `exprTypmod`, pour les formes qui conservent un modificateur : colonne,
-/// conversion, `COLLATE`. Toute autre expression n'en a pas (-1).
+/// `exprTypmod`, for the forms that keep a modifier: column,
+/// conversion, `COLLATE`. Any other expression has none (-1).
 fn expr_modifiers(e: &Expr, scope: &Scope) -> Vec<String> {
     match &e.kind {
         ExprKind::Column(c) => scope
@@ -1388,7 +1391,7 @@ fn expr_modifiers(e: &Expr, scope: &Scope) -> Vec<String> {
     }
 }
 
-/// Colonnes renommées par `WITH nom (a, b)`.
+/// Columns renamed by `WITH name (a, b)`.
 fn rename(cols: &[OutputColumn], names: &[Ident]) -> Vec<Column> {
     cols.iter()
         .enumerate()

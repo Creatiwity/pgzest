@@ -7,8 +7,8 @@ pub enum FileRole {
     Schema,
     /// Application query file — DDL forbidden.
     Query,
-    /// Fichier de fragments (`[macros] directory`, P6) : des morceaux de SQL
-    /// insérés ailleurs, jamais exécutés ni analysés seuls.
+    /// Fragments file (`[macros] directory`, P6): pieces of SQL inserted
+    /// elsewhere, never executed nor analyzed on their own.
     Fragments,
 }
 
@@ -50,9 +50,9 @@ pub fn sequence_from_stem(stem: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-/// Parse a migration sequence number from a file path : celui du nom du
-/// fichier (`000010_init.sql`), sinon celui de son répertoire
-/// (`20240101120000_init/migration.sql` de Prisma, `…/up.sql` de Diesel).
+/// Parse a migration sequence number from a file path: the one in the file
+/// name (`000010_init.sql`), otherwise the one of its directory
+/// (Prisma's `20240101120000_init/migration.sql`, Diesel's `…/up.sql`).
 pub fn sequence_from_path(path: &std::path::Path) -> u64 {
     let stem = |p: &std::path::Path| {
         p.file_stem()

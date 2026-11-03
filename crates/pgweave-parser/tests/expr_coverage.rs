@@ -1,59 +1,56 @@
-//! Couverture des expressions PostgreSQL courantes.
+//! Coverage of common PostgreSQL expressions.
 //!
-//! Deux régressions distinctes sont verrouillées ici.
+//! Two distinct regressions are locked down here.
 //!
-//! **Statements écartés.** `convert_binary_op` renvoyait `Unsupported` sur 28
-//! opérateurs que sqlparser sait lire, dont `||`. Un `SELECT a || b` était donc
-//! retiré de l'AST — et par défaut `unsupported = "ignore"`, donc en silence.
+//! **Skipped statements.** `convert_binary_op` returned `Unsupported` for 28
+//! operators that sqlparser can read, including `||`. A `SELECT a || b` was thus
+//! removed from the AST — and by default `unsupported = "ignore"`, so silently.
 //!
-//! **AST mensonger.** Le fourre-tout `_other => Literal(Null)` transformait
-//! toute expression non modélisée en `NULL`. Un `WHERE EXISTS (…)` devenait
-//! `WHERE NULL`, ce qui signifie « aucune ligne » : l'AST n'omettait pas
-//! l'information, il en affirmait une fausse.
+//! **Lying AST.** The catch-all `_other => Literal(Null)` turned
+//! any unmodeled expression into `NULL`. A `WHERE EXISTS (…)` became
+//! `WHERE NULL`, which means "no rows": the AST did not omit the
+//! information, it asserted a false one.
 
 use pgweave_ast::{BinaryOp, ExprKind, SelectItem, Statement};
 
 const SCHEMA: &str = "CREATE TABLE t (a INT, b TEXT, j JSONB, ts TIMESTAMPTZ, arr INT[]);\n";
 
-/// Parse `SCHEMA` + `sql`, renvoie le dernier statement.
+/// Parses `SCHEMA` + `sql`, returns the last statement.
 fn last_stmt(sql: &str) -> Statement {
     let full = format!("{SCHEMA}{sql}");
     let out = pgweave_parser::parse_with_outcome(&full).expect("parse");
     assert!(
         out.skipped.is_empty(),
-        "aucun statement ne doit être écarté, obtenu : {:?}",
+        "no statement should be skipped, got: {:?}",
         out.skipped
             .iter()
             .map(|s| (&s.sql, &s.reason))
             .collect::<Vec<_>>()
     );
-    out.statements
-        .into_iter()
-        .next_back()
-        .expect("un statement")
+    out.statements.into_iter().next_back().expect("a statement")
 }
 
 fn select_of(sql: &str) -> pgweave_ast::stmt::SelectStmt {
     match last_stmt(sql) {
         Statement::Select(s) => s,
-        other => panic!("SELECT attendu, obtenu {other:?}"),
+        other => panic!("SELECT expected, got {other:?}"),
     }
 }
 
-/// Première expression projetée.
+/// First projected expression.
 fn projection(sql: &str) -> ExprKind {
     let sel = select_of(sql);
-    match sel.columns.into_iter().next().expect("une colonne") {
+    match sel.columns.into_iter().next().expect("a column") {
         SelectItem::Expr { expr, .. } => expr.kind,
-        other => panic!("expression attendue, obtenu {other:?}"),
+        other => panic!("expression expected, got {other:?}"),
     }
 }
 
 fn where_kind(sql: &str) -> ExprKind {
-    select_of(sql).where_clause.expect("WHERE attendu").kind
+    select_of(sql).where_clause.expect("WHERE expected").kind
 }
 
-/// Vrai si l'expression, ou l'une de ses sous-expressions, est `Unsupported`.
+/// True if the expression, or one of its sub-expressions, is `Unsupported`.
 fn has_unsupported(k: &ExprKind) -> bool {
     match k {
         ExprKind::Unsupported(_) => true,
@@ -65,11 +62,11 @@ fn has_unsupported(k: &ExprKind) -> bool {
     }
 }
 
-// ── Opérateurs auparavant fatals ──────────────────────────────────────────────
+// ── Formerly fatal operators ──────────────────────────────────────────────────
 
 #[test]
-fn la_concatenation_produit_un_operateur_dedie() {
-    // `||` a sa propre variante et non `Custom` : son type de résultat est connu.
+fn concatenation_produces_a_dedicated_operator() {
+    // `||` has its own variant and not `Custom`: its result type is known.
     let k = projection("SELECT b || b FROM t;");
     assert!(
         matches!(
@@ -79,14 +76,14 @@ fn la_concatenation_produit_un_operateur_dedie() {
                 ..
             }
         ),
-        "obtenu : {k:?}"
+        "got: {k:?}"
     );
 }
 
 #[test]
-fn les_operateurs_inconnus_deviennent_custom_et_non_une_erreur() {
-    // Le fourre-tout route vers `Custom(symbole)` grâce au `Display` de
-    // sqlparser, au lieu d'écarter le statement.
+fn unknown_operators_become_custom_not_an_error() {
+    // The catch-all routes to `Custom(symbol)` thanks to sqlparser's
+    // `Display`, instead of skipping the statement.
     for (sql, symbol) in [
         ("SELECT a << 2 FROM t;", "<<"),
         ("SELECT a >> 2 FROM t;", ">>"),
@@ -98,14 +95,14 @@ fn les_operateurs_inconnus_deviennent_custom_et_non_une_erreur() {
             ExprKind::BinaryOp {
                 op: BinaryOp::Custom(s),
                 ..
-            } => assert_eq!(s, symbol, "symbole attendu pour {sql}"),
-            other => panic!("Custom({symbol}) attendu pour {sql}, obtenu {other:?}"),
+            } => assert_eq!(s, symbol, "expected symbol for {sql}"),
+            other => panic!("Custom({symbol}) expected for {sql}, got {other:?}"),
         }
     }
 }
 
 #[test]
-fn les_operateurs_de_regex_passent() {
+fn regex_operators_pass() {
     for sql in [
         "SELECT a FROM t WHERE b ~ 'x';",
         "SELECT a FROM t WHERE b ~* 'x';",
@@ -117,28 +114,28 @@ fn les_operateurs_de_regex_passent() {
 }
 
 #[test]
-fn un_parametre_lie_ne_fait_plus_echouer_le_statement() {
-    // Aucune requête paramétrée d'application ne passait auparavant.
+fn a_bound_parameter_no_longer_fails_the_statement() {
+    // No parameterized application query used to get through.
     let k = where_kind("SELECT a FROM t WHERE a = $1;");
     let ExprKind::BinaryOp { right, .. } = &k else {
-        panic!("BinaryOp attendu, obtenu {k:?}")
+        panic!("BinaryOp expected, got {k:?}")
     };
     assert!(
         matches!(&right.kind, ExprKind::Parameter(p) if p == "$1"),
-        "obtenu : {:?}",
+        "got: {:?}",
         right.kind
     );
 }
 
-// ── Expressions auparavant transformées en NULL ───────────────────────────────
+// ── Expressions formerly turned into NULL ─────────────────────────────────────
 
 #[test]
-fn exists_nest_plus_transforme_en_null() {
-    // Le cas le plus grave : `WHERE NULL` signifie « aucune ligne ».
+fn exists_is_no_longer_turned_into_null() {
+    // The most serious case: `WHERE NULL` means "no rows".
     let k = where_kind("SELECT a FROM t WHERE EXISTS (SELECT 1 FROM t);");
     assert!(
         matches!(&k, ExprKind::Exists { negated: false, .. }),
-        "obtenu : {k:?}"
+        "got: {k:?}"
     );
 }
 
@@ -147,35 +144,35 @@ fn not_exists_conserve_sa_negation() {
     let k = where_kind("SELECT a FROM t WHERE NOT EXISTS (SELECT 1 FROM t);");
     assert!(
         matches!(&k, ExprKind::Exists { negated: true, .. }),
-        "obtenu : {k:?}"
+        "got: {k:?}"
     );
 }
 
 #[test]
-fn at_time_zone_est_conserve() {
+fn at_time_zone_is_kept() {
     let k = projection("SELECT ts AT TIME ZONE 'UTC' FROM t;");
-    assert!(matches!(&k, ExprKind::AtTimeZone { .. }), "obtenu : {k:?}");
+    assert!(matches!(&k, ExprKind::AtTimeZone { .. }), "got: {k:?}");
 }
 
 #[test]
-fn collate_est_conserve() {
+fn collate_is_kept() {
     let k = projection("SELECT b COLLATE \"C\" FROM t;");
     match &k {
         ExprKind::Collate { collation, .. } => assert_eq!(collation, "C"),
-        other => panic!("Collate attendu, obtenu {other:?}"),
+        other => panic!("Collate expected, got {other:?}"),
     }
 }
 
 #[test]
-fn un_acces_indice_est_conserve() {
+fn a_subscript_access_is_kept() {
     let k = projection("SELECT arr[1] FROM t;");
-    assert!(matches!(&k, ExprKind::FieldAccess { .. }), "obtenu : {k:?}");
+    assert!(matches!(&k, ExprKind::FieldAccess { .. }), "got: {k:?}");
 }
 
 #[test]
-fn extract_devient_un_appel_de_fonction() {
-    // Ramené à `FunctionCall` plutôt qu'une variante par mot-clé : le nom suffit
-    // à l'inférence, et la machinerie existe déjà.
+fn extract_becomes_a_function_call() {
+    // Brought back to `FunctionCall` rather than a variant per keyword: the name is
+    // enough for inference, and the machinery already exists.
     let k = projection("SELECT EXTRACT(YEAR FROM ts) FROM t;");
     match &k {
         ExprKind::FunctionCall { name, .. } => {
@@ -185,32 +182,32 @@ fn extract_devient_un_appel_de_fonction() {
                 .map(|i| i.value.as_str())
                 .collect::<Vec<_>>()
                 .join(".");
-            assert!(rendered.contains("extract"), "obtenu : {rendered}");
+            assert!(rendered.contains("extract"), "got: {rendered}");
         }
-        other => panic!("FunctionCall attendu, obtenu {other:?}"),
+        other => panic!("FunctionCall expected, got {other:?}"),
     }
 }
 
 #[test]
-fn un_interval_est_conserve() {
+fn an_interval_is_kept() {
     let k = projection("SELECT ts + INTERVAL '1 day' FROM t;");
     let ExprKind::BinaryOp { right, .. } = &k else {
-        panic!("BinaryOp attendu, obtenu {k:?}")
+        panic!("BinaryOp expected, got {k:?}")
     };
     assert!(
         matches!(&right.kind, ExprKind::Interval(_)),
-        "obtenu : {:?}",
+        "got: {:?}",
         right.kind
     );
 }
 
-// ── L'échappatoire ne mente pas ───────────────────────────────────────────────
+// ── The escape hatch does not lie ─────────────────────────────────────────────
 
 #[test]
-fn une_expression_non_modelisee_se_declare_comme_telle() {
-    // `GROUPING SETS` n'est pas modélisé. L'important est qu'il ne devienne pas
-    // `NULL` : le nœud dit « je ne sais pas », ce qui laisse les consommateurs
-    // passer leur tour au lieu de conclure de travers.
+fn an_unmodeled_expression_declares_itself_as_such() {
+    // `GROUPING SETS` is not modeled. What matters is that it does not become
+    // `NULL`: the node says "I don't know", which lets consumers
+    // skip it instead of drawing wrong conclusions.
     let sel = select_of("SELECT b, count(*) FROM t GROUP BY GROUPING SETS ((b),());");
     let unsupported = sel.group_by.iter().any(|e| has_unsupported(&e.kind));
     let null_literal = sel
@@ -219,19 +216,19 @@ fn une_expression_non_modelisee_se_declare_comme_telle() {
         .any(|e| matches!(&e.kind, ExprKind::Literal(pgweave_ast::Literal::Null)));
     assert!(
         unsupported || !null_literal,
-        "ne doit pas se faire passer pour NULL : {:?}",
+        "must not pass itself off as NULL: {:?}",
         sel.group_by
     );
     assert!(
         !null_literal,
-        "un GROUP BY GROUPING SETS ne doit pas devenir GROUP BY NULL : {:?}",
+        "a GROUP BY GROUPING SETS must not become GROUP BY NULL: {:?}",
         sel.group_by
     );
 }
 
 #[test]
-fn une_expression_courante_ne_produit_aucun_unsupported() {
-    // Garde-fou : les formes du quotidien doivent toutes être modélisées.
+fn a_common_expression_produces_no_unsupported() {
+    // Safeguard: everyday forms must all be modeled.
     for sql in [
         "SELECT a + 1 FROM t;",
         "SELECT b || 'x' FROM t;",
@@ -255,6 +252,6 @@ fn une_expression_courante_ne_produit_aucun_unsupported() {
                 .where_clause
                 .as_ref()
                 .is_some_and(|w| has_unsupported(&w.kind));
-        assert!(!bad, "{sql} ne doit produire aucun Unsupported");
+        assert!(!bad, "{sql} must not produce any Unsupported");
     }
 }

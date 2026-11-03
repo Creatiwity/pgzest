@@ -1,6 +1,6 @@
-//! Principe 8 : un identifiant non quoté est replié en minuscules, un
-//! identifiant quoté est conservé tel quel — comme PostgreSQL. Et ce que
-//! l'émission écrit se relit en désignant les mêmes objets.
+//! Principle 8: an unquoted identifier is folded to lowercase, a quoted
+//! identifier is kept as is — like PostgreSQL. And what emission writes
+//! reads back as designating the same objects.
 
 use pgweave_ast::{DdlStatement, Ident, Statement, types::DataType};
 use pgweave_codegen::emit::{emit_ident, emit_statement};
@@ -8,12 +8,12 @@ use pgweave_codegen::emit::{emit_ident, emit_statement};
 fn table(sql: &str) -> pgweave_ast::ddl::CreateTable {
     match pgweave_parser::parse(sql).expect("parse").remove(0) {
         Statement::Ddl(DdlStatement::CreateTable(ct)) => ct,
-        other => panic!("CREATE TABLE attendu : {other:?}"),
+        other => panic!("CREATE TABLE expected: {other:?}"),
     }
 }
 
-/// Deux `CREATE TABLE` décrivent la même table (identifiants de nœuds et
-/// positions mis à part).
+/// Two `CREATE TABLE`s describe the same table (node identifiers and
+/// positions aside).
 fn same_table(a: &pgweave_ast::ddl::CreateTable, b: &pgweave_ast::ddl::CreateTable) -> bool {
     a.name == b.name
         && a.columns.len() == b.columns.len()
@@ -24,7 +24,7 @@ fn same_table(a: &pgweave_ast::ddl::CreateTable, b: &pgweave_ast::ddl::CreateTab
 }
 
 #[test]
-fn non_quote_replie_quote_conserve() {
+fn unquoted_is_folded_quoted_is_kept() {
     let ct = table(r#"CREATE TABLE "MenuComponent" (Id INT, "Label" TEXT)"#);
     assert_eq!(ct.name.0[0].value, "MenuComponent");
     assert!(ct.name.0[0].quoted);
@@ -36,7 +36,7 @@ fn non_quote_replie_quote_conserve() {
 }
 
 #[test]
-fn les_types_suivent_la_meme_regle() {
+fn types_follow_the_same_rule() {
     let ct = table(r#"CREATE TABLE t (a "MyEnum", b MyEnum, c public."Other")"#);
     assert_eq!(ct.columns[0].data_type, DataType::Custom("MyEnum".into()));
     assert_eq!(ct.columns[1].data_type, DataType::Custom("myenum".into()));
@@ -47,7 +47,7 @@ fn les_types_suivent_la_meme_regle() {
 }
 
 #[test]
-fn l_emission_quote_ce_qui_ne_se_relirait_pas_a_l_identique() {
+fn emission_quotes_what_would_not_read_back_identically() {
     let plain = |v: &str| Ident {
         value: v.into(),
         quoted: false,
@@ -62,13 +62,13 @@ fn l_emission_quote_ce_qui_ne_se_relirait_pas_a_l_identique() {
     assert!(out.contains(r#""Label" "MyEnum""#), "{out}");
     assert!(
         same_table(&table(&out), &table(sql)),
-        "relu autrement :\n{out}"
+        "read back differently:\n{out}"
     );
 }
 
 #[test]
-fn les_modificateurs_de_type_sont_conserves() {
-    let ct = table("CREATE TABLE lieux (pos geometry(Point, 4326), emb vector(3))");
+fn type_modifiers_are_kept() {
+    let ct = table("CREATE TABLE places (pos geometry(Point, 4326), emb vector(3))");
     assert_eq!(
         ct.columns[0].data_type,
         DataType::Modified {
@@ -78,5 +78,8 @@ fn les_modificateurs_de_type_sont_conserves() {
     );
     let out = emit_statement(&Statement::Ddl(DdlStatement::CreateTable(ct.clone())));
     assert!(out.contains("geometry(Point, 4326)"), "{out}");
-    assert!(same_table(&table(&out), &ct), "relu autrement :\n{out}");
+    assert!(
+        same_table(&table(&out), &ct),
+        "read back differently:\n{out}"
+    );
 }

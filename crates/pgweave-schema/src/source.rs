@@ -62,16 +62,16 @@ impl SchemaSource for FileSource {
 
 // ── DirSource ─────────────────────────────────────────────────────────────────
 
-/// Tous les `.sql` sous un répertoire, récursivement, triés, avec un rôle fixe.
+/// Every `.sql` under a directory, recursively, sorted, with a fixed role.
 pub struct DirSource {
     pub root: PathBuf,
     pub role: FileRole,
-    /// Sous-arbres à ne pas parcourir.
+    /// Subtrees not to walk.
     ///
-    /// Sert notamment à exclure `migrations/` quand on indexe la racine du
-    /// projet : sans cela un fichier de migration serait indexé deux fois, une
-    /// fois comme Migration et une fois comme Schema, ce qui rejouerait ses
-    /// ALTER et brouillerait les règles de rôle.
+    /// Used in particular to exclude `migrations/` when indexing the project
+    /// root: otherwise a migration file would be indexed twice, once as
+    /// Migration and once as Schema, which would replay its ALTERs and blur
+    /// the role rules.
     pub exclude: Vec<PathBuf>,
 }
 
@@ -84,7 +84,7 @@ impl DirSource {
         }
     }
 
-    /// Ajoute un sous-arbre à exclure du parcours.
+    /// Adds a subtree to exclude from the walk.
     pub fn excluding(mut self, path: impl Into<PathBuf>) -> Self {
         self.exclude.push(path.into());
         self
@@ -128,7 +128,7 @@ impl SchemaSource for MigrationDirSource {
     fn chunks(&self) -> Vec<SqlChunk> {
         sorted_sql_files(&self.root)
             .into_iter()
-            // `down.sql` (Diesel) annule sa migration : jamais appliqué.
+            // `down.sql` (Diesel) reverts its migration: never applied.
             .filter(|p| {
                 !p.file_name()
                     .is_some_and(|n| n.eq_ignore_ascii_case("down.sql"))
@@ -209,28 +209,28 @@ impl SchemaSource for InlineSource {
 
 // ── FragmentSource ────────────────────────────────────────────────────────────
 
-/// Un fragment SQL extrait d'un document qui n'est pas un fichier `.sql`.
+/// A SQL fragment extracted from a document that is not a `.sql` file.
 ///
-/// C'est le point de branchement pour tout ce qui héberge du SQL sans être du
-/// SQL : littéral de template dans un `.ts`, bloc dans un Markdown, résultat
-/// d'une expansion de macro. À la différence de [`FileSource`] et
-/// [`InlineSource`] — qui posent `byte_range: 0..len` parce que le fichier
-/// *est* le SQL — celui-ci porte l'offset réel du fragment dans son document.
+/// This is the hook for anything that hosts SQL without being SQL: template
+/// literal in a `.ts`, block in a Markdown file, result of a macro expansion.
+/// Unlike [`FileSource`] and [`InlineSource`] — which set
+/// `byte_range: 0..len` because the file *is* the SQL — this one carries the
+/// real offset of the fragment in its document.
 ///
-/// Cet offset traverse `pgweave_catalog::ProjectCatalog` jusqu'à
-/// `pgweave_parser::parse_at_with_outcome`, donc les spans des diagnostics sont
-/// exprimés dans le repère du document hôte : l'éditeur souligne le bon endroit
-/// dans le `.ts`, pas une position relative au fragment.
+/// This offset goes through `pgweave_catalog::ProjectCatalog` down to
+/// `pgweave_parser::parse_at_with_outcome`, so diagnostic spans are expressed
+/// in the host document's coordinates: the editor underlines the right place
+/// in the `.ts`, not a position relative to the fragment.
 ///
 /// ```ignore
 /// // const q = sql`SELECT id FROM users`;
-/// //               ^-- offset 14 dans le .ts
+/// //               ^-- offset 14 in the .ts
 /// FragmentSource::new("app/query.ts", "SELECT id FROM users", 14, FileRole::Query)
 /// ```
 pub struct FragmentSource {
     pub path: PathBuf,
     pub sql: String,
-    /// Offset octet du début de `sql` dans le document désigné par `path`.
+    /// Byte offset of the start of `sql` in the document designated by `path`.
     pub offset: usize,
     pub role: FileRole,
 }
@@ -266,10 +266,10 @@ impl SchemaSource for FragmentSource {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Répertoires jamais parcourus à la recherche de SQL.
+/// Directories never walked when looking for SQL.
 ///
-/// Sans cela, indexer la racine d'un projet aspire `node_modules/`, `target/`
-/// et les snapshots — coûteux et faux (un snapshot n'est pas le schéma courant).
+/// Otherwise, indexing a project root sucks in `node_modules/`, `target/` and
+/// snapshots — costly and wrong (a snapshot is not the current schema).
 const IGNORED_DIRS: &[&str] = &[
     ".git",
     "node_modules",
@@ -290,8 +290,8 @@ fn is_ignored_dir(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// `.sql` et `.pgsql` — ce dernier pouvant contenir des macros, désucrées à
-/// l'indexation par `pgweave_catalog::ProjectCatalog`.
+/// `.sql` and `.pgsql` — the latter may contain macros, desugared at indexing
+/// time by `pgweave_catalog::ProjectCatalog`.
 fn is_sql_file(path: &Path) -> bool {
     path.extension()
         .and_then(|s| s.to_str())
@@ -299,11 +299,11 @@ fn is_sql_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Tous les `.sql` sous `dir`, **récursivement**, triés par chemin.
+/// Every `.sql` under `dir`, **recursively**, sorted by path.
 ///
-/// Le tri porte sur le chemin complet, donc l'ordre est déterministe et stable
-/// entre machines — ce qui compte pour les migrations, dont l'ordre
-/// d'application dérive du nom.
+/// Sorting uses the full path, so the order is deterministic and stable
+/// across machines — which matters for migrations, whose application order
+/// derives from the name.
 fn sorted_sql_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     collect_sql_files(dir, &mut out);

@@ -1,27 +1,27 @@
-//! `query!` : requête SQL inline, analysée à la compilation contre le
-//! catalogue du projet (`pgweave.toml`), sans connexion à une base.
+//! `query!`: inline SQL query, analyzed at compile time against the
+//! project catalog (`pgweave.toml`), without a database connection.
 //!
 //! ```ignore
 //! let page = pgweave_macros::query!(
 //!     "SELECT id, title FROM pages WHERE id = $id",
 //!     id = page_id,
 //! )
-//! .fetch(&client) // cardinalité optional → Option<Row>
+//! .fetch(&client) // cardinality optional → Option<Row>
 //! .await?;
 //! ```
 //!
-//! - Les paramètres sont nommés (`$nom`) et liés par `nom = expr` ; chaque
-//!   expression est vérifiée contre le type attendu.
-//! - `fetch` renvoie ce que promet la cardinalité inférée (`T`,
-//!   `Option<T>`, `Vec<T>`) ; `execute` pour une requête sans ligne.
-//! - Une erreur SQL est une erreur de compilation sur la chaîne.
-//! - Les fichiers du projet sont inclus (`include_bytes!`) : modifier le
-//!   schéma recompile les requêtes qui en dépendent.
+//! - Parameters are named (`$name`) and bound with `name = expr`; each
+//!   expression is checked against the expected type.
+//! - `fetch` returns what the inferred cardinality promises (`T`,
+//!   `Option<T>`, `Vec<T>`); `execute` for a query returning no rows.
+//! - An SQL error is a compile error on the string.
+//! - Project files are included (`include_bytes!`): changing the schema
+//!   recompiles the queries that depend on it.
 //!
-//! `queries!("queries")` : le code des requêtes nommées d'un répertoire (un
-//! module par fichier : `queries/order/book.sql` → `order::book`) ou d'un
-//! fichier, à l'endroit de l'appel — par exemple seul contenu de
-//! `src/queries.rs`. Même génération que `pgweave-build`, sans `build.rs`.
+//! `queries!("queries")`: the code of the named queries of a directory (one
+//! module per file: `queries/order/book.sql` → `order::book`) or of a file,
+//! at the call site — for example the only content of `src/queries.rs`.
+//! Same generation as `pgweave-build`, without `build.rs`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -69,9 +69,9 @@ pub fn query(input: TokenStream) -> TokenStream {
     }
 }
 
-/// `query_file!("queries/x.sql", nom = valeur, …)` : comme [`query!`], la
-/// requête lue dans un fichier du crate (chemin relatif à son
-/// `Cargo.toml`), qui est inclus pour la recompilation.
+/// `query_file!("queries/x.sql", name = value, …)`: like [`query!`], the
+/// query being read from a file of the crate (path relative to its
+/// `Cargo.toml`), which is included for recompilation.
 #[proc_macro]
 pub fn query_file(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as Input);
@@ -83,35 +83,35 @@ pub fn query_file(input: TokenStream) -> TokenStream {
     }
 }
 
-/// `queries!("chemin")` : fonctions, structs et enums des requêtes nommées
-/// de `chemin` (relatif au `Cargo.toml` du crate), répertoire ou fichier.
+/// `queries!("path")`: functions, structs and enums of the named queries
+/// of `path` (relative to the crate's `Cargo.toml`), directory or file.
 ///
 /// ```ignore
 /// // src/queries.rs
 /// pgweave_macros::queries!("queries");
-/// // ailleurs : crate::queries::order::book::get(&client, …)
+/// // elsewhere: crate::queries::order::book::get(&client, …)
 /// ```
 ///
-/// Chaque fichier lu est inclus pour la recompilation. Un fichier **ajouté**
-/// au répertoire n'est vu qu'à la prochaine compilation du module qui
-/// appelle la macro (Cargo ne surveille pas un répertoire pour une macro ;
-/// `pgweave-build` depuis `build.rs`, lui, le fait).
+/// Each file read is included for recompilation. A file **added** to the
+/// directory is only seen at the next compilation of the module calling the
+/// macro (Cargo does not watch a directory for a macro; `pgweave-build`
+/// from `build.rs` does).
 #[proc_macro]
 pub fn queries(input: TokenStream) -> TokenStream {
     let path = syn::parse_macro_input!(input as LitStr);
     let root = match std::env::var_os("CARGO_MANIFEST_DIR") {
         Some(r) => PathBuf::from(r),
         None => {
-            return syn::Error::new(path.span(), "CARGO_MANIFEST_DIR absent")
+            return syn::Error::new(path.span(), "CARGO_MANIFEST_DIR not set")
                 .to_compile_error()
                 .into();
         }
     };
     match expand_queries(root, &path.value()) {
-        // Chaque token généré porte la position du chemin : « aller à la
-        // définition » mène à l'appel `queries!("…")`. Un token reparsé
-        // depuis une chaîne n'a pas de position dans le fichier, et
-        // rust-analyzer en déduit un décalage hors du fichier (panique).
+        // Each generated token carries the position of the path: "go to
+        // definition" leads to the `queries!("…")` call. A token reparsed
+        // from a string has no position in the file, and rust-analyzer
+        // derives an offset outside the file from it (panic).
         Ok(tokens) => respan(tokens, path.span()).into(),
         Err(message) => syn::Error::new(path.span(), message)
             .to_compile_error()
@@ -119,7 +119,7 @@ pub fn queries(input: TokenStream) -> TokenStream {
     }
 }
 
-/// `tokens`, chacun (groupes compris) à la position `span`.
+/// `tokens`, each one (groups included) at position `span`.
 fn respan(tokens: Tokens, span: proc_macro2::Span) -> Tokens {
     use proc_macro2::TokenTree;
     tokens
@@ -159,8 +159,8 @@ fn expand_queries(root: PathBuf, rel: &str) -> Result<Tokens, String> {
     ))
 }
 
-/// Options de génération du projet : runtime en chemin absolu, module des
-/// enums (`[rust] types`).
+/// Project generation options: runtime as an absolute path, enum module
+/// (`[rust] types`).
 fn rust_options(project: &pgweave_build::Project) -> pgweave_codegen::rust::RustOptions {
     pgweave_codegen::rust::RustOptions {
         runtime: "::pgweave_runtime".into(),
@@ -169,7 +169,7 @@ fn rust_options(project: &pgweave_build::Project) -> pgweave_codegen::rust::Rust
     }
 }
 
-/// Fichiers du projet à inclure pour la recompilation.
+/// Project files to include for recompilation.
 fn watched(project: &pgweave_build::Project) -> Vec<String> {
     project
         .files
@@ -181,7 +181,7 @@ fn watched(project: &pgweave_build::Project) -> Vec<String> {
 
 // ── sql! ──────────────────────────────────────────────────────────────────────
 
-/// `sql! { /// doc  pub nom: cardinalité -> Chemin, "SELECT …" }`.
+/// `sql! { /// doc  pub name: cardinality -> Path, "SELECT …" }`.
 struct SqlDef {
     attrs: Vec<Attribute>,
     vis: Visibility,
@@ -202,7 +202,7 @@ impl Parse for SqlDef {
             if !matches!(c.to_string().as_str(), "one" | "optional" | "many" | "none") {
                 return Err(syn::Error::new(
                     c.span(),
-                    "cardinalité : one, optional, many ou none",
+                    "cardinality: one, optional, many or none",
                 ));
             }
             Some(c)
@@ -231,12 +231,12 @@ impl Parse for SqlDef {
     }
 }
 
-/// Une requête définie dans le code Rust : fonction, struct de paramètres et
-/// struct de ligne, comme une requête nommée d'un fichier.
+/// A query defined in Rust code: function, parameter struct and row
+/// struct, like a named query from a file.
 ///
 /// ```ignore
 /// pgweave_macros::sql! {
-///     /// La fiche d'un plat.
+///     /// The card of a dish.
 ///     pub dish_card: optional,
 ///     r#"SELECT d.id, d.name FROM dishes d WHERE d.id = $id"#
 /// }
@@ -247,19 +247,19 @@ impl Parse for SqlDef {
 /// }
 /// ```
 ///
-/// La chaîne ne contient que la requête : nom, cardinalité (optionnelle,
-/// inférée sinon) et ligne reprise sont des paramètres de la macro.
-/// `-> Chemin` reprend la struct de ligne d'une autre requête (`sql!` ou
-/// fichier) ; la compatibilité des colonnes (noms, ordre, types, nullabilité
-/// non relâchée) est vérifiée à la compilation. Modifier la chaîne relance
-/// l'analyse, dans l'éditeur aussi.
+/// The string only contains the query: name, cardinality (optional,
+/// inferred otherwise) and reused row are parameters of the macro.
+/// `-> Path` reuses the row struct of another query (`sql!` or file);
+/// column compatibility (names, order, types, nullability not relaxed) is
+/// checked at compile time. Editing the string reruns the analysis, in the
+/// editor too.
 #[proc_macro]
 pub fn sql(input: TokenStream) -> TokenStream {
     let def = syn::parse_macro_input!(input as SqlDef);
     let root = match std::env::var_os("CARGO_MANIFEST_DIR") {
         Some(r) => PathBuf::from(r),
         None => {
-            return syn::Error::new(def.sql.span(), "CARGO_MANIFEST_DIR absent")
+            return syn::Error::new(def.sql.span(), "CARGO_MANIFEST_DIR not set")
                 .to_compile_error()
                 .into();
         }
@@ -285,7 +285,7 @@ fn expand_sql(root: PathBuf, def: &SqlDef) -> Result<Tokens, String> {
     );
     let sql = def.sql.value();
     let text = format!("{header}{sql}");
-    // Positions rapportées à la chaîne (sans l'en-tête ajouté).
+    // Positions relative to the string (without the added header).
     let located = |d: &pgweave_diagnostics::Diagnostic| {
         let at = d
             .span
@@ -307,7 +307,7 @@ fn expand_sql(root: PathBuf, def: &SqlDef) -> Result<Tokens, String> {
         return Err(errors.join("\n"));
     }
     let [q] = file.queries.as_slice() else {
-        return Err("une requête par `sql!`".into());
+        return Err("one query per `sql!`".into());
     };
     let d = pgweave_query::describe_named(&project.catalog, q)
         .map_err(|ds| ds.iter().map(located).collect::<Vec<_>>().join("\n"))?;
@@ -317,7 +317,7 @@ fn expand_sql(root: PathBuf, def: &SqlDef) -> Result<Tokens, String> {
         .as_ref()
         .map(|p| quote!(#p).to_string().replace(' ', ""));
     let code = pgweave_codegen::rust::generate_query(&d, &project.catalog, &opts, row.clone())?;
-    // Visibilité demandée pour les éléments générés (champs : publics).
+    // Requested visibility for generated items (fields: public).
     let vis = {
         let v = &def.vis;
         quote!(#v).to_string()
@@ -343,8 +343,8 @@ fn expand_sql(root: PathBuf, def: &SqlDef) -> Result<Tokens, String> {
         }
     }
     let code = parse(&out)?;
-    // Code à la position de la chaîne ; le nom de la fonction et des structs
-    // à celle du nom écrit : « aller à la définition » y mène.
+    // Code at the position of the string; the name of the function and of
+    // the structs at that of the written name: "go to definition" leads there.
     let pascal: String = name
         .split('_')
         .map(|w| {
@@ -373,14 +373,14 @@ fn expand_sql(root: PathBuf, def: &SqlDef) -> Result<Tokens, String> {
     ))
 }
 
-/// Assertions constantes : les colonnes de la requête sont celles de la
-/// ligne reprise (`Chemin::PGWEAVE_COLUMNS`), sans nullabilité relâchée.
+/// Constant assertions: the query's columns are those of the reused row
+/// (`Path::PGWEAVE_COLUMNS`), without relaxed nullability.
 fn row_check(path: &Path, shown: &str, name: &str, d: &pgweave_query::Descriptor) -> Tokens {
     use pgweave_query::descriptor::NullabilityDesc;
     let n = d.columns.len();
     let cols = quote!(<#path>::PGWEAVE_COLUMNS);
     let count = format!(
-        "`{name}` -> {shown} : {n} colonne(s) ici ({}), pas le même nombre dans {shown}",
+        "`{name}` -> {shown}: {n} column(s) here ({}), a different count in {shown}",
         d.columns
             .iter()
             .map(|c| c.name.as_str())
@@ -394,11 +394,11 @@ fn row_check(path: &Path, shown: &str, name: &str, d: &pgweave_query::Descriptor
         let col = &c.name;
         let pg = &c.ty.pg;
         let named = format!(
-            "`{name}` -> {shown} : la colonne {} s'appelle `{col}` ici, pas dans {shown}",
+            "`{name}` -> {shown}: column {} is named `{col}` here, not in {shown}",
             i + 1
         );
         let typed =
-            format!("`{name}` -> {shown} : `{col}` est {pg} ici, d'un autre type dans {shown}");
+            format!("`{name}` -> {shown}: `{col}` is {pg} here, of another type in {shown}");
         checks.push(quote!(
             const _: () = assert!(
                 #cols.len() <= #i || ::pgweave_runtime::str_eq(#cols[#i].0, #col),
@@ -410,8 +410,7 @@ fn row_check(path: &Path, shown: &str, name: &str, d: &pgweave_query::Descriptor
             );
         ));
         if c.nullable != NullabilityDesc::NonNull {
-            let nullable =
-                format!("`{name}` -> {shown} : `{col}` peut être nulle ici, pas dans {shown}");
+            let nullable = format!("`{name}` -> {shown}: `{col}` can be null here, not in {shown}");
             checks.push(quote!(
                 const _: () = assert!(#cols.len() <= #i || !#cols[#i].2, #nullable);
             ));
@@ -420,7 +419,7 @@ fn row_check(path: &Path, shown: &str, name: &str, d: &pgweave_query::Descriptor
     quote!(#(#checks)*)
 }
 
-/// Les identifiants `name` et `Name…` (fonction, structs) à `span`.
+/// The identifiers `name` and `Name…` (function, structs) at `span`.
 fn respan_names(tokens: Tokens, name: &str, pascal: &str, span: proc_macro2::Span) -> Tokens {
     use proc_macro2::TokenTree;
     tokens
@@ -448,32 +447,29 @@ fn respan_names(tokens: Tokens, name: &str, pascal: &str, span: proc_macro2::Spa
 
 // ── types! ────────────────────────────────────────────────────────────────────
 
-/// `#[types] mod db {}` : les enums de tous les types énumérés du projet,
-/// dans ce module (celui que déclare `[rust] types` de `pgweave.toml`).
+/// `#[types] mod db {}`: the enums of all the project's enumerated types,
+/// in this module (the one declared by `[rust] types` in `pgweave.toml`).
 ///
 /// ```ignore
 /// #[pgweave_macros::types]
 /// pub mod db {}
 /// ```
 ///
-/// Un attribut plutôt qu'une macro sans argument : le code généré est situé
-/// sur le nom du module, où mène « aller à la définition ».
+/// An attribute rather than an argument-less macro: the generated code is
+/// located on the module name, where "go to definition" leads.
 #[proc_macro_attribute]
 pub fn types(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
-        return syn::Error::new(
-            proc_macro2::Span::call_site(),
-            "#[types] ne prend pas d'argument",
-        )
-        .to_compile_error()
-        .into();
+        return syn::Error::new(proc_macro2::Span::call_site(), "#[types] takes no argument")
+            .to_compile_error()
+            .into();
     }
     let mut module = syn::parse_macro_input!(item as syn::ItemMod);
     let span = module.ident.span();
     let result = (|| {
         let root = std::env::var_os("CARGO_MANIFEST_DIR")
             .map(PathBuf::from)
-            .ok_or("CARGO_MANIFEST_DIR absent")?;
+            .ok_or("CARGO_MANIFEST_DIR not set")?;
         let project = project(root)?;
         let code = pgweave_codegen::rust::generate_enums(&project.catalog, &rust_options(&project))
             .map_err(|e| e.join("\n"))?;
@@ -495,19 +491,16 @@ pub fn types(attr: TokenStream, item: TokenStream) -> TokenStream {
     match &mut module.content {
         Some((_, content)) => content.extend(items.items),
         None => {
-            return syn::Error::new(
-                span,
-                "#[types] s'applique à un module en ligne : `mod db {}`",
-            )
-            .to_compile_error()
-            .into();
+            return syn::Error::new(span, "#[types] applies to an inline module: `mod db {}`")
+                .to_compile_error()
+                .into();
         }
     }
     quote!(#module).into()
 }
 
-/// Projet chargé, avec la date de modification de chaque fichier lu : le
-/// serveur de macros d'un éditeur vit plus longtemps qu'une compilation.
+/// Loaded project, with the modification time of each file read: an
+/// editor's macro server lives longer than a compilation.
 struct Cached {
     project: Rc<pgweave_build::Project>,
     stamps: Vec<(PathBuf, Option<SystemTime>)>,
@@ -548,13 +541,13 @@ fn project(root: PathBuf) -> Result<Rc<pgweave_build::Project>, String> {
 
 fn parse(code: &str) -> Result<Tokens, String> {
     code.parse::<Tokens>()
-        .map_err(|e| format!("code généré invalide : {e}"))
+        .map_err(|e| format!("invalid generated code: {e}"))
 }
 
 fn expand(input: &Input, from_file: bool) -> Result<Tokens, String> {
     let root = std::env::var_os("CARGO_MANIFEST_DIR")
         .map(PathBuf::from)
-        .ok_or("CARGO_MANIFEST_DIR absent")?;
+        .ok_or("CARGO_MANIFEST_DIR not set")?;
     expand_in(root, input, from_file)
 }
 
@@ -591,18 +584,18 @@ fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, St
                 .join("\n")
         })?;
 
-    // Liaisons : exactement les paramètres de la requête, par leur nom.
+    // Bindings: exactly the query's parameters, by name.
     let mut binds = Vec::new();
     for p in &d.params {
         if p.name.parse::<u32>().is_ok() {
             return Err(format!(
-                "paramètre positionnel ${} : nommer les paramètres (`$nom`) pour les lier par `nom = valeur`",
+                "positional parameter ${}: name the parameters (`$name`) to bind them with `name = value`",
                 p.name
             ));
         }
         let Some((_, e)) = input.binds.iter().find(|(n, _)| *n == p.name) else {
             return Err(format!(
-                "paramètre ${} sans valeur : ajouter `{} = …`",
+                "parameter ${} has no value: add `{} = …`",
                 p.name, p.name
             ));
         };
@@ -613,9 +606,7 @@ fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, St
         .iter()
         .find(|(n, _)| !d.params.iter().any(|p| *n == p.name))
     {
-        return Err(format!(
-            "`{n}` ne correspond à aucun paramètre ${n} de la requête"
-        ));
+        return Err(format!("`{n}` matches no parameter ${n} of the query"));
     }
 
     let opts = pgweave_codegen::rust::RustOptions {
@@ -623,8 +614,8 @@ fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, St
         ..Default::default()
     };
     let q = pgweave_codegen::rust::inline_query(&d, &project.catalog, &opts)?;
-    // Code généré à la position de la chaîne SQL (voir `queries!`) ; les
-    // expressions liées gardent la leur.
+    // Generated code at the position of the SQL string (see `queries!`);
+    // bound expressions keep their own.
     let span = input.sql.span();
     let parse = |code: &str| parse(code).map(|t| respan(t, span));
     let query_const = parse(&q.query_const)?;
@@ -664,7 +655,7 @@ fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, St
 mod tests {
     use super::*;
 
-    /// Projet temporaire : un schéma, une configuration.
+    /// Temporary project: a schema, a configuration.
     fn project_dir(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("pgweave-macros-{name}-{}", std::process::id()));
@@ -684,12 +675,12 @@ mod tests {
     }
 
     fn expand_str(dir: &std::path::Path, input: &str) -> Result<String, String> {
-        let input: Input = syn::parse_str(input).expect("entrée");
+        let input: Input = syn::parse_str(input).expect("input");
         expand_in(dir.to_path_buf(), &input, false).map(|t| t.to_string())
     }
 
     #[test]
-    fn expansion_et_refus() {
+    fn expansion_and_rejections() {
         let dir = project_dir("expansion");
         let code = expand_str(&dir, r#""SELECT body FROM notes WHERE id = $id", id = 7"#)
             .expect("expansion");
@@ -704,24 +695,22 @@ mod tests {
         );
         assert_eq!(
             err(r#""SELECT body FROM notes WHERE id = $id""#),
-            "paramètre $id sans valeur : ajouter `id = …`"
+            "parameter $id has no value: add `id = …`"
         );
         assert_eq!(
             err(r#""SELECT body FROM notes", id = 1"#),
-            "`id` ne correspond à aucun paramètre $id de la requête"
+            "`id` matches no parameter $id of the query"
         );
         assert_eq!(
             err(r#""SELECT body FROM notes WHERE id = $1""#),
-            "paramètre positionnel $1 : nommer les paramètres (`$nom`) pour les lier par `nom = valeur`"
+            "positional parameter $1: name the parameters (`$name`) to bind them with `name = value`"
         );
-        assert!(
-            err(r#""SELECT mood FROM notes""#).contains("l'enum public.mood n'a pas de type Rust")
-        );
+        assert!(err(r#""SELECT mood FROM notes""#).contains("enum public.mood has no Rust type"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn un_module_par_fichier_et_lignes_reprises() {
+    fn one_module_per_file_and_reused_rows() {
         let dir = project_dir("queries");
         std::fs::create_dir_all(dir.join("queries/notes")).unwrap();
         std::fs::write(
@@ -745,34 +734,34 @@ mod tests {
             "{code}"
         );
         let file = expand_queries(dir.clone(), "queries/notes/read.sql")
-            .expect("fichier")
+            .expect("file")
             .to_string();
         assert!(!file.contains("pub mod"), "{file}");
-        let err = expand_queries(dir.clone(), "nope").expect_err("absent");
-        assert!(err.contains("ni fichier ni répertoire"), "{err}");
+        let err = expand_queries(dir.clone(), "nope").expect_err("missing");
+        assert!(err.contains("neither a file nor a directory"), "{err}");
         let _ = std::fs::remove_dir_all(dir);
     }
 
     fn expand_sql_str(dir: &std::path::Path, input: &str) -> Result<String, String> {
-        let def: SqlDef = syn::parse_str(input).expect("entrée");
+        let def: SqlDef = syn::parse_str(input).expect("input");
         expand_sql(dir.to_path_buf(), &def).map(|t| t.to_string())
     }
 
     #[test]
-    fn sql_une_requete_par_macro() {
+    fn sql_one_query_per_macro() {
         let dir = project_dir("sql");
         let code = expand_sql_str(
             &dir,
-            r#"/// La note.
+            r#"/// The note.
                pub note: optional, "SELECT id, body FROM notes WHERE id = $id""#,
         )
         .expect("expansion");
         assert!(code.contains("pub async fn note"), "{code}");
         assert!(code.contains("NoteParams"), "{code}");
         assert!(code.contains("PGWEAVE_COLUMNS"), "{code}");
-        assert!(code.contains("La note."), "{code}");
+        assert!(code.contains("The note."), "{code}");
 
-        // Ligne reprise : une assertion constante par propriété comparée.
+        // Reused row: one constant assertion per compared property.
         let code = expand_sql_str(
             &dir,
             r#"pub all: many -> super::NoteRow, "SELECT id, body FROM notes""#,
@@ -785,18 +774,19 @@ mod tests {
         assert!(code.contains("str_eq"), "{code}");
         assert!(!code.contains("pub struct AllRow"), "{code}");
 
-        // Visibilité héritée : éléments privés au module.
-        let code = expand_sql_str(&dir, r#"privee, "SELECT body FROM notes""#).expect("expansion");
+        // Inherited visibility: items private to the module.
+        let code =
+            expand_sql_str(&dir, r#"private_q, "SELECT body FROM notes""#).expect("expansion");
         assert!(
-            code.contains("async fn privee") && !code.contains("pub async fn privee"),
+            code.contains("async fn private_q") && !code.contains("pub async fn private_q"),
             "{code}"
         );
 
         let err = expand_sql_str(&dir, r#"pub m, "SELECT mood FROM notes""#).expect_err("enum");
         assert!(err.contains("[rust] types"), "{err}");
-        let err = expand_sql_str(&dir, r#"pub q, "SELECT nope FROM notes""#).expect_err("colonne");
+        let err = expand_sql_str(&dir, r#"pub q, "SELECT nope FROM notes""#).expect_err("column");
         assert!(err.starts_with("1:8: [column-not-found]"), "{err}");
-        assert!(syn::parse_str::<SqlDef>(r#"pub q: plusieurs, "SELECT 1""#).is_err());
+        assert!(syn::parse_str::<SqlDef>(r#"pub q: several, "SELECT 1""#).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

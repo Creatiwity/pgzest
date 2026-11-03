@@ -1,69 +1,68 @@
-# Playground pgweave
+# pgweave playground
 
-Projet de démonstration. Ouvert automatiquement par **F5** depuis
-`editors/vscode/`.
+Demo project. Opened automatically by **F5** from `editors/vscode/`.
 
-## Lancer
+## Running
 
 ```bash
-make lsp                 # compile le serveur LSP (target/debug/pgweave-lsp)
-code editors/vscode      # puis F5 → « Run Extension (playground) »
+make lsp                 # builds the LSP server (target/debug/pgweave-lsp)
+code editors/vscode      # then F5 → "Run Extension (playground)"
 ```
 
-L'extension détecte `target/debug/pgweave-lsp` toute seule. Une fenêtre
-« Extension Development Host » s'ouvre sur ce dossier.
+The extension finds `target/debug/pgweave-lsp` on its own. An
+"Extension Development Host" window opens on this folder.
 
-En CLI, depuis ce dossier :
+From the CLI, in this folder:
 
 ```bash
-pgweave check queries/02-erreurs.sql
+pgweave check queries/02-errors.sql
 pgweave lint  queries/05-lint.sql
 ```
 
-## Ce qu'il y a à regarder
+## What to look at
 
-| Fichier | À observer |
+| File | What to observe |
 |---|---|
-| `queries/01-ok.sql` | Entièrement propre. `users` et `organizations` viennent de `schema/tables/`, indexé via la config — aucun `--schema` à passer. |
-| `queries/02-erreurs.sql` | Colonne et table inexistantes. Le hint liste les colonnes disponibles. |
-| `queries/03-directives.sql` | Les directives en commentaire, à la ESLint. Seul le dernier `SELECT` doit être souligné. |
-| `queries/04-tolerance-parser.sql` | Un statement illisible remonte en warning sans interrompre l'analyse du reste. |
-| `queries/05-lint.sql` | Règles de lint. **Invisibles avec `pgweave check`** : le linter est une commande séparée. Visibles dans VS Code, où le LSP lance les deux. |
-| `queries/06-macros.pgsql` | Les macros. Analysé directement par `check` et par le LSP — pas besoin de `build`. Curseur dans une macro + **⌘⌥E** pour voir son expansion. Contient un trigger multi-tables et une macro maison (`macros/audited.pgmacro`). |
+| `queries/01-ok.sql` | Entirely clean. `users` and `organizations` come from `schema/tables/`, indexed through the config — no `--schema` to pass. |
+| `queries/02-errors.sql` | Nonexistent column and table. The hint lists the available columns. |
+| `queries/03-directives.sql` | Comment directives, ESLint-style. Only the last `SELECT` should be underlined. |
+| `queries/04-tolerance-parser.sql` | An unreadable statement is reported as a warning without interrupting the analysis of the rest. |
+| `queries/05-lint.sql` | Lint rules. **Invisible with `pgweave check`**: the linter is a separate command. Visible in VS Code, where the LSP runs both. |
+| `queries/06-macros.pgsql` | Macros. Analyzed directly by `check` and by the LSP — no need for `build`. Cursor in a macro + **⌘⌥E** to see its expansion. Contains a multi-table trigger and a custom macro (`macros/audited.pgmacro`). |
 
-Essaie aussi :
+Also try:
 
-- **Hover** sur une colonne dans `01-ok.sql` → son type.
-- **Complétion** après `SELECT ` ou après `u.` dans une requête sur `users`.
-- Modifier `schema/tables/users.sql` (ajouter une colonne) puis revenir sur
-  `queries/01-ok.sql` : l'index se reconstruit.
-- Passer `unparsable = "error"` dans `pgweave.toml` : le warning de
-  `04-tolerance-parser.sql` devient une erreur.
+- **Hover** a column in `01-ok.sql` → its type.
+- **Completion** after `SELECT ` or after `u.` in a query on `users`.
+- Edit `schema/tables/users.sql` (add a column), then go back to
+  `queries/01-ok.sql`: the index is rebuilt.
+- Set `unparsable = "error"` in `pgweave.toml`: the warning in
+  `04-tolerance-parser.sql` becomes an error.
 
-## Structure
+## Layout
 
 ```
-pgweave.toml   ← définit le scope, la tolérance, les sévérités
+pgweave.toml   ← defines the scope, the tolerance, the severities
 schema/
-  tables/                 ← indexé récursivement…
-  functions/              ← …sous-répertoires compris
+  tables/                 ← indexed recursively…
+  functions/              ← …subdirectories included
 migrations/
-  000001_init.sql         ← indexée avec sa séquence
-queries/                  ← hors scope schema : rôle Query, DDL interdit
+  000001_init.sql         ← indexed with its sequence number
+queries/                  ← outside the schema scope: Query role, DDL forbidden
 ```
 
-`schema/` est canonique : les migrations en sont dérivées. Les deux doivent
-rester cohérents — ici `last_seen_at` figure dans les deux.
+`schema/` is canonical: the migrations are derived from it. The two must
+stay consistent — here `last_seen_at` appears in both.
 
-## Limites que tu vas voir
+## Limitations you will see
 
-- Les diagnostics du **type-checker** visent l'expression fautive (`nope` est
-  souligné, pas tout le `SELECT`). Les règles de **lint** visent le statement
-  entier — leurs nœuds d'intérêt ne sont pas toujours des expressions.
-- Une expression synthétisée par l'outil n'a pas de position : le `true` issu
-  du désucrage de `IS TRUE`, par exemple. Un diagnostic dessus retombe sur le
-  statement.
-- `table-not-in-scope` (référence à une table absente du `FROM`) ne se
-  déclenche pas encore au niveau top-level.
-- Une même fonction trigger servant plusieurs tables produit un faux positif
-  `trigger-ambiguous-table`.
+- **Type-checker** diagnostics target the faulty expression (`nope` is
+  underlined, not the whole `SELECT`). **Lint** rules target the whole
+  statement — the nodes they care about are not always expressions.
+- An expression synthesized by the tool has no position: the `true` coming
+  from desugaring `IS TRUE`, for example. A diagnostic on it falls back to
+  the statement.
+- `table-not-in-scope` (reference to a table missing from the `FROM`) does
+  not fire at top level yet.
+- The same trigger function serving several tables produces a false
+  positive `trigger-ambiguous-table`.

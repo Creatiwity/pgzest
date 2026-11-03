@@ -1,7 +1,7 @@
-# Exemple de macro maison. Le format est celui des macros fournies —
-# voir `pgweave macros --verbose`.
+# Example of a custom macro. The format is the same as the bundled macros —
+# see `pgweave macros --verbose`.
 #
-# @audited ajoute les colonnes d'audit qu'on répète sur chaque table :
+# @audited adds the audit columns repeated on every table:
 #
 #   @audited users {
 #       id    UUID PRIMARY KEY,

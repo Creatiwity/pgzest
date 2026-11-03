@@ -10,8 +10,8 @@ use backend::PgsqlBackend;
 async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    // `pgweave/expandMacro` n'est pas dans le protocole standard : on l'enregistre
-    // comme méthode custom, à la manière de `rust-analyzer/expandMacro`.
+    // `pgweave/expandMacro` is not in the standard protocol: register it as a
+    // custom method, like `rust-analyzer/expandMacro`.
     let (service, socket) = LspService::build(PgsqlBackend::new)
         .custom_method("pgweave/expandMacro", PgsqlBackend::expand_macro)
         .finish();

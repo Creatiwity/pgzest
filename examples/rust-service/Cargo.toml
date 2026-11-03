@@ -3,7 +3,7 @@ name = "pgweave-example-rust-service"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Exemple de bout en bout : requêtes nommées compilées par pgweave-build, exécutées par pgweave-runtime"
+description = "End-to-end example: named queries compiled by pgweave-build, run by pgweave-runtime"
 
 [dependencies]
 pgweave-macros = { path = "../../crates/pgweave-macros" }

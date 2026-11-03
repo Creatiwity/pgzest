@@ -1,13 +1,14 @@
-//! Oracle des migrations (PLAN.md P7).
+//! Migration oracle (PLAN.md P7).
 //!
-//! Chaque cas de `tests/migrations/<cas>/` est une évolution de schéma
-//! déclaratif en versions (`v1.sql`, `v2.sql`…). Chaque migration est
-//! générée depuis les précédentes, comme `pgweave migrate create` :
+//! Each case of `tests/migrations/<case>/` is a declarative schema evolution
+//! in versions (`v1.sql`, `v2.sql`...). Each migration is generated from the
+//! previous ones, like `pgweave migrate create`:
 //!
-//! - sans base : elle est vérifiée par rejeu (l'état atteint est la cible) ;
-//! - avec PostgreSQL (`make oracle`) : les migrations appliquées dans l'ordre
-//!   et la version déclarée appliquée d'un bloc donnent deux bases
-//!   identiques, selon PostgreSQL lui-même.
+//! - without a database: it is verified by replay (the reached state is the
+//!   target);
+//! - with PostgreSQL (`make oracle`): the migrations applied in order and the
+//!   declared version applied at once yield two identical databases,
+//!   according to PostgreSQL itself.
 
 use std::path::{Path, PathBuf};
 
@@ -44,7 +45,7 @@ fn cases() -> Vec<(String, Vec<String>)> {
     out
 }
 
-/// Rejeu déclaratif : `history` comme migrations, `schema` comme cible.
+/// Declarative replay: `history` as migrations, `schema` as target.
 fn project(history: &[String], schema: &str) -> ProjectCatalog {
     let macros = pgweave_macro::MacroSet::builtin();
     let mut b = ProjectBuilder::new()
@@ -80,18 +81,14 @@ fn project(history: &[String], schema: &str) -> ProjectCatalog {
         .chain(
             p.skipped
                 .iter()
-                .map(|(f, s)| format!("{}: non lu {:?}", f.display(), s.reason)),
+                .map(|(f, s)| format!("{}: not read {:?}", f.display(), s.reason)),
         )
         .collect();
-    assert!(
-        errors.is_empty(),
-        "rejeu en erreur :\n{}",
-        errors.join("\n")
-    );
+    assert!(errors.is_empty(), "replay failed:\n{}", errors.join("\n"));
     p
 }
 
-/// Migrations successives d'un cas, chacune vérifiée par rejeu.
+/// Successive migrations of a case, each verified by replay.
 fn generate(case: &str, versions: &[String]) -> Vec<String> {
     let mut history: Vec<String> = Vec::new();
     for (i, target) in versions.iter().enumerate() {
@@ -99,7 +96,7 @@ fn generate(case: &str, versions: &[String]) -> Vec<String> {
         let m = diff(p.history.as_ref().unwrap(), &p.catalog);
         assert!(
             m.unsupported.is_empty(),
-            "{case} v{} : non pris en charge {:?}",
+            "{case} v{}: unsupported {:?}",
             i + 1,
             m.unsupported
         );
@@ -113,7 +110,7 @@ fn generate(case: &str, versions: &[String]) -> Vec<String> {
         let rest = diff(check.history.as_ref().unwrap(), &check.catalog);
         assert!(
             rest.is_empty(),
-            "{case} v{} : la migration n'atteint pas la cible\n--- migration\n{}\n--- reste\n{}",
+            "{case} v{}: the migration does not reach the target\n--- migration\n{}\n--- remainder\n{}",
             i + 1,
             history.last().unwrap(),
             rest.to_sql()
@@ -123,7 +120,7 @@ fn generate(case: &str, versions: &[String]) -> Vec<String> {
 }
 
 #[test]
-fn evolutions_generees_et_verifiees_par_rejeu() {
+fn evolutions_generated_and_verified_by_replay() {
     for (case, versions) in cases() {
         let history = generate(&case, &versions);
         assert_eq!(history.len(), versions.len());
@@ -131,8 +128,8 @@ fn evolutions_generees_et_verifiees_par_rejeu() {
 }
 
 #[tokio::test]
-#[ignore = "nécessite PostgreSQL : make oracle"]
-async fn evolutions_appliquees_sur_postgresql() {
+#[ignore = "requires PostgreSQL: make oracle"]
+async fn evolutions_applied_on_postgresql() {
     let url = std::env::var(pgweave_oracle::URL_ENV).expect("PGWEAVE_ORACLE_URL");
     for (case, versions) in cases() {
         let history = generate(&case, &versions);
@@ -149,16 +146,16 @@ async fn evolutions_appliquees_sur_postgresql() {
                 target,
             )
             .await
-            .unwrap_or_else(|e| panic!("{case} v{} : {e}\n--- migration\n{}", i + 1, history[i]));
+            .unwrap_or_else(|e| panic!("{case} v{}: {e}\n--- migration\n{}", i + 1, history[i]));
             assert!(
                 cmp.is_identical(),
-                "{case} v{} : bases différentes\n--- migrations seules\n{}\n--- schéma seul\n{}\n--- migration\n{}",
+                "{case} v{}: databases differ\n--- migrations only\n{}\n--- schema only\n{}\n--- migration\n{}",
                 i + 1,
                 cmp.only_migrations.join("\n"),
                 cmp.only_schema.join("\n"),
                 history[i]
             );
-            eprintln!("{case} v{} : {} objets identiques", i + 1, cmp.objects);
+            eprintln!("{case} v{}: {} identical objects", i + 1, cmp.objects);
         }
     }
 }

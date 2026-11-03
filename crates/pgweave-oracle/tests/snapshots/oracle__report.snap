@@ -1,16 +1,17 @@
 ---
 source: crates/pgweave-oracle/tests/oracle.rs
+assertion_line: 58
 expression: report
 ---
-# Oracle différentiel — PostgreSQL 18
+# Differential oracle — PostgreSQL 18
 
-Requêtes : 243 · Colonnes conformes : 749/751 (99 %) · Paramètres conformes : 146/146 (100 %)
+Queries: 243 · Matching columns: 749/751 (99 %) · Matching parameters: 146/146 (100 %)
 
 ## 01-basics
 
 ### `all_columns`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -28,7 +29,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `some_columns`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -38,7 +39,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `qualified_star`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -56,7 +57,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `aliases`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -65,7 +66,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `literals`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -77,7 +78,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `arithmetic`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -87,7 +88,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `text_ops`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -97,7 +98,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `comparisons`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -107,7 +108,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `case_coalesce`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -117,7 +118,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `casts`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -127,7 +128,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `aggregates`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -140,7 +141,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `group_by`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -149,7 +150,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `now_and_arrays`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -159,7 +160,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `by_id`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -168,7 +169,7 @@ Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 ### `search`
 
-Paramètres — PostgreSQL : `text`, `int4`, `int8` · pgweave : `text`, `int4`, `int8` · 3/3
+Parameters — PostgreSQL: `text`, `int4`, `int8` · pgweave: `text`, `int4`, `int8` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -177,7 +178,7 @@ Paramètres — PostgreSQL : `text`, `int4`, `int8` · pgweave : `text`, `int4`,
 
 ### `by_ids`
 
-Paramètres — PostgreSQL : `int8[]` · pgweave : `int8[]` · 1/1
+Parameters — PostgreSQL: `int8[]` · pgweave: `int8[]` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -185,7 +186,7 @@ Paramètres — PostgreSQL : `int8[]` · pgweave : `int8[]` · 1/1
 
 ### `in_window`
 
-Paramètres — PostgreSQL : `timestamptz`, `timestamptz` · pgweave : `timestamptz`, `timestamptz` · 2/2
+Parameters — PostgreSQL: `timestamptz`, `timestamptz` · pgweave: `timestamptz`, `timestamptz` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -196,7 +197,7 @@ Paramètres — PostgreSQL : `timestamptz`, `timestamptz` · pgweave : `timestam
 
 ### `inner_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -206,7 +207,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `left_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -216,7 +217,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `using_join`
 
-Paramètres — PostgreSQL : `uuid` · pgweave : `uuid` · 1/1
+Parameters — PostgreSQL: `uuid` · pgweave: `uuid` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -225,7 +226,7 @@ Paramètres — PostgreSQL : `uuid` · pgweave : `uuid` · 1/1
 
 ### `scalar_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -234,7 +235,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `exists_filter`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -242,7 +243,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `cte`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -251,7 +252,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `union_all`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -260,7 +261,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `aggregate_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -274,13 +275,13 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `insert_page`
 
-Paramètres — PostgreSQL : `int8`, `text`, `text` · pgweave : `int8`, `text`, `text` · 3/3
+Parameters — PostgreSQL: `int8`, `text`, `text` · pgweave: `int8`, `text`, `text` · 3/3
 
-Aucune colonne de sortie ✓
+No output column ✓
 
 ### `insert_returning`
 
-Paramètres — PostgreSQL : `int8`, `text` · pgweave : `int8`, `text` · 2/2
+Parameters — PostgreSQL: `int8`, `text` · pgweave: `int8`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -290,7 +291,7 @@ Paramètres — PostgreSQL : `int8`, `text` · pgweave : `int8`, `text` · 2/2
 
 ### `upsert`
 
-Paramètres — PostgreSQL : `int8`, `text` · pgweave : `int8`, `text` · 2/2
+Parameters — PostgreSQL: `int8`, `text` · pgweave: `int8`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -299,7 +300,7 @@ Paramètres — PostgreSQL : `int8`, `text` · pgweave : `int8`, `text` · 2/2
 
 ### `rename`
 
-Paramètres — PostgreSQL : `text`, `int8` · pgweave : `text`, `int8` · 2/2
+Parameters — PostgreSQL: `text`, `int8` · pgweave: `text`, `int8` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -308,13 +309,13 @@ Paramètres — PostgreSQL : `text`, `int8` · pgweave : `text`, `int8` · 2/2
 
 ### `bump_views`
 
-Paramètres — PostgreSQL : `int4`, `int8` · pgweave : `int4`, `int8` · 2/2
+Parameters — PostgreSQL: `int4`, `int8` · pgweave: `int4`, `int8` · 2/2
 
-Aucune colonne de sortie ✓
+No output column ✓
 
 ### `delete_page`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -322,16 +323,16 @@ Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 ### `insert_select`
 
-Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+Parameters — PostgreSQL: `int4` · pgweave: `int4` · 1/1
 
-Aucune colonne de sortie ✓
+No output column ✓
 
 
 ## 04-schema-features
 
 ### `all_products`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -345,7 +346,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `by_sku`
 
-Paramètres — PostgreSQL : `citext` · pgweave : `citext` · 1/1
+Parameters — PostgreSQL: `citext` · pgweave: `citext` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -354,7 +355,7 @@ Paramètres — PostgreSQL : `citext` · pgweave : `citext` · 1/1
 
 ### `by_status`
 
-Paramètres — PostgreSQL : `page_status` · pgweave : `page_status` · 1/1
+Parameters — PostgreSQL: `page_status` · pgweave: `page_status` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -362,7 +363,7 @@ Paramètres — PostgreSQL : `page_status` · pgweave : `page_status` · 1/1
 
 ### `insert_product`
 
-Paramètres — PostgreSQL : `citext`, `positive_int`, `numeric` · pgweave : `citext`, `positive_int`, `numeric` · 3/3
+Parameters — PostgreSQL: `citext`, `positive_int`, `numeric` · pgweave: `citext`, `positive_int`, `numeric` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -372,7 +373,7 @@ Paramètres — PostgreSQL : `citext`, `positive_int`, `numeric` · pgweave : `c
 
 ### `enum_cast`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -384,7 +385,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `table_function`
 
-Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+Parameters — PostgreSQL: `int4` · pgweave: `int4` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -394,7 +395,7 @@ Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 ### `table_function_columns`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -403,7 +404,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `scalar_function`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -411,16 +412,16 @@ Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 ### `call_procedure`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
-Aucune colonne de sortie ✓
+No output column ✓
 
 
 ## 06-expressions
 
 ### `arithmetic_mix`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -434,7 +435,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `integer_literals`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -447,7 +448,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `string_functions`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -460,7 +461,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `string_concat_number`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -470,7 +471,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `like_patterns`
 
-Paramètres — PostgreSQL : `text`, `text` · pgweave : `text`, `text` · 2/2
+Parameters — PostgreSQL: `text`, `text` · pgweave: `text`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -478,7 +479,7 @@ Paramètres — PostgreSQL : `text`, `text` · pgweave : `text`, `text` · 2/2
 
 ### `date_math`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -491,7 +492,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `date_functions`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -503,7 +504,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `at_time_zone`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -512,7 +513,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `current_values`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -524,7 +525,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `jsonb_access`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -537,7 +538,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `jsonb_param_filter`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -545,7 +546,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `jsonb_build`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -555,7 +556,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `array_ops`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -570,7 +571,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `array_any`
 
-Paramètres — PostgreSQL : `order_status[]` · pgweave : `order_status[]` · 1/1
+Parameters — PostgreSQL: `order_status[]` · pgweave: `order_status[]` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -578,7 +579,7 @@ Paramètres — PostgreSQL : `order_status[]` · pgweave : `order_status[]` · 1
 
 ### `array_param_any`
 
-Paramètres — PostgreSQL : `int8[]` · pgweave : `int8[]` · 1/1
+Parameters — PostgreSQL: `int8[]` · pgweave: `int8[]` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -586,7 +587,7 @@ Paramètres — PostgreSQL : `int8[]` · pgweave : `int8[]` · 1/1
 
 ### `array_constructor`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -598,7 +599,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `casts`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -614,7 +615,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `case_expressions`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -625,7 +626,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `coalesce_family`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -638,7 +639,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `boolean_logic`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -651,7 +652,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `in_list`
 
-Paramètres — PostgreSQL : `int8`, `int8` · pgweave : `int8`, `int8` · 2/2
+Parameters — PostgreSQL: `int8`, `int8` · pgweave: `int8`, `int8` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -659,7 +660,7 @@ Paramètres — PostgreSQL : `int8`, `int8` · pgweave : `int8`, `int8` · 2/2
 
 ### `aggregates`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -677,7 +678,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `aggregate_filter_group`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -687,7 +688,7 @@ Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 ### `window_functions`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -700,7 +701,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `ordered_set`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -709,7 +710,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `distinct_on`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -719,7 +720,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `limit_offset_params`
 
-Paramètres — PostgreSQL : `int8`, `int8` · pgweave : `int8`, `int8` · 2/2
+Parameters — PostgreSQL: `int8`, `int8` · pgweave: `int8`, `int8` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -727,7 +728,7 @@ Paramètres — PostgreSQL : `int8`, `int8` · pgweave : `int8`, `int8` · 2/2
 
 ### `param_cast`
 
-Paramètres — PostgreSQL : `int4`, `text` · pgweave : `int4`, `text` · 2/2
+Parameters — PostgreSQL: `int4`, `text` · pgweave: `int4`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -736,7 +737,7 @@ Paramètres — PostgreSQL : `int4`, `text` · pgweave : `int4`, `text` · 2/2
 
 ### `param_in_case`
 
-Paramètres — PostgreSQL : `numeric` · pgweave : `numeric` · 1/1
+Parameters — PostgreSQL: `numeric` · pgweave: `numeric` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -744,7 +745,7 @@ Paramètres — PostgreSQL : `numeric` · pgweave : `numeric` · 1/1
 
 ### `param_coalesce`
 
-Paramètres — PostgreSQL : `numeric` · pgweave : `numeric` · 1/1
+Parameters — PostgreSQL: `numeric` · pgweave: `numeric` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -752,7 +753,7 @@ Paramètres — PostgreSQL : `numeric` · pgweave : `numeric` · 1/1
 
 ### `param_function_arg`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -760,7 +761,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `enum_compare_param`
 
-Paramètres — PostgreSQL : `order_status` · pgweave : `order_status` · 1/1
+Parameters — PostgreSQL: `order_status` · pgweave: `order_status` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -768,7 +769,7 @@ Paramètres — PostgreSQL : `order_status` · pgweave : `order_status` · 1/1
 
 ### `generate_series_from`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -777,7 +778,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `unnest_from`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -786,7 +787,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `lateral_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -795,7 +796,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `scalar_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -805,7 +806,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `exists_and_in_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -813,7 +814,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `union_literals`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -822,7 +823,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `union_mixed_types`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -831,7 +832,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `recursive_cte`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -840,7 +841,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `cte_chain`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -849,7 +850,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `values_select`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -858,7 +859,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `full_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -867,7 +868,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `natural_join_star`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -884,7 +885,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `insert_returning_params`
 
-Paramètres — PostgreSQL : `int8`, `numeric`, `int4[]`, `timestamp` · pgweave : `int8`, `numeric`, `int4[]`, `timestamp` · 4/4
+Parameters — PostgreSQL: `int8`, `numeric`, `int4[]`, `timestamp` · pgweave: `int8`, `numeric`, `int4[]`, `timestamp` · 4/4
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -894,7 +895,7 @@ Paramètres — PostgreSQL : `int8`, `numeric`, `int4[]`, `timestamp` · pgweave
 
 ### `insert_select`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -908,7 +909,7 @@ Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 ### `update_params`
 
-Paramètres — PostgreSQL : `numeric`, `float4`, `order_status`, `int8` · pgweave : `numeric`, `float4`, `order_status`, `int8` · 4/4
+Parameters — PostgreSQL: `numeric`, `float4`, `order_status`, `int8` · pgweave: `numeric`, `float4`, `order_status`, `int8` · 4/4
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -917,7 +918,7 @@ Paramètres — PostgreSQL : `numeric`, `float4`, `order_status`, `int8` · pgwe
 
 ### `upsert`
 
-Paramètres — PostgreSQL : `varchar`, `text` · pgweave : `varchar`, `text` · 2/2
+Parameters — PostgreSQL: `varchar`, `text` · pgweave: `varchar`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -926,7 +927,7 @@ Paramètres — PostgreSQL : `varchar`, `text` · pgweave : `varchar`, `text` ·
 
 ### `delete_using`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -937,7 +938,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `domain_columns`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -949,7 +950,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `domain_param`
 
-Paramètres — PostgreSQL : `citext`, `numeric` · pgweave : `citext`, `numeric` · 2/2
+Parameters — PostgreSQL: `citext`, `numeric` · pgweave: `citext`, `numeric` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -957,7 +958,7 @@ Paramètres — PostgreSQL : `citext`, `numeric` · pgweave : `citext`, `numeric
 
 ### `domain_insert`
 
-Paramètres — PostgreSQL : `email`, `money_amount` · pgweave : `email`, `money_amount` · 2/2
+Parameters — PostgreSQL: `email`, `money_amount` · pgweave: `email`, `money_amount` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -967,7 +968,7 @@ Paramètres — PostgreSQL : `email`, `money_amount` · pgweave : `email`, `mone
 
 ### `composite_fields`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -977,7 +978,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `composite_constructor`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -986,7 +987,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `enum_ops`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -999,7 +1000,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `enum_param_array`
 
-Paramètres — PostgreSQL : `plan[]` · pgweave : `plan[]` · 1/1
+Parameters — PostgreSQL: `plan[]` · pgweave: `plan[]` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1007,7 +1008,7 @@ Paramètres — PostgreSQL : `plan[]` · pgweave : `plan[]` · 1/1
 
 ### `enum_range`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1016,7 +1017,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `view_select`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1029,7 +1030,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `view_filter_param`
 
-Paramètres — PostgreSQL : `numeric` · pgweave : `numeric` · 1/1
+Parameters — PostgreSQL: `numeric` · pgweave: `numeric` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1038,7 +1039,7 @@ Paramètres — PostgreSQL : `numeric` · pgweave : `numeric` · 1/1
 
 ### `schema_view`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1048,7 +1049,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `qualified_table`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1059,7 +1060,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `identity_insert`
 
-Paramètres — PostgreSQL : `int4`, `money_amount`, `date` · pgweave : `int4`, `money_amount`, `date` · 3/3
+Parameters — PostgreSQL: `int4`, `money_amount`, `date` · pgweave: `int4`, `money_amount`, `date` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1068,7 +1069,7 @@ Paramètres — PostgreSQL : `int4`, `money_amount`, `date` · pgweave : `int4`,
 
 ### `setof_function`
 
-Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+Parameters — PostgreSQL: `int4` · pgweave: `int4` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1077,7 +1078,7 @@ Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 ### `setof_function_star`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1090,7 +1091,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `returns_table_function`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1099,7 +1100,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `rowtype_argument`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1107,7 +1108,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `out_params_function`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1116,7 +1117,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `out_params_scalar`
 
-Paramètres — PostgreSQL : `numeric`, `int4` · pgweave : `numeric`, `int4` · 2/2
+Parameters — PostgreSQL: `numeric`, `int4` · pgweave: `numeric`, `int4` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1124,7 +1125,7 @@ Paramètres — PostgreSQL : `numeric`, `int4` · pgweave : `numeric`, `int4` ·
 
 ### `citext_compare`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1132,7 +1133,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `json_aggregation`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1143,7 +1144,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `row_to_json`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1152,7 +1153,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `regex`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1164,7 +1165,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `string_array`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1174,7 +1175,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `date_arith`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1187,7 +1188,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `series_timestamps`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1195,7 +1196,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `integer_division`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1213,7 +1214,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `numeric_rounding`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1227,7 +1228,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `window_frames`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1239,7 +1240,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `grouping_aggregates`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1252,7 +1253,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `param_is_null_or`
 
-Paramètres — PostgreSQL : `plan`, `timestamptz` · pgweave : `plan`, `timestamptz` · 2/2
+Parameters — PostgreSQL: `plan`, `timestamptz` · pgweave: `plan`, `timestamptz` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1260,7 +1261,7 @@ Paramètres — PostgreSQL : `plan`, `timestamptz` · pgweave : `plan`, `timesta
 
 ### `param_between`
 
-Paramètres — PostgreSQL : `date`, `date` · pgweave : `date`, `date` · 2/2
+Parameters — PostgreSQL: `date`, `date` · pgweave: `date`, `date` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1268,7 +1269,7 @@ Paramètres — PostgreSQL : `date`, `date` · pgweave : `date`, `date` · 2/2
 
 ### `param_like_concat`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1276,7 +1277,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `param_insert_select`
 
-Paramètres — PostgreSQL : `money_amount`, `plan` · pgweave : `money_amount`, `plan` · 2/2
+Parameters — PostgreSQL: `money_amount`, `plan` · pgweave: `money_amount`, `plan` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1284,7 +1285,7 @@ Paramètres — PostgreSQL : `money_amount`, `plan` · pgweave : `money_amount`,
 
 ### `update_from_values`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1293,7 +1294,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `update_composite_field`
 
-Paramètres — PostgreSQL : `text`, `int4` · pgweave : `text`, `int4` · 2/2
+Parameters — PostgreSQL: `text`, `int4` · pgweave: `text`, `int4` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1301,7 +1302,7 @@ Paramètres — PostgreSQL : `text`, `int4` · pgweave : `text`, `int4` · 2/2
 
 ### `delete_returning_all`
 
-Paramètres — PostgreSQL : `date` · pgweave : `date` · 1/1
+Parameters — PostgreSQL: `date` · pgweave: `date` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1314,7 +1315,7 @@ Paramètres — PostgreSQL : `date` · pgweave : `date` · 1/1
 
 ### `fetch_first_for_update`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1323,7 +1324,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `exists_correlated_view`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1331,7 +1332,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `intersect_except`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1339,7 +1340,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `nested_cte_view`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1349,7 +1350,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `case_enum_text`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1358,7 +1359,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `coalesce_domain`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1367,7 +1368,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `array_param_unnest`
 
-Paramètres — PostgreSQL : `int4[]` · pgweave : `int4[]` · 1/1
+Parameters — PostgreSQL: `int4[]` · pgweave: `int4[]` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1378,7 +1379,7 @@ Paramètres — PostgreSQL : `int4[]` · pgweave : `int4[]` · 1/1
 
 ### `cte_insert_returning`
 
-Paramètres — PostgreSQL : `varchar` · pgweave : `varchar` · 1/1
+Parameters — PostgreSQL: `varchar` · pgweave: `varchar` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1388,7 +1389,7 @@ Paramètres — PostgreSQL : `varchar` · pgweave : `varchar` · 1/1
 
 ### `cte_delete_then_count`
 
-Paramètres — PostgreSQL : `timestamp` · pgweave : `timestamp` · 1/1
+Parameters — PostgreSQL: `timestamp` · pgweave: `timestamp` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1397,7 +1398,7 @@ Paramètres — PostgreSQL : `timestamp` · pgweave : `timestamp` · 1/1
 
 ### `cte_update_join`
 
-Paramètres — PostgreSQL : `uuid` · pgweave : `uuid` · 1/1
+Parameters — PostgreSQL: `uuid` · pgweave: `uuid` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1406,7 +1407,7 @@ Paramètres — PostgreSQL : `uuid` · pgweave : `uuid` · 1/1
 
 ### `jsonb_each_from`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1416,7 +1417,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `jsonb_each_text_from`
 
-Paramètres — PostgreSQL : `jsonb` · pgweave : `jsonb` · 1/1
+Parameters — PostgreSQL: `jsonb` · pgweave: `jsonb` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1425,7 +1426,7 @@ Paramètres — PostgreSQL : `jsonb` · pgweave : `jsonb` · 1/1
 
 ### `json_array_elements_from`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1434,7 +1435,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `json_to_recordset`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1443,7 +1444,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `jsonb_set_ops`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1455,7 +1456,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `jsonb_path`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1465,7 +1466,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `rollup`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1475,7 +1476,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `grouping_sets`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1486,7 +1487,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `string_toolbox`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1503,7 +1504,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `string_format`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1517,7 +1518,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `numeric_toolbox`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1536,7 +1537,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `date_toolbox`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1551,7 +1552,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `interval_math`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1564,7 +1565,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `keyset_pagination`
 
-Paramètres — PostgreSQL : `date`, `int8`, `int8` · pgweave : `date`, `int8`, `int8` · 3/3
+Parameters — PostgreSQL: `date`, `int8`, `int8` · pgweave: `date`, `int8`, `int8` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1574,7 +1575,7 @@ Paramètres — PostgreSQL : `date`, `int8`, `int8` · pgweave : `date`, `int8`,
 
 ### `offset_pagination`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1584,7 +1585,7 @@ Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 ### `array_param_uuid`
 
-Paramètres — PostgreSQL : `uuid[]` · pgweave : `uuid[]` · 1/1
+Parameters — PostgreSQL: `uuid[]` · pgweave: `uuid[]` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1592,7 +1593,7 @@ Paramètres — PostgreSQL : `uuid[]` · pgweave : `uuid[]` · 1/1
 
 ### `array_param_in_insert`
 
-Paramètres — PostgreSQL : `uuid`, `text`, `text`, `varchar[]` · pgweave : `uuid`, `text`, `text`, `varchar[]` · 4/4
+Parameters — PostgreSQL: `uuid`, `text`, `text`, `varchar[]` · pgweave: `uuid`, `text`, `text`, `varchar[]` · 4/4
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1601,7 +1602,7 @@ Paramètres — PostgreSQL : `uuid`, `text`, `text`, `varchar[]` · pgweave : `u
 
 ### `array_contains_param`
 
-Paramètres — PostgreSQL : `varchar[]`, `varchar[]` · pgweave : `varchar[]`, `varchar[]` · 2/2
+Parameters — PostgreSQL: `varchar[]`, `varchar[]` · pgweave: `varchar[]`, `varchar[]` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1609,7 +1610,7 @@ Paramètres — PostgreSQL : `varchar[]`, `varchar[]` · pgweave : `varchar[]`, 
 
 ### `array_unnest_multi`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1618,7 +1619,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `array_agg_ordered`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1628,7 +1629,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `soft_delete_filter`
 
-Paramètres — PostgreSQL : `timestamptz` · pgweave : `timestamptz` · 1/1
+Parameters — PostgreSQL: `timestamptz` · pgweave: `timestamptz` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1638,7 +1639,7 @@ Paramètres — PostgreSQL : `timestamptz` · pgweave : `timestamptz` · 1/1
 
 ### `returning_old_new`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1647,7 +1648,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `upsert_do_nothing`
 
-Paramètres — PostgreSQL : `varchar`, `text` · pgweave : `varchar`, `text` · 2/2
+Parameters — PostgreSQL: `varchar`, `text` · pgweave: `varchar`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1655,7 +1656,7 @@ Paramètres — PostgreSQL : `varchar`, `text` · pgweave : `varchar`, `text` ·
 
 ### `upsert_where`
 
-Paramètres — PostgreSQL : `varchar`, `int4` · pgweave : `varchar`, `int4` · 2/2
+Parameters — PostgreSQL: `varchar`, `int4` · pgweave: `varchar`, `int4` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1663,7 +1664,7 @@ Paramètres — PostgreSQL : `varchar`, `int4` · pgweave : `varchar`, `int4` ·
 
 ### `delete_in_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1672,7 +1673,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `update_case_param`
 
-Paramètres — PostgreSQL : `bool`, `int8` · pgweave : `bool`, `int8` · 2/2
+Parameters — PostgreSQL: `bool`, `int8` · pgweave: `bool`, `int8` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1680,7 +1681,7 @@ Paramètres — PostgreSQL : `bool`, `int8` · pgweave : `bool`, `int8` · 2/2
 
 ### `insert_default_values`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1690,7 +1691,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `correlated_max`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1705,7 +1706,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `any_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1713,7 +1714,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `lateral_function`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1722,7 +1723,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `window_named_frame`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1733,7 +1734,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `filter_and_case_agg`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1743,7 +1744,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `distinct_count_pairs`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1752,7 +1753,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `nullif_division`
 
-Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+Parameters — PostgreSQL: `int4` · pgweave: `int4` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1761,7 +1762,7 @@ Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 ### `boolean_params`
 
-Paramètres — PostgreSQL : `bool`, `int4` · pgweave : `bool`, `int4` · 2/2
+Parameters — PostgreSQL: `bool`, `int4` · pgweave: `bool`, `int4` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1769,7 +1770,7 @@ Paramètres — PostgreSQL : `bool`, `int4` · pgweave : `bool`, `int4` · 2/2
 
 ### `text_search`
 
-Paramètres — PostgreSQL : `text`, `text` · pgweave : `text`, `text` · 2/2
+Parameters — PostgreSQL: `text`, `text` · pgweave: `text`, `text` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1779,7 +1780,7 @@ Paramètres — PostgreSQL : `text`, `text` · pgweave : `text`, `text` · 2/2
 
 ### `json_build_nested`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1787,7 +1788,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `values_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1796,7 +1797,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `union_order_limit`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1805,7 +1806,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `exists_param`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1813,7 +1814,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `scalar_param_math`
 
-Paramètres — PostgreSQL : `numeric`, `int4`, `int4`, `text` · pgweave : `numeric`, `int4`, `int4`, `text` · 4/4
+Parameters — PostgreSQL: `numeric`, `int4`, `int4`, `text` · pgweave: `numeric`, `int4`, `int4`, `text` · 4/4
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1823,7 +1824,7 @@ Paramètres — PostgreSQL : `numeric`, `int4`, `int4`, `text` · pgweave : `num
 
 ### `order_by_output_name_over_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1832,7 +1833,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `group_by_prefers_input_column`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1841,7 +1842,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `row_in_subquery`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1849,7 +1850,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `normalize_form`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1858,7 +1859,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `named_window`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1870,7 +1871,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `window_rank`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1882,7 +1883,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `window_value_functions`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1894,7 +1895,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `window_frame`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1904,7 +1905,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `ntile_percent`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1915,7 +1916,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `ordered_aggregates`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1926,7 +1927,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `within_group`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1936,7 +1937,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `filter_aggregates`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1947,7 +1948,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `statistical_aggregates`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1960,7 +1961,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `lateral_top_n`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1969,7 +1970,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `lateral_left_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1978,7 +1979,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `recursive_tree`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1989,7 +1990,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `materialized_cte`
 
-Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+Parameters — PostgreSQL: `int4` · pgweave: `int4` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -1998,7 +1999,7 @@ Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 ### `set_operations`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2006,7 +2007,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `union_types`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2014,7 +2015,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `generate_series_dates`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2023,7 +2024,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `unnest_ordinality`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2033,20 +2034,20 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `rows_from`
 
-Paramètres — PostgreSQL : aucun · pgweave : non inféré · 0/0
+Parameters — PostgreSQL: none · pgweave: not inferred · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
-| 1 | `n int4` | non inféré | ✗ |
-| 2 | `letter text` | non inféré | ✗ |
+| 1 | `n int4` | not inferred | ✗ |
+| 2 | `letter text` | not inferred | ✗ |
 
-> pgweave — requête : `SELECT * FROM ROWS …` illisible (sql parser error: Expected: fin du statement, found: FROM at Line: 1, Column: 20)
+> pgweave — query: `SELECT * FROM ROWS …` unreadable (sql parser error: Expected: end of statement, found: FROM at Line: 1, Column: 20)
 
-> pgweave — analyse : [unparsable-statement] statement non lu, la requête n'est pas décrite : Unparsable("sql parser error: Expected: fin du statement, found: FROM at Line: 1, Column: 20")
+> pgweave — analysis: [unparsable-statement] statement not read, the query is not described: Unparsable("sql parser error: Expected: end of statement, found: FROM at Line: 1, Column: 20")
 
 ### `range_operators`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2060,7 +2061,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `range_param`
 
-Paramètres — PostgreSQL : `timestamptz` · pgweave : `timestamptz` · 1/1
+Parameters — PostgreSQL: `timestamptz` · pgweave: `timestamptz` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2068,7 +2069,7 @@ Paramètres — PostgreSQL : `timestamptz` · pgweave : `timestamptz` · 1/1
 
 ### `range_aggregate`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2078,7 +2079,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `full_text`
 
-Paramètres — PostgreSQL : `text`, `text`, `text` · pgweave : `text`, `text`, `text` · 3/3
+Parameters — PostgreSQL: `text`, `text`, `text` · pgweave: `text`, `text`, `text` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2088,7 +2089,7 @@ Paramètres — PostgreSQL : `text`, `text`, `text` · pgweave : `text`, `text`,
 
 ### `regex`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2102,7 +2103,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `string_misc`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2120,7 +2121,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `numeric_functions`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2140,7 +2141,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `bit_ops`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2154,7 +2155,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `date_misc`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2168,7 +2169,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `overlaps`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2176,7 +2177,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `json_functions`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2188,7 +2189,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `json_table_like`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2197,7 +2198,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `exists_and_scalar`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2208,7 +2209,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `not_exists_anti_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2216,7 +2217,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `any_all_subquery`
 
-Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+Parameters — PostgreSQL: `int4` · pgweave: `int4` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2224,7 +2225,7 @@ Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 ### `row_comparison`
 
-Paramètres — PostgreSQL : `int4`, `int4` · pgweave : `int4`, `int4` · 2/2
+Parameters — PostgreSQL: `int4`, `int4` · pgweave: `int4`, `int4` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2232,7 +2233,7 @@ Paramètres — PostgreSQL : `int4`, `int4` · pgweave : `int4`, `int4` · 2/2
 
 ### `distinct_from_params`
 
-Paramètres — PostgreSQL : `text`, `date` · pgweave : `text`, `date` · 2/2
+Parameters — PostgreSQL: `text`, `date` · pgweave: `text`, `date` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2240,7 +2241,7 @@ Paramètres — PostgreSQL : `text`, `date` · pgweave : `text`, `date` · 2/2
 
 ### `nulls_ordering`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2249,7 +2250,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `limit_offset_params`
 
-Paramètres — PostgreSQL : `int8`, `int8` · pgweave : `int8`, `int8` · 2/2
+Parameters — PostgreSQL: `int8`, `int8` · pgweave: `int8`, `int8` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2257,7 +2258,7 @@ Paramètres — PostgreSQL : `int8`, `int8` · pgweave : `int8`, `int8` · 2/2
 
 ### `group_by_ordinal_having`
 
-Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
+Parameters — PostgreSQL: `int8` · pgweave: `int8` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2266,7 +2267,7 @@ Paramètres — PostgreSQL : `int8` · pgweave : `int8` · 1/1
 
 ### `group_by_alias_expression`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2275,7 +2276,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `cube_sets`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2286,7 +2287,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `domain_and_enum`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2300,7 +2301,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `enum_param`
 
-Paramètres — PostgreSQL : `level`, `level[]` · pgweave : `level`, `level[]` · 2/2
+Parameters — PostgreSQL: `level`, `level[]` · pgweave: `level`, `level[]` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2308,7 +2309,7 @@ Paramètres — PostgreSQL : `level`, `level[]` · pgweave : `level`, `level[]` 
 
 ### `insert_select_returning`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2318,7 +2319,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `insert_on_conflict_update`
 
-Paramètres — PostgreSQL : `text`, `timestamptz`, `float4` · pgweave : `text`, `timestamptz`, `float4` · 3/3
+Parameters — PostgreSQL: `text`, `timestamptz`, `float4` · pgweave: `text`, `timestamptz`, `float4` · 3/3
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2327,7 +2328,7 @@ Paramètres — PostgreSQL : `text`, `timestamptz`, `float4` · pgweave : `text`
 
 ### `insert_on_conflict_nothing`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2335,7 +2336,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `update_from_join`
 
-Paramètres — PostgreSQL : `level` · pgweave : `level` · 1/1
+Parameters — PostgreSQL: `level` · pgweave: `level` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2344,13 +2345,13 @@ Paramètres — PostgreSQL : `level` · pgweave : `level` · 1/1
 
 ### `update_row_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
-Aucune colonne de sortie ✓
+No output column ✓
 
 ### `delete_using_returning`
 
-Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
+Parameters — PostgreSQL: `int4` · pgweave: `int4` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2360,7 +2361,7 @@ Paramètres — PostgreSQL : `int4` · pgweave : `int4` · 1/1
 
 ### `values_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2369,7 +2370,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `case_in_aggregate`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2378,7 +2379,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `coalesce_subquery`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2386,7 +2387,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `array_functions`
 
-Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
+Parameters — PostgreSQL: `text` · pgweave: `text` · 1/1
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2399,7 +2400,7 @@ Paramètres — PostgreSQL : `text` · pgweave : `text` · 1/1
 
 ### `uuid_and_hash`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2410,7 +2411,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `interval_math`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2421,7 +2422,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `param_in_select_list`
 
-Paramètres — PostgreSQL : `text`, `int4` · pgweave : `text`, `int4` · 2/2
+Parameters — PostgreSQL: `text`, `int4` · pgweave: `text`, `int4` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2431,7 +2432,7 @@ Paramètres — PostgreSQL : `text`, `int4` · pgweave : `text`, `int4` · 2/2
 
 ### `param_typed_by_function`
 
-Paramètres — PostgreSQL : `int4`, `int4` · pgweave : `int4`, `int4` · 2/2
+Parameters — PostgreSQL: `int4`, `int4` · pgweave: `int4`, `int4` · 2/2
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2439,7 +2440,7 @@ Paramètres — PostgreSQL : `int4`, `int4` · pgweave : `int4`, `int4` · 2/2
 
 ### `param_typed_by_insert_values`
 
-Paramètres — PostgreSQL : `int8`, `timestamptz`, `timestamptz`, `float8` · pgweave : `int8`, `timestamptz`, `timestamptz`, `float8` · 4/4
+Parameters — PostgreSQL: `int8`, `timestamptz`, `timestamptz`, `float8` · pgweave: `int8`, `timestamptz`, `timestamptz`, `float8` · 4/4
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2447,7 +2448,7 @@ Paramètres — PostgreSQL : `int8`, `timestamptz`, `timestamptz`, `float8` · p
 
 ### `count_distinct`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2456,7 +2457,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `self_join_aliases`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2465,7 +2466,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `full_outer_join_using`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|
@@ -2475,7 +2476,7 @@ Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
 
 ### `natural_join`
 
-Paramètres — PostgreSQL : aucun · pgweave : aucun · 0/0
+Parameters — PostgreSQL: none · pgweave: none · 0/0
 
 | # | PostgreSQL | pgweave | |
 |--:|---|---|:-:|

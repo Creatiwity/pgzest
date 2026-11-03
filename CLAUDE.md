@@ -1,23 +1,25 @@
 # pgweave (ex-pgweave)
 
-PostgreSQL language toolchain in Rust. **PLAN.md est le document de pilotage** (principes, décisions D1–D11, phases P0–P8) ; SPECS.md et ARCHITECTURE.md sont du contexte historique.
+PostgreSQL language toolchain in Rust. **PLAN.md is the steering document** (principles, decisions D1–D11, phases P0–P8); SPECS.md and ARCHITECTURE.md are historical context.
+
+**Language rule: everything in the repo is in English** — code, comments, docs, messages, tests and commit messages.
 
 ## Stack
 
-- **Language**: Rust (workspace avec plusieurs crates)
-- **Parser base**: `sqlparser-rs` (crates.io, `PostgreSqlDialect` non forké) + parser PL/pgSQL maison. Les réécritures textuelles avant parse sont une dette à supprimer (PLAN.md D1 : dialecte wrapper)
+- **Language**: Rust (workspace with several crates)
+- **Parser base**: `sqlparser-rs` (crates.io, `PostgreSqlDialect`, not forked) + in-house PL/pgSQL parser. Textual rewrites before parsing are debt to remove (PLAN.md D1: wrapper dialect)
 - **LSP**: `tower-lsp`
-- **Cible prioritaire**: Rust (`tokio-postgres`), TypeScript ensuite. Bindings WASM / napi-rs gelés jusqu'à P8
+- **Priority target**: Rust (`tokio-postgres`), then TypeScript. WASM / napi-rs bindings frozen until P8
 
-## Décisions clés
+## Key decisions
 
-- L'AST est normalisé en ordre d'évaluation logique (FROM → JOIN → WHERE → SELECT …) avant le type-checker — ne jamais bypasser cette étape
-- Le type-checker ne voit que l'AST normalisé, jamais l'AST syntaxique brut
-- Un seul point d'entrée pour les infos de schéma : aujourd'hui `SchemaProvider`, à terme le catalogue `pgweave-catalog` (PLAN.md D2) — pas d'accès direct à des fichiers DDL depuis le checker
-- Ne jamais deviner un type ou une nullabilité : inconnu = `Unknown` + diagnostic (PLAN.md §1)
-- Le silence est un bug : tout ce qui n'est pas analysé est signalé
-- Les plugins génèrent du schéma à partir de l'analyse (logique inverse de Prisma)
+- The AST is normalized into logical evaluation order (FROM → JOIN → WHERE → SELECT …) before the type checker — never bypass this step
+- The type checker only sees the normalized AST, never the raw syntactic AST
+- A single entry point for schema info: today `SchemaProvider`, eventually the `pgweave-catalog` catalog (PLAN.md D2) — no direct access to DDL files from the checker
+- Never guess a type or nullability: unknown = `Unknown` + diagnostic (PLAN.md §1)
+- Silence is a bug: everything not analyzed is reported
+- Plugins generate schema from the analysis (the reverse of Prisma's logic)
 
 ## Structure
 
-Actuelle : voir `Cargo.toml` (workspace). Cible : PLAN.md §9.
+Current: see `Cargo.toml` (workspace). Target: PLAN.md §9.

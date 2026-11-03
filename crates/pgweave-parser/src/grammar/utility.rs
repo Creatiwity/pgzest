@@ -1,6 +1,6 @@
-//! Statements utilitaires que sqlparser ne lit pas dans leur forme
-//! PostgreSQL : `ANALYZE` et `VACUUM` (sqlparser ne connaît que la forme Hive,
-//! à une seule table).
+//! Utility statements sqlparser does not read in their PostgreSQL
+//! form: `ANALYZE` and `VACUUM` (sqlparser only knows the Hive form,
+//! with a single table).
 
 use pgweave_ast::Statement;
 use pgweave_ast::node::Span;
@@ -22,8 +22,8 @@ pub(crate) fn is_maintenance(p: &Parser) -> bool {
         || matches!(&p.peek_token_ref().token, Token::Word(w) if w.value.eq_ignore_ascii_case("analyse"))
 }
 
-/// `ANALYZE [(option [valeur], …) | VERBOSE] [table [(colonnes)], …]`
-/// `VACUUM [(option [valeur], …) | FULL FREEZE VERBOSE ANALYZE] [table [(colonnes)], …]`
+/// `ANALYZE [(option [value], …) | VERBOSE] [table [(columns)], …]`
+/// `VACUUM [(option [value], …) | FULL FREEZE VERBOSE ANALYZE] [table [(columns)], …]`
 pub(crate) fn parse_maintenance(p: &mut Parser) -> Result<Statement> {
     let command = match &p.next_token().token {
         Token::Word(w) if w.keyword == Keyword::VACUUM => MaintenanceCommand::Vacuum,
@@ -97,7 +97,7 @@ pub(crate) fn parse_maintenance(p: &mut Parser) -> Result<Statement> {
     if p.peek_token_ref().token != Token::EOF {
         let found = p.peek_token_ref().clone();
         return Err(pe(p
-            .expected_ref::<()>("fin du statement", &found)
+            .expected_ref::<()>("end of statement", &found)
             .unwrap_err()));
     }
     Ok(Statement::Utility(Utility {
@@ -110,14 +110,14 @@ pub(crate) fn parse_maintenance(p: &mut Parser) -> Result<Statement> {
     }))
 }
 
-/// Mot (mot-clé ou identifiant), en majuscules.
+/// Word (keyword or identifier), uppercase.
 fn word(p: &mut Parser) -> Result<String> {
     match &p.next_token().token {
         Token::Word(w) => Ok(w.value.to_ascii_uppercase()),
         _ => {
             p.prev_token();
             let found = p.peek_token_ref().clone();
-            Err(pe(p.expected_ref::<()>("une option", &found).unwrap_err()))
+            Err(pe(p.expected_ref::<()>("an option", &found).unwrap_err()))
         }
     }
 }

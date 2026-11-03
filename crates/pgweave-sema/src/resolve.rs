@@ -1,5 +1,5 @@
-//! Choix d'une surcharge de fonction (`func_get_detail`,
-//! `func_select_candidate`) ou d'opérateur (`oper_select_candidate`).
+//! Choice of a function overload (`func_get_detail`,
+//! `func_select_candidate`) or of an operator (`oper_select_candidate`).
 
 use pgweave_catalog::model::{ArgMode, Operator, Routine};
 use pgweave_catalog::{QName, SearchPath};
@@ -8,52 +8,52 @@ use crate::coerce::{CoercionContext, Pathway};
 use crate::polymorphic::PolymorphicError;
 use crate::types::{CATEGORY_STRING, Ty, TypeSystem, pg};
 
-/// Une surcharge candidate, ses types d'arguments étendus à l'appel
-/// (variadique déplié).
+/// A candidate overload, its argument types expanded to the call
+/// (variadic unfolded).
 #[derive(Debug, Clone)]
 struct Candidate<'c, T> {
     target: &'c T,
-    /// Types déclarés, un par argument de l'appel.
+    /// Declared types, one per call argument.
     args: Vec<Ty>,
-    /// Arguments variadiques passés un par un.
+    /// Variadic arguments passed one by one.
     variadic: bool,
-    /// Nombre d'arguments complétés par leur valeur par défaut.
+    /// Number of arguments filled in by their default value.
     defaults: usize,
-    /// Rang du schéma dans le chemin de recherche.
+    /// Rank of the schema in the search path.
     path_rank: usize,
 }
 
-/// Ce que désigne un appel résolu.
+/// What a resolved call designates.
 #[derive(Debug, Clone)]
 pub enum Resolution<'c> {
-    /// Une routine.
+    /// A routine.
     Routine(&'c Routine),
-    /// Un opérateur.
+    /// An operator.
     Operator(&'c Operator),
-    /// `nom_de_type(x)` : conversion, pas un appel de fonction.
+    /// `type_name(x)`: a conversion, not a function call.
     Coercion,
 }
 
-/// Appel résolu : la surcharge, les types attendus pour chaque argument
-/// (polymorphisme résolu) et le type du résultat.
+/// Resolved call: the overload, the expected types for each argument
+/// (polymorphism resolved) and the result type.
 #[derive(Debug, Clone)]
 pub struct ResolvedCall<'c> {
     pub target: Resolution<'c>,
     pub arg_types: Vec<Ty>,
     pub returns: Option<Ty>,
-    /// Arguments variadiques passés un par un.
+    /// Variadic arguments passed one by one.
     pub variadic: bool,
-    /// Arguments complétés par leur valeur par défaut.
+    /// Arguments filled in by their default value.
     pub defaults: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveError {
-    /// Aucune surcharge ne convient.
+    /// No overload fits.
     NotFound,
-    /// Plusieurs surcharges conviennent sans qu'aucune ne l'emporte.
+    /// Several overloads fit without any of them winning.
     Ambiguous,
-    /// Surcharge choisie, mais types polymorphes incohérents.
+    /// Overload chosen, but inconsistent polymorphic types.
     Polymorphic(String),
 }
 
@@ -63,7 +63,7 @@ impl From<PolymorphicError> for ResolveError {
     }
 }
 
-/// Élément variadique déclaré (`provariadic`) d'un argument `VARIADIC`.
+/// Declared variadic element (`provariadic`) of a `VARIADIC` argument.
 fn variadic_element(ts: &TypeSystem, declared: &Ty) -> Option<Ty> {
     if *declared == pg("any") {
         return Some(pg("any"));
@@ -78,9 +78,9 @@ fn variadic_element(ts: &TypeSystem, declared: &Ty) -> Option<Ty> {
 }
 
 impl<'c> TypeSystem<'c> {
-    /// `FuncnameGetCandidates` : surcharges visibles sous ce nom pour
-    /// `nargs` arguments, défauts et variadique compris. Une signature d'un
-    /// schéma masque la même dans un schéma plus loin du chemin.
+    /// `FuncnameGetCandidates`: overloads visible under this name for
+    /// `nargs` arguments, defaults and variadic included. A signature in one
+    /// schema hides the same one in a schema further down the path.
     fn routine_candidates(
         &self,
         schema: Option<&str>,
@@ -111,10 +111,10 @@ impl<'c> TypeSystem<'c> {
                 let pronargs = args.len();
                 let is_variadic = r.args.iter().any(|a| a.mode == ArgMode::Variadic);
                 let ndefaults = r.args.iter().filter(|a| a.has_default).count();
-                // Notation nommée (`MatchNamedCall`) : positionnels d'abord,
-                // puis chaque nom désigne un paramètre restant ; les
-                // paramètres non fournis ont une valeur par défaut. Pas de
-                // dépliage variadique.
+                // Named notation (`MatchNamedCall`): positional ones first,
+                // then each name designates a remaining parameter; the
+                // parameters not supplied have a default value. No
+                // variadic unfolding.
                 if names.iter().any(Option::is_some) {
                     let inputs: Vec<_> = r
                         .args
@@ -197,8 +197,8 @@ impl<'c> TypeSystem<'c> {
                     defaults,
                     path_rank: rank,
                 };
-                // Même signature déjà vue : le schéma le plus tôt dans le
-                // chemin l'emporte ; à rang égal, la forme non dépliée.
+                // Same signature already seen: the schema earliest in the
+                // path wins; at equal rank, the non-unfolded form.
                 match out.iter_mut().find(|c| c.args == candidate.args) {
                     Some(prev)
                         if prev.path_rank > rank || (prev.variadic && !candidate.variadic) =>
@@ -213,8 +213,8 @@ impl<'c> TypeSystem<'c> {
         out
     }
 
-    /// `func_match_argtypes` : candidats acceptant les arguments par
-    /// conversion implicite.
+    /// `func_match_argtypes`: candidates accepting the arguments through
+    /// implicit conversion.
     fn matching<'a, T>(
         &self,
         inputs: &[Ty],
@@ -226,8 +226,8 @@ impl<'c> TypeSystem<'c> {
             .collect()
     }
 
-    /// `func_select_candidate` : départage heuristique de candidats qui
-    /// conviennent tous.
+    /// `func_select_candidate`: heuristic tie-break between candidates that
+    /// all fit.
     fn select_candidate<'a, T>(
         &self,
         inputs: &[Ty],
@@ -237,7 +237,7 @@ impl<'c> TypeSystem<'c> {
         let base: Vec<Ty> = inputs.iter().map(|t| self.base_type(t)).collect();
         let nunknowns = base.iter().filter(|t| **t == unknown).count();
 
-        // Garde les candidats qui maximisent `score`.
+        // Keeps the candidates that maximize `score`.
         let keep_best = |cands: Vec<&'a Candidate<'c, T>>,
                          score: &dyn Fn(&Candidate<'c, T>) -> usize|
          -> Vec<&'a Candidate<'c, T>> {
@@ -245,7 +245,7 @@ impl<'c> TypeSystem<'c> {
             cands.into_iter().filter(|c| score(c) == best).collect()
         };
 
-        // 1. Le plus de correspondances exactes.
+        // 1. Most exact matches.
         cands = keep_best(cands, &|c| {
             base.iter()
                 .zip(&c.args)
@@ -255,8 +255,8 @@ impl<'c> TypeSystem<'c> {
         if cands.len() == 1 {
             return cands.pop();
         }
-        // 2. Correspondances exactes ou types préférés de la catégorie de
-        // l'argument, là où une conversion est nécessaire.
+        // 2. Exact matches or preferred types of the argument's category,
+        // where a conversion is needed.
         cands = keep_best(cands, &|c| {
             base.iter()
                 .zip(&c.args)
@@ -268,8 +268,8 @@ impl<'c> TypeSystem<'c> {
         if cands.len() == 1 {
             return cands.pop();
         }
-        // 3. Typer les littéraux : la catégorie que tous les candidats
-        // partagent à cette position, `S` (chaîne) l'emportant toujours.
+        // 3. Type the literals: the category all candidates share at this
+        // position, `S` (string) always winning.
         if nunknowns == 0 {
             return None;
         }
@@ -312,8 +312,8 @@ impl<'c> TypeSystem<'c> {
                 return cands.pop();
             }
         }
-        // 4. Dernière chance : arguments connus tous du même type, les
-        // littéraux sont supposés de ce type.
+        // 4. Last chance: known arguments all of the same type, the
+        // literals are assumed to be of that type.
         if nunknowns < base.len() {
             let mut known = base.iter().filter(|t| **t != unknown);
             let first = known.next().cloned()?;
@@ -331,7 +331,7 @@ impl<'c> TypeSystem<'c> {
         None
     }
 
-    /// Exacte, puis par conversions implicites, puis départage.
+    /// Exact, then through implicit conversions, then tie-break.
     fn choose<'a, T>(
         &self,
         inputs: &[Ty],
@@ -343,14 +343,14 @@ impl<'c> TypeSystem<'c> {
         let mut matching = self.matching(inputs, cands);
         match matching.len() {
             0 => Err(ResolveError::NotFound),
-            1 => Ok(matching.pop().expect("un candidat")),
+            1 => Ok(matching.pop().expect("one candidate")),
             _ => self
                 .select_candidate(inputs, matching)
                 .ok_or(ResolveError::Ambiguous),
         }
     }
 
-    /// Résout l'appel `schema.name(inputs…)` (`func_get_detail`).
+    /// Resolves the call `schema.name(inputs…)` (`func_get_detail`).
     pub fn resolve_function(
         &self,
         schema: Option<&str>,
@@ -361,9 +361,9 @@ impl<'c> TypeSystem<'c> {
         self.resolve_function_named(schema, name, inputs, &vec![None; inputs.len()], path)
     }
 
-    /// Comme [`Self::resolve_function`], avec le nom de chaque argument
-    /// (`None` : positionnel ; `Some` : `nom => valeur`). Les types renvoyés
-    /// suivent l'ordre de l'appel.
+    /// Like [`Self::resolve_function`], with the name of each argument
+    /// (`None`: positional; `Some`: `name => value`). The returned types
+    /// follow the order of the call.
     pub fn resolve_function_named(
         &self,
         schema: Option<&str>,
@@ -377,7 +377,7 @@ impl<'c> TypeSystem<'c> {
         let chosen = match cands.iter().find(|c| c.args == inputs) {
             Some(exact) => Some(exact),
             None => {
-                // `nom_de_type(x)` sans fonction exacte : une conversion.
+                // `type_name(x)` without an exact function: a conversion.
                 if let [input] = inputs
                     && !named
                     && let Some(target) = self.function_style_cast(schema, name, input, path)
@@ -414,9 +414,9 @@ impl<'c> TypeSystem<'c> {
         })
     }
 
-    /// `nom_de_type(x)` traité comme `x::nom_de_type` : littéral, même
-    /// représentation, ou conversion par le texte (sauf d'un composite vers
-    /// une chaîne).
+    /// `type_name(x)` treated as `x::type_name`: literal, same
+    /// representation, or conversion through text (except from a composite
+    /// to a string).
     fn function_style_cast(
         &self,
         schema: Option<&str>,
@@ -439,8 +439,8 @@ impl<'c> TypeSystem<'c> {
         }
     }
 
-    /// Opérateurs visibles sous ce nom, préfixes (`left` absent) ou
-    /// binaires.
+    /// Operators visible under this name, prefix (`left` absent) or
+    /// binary.
     fn operator_candidates(
         &self,
         schema: Option<&str>,
@@ -483,7 +483,7 @@ impl<'c> TypeSystem<'c> {
         out
     }
 
-    /// Résout `left op right`, ou `op right` pour un opérateur préfixe.
+    /// Resolves `left op right`, or `op right` for a prefix operator.
     pub fn resolve_operator(
         &self,
         schema: Option<&str>,
@@ -515,9 +515,9 @@ impl<'c> TypeSystem<'c> {
         })
     }
 
-    /// `binary_oper_exact` : correspondance exacte, un littéral sans type
-    /// étant supposé du type de l'autre opérande (puis de son type de base
-    /// s'il s'agit d'un domaine).
+    /// `binary_oper_exact`: exact match, an untyped literal being assumed
+    /// of the type of the other operand (then of its base type if it is a
+    /// domain).
     fn binary_oper_exact<'a>(
         &self,
         inputs: &[Ty],

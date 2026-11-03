@@ -3,22 +3,22 @@ use tokio_postgres::{Client, Config, NoTls};
 
 use crate::case::Case;
 
-/// Variable d'environnement donnant l'URL d'un serveur PostgreSQL de test.
+/// Environment variable giving the URL of a test PostgreSQL server.
 ///
-/// L'oracle crée une base par cas (et la supprime) : l'utilisateur doit avoir
-/// le droit `CREATEDB`. Ne jamais pointer vers un serveur de production.
+/// The oracle creates one database per case (and drops it): the user needs
+/// the `CREATEDB` privilege. Never point it at a production server.
 pub const URL_ENV: &str = "PGWEAVE_ORACLE_URL";
 
-/// Ce que PostgreSQL dit d'une requête préparée.
+/// What PostgreSQL says about a prepared query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PgDescription {
-    /// Type de chaque paramètre, dans l'ordre `$1 … $n`.
+    /// Type of each parameter, in `$1 … $n` order.
     pub params: Vec<String>,
-    /// Nom et type de chaque colonne de sortie.
+    /// Name and type of each output column.
     pub columns: Vec<(String, String)>,
 }
 
-/// Version majeure du serveur (`server_version_num / 10000`).
+/// Server major version (`server_version_num / 10000`).
 pub async fn server_major_version(url: &str) -> Result<u32, String> {
     let client = connect(url).await?;
     let row = client
@@ -29,11 +29,11 @@ pub async fn server_major_version(url: &str) -> Result<u32, String> {
     Ok((num / 10000) as u32)
 }
 
-/// Applique le schéma du cas sur une base vierge, puis prépare chaque requête.
+/// Applies the case schema to an empty database, then prepares each query.
 ///
-/// Renvoie, pour chaque requête et dans l'ordre, la description de
-/// PostgreSQL ou son message de refus. La base est supprimée dans tous les
-/// cas, y compris en erreur.
+/// Returns, for each query and in order, PostgreSQL's description or its
+/// refusal message. The database is dropped in every case, including on
+/// error.
 pub async fn describe_case(
     admin_url: &str,
     case: &Case,
@@ -44,23 +44,23 @@ pub async fn describe_case(
         case.name.replace(|c: char| !c.is_ascii_alphanumeric(), "_"),
         std::process::id()
     );
-    // Deux appels distincts : plusieurs statements dans un même envoi forment
-    // un bloc transactionnel implicite, que CREATE DATABASE refuse.
+    // Two separate calls: several statements in one send form an implicit
+    // transaction block, which CREATE DATABASE rejects.
     admin
         .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
         .await
-        .map_err(|e| format!("nettoyage de la base {db} : {}", db_error_message(&e)))?;
+        .map_err(|e| format!("cleaning up database {db}: {}", db_error_message(&e)))?;
     admin
         .batch_execute(&format!("CREATE DATABASE \"{db}\""))
         .await
-        .map_err(|e| format!("création de la base {db} : {}", db_error_message(&e)))?;
+        .map_err(|e| format!("creating database {db}: {}", db_error_message(&e)))?;
 
     let result = describe_in(admin_url, &db, case).await;
 
     admin
         .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
         .await
-        .map_err(|e| format!("suppression de la base {db} : {}", db_error_message(&e)))?;
+        .map_err(|e| format!("dropping database {db}: {}", db_error_message(&e)))?;
     result
 }
 
@@ -69,13 +69,13 @@ async fn describe_in(
     db: &str,
     case: &Case,
 ) -> Result<Vec<Result<PgDescription, String>>, String> {
-    let mut config: Config = admin_url.parse().map_err(|e| format!("URL : {e}"))?;
+    let mut config: Config = admin_url.parse().map_err(|e| format!("URL: {e}"))?;
     config.dbname(db);
     let client = connect_config(&config).await?;
 
     client.batch_execute(&case.schema).await.map_err(|e| {
         format!(
-            "cas `{}` : schema.sql refusé par PostgreSQL : {}",
+            "case `{}`: schema.sql rejected by PostgreSQL: {}",
             case.name,
             db_error_message(&e)
         )
@@ -99,8 +99,8 @@ async fn describe_in(
     Ok(out)
 }
 
-/// Nom lisible et stable d'un type : nom interne de PostgreSQL (`int8`,
-/// `timestamptz`), suffixe `[]` pour un tableau.
+/// Readable, stable type name: PostgreSQL internal name (`int8`,
+/// `timestamptz`), `[]` suffix for an array.
 fn type_name(ty: &Type) -> String {
     match ty.kind() {
         Kind::Array(inner) => format!("{}[]", inner.name()),
@@ -119,7 +119,7 @@ async fn connect(url: &str) -> Result<Client, String> {
 }
 
 pub(crate) async fn connect_url(url: &str) -> Result<Client, String> {
-    let config: Config = url.parse().map_err(|e| format!("URL : {e}"))?;
+    let config: Config = url.parse().map_err(|e| format!("URL: {e}"))?;
     connect_config(&config).await
 }
 
@@ -127,10 +127,10 @@ pub(crate) async fn connect_config(config: &Config) -> Result<Client, String> {
     let (client, connection) = config
         .connect(NoTls)
         .await
-        .map_err(|e| format!("connexion à PostgreSQL : {e}"))?;
+        .map_err(|e| format!("connecting to PostgreSQL: {e}"))?;
     tokio::spawn(async move {
-        // Une erreur de connexion se manifeste aussi sur les requêtes du
-        // client, qui la remontent : rien à faire de plus ici.
+        // A connection error also shows up on the client's queries, which
+        // report it: nothing more to do here.
         let _ = connection.await;
     });
     Ok(client)

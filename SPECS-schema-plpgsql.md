@@ -1,44 +1,44 @@
-# pgsql-tools — Spec : Universalisation du schéma & Analyse PL/pgSQL
+# pgsql-tools — Spec: Schema universalization & PL/pgSQL analysis
 
-> Document de design — itérer avant d'implémenter.
+> Design document — iterate before implementing.
 
 ---
 
-## 1. Universalisation du schéma (`SchemaSource`)
+## 1. Schema universalization (`SchemaSource`)
 
 ### Motivation
 
-Un projet réel peut avoir son schéma réparti entre :
-- un seul fichier DDL (`schema.sql`)
-- un dossier de migrations numérotées (`migrations/000001_init.sql`, `000002_add_users.sql`, …)
-- un mix des deux, plus des fonctions dans un dossier séparé
-- un dump pg_dump
+A real project can have its schema spread across:
+- a single DDL file (`schema.sql`)
+- a folder of numbered migrations (`migrations/000001_init.sql`, `000002_add_users.sql`, …)
+- a mix of both, plus functions in a separate folder
+- a pg_dump dump
 
-Le type-checker et le LSP ne doivent pas avoir besoin de savoir d'où vient le schéma. La résolution doit être uniforme.
+The type-checker and the LSP must not need to know where the schema comes from. Resolution must be uniform.
 
 ---
 
-### 1.1 `FileRole` — classification des fichiers SQL
+### 1.1 `FileRole` — classifying SQL files
 
 ```rust
 enum FileRole {
-    /// Fichier de migration numéroté. Seul endroit où les DDL structurants sont autorisés.
+    /// Numbered migration file. The only place where structural DDL is allowed.
     Migration { sequence: u64 },
-    /// Fichier DDL de référence (schéma statique, dump pg, fichier de types).
+    /// Reference DDL file (static schema, pg dump, types file).
     Schema,
-    /// Requêtes applicatives (.sql embarqués dans du code, scripts de seed, etc.)
+    /// Application queries (.sql embedded in code, seed scripts, etc.)
     Query,
 }
 ```
 
-**Détection automatique** (heuristique sur le nom de fichier) :
+**Automatic detection** (heuristic on the file name):
 - `^[0-9]+_.*\.sql$` → `Migration`
-- `schema.sql`, `*.schema.sql`, fichiers dans `schema/` → `Schema`
-- Tout le reste → `Query`
+- `schema.sql`, `*.schema.sql`, files in `schema/` → `Schema`
+- Everything else → `Query`
 
-Surchargeable par config projet (`pgsql-tools.toml`).
+Overridable through project config (`pgsql-tools.toml`).
 
-**Règles DDL par rôle** :
+**DDL rules per role**:
 
 | DDL | Migration | Schema | Query |
 |---|---|---|---|
@@ -49,11 +49,11 @@ Surchargeable par config projet (`pgsql-tools.toml`).
 
 ---
 
-### 1.2 `SchemaSource` — abstraction source
+### 1.2 `SchemaSource` — source abstraction
 
 ```rust
 pub trait SchemaSource: Send + Sync {
-    /// Chunks SQL à indexer, avec leur origine et leur rôle.
+    /// SQL chunks to index, with their origin and role.
     fn chunks(&self) -> Vec<SqlChunk>;
 }
 
@@ -64,26 +64,26 @@ pub struct SqlChunk {
 }
 ```
 
-**Implémentations concrètes** :
+**Concrete implementations**:
 
 ```rust
-/// Un fichier unique — rôle détecté ou explicite.
+/// A single file — role detected or explicit.
 struct FileSource { path: PathBuf, role: Option<FileRole> }
 
-/// Tous les .sql d'un dossier, triés (important pour les migrations).
+/// All the .sql files of a folder, sorted (important for migrations).
 struct DirSource  { root: PathBuf, pattern: &'static str }
 
-/// Composition arbitraire de sources.
+/// Arbitrary composition of sources.
 struct MultiSource { sources: Vec<Box<dyn SchemaSource>> }
 ```
 
-**Ordre de résolution** : les `Migration` sont traitées dans l'ordre de leur `sequence`. La dernière définition d'un objet (même nom, même schéma) gagne — comportement identique à un `CREATE OR REPLACE`.
+**Resolution order**: `Migration`s are processed in `sequence` order. The last definition of an object (same name, same schema) wins — the same behavior as a `CREATE OR REPLACE`.
 
 ---
 
-### 1.3 `SchemaIndex` — première passe rapide (noms seulement)
+### 1.3 `SchemaIndex` — fast first pass (names only)
 
-Scan léger (regex/token scan, pas d'AST complet) sur tous les chunks. Objectif : < 50ms sur 500 fichiers de migration.
+Lightweight scan (regex/token scan, no full AST) over all chunks. Goal: < 50ms on 500 migration files.
 
 ```rust
 pub struct SchemaIndex {
@@ -98,41 +98,41 @@ pub struct SchemaIndex {
 pub struct IndexEntry {
     pub origin: SourceOrigin,
     pub role:   FileRole,
-    /// Position dans le fichier (pour go-to-definition).
+    /// Position in the file (for go-to-definition).
     pub def_range: Range<usize>,
 }
 ```
 
-Le `SchemaIndex` est reconstruit incrémentalement sur les changements de fichiers (le LSP invalide uniquement les entrées du fichier modifié).
+The `SchemaIndex` is rebuilt incrementally on file changes (the LSP only invalidates the entries of the modified file).
 
 ---
 
-### 1.4 `SchemaResolver` — deuxième passe lazy
+### 1.4 `SchemaResolver` — lazy second pass
 
-Parse complet d'un objet uniquement quand on en a besoin.
+Full parse of an object only when it is needed.
 
 ```rust
 pub struct SchemaResolver {
     index:      Arc<SchemaIndex>,
-    source_map: HashMap<PathBuf, String>,           // path → contenu SQL brut
-    cache:      DashMap<String, Arc<TableSchema>>,  // "public.users" → colonnes
+    source_map: HashMap<PathBuf, String>,           // path → raw SQL content
+    cache:      DashMap<String, Arc<TableSchema>>,  // "public.users" → columns
 }
 
 impl SchemaProvider for SchemaResolver {
     fn get_table(&self, name: &str) -> Option<Arc<TableSchema>> {
-        // 1. cache hit → retour immédiat
-        // 2. lookup dans index → trouve le fichier source
-        // 3. parse uniquement le statement CREATE TABLE correspondant
-        // 4. stocke en cache, retourne
+        // 1. cache hit → return immediately
+        // 2. lookup in the index → finds the source file
+        // 3. parse only the matching CREATE TABLE statement
+        // 4. store in cache, return
     }
 }
 ```
 
-**Règle de nommage** : les noms dans l'index sont toujours `schema.name` (ex: `public.users`). La résolution accepte `users` (→ cherche `public.users` en fallback) et `myschema.users`.
+**Naming rule**: names in the index are always `schema.name` (e.g. `public.users`). Resolution accepts `users` (→ falls back to `public.users`) and `myschema.users`.
 
 ---
 
-### 1.5 Config projet (`pgsql-tools.toml`)
+### 1.5 Project config (`pgsql-tools.toml`)
 
 ```toml
 [schema]
@@ -147,19 +147,19 @@ default = ["public", "extensions"]
 
 ---
 
-## 2. Analyse des corps de fonctions PL/pgSQL
+## 2. Analysis of PL/pgSQL function bodies
 
-### 2.1 Problème actuel
+### 2.1 Current problem
 
-`check_plpgsql_body` fait une extraction ligne par ligne des fragments SQL. Cette approche est fondamentalement cassée parce qu'elle extrait des *fragments*, pas des *statements complets*. Résultat : faux positifs sur tout ce qui dépend du contexte (variables, paramètres, CTEs).
+`check_plpgsql_body` extracts SQL fragments line by line. This approach is fundamentally broken because it extracts *fragments*, not *complete statements*. Result: false positives on everything that depends on context (variables, parameters, CTEs).
 
-**Note** : les CTEs (`WITH … AS (…)`) ne sont pas un cas spécial dans les corps de fonctions — ils fonctionnent comme dans les requêtes standard. Le problème est uniquement que l'extracteur actuel les découpe. Avec une extraction correcte des statements complets, le checker existant les gère naturellement.
+**Note**: CTEs (`WITH … AS (…)`) are not a special case in function bodies — they work as in standard queries. The only problem is that the current extractor splits them. With correct extraction of complete statements, the existing checker handles them naturally.
 
 ---
 
-### 2.2 `PlpgsqlExtractor` — extraction structurée
+### 2.2 `PlpgsqlExtractor` — structured extraction
 
-Remplace le scanner ligne-par-ligne. Parse la structure PL/pgSQL pour produire :
+Replaces the line-by-line scanner. Parses the PL/pgSQL structure to produce:
 
 ```rust
 pub struct PlpgsqlBody {
@@ -168,123 +168,123 @@ pub struct PlpgsqlBody {
 }
 
 pub enum PlpgsqlStmt {
-    /// Un statement SQL complet (SELECT, INSERT, UPDATE, DELETE, WITH …)
+    /// A complete SQL statement (SELECT, INSERT, UPDATE, DELETE, WITH …)
     Sql { sql: String, span: Span },
-    /// EXECUTE format(…) — SQL dynamique, non analysable
+    /// EXECUTE format(…) — dynamic SQL, cannot be analyzed
     DynamicSql { hint: &'static str, span: Span },
-    /// CREATE TEMP TABLE — définit une table temporaire dans le contexte
+    /// CREATE TEMP TABLE — defines a temporary table in the context
     CreateTempTable { def: TempTableDef, span: Span },
-    /// Affectation de variable (`:=`)
+    /// Variable assignment (`:=`)
     Assign { var: String, span: Span },
-    /// Bloc de contrôle (IF/LOOP/FOR/…) — contient d'autres statements
+    /// Control block (IF/LOOP/FOR/…) — contains other statements
     ControlBlock { children: Vec<PlpgsqlStmt>, span: Span },
 }
 ```
 
-L'extracteur s'appuie sur le parseur PL/pgSQL existant (`crates/pgsql-parser/src/plpgsql.rs`) et étend son analyse structurelle.
+The extractor builds on the existing PL/pgSQL parser (`crates/pgsql-parser/src/plpgsql.rs`) and extends its structural analysis.
 
 ---
 
-### 2.3 `PlpgsqlContext` — couche de résolution virtuelle
+### 2.3 `PlpgsqlContext` — virtual resolution layer
 
-Construite à partir de la section DECLARE et des paramètres de la fonction.
+Built from the DECLARE section and the function parameters.
 
 ```rust
 pub struct PlpgsqlContext {
-    /// Paramètres de la fonction (name, type)
+    /// Function parameters (name, type)
     pub params: Vec<(String, DataType)>,
-    /// Variables déclarées dans DECLARE
+    /// Variables declared in DECLARE
     pub declared: Vec<(String, PlVar)>,
-    /// Tables temporaires créées dans le corps
+    /// Temporary tables created in the body
     pub temp_tables: Vec<TempTableDef>,
-    /// Tables système injectées (observabilité — voir §3)
+    /// Injected system tables (observability — see §3)
     pub system_tables: Vec<TempTableDef>,
-    /// Variables système injectées (voir §3)
+    /// Injected system variables (see §3)
     pub system_vars: Vec<(String, DataType)>,
 }
 
 pub enum PlVar {
     Scalar(DataType),
-    /// `RECORD` — type inconnu statiquement
+    /// `RECORD` — type statically unknown
     Record,
     /// `tablename%ROWTYPE`
     RowOf(String),
-    /// Variable de curseur
+    /// Cursor variable
     Cursor,
 }
 
 pub struct TempTableDef {
     pub name: String,
     pub columns: Vec<ColumnDef>,
-    /// true si c'est une table injectée par le runtime (§3)
+    /// true if this table is injected by the runtime (§3)
     pub injected: bool,
 }
 ```
 
-Le `PlpgsqlContext` est passé au checker comme **couche de résolution supplémentaire**, au-dessus du `SchemaResolver`. La hiérarchie de résolution pour un statement SQL extrait d'un corps de fonction :
+The `PlpgsqlContext` is passed to the checker as an **additional resolution layer**, on top of the `SchemaResolver`. The resolution hierarchy for a SQL statement extracted from a function body:
 
 ```
-1. CTEs du statement (scope local, déjà géré par le checker)
-2. Tables temporaires (PlpgsqlContext.temp_tables + system_tables)
-3. Variables/paramètres (PlpgsqlContext.params + declared)
-4. Schéma global (SchemaResolver)
+1. Statement CTEs (local scope, already handled by the checker)
+2. Temporary tables (PlpgsqlContext.temp_tables + system_tables)
+3. Variables/parameters (PlpgsqlContext.params + declared)
+4. Global schema (SchemaResolver)
 ```
 
 ---
 
-### 2.4 Classification des erreurs (remplace la suppression)
+### 2.4 Error classification (replaces suppression)
 
 ```rust
 pub enum BodyDiagKind {
-    /// Référence résolue via le contexte PL/pgSQL — pas une erreur.
+    /// Reference resolved through the PL/pgSQL context — not an error.
     ResolvedAsVariable { name: String, var_type: PlVar },
-    /// Référence résolue via CTE local — pas une erreur.
+    /// Reference resolved through a local CTE — not an error.
     ResolvedAsCte { name: String },
-    /// Référence résolue via table temporaire — pas une erreur.
+    /// Reference resolved through a temporary table — not an error.
     ResolvedAsTempTable { name: String },
 
-    /// Nom inconnu : pas dans le schéma, pas dans le contexte.
-    /// → Erreur affichée (E002 avec contexte [in function_name]).
+    /// Unknown name: not in the schema, not in the context.
+    /// → Error shown (E002 with context [in function_name]).
     UnresolvedRef { name: String },
 
-    /// Nom qui ressemble à une variable RECORD utilisée comme alias de table.
-    /// → Warning W-PLV-001 avec hint "declare explicit type".
+    /// Name that looks like a RECORD variable used as a table alias.
+    /// → Warning W-PLV-001 with hint "declare explicit type".
     PossiblyVariable { name: String, declared_as: PlVar },
 
-    /// SQL dynamique (EXECUTE / EXECUTE format(…)).
-    /// → Info I-DYN-001 : "cannot type-check dynamic SQL".
+    /// Dynamic SQL (EXECUTE / EXECUTE format(…)).
+    /// → Info I-DYN-001: "cannot type-check dynamic SQL".
     DynamicSql,
 }
 ```
 
-**Ce qui était supprimé avant** (`E002 [in function_name]`) est maintenant classifié :
-- Si le nom est dans `PlpgsqlContext` → `ResolvedAs*` (silencieux)
-- Si inconnu → `UnresolvedRef` (erreur réelle, affichée)
-- Si ambigu (RECORD) → `PossiblyVariable` (warning)
+**What used to be suppressed** (`E002 [in function_name]`) is now classified:
+- If the name is in `PlpgsqlContext` → `ResolvedAs*` (silent)
+- If unknown → `UnresolvedRef` (real error, shown)
+- If ambiguous (RECORD) → `PossiblyVariable` (warning)
 
 ---
 
-## 3. Schéma virtuel — Runtime d'observabilité
+## 3. Virtual schema — Observability runtime
 
-Inspiré de `kysely-pg-procedures`. Quand une fonction utilise des tables temporaires **ou** que le mode observabilité est activé, le runtime injecte des éléments supplémentaires dans le schéma virtuel de la fonction. Ces éléments doivent être connus du type-checker pour éviter les faux positifs, et sont émis dans la migration générée.
+Inspired by `kysely-pg-procedures`. When a function uses temporary tables **or** observability mode is enabled, the runtime injects extra elements into the function's virtual schema. The type-checker must know these elements to avoid false positives, and they are emitted in the generated migration.
 
-### 3.1 Injection automatique sur les tables temporaires
+### 3.1 Automatic injection on temporary tables
 
-Toute table temporaire définie dans une fonction reçoit automatiquement une colonne supplémentaire :
+Every temporary table defined in a function automatically gets an extra column:
 
 ```sql
 "_proc_instance_id" UUID NOT NULL
 ```
 
-Cette colonne :
-- isole les lignes par exécution de la procédure (évite les collisions en cas d'appels récursifs ou parallèles)
-- est injectée automatiquement dans tous les `INSERT` générés
-- est utilisée comme filtre dans tous les `SELECT/UPDATE/DELETE` sur la table temporaire
-- déclenche un `DELETE FROM temp_table WHERE _proc_instance_id = _proc_instance_id` automatique avant le `RETURN`
+This column:
+- isolates rows per procedure execution (avoids collisions on recursive or parallel calls)
+- is automatically injected into every generated `INSERT`
+- is used as a filter in every `SELECT/UPDATE/DELETE` on the temporary table
+- triggers an automatic `DELETE FROM temp_table WHERE _proc_instance_id = _proc_instance_id` before `RETURN`
 
-### 3.2 Variables système injectées (DECLARE)
+### 3.2 Injected system variables (DECLARE)
 
-Quand l'observabilité est activée (ou dès qu'il y a des tables temporaires) :
+When observability is enabled (or as soon as there are temporary tables):
 
 ```sql
 DECLARE
@@ -292,16 +292,16 @@ DECLARE
     _proc_started_at   TIMESTAMPTZ := clock_timestamp();
     _traceparent       TEXT       := current_setting('app.traceparent', true);
     _span_id           TEXT       := encode(gen_random_bytes(8), 'hex');
-    -- mode 'step' ou 'debug' uniquement :
+    -- 'step' or 'debug' mode only:
     _proc_row_count    INTEGER;
     _proc_steps        JSONB[]    := ARRAY[]::JSONB[];
 ```
 
-Ces variables sont ajoutées au `PlpgsqlContext.system_vars` → le type-checker les voit comme des variables scalaires valides.
+These variables are added to `PlpgsqlContext.system_vars` → the type-checker sees them as valid scalar variables.
 
-### 3.3 Tables système injectées (schéma virtuel)
+### 3.3 Injected system tables (virtual schema)
 
-Disponibles dans toutes les fonctions instrumentées :
+Available in every instrumented function:
 
 ```
 _proc_log (
@@ -311,7 +311,7 @@ _proc_log (
     span_id         TEXT,
     started_at      TIMESTAMPTZ NOT NULL,
     duration_ms     INTEGER     NOT NULL,
-    steps           JSONB                   -- mode 'step'/'debug' uniquement
+    steps           JSONB                   -- 'step'/'debug' mode only
 )
 
 _proc_snapshot (
@@ -336,83 +336,83 @@ _proc_snapshot_vars (
 )
 ```
 
-Ces tables sont ajoutées au `PlpgsqlContext.system_tables` (`injected: true`) → visibles par le type-checker sans appartenir au `SchemaResolver` global.
+These tables are added to `PlpgsqlContext.system_tables` (`injected: true`) → visible to the type-checker without belonging to the global `SchemaResolver`.
 
-### 3.4 NOTIFY et traceparent
+### 3.4 NOTIFY and traceparent
 
-En fin de fonction (avant `RETURN`), le runtime émet :
+At the end of the function (before `RETURN`), the runtime emits:
 
 ```sql
 PERFORM pg_notify('proc_log', json_build_object(
     'execution_id',  _proc_instance_id,
-    'function_name', '<nom_de_la_fonction>',
+    'function_name', '<function_name>',
     'traceparent',   _traceparent,
     'span_id',       _span_id,
     'started_at',    _proc_started_at,
     'duration_ms',   EXTRACT(MILLISECONDS FROM clock_timestamp() - _proc_started_at)::int,
-    'steps',         _proc_steps   -- si mode step/debug
+    'steps',         _proc_steps   -- if step/debug mode
 )::text);
 ```
 
-Le `traceparent` est lu depuis `current_setting('app.traceparent', true)`. Le middleware applicatif le positionne via `SET LOCAL "app.traceparent" = '...'` avant l'appel de la procédure.
+The `traceparent` is read from `current_setting('app.traceparent', true)`. The application middleware sets it with `SET LOCAL "app.traceparent" = '...'` before calling the procedure.
 
-### 3.5 Snapshot nommé
+### 3.5 Named snapshot
 
-API interne (utilisable dans le corps de la fonction via la syntaxe SQL pgsql-tools) :
+Internal API (usable in the function body through the pgsql-tools SQL syntax):
 
 ```sql
--- Capture l'état des tables temporaires et des variables à ce moment
+-- Captures the state of temporary tables and variables at this point
 PERFORM pgsql_tools_snapshot('<snapshot_name>');
 ```
 
-Dé-sugaré vers :
+Desugared to:
 ```sql
 INSERT INTO _proc_snapshot VALUES (_proc_instance_id, '<fn>', '<snapshot_name>', clock_timestamp());
 INSERT INTO _proc_snapshot_rows
     SELECT _proc_instance_id, '<snapshot_name>', 'MyTempTable', row_to_json(t)
     FROM "MyTempTable" t WHERE t._proc_instance_id = _proc_instance_id;
--- + INSERT INTO _proc_snapshot_vars pour chaque variable déclarée pertinente
+-- + INSERT INTO _proc_snapshot_vars for each relevant declared variable
 ```
 
-### 3.6 Appels récursifs (directs et indirects)
+### 3.6 Recursive calls (direct and indirect)
 
-`_proc_instance_id` est une variable PostgreSQL locale à chaque appel de fonction — en cas de récursion, chaque appel a son propre UUID. Les tables temporaires étant filtrées par `_proc_instance_id`, il n'y a pas de collision entre niveaux de récursion.
+`_proc_instance_id` is a PostgreSQL variable local to each function call — under recursion, each call has its own UUID. Since temporary tables are filtered by `_proc_instance_id`, there is no collision between recursion levels.
 
-Le codegen n'a rien de spécial à faire pour gérer la récursion : l'isolation est structurelle.
+The codegen has nothing special to do to handle recursion: isolation is structural.
 
-### 3.6b Activation de l'instrumentation
+### 3.6b Enabling instrumentation
 
-**Par défaut** : activée automatiquement sur toutes les fonctions/procédures PL/pgSQL.
+**By default**: automatically enabled on all PL/pgSQL functions/procedures.
 
-**Opt-out par fonction** (commentaire immédiatement avant le `CREATE`) :
+**Per-function opt-out** (comment immediately before the `CREATE`):
 ```sql
 -- @pgsql-tools: no-instrumentation
 CREATE OR REPLACE FUNCTION my_simple_helper() …
 ```
 
-**Opt-in par fonction** (si désactivé globalement dans la config) :
+**Per-function opt-in** (if disabled globally in the config):
 ```sql
 -- @pgsql-tools: instrumentation
 CREATE OR REPLACE FUNCTION my_critical_fn() …
 ```
 
-**Config projet** (voir §5 — `pgsql-tools.toml`) :
+**Project config** (see §5 — `pgsql-tools.toml`):
 ```toml
 [instrumentation]
-enabled = true          # true par défaut ; false pour opt-out global
+enabled = true          # true by default; false for a global opt-out
 log_level = "step"      # "none" | "step" | "debug"
 log_target = "notify"   # "notify" | "table" | "both"
 ```
 
 ---
 
-### 3.7 Génération dans la migration
+### 3.7 Generation in the migration
 
-Les éléments du schéma virtuel sont **émis dans la migration générée** dans un bloc séparé :
+The virtual schema elements are **emitted in the generated migration** in a separate block:
 
 ```sql
 -- [PGSQL-TOOLS:RUNTIME:BEGIN]
--- Tables d'observabilité (créées une seule fois dans le schéma)
+-- Observability tables (created only once in the schema)
 CREATE UNLOGGED TABLE IF NOT EXISTS _proc_log ( … );
 CREATE UNLOGGED TABLE IF NOT EXISTS _proc_snapshot ( … );
 CREATE UNLOGGED TABLE IF NOT EXISTS _proc_snapshot_rows ( … );
@@ -420,19 +420,19 @@ CREATE UNLOGGED TABLE IF NOT EXISTS _proc_snapshot_vars ( … );
 -- [PGSQL-TOOLS:RUNTIME:END]
 ```
 
-Ce bloc est idempotent (`IF NOT EXISTS`) et placé avant les fonctions qui en dépendent.
+This block is idempotent (`IF NOT EXISTS`) and placed before the functions that depend on it.
 
 ---
 
-## 4. Hash de migration (Roadmap — ne pas implémenter maintenant)
+## 4. Migration hash (Roadmap — do not implement now)
 
 ### Motivation
 
-Permettre au LSP de type-checker un fichier de migration *en cours d'édition* en comprenant l'état du schéma à chaque point du fichier, et de détecter toute divergence entre l'état attendu et l'état réel.
+Let the LSP type-check a migration file *while it is being edited* by understanding the schema state at every point of the file, and detect any divergence between the expected state and the actual state.
 
-### 4.1 Format des marqueurs
+### 4.1 Marker format
 
-Chaque changement est un scope `BEFORE`/`AFTER` identifié par un `id` court (hash tronqué ou UUID court) partagé entre les deux tags. Le `BEFORE` porte le hash de l'état **avant**, le `AFTER` porte le hash de l'état **après** — le `id` permet de les associer sans ambiguïté même dans un fichier long.
+Each change is a `BEFORE`/`AFTER` scope identified by a short `id` (truncated hash or short UUID) shared between both tags. The `BEFORE` carries the hash of the state **before**, the `AFTER` carries the hash of the state **after** — the `id` pairs them unambiguously even in a long file.
 
 ```sql
 -- [PGSQL-TOOLS:MIGRATION:BEGIN id="mig_a3f7c" schema_hash="a3f7c12"]
@@ -448,79 +448,79 @@ CREATE OR REPLACE FUNCTION get_user(p_id uuid) RETURNS users …;
 -- [PGSQL-TOOLS:MIGRATION:END id="mig_a3f7c" schema_hash="d57f3b1"]
 ```
 
-**Règles du format** :
-- Le `id` du `CHANGE:BEFORE` et de son `CHANGE:AFTER` est identique.
-- Le `id` du `MIGRATION:BEGIN` et de son `MIGRATION:END` est identique.
-- `kind` sur le `BEFORE` : `"table"` | `"function"` | `"procedure"` | `"type"` | `"sequence"` | `"index"` | `"policy"` | `"trigger"`.
-- Un `CHANGE:BEFORE` sans `CHANGE:AFTER` correspondant → erreur W-MIG-002 "unclosed change scope".
+**Format rules**:
+- The `id` of a `CHANGE:BEFORE` and of its `CHANGE:AFTER` are identical.
+- The `id` of a `MIGRATION:BEGIN` and of its `MIGRATION:END` are identical.
+- `kind` on the `BEFORE`: `"table"` | `"function"` | `"procedure"` | `"type"` | `"sequence"` | `"index"` | `"policy"` | `"trigger"`.
+- A `CHANGE:BEFORE` with no matching `CHANGE:AFTER` → error W-MIG-002 "unclosed change scope".
 
-### 4.2 Sémantique des hash
+### 4.2 Hash semantics
 
-| Marqueur | Contenu hashé |
+| Marker | Hashed content |
 |---|---|
-| `MIGRATION:BEGIN schema_hash` | Hash de `SchemaIndex` complet (tous objets, noms + signatures) |
-| `CHANGE:BEFORE hash` | Hash de l'objet (`kind`) **avant** le DDL qui suit |
-| `CHANGE:AFTER hash` | Hash de l'objet **après** le DDL |
-| `MIGRATION:END schema_hash` | Hash de `SchemaIndex` complet **après** tous les DDL du fichier |
+| `MIGRATION:BEGIN schema_hash` | Hash of the full `SchemaIndex` (all objects, names + signatures) |
+| `CHANGE:BEFORE hash` | Hash of the object (`kind`) **before** the following DDL |
+| `CHANGE:AFTER hash` | Hash of the object **after** the DDL |
+| `MIGRATION:END schema_hash` | Hash of the full `SchemaIndex` **after** all the DDL in the file |
 
-**Hash par type d'objet** :
+**Hash per object type**:
 
-| kind | Contenu du hash |
+| kind | Hash content |
 |---|---|
-| `table` | colonnes (nom, ordre, type, nullabilité), contraintes nommées |
-| `function` | signature (nom, paramètres + types, type de retour), langage |
-| `procedure` | signature (nom, paramètres + types) |
-| `type` | définition (enum values, ou colonnes pour les composite types) |
+| `table` | columns (name, order, type, nullability), named constraints |
+| `function` | signature (name, parameters + types, return type), language |
+| `procedure` | signature (name, parameters + types) |
+| `type` | definition (enum values, or columns for composite types) |
 | `sequence` | start, increment, min, max |
-| `index` | table cible, colonnes, méthode (btree, gin, …), condition WHERE |
-| `policy` | table cible, commande, USING, WITH CHECK |
-| `trigger` | table cible, timing, events, fonction appelée |
+| `index` | target table, columns, method (btree, gin, …), WHERE condition |
+| `policy` | target table, command, USING, WITH CHECK |
+| `trigger` | target table, timing, events, called function |
 
-Les valeurs par défaut d'expression ne sont pas incluses dans le hash (trop volatiles).
+Expression default values are not included in the hash (too volatile).
 
-### 4.3 Comportement du LSP dans un fichier de migration
+### 4.3 LSP behavior in a migration file
 
-Le LSP lit le fichier linéairement :
+The LSP reads the file linearly:
 
-1. Lit `MIGRATION:BEGIN id=… schema_hash=…` → charge le `SchemaIndex` de cet état (depuis le journal ou le recalcul)
-2. Pour chaque `CHANGE:BEFORE id="chg_X" kind=… name=… hash=…` :
-   - Valide que l'objet courant correspond au hash → sinon W-MIG-001 "schema state mismatch"
-   - Ouvre un scope identifié par `"chg_X"`
-3. Le DDL entre BEFORE et AFTER est analysé et appliqué au `SchemaIndex` local (mutation non persistée)
-4. Pour `CHANGE:AFTER id="chg_X" hash=…` :
-   - Ferme le scope `"chg_X"` (BEFORE orphelin → W-MIG-002)
-   - Valide que l'état post-DDL correspond au hash → sinon W-MIG-003 "unexpected post-change state"
-5. Tout SQL après un `CHANGE:AFTER` est type-checked contre le schéma **incluant** les mutations précédentes
-6. Lit `MIGRATION:END` → valide l'état final global
+1. Reads `MIGRATION:BEGIN id=… schema_hash=…` → loads the `SchemaIndex` for that state (from the journal or by recomputing)
+2. For each `CHANGE:BEFORE id="chg_X" kind=… name=… hash=…`:
+   - Checks that the current object matches the hash → otherwise W-MIG-001 "schema state mismatch"
+   - Opens a scope identified by `"chg_X"`
+3. The DDL between BEFORE and AFTER is analyzed and applied to the local `SchemaIndex` (non-persisted mutation)
+4. For `CHANGE:AFTER id="chg_X" hash=…`:
+   - Closes the `"chg_X"` scope (orphan BEFORE → W-MIG-002)
+   - Checks that the post-DDL state matches the hash → otherwise W-MIG-003 "unexpected post-change state"
+5. Any SQL after a `CHANGE:AFTER` is type-checked against the schema **including** the previous mutations
+6. Reads `MIGRATION:END` → validates the global final state
 
-Résultat : une colonne ajoutée par `ALTER TABLE` dans un `CHANGE` scope est visible dans les `INSERT` qui suivent dans le même fichier.
+Result: a column added by `ALTER TABLE` in a `CHANGE` scope is visible to the `INSERT`s that follow in the same file.
 
-### 4.4 Génération automatique (`migrate generate`)
+### 4.4 Automatic generation (`migrate generate`)
 
-La commande `pgsql-tools migrate generate` :
-1. Diff du `SchemaIndex` avant/après chaque DDL → calcule les hash
-2. Génère les `id` courts (8 chars hex, tronqués du hash du couple before+after)
-3. Insère les marqueurs dans le fichier de migration généré
-4. Maintient `pgsql-tools-hashes.json` (hash → `SchemaIndex` sérialisé pour rechargement rapide)
+The `pgsql-tools migrate generate` command:
+1. Diffs the `SchemaIndex` before/after each DDL → computes the hashes
+2. Generates the short `id`s (8 hex chars, truncated from the hash of the before+after pair)
+3. Inserts the markers into the generated migration file
+4. Maintains `pgsql-tools-hashes.json` (hash → serialized `SchemaIndex` for fast reloading)
 
-### 4.5 Initialisation brownfield (`migrate init`)
+### 4.5 Brownfield initialization (`migrate init`)
 
-Pour les projets existants qui n'ont pas encore de migrations gérées par pgsql-tools.
+For existing projects that do not yet have migrations managed by pgsql-tools.
 
-**Commande** :
+**Command**:
 ```bash
 pgsql-tools migrate init [options]
-  --from-sql <path>       Utilise les fichiers DDL existants comme source de vérité
-  --from-db  <connstr>    Introspecte une base de données live (via pg_catalog)
-  --name     <slug>       Nom de la migration baseline (défaut : "baseline")
-  --sequence <n>          Numéro de séquence (défaut : 0 → "000000_baseline.sql")
+  --from-sql <path>       Use the existing DDL files as the source of truth
+  --from-db  <connstr>    Introspect a live database (via pg_catalog)
+  --name     <slug>       Name of the baseline migration (default: "baseline")
+  --sequence <n>          Sequence number (default: 0 → "000000_baseline.sql")
 ```
 
-Si ni `--from-sql` ni `--from-db` n'est fourni, utilise les `sources` définis dans `pgsql-tools.toml`.
+If neither `--from-sql` nor `--from-db` is given, uses the `sources` defined in `pgsql-tools.toml`.
 
-**Ce que la commande produit** :
+**What the command produces**:
 
-1. **`migrations/000000_baseline.sql`** — migration idempotente avec `IF NOT EXISTS` sur tous les objets :
+1. **`migrations/000000_baseline.sql`** — idempotent migration with `IF NOT EXISTS` on every object:
 
 ```sql
 -- [PGSQL-TOOLS:MIGRATION:BEGIN id="mig_init00" schema_hash="initial"]
@@ -538,18 +538,18 @@ CREATE OR REPLACE FUNCTION public.get_user(p_id uuid) RETURNS public.users …;
 -- [PGSQL-TOOLS:MIGRATION:END id="mig_init00" schema_hash="a3f7c12"]
 ```
 
-Différences par rapport aux migrations normales :
-- `MIGRATION:BEGIN` a `schema_hash="initial"` (pas de hash before — point de départ)
-- Pas de `CHANGE:BEFORE` (les objets n'existaient pas dans le journal)
-- Uniquement `CHANGE:AFTER` pour enregistrer l'état cible de chaque objet
+Differences from normal migrations:
+- `MIGRATION:BEGIN` has `schema_hash="initial"` (no before hash — starting point)
+- No `CHANGE:BEFORE` (the objects did not exist in the journal)
+- Only `CHANGE:AFTER`, to record the target state of each object
 
-2. **`pgsql-tools-hashes.json`** — initialisé avec le hash final
+2. **`pgsql-tools-hashes.json`** — initialized with the final hash
 
-3. **`pgsql-tools.toml`** — créé si absent, avec les sources détectées
+3. **`pgsql-tools.toml`** — created if missing, with the detected sources
 
-**Réécriture safe des DDL** :
+**Safe DDL rewriting**:
 
-| DDL original | Version safe générée |
+| Original DDL | Generated safe version |
 |---|---|
 | `CREATE TABLE t` | `CREATE TABLE IF NOT EXISTS t` |
 | `CREATE FUNCTION f` | `CREATE OR REPLACE FUNCTION f` |
@@ -562,47 +562,47 @@ Différences par rapport aux migrations normales :
 | `CREATE POLICY p ON t` | `DO $$ BEGIN IF NOT EXISTS … END $$` |
 | `ALTER TABLE t ADD COLUMN c` | `DO $$ BEGIN ALTER TABLE t ADD COLUMN c; EXCEPTION WHEN duplicate_column THEN NULL; END $$` |
 
-**Comportement si une migration 000000 existe déjà** : erreur avec message explicite "baseline already exists — use `migrate init --sequence N` to choose a different number".
+**Behavior if a 000000 migration already exists**: error with the explicit message "baseline already exists — use `migrate init --sequence N` to choose a different number".
 
 ---
 
-## 5. Config projet (`pgsql-tools.toml`)
+## 5. Project config (`pgsql-tools.toml`)
 
-Fichier à la racine du projet. Toutes les valeurs ont des defaults raisonnables — un projet minimal peut fonctionner sans config.
+File at the project root. Every value has a reasonable default — a minimal project can work without config.
 
 ```toml
-# ── Sources de schéma ──────────────────────────────────────────────────────────
+# ── Schema sources ────────────────────────────────────────────────────────────
 [schema]
-# Ordre = ordre d'application. Les migrations sont triées par sequence en interne.
+# Order = application order. Migrations are sorted by sequence internally.
 sources = [
     { path = "migrations/",        role = "migration" },
     { path = "schema/types.sql",   role = "schema"    },
     { path = "schema/functions/",  role = "schema"    },
 ]
-# search_path PostgreSQL par défaut pour la résolution des noms non qualifiés
+# Default PostgreSQL search_path for resolving unqualified names
 search_path = ["public", "extensions"]
 
 # ── Migrations ────────────────────────────────────────────────────────────────
 [migrations]
 directory = "migrations/"
-# {sequence} = numéro, {name} = description slug, {ts} = timestamp ISO
+# {sequence} = number, {name} = slug description, {ts} = ISO timestamp
 format    = "{sequence:06}_{name}.sql"
-# Journal des hash (chemin relatif)
+# Hash journal (relative path)
 hash_journal = "pgsql-tools-hashes.json"
 
-# ── Instrumentation PL/pgSQL ──────────────────────────────────────────────────
+# ── PL/pgSQL instrumentation ──────────────────────────────────────────────────
 [instrumentation]
-enabled    = true          # false = opt-out global, réactivable par commentaire
+enabled    = true          # false = global opt-out, can be re-enabled by comment
 log_level  = "step"        # "none" | "step" | "debug"
 log_target = "notify"      # "notify" | "table" | "both"
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 [lint]
-# Règles désactivées globalement
+# Globally disabled rules
 disabled = []
-# Exemples : ["W-DDL-002", "W-DDL-003"]
+# Examples: ["W-DDL-002", "W-DDL-003"]
 
-# Surcharge de sévérité : transformer un warning en erreur, ou silencier une erreur
+# Severity override: turn a warning into an error, or silence an error
 # [lint.override]
 # "W-DDL-002" = "error"
 # "E002"      = "warn"
@@ -610,82 +610,82 @@ disabled = []
 # ── Plugins ───────────────────────────────────────────────────────────────────
 [plugins]
 enabled = []
-# Exemples : ["postgis", "timescaledb"]
+# Examples: ["postgis", "timescaledb"]
 ```
 
-### Commentaires de contrôle inline
+### Inline control comments
 
-Les commentaires `-- @pgsql-tools: <directive>` s'appliquent à l'objet qui les suit immédiatement (même comportement que `eslint-disable-next-line`).
+`-- @pgsql-tools: <directive>` comments apply to the object immediately following them (same behavior as `eslint-disable-next-line`).
 
-| Directive | Effet |
+| Directive | Effect |
 |---|---|
-| `no-instrumentation` | Désactive l'injection runtime sur cette fonction |
-| `instrumentation` | Force l'injection runtime (si disabled globalement) |
-| `no-lint` | Désactive tout lint sur ce statement |
-| `no-lint: W-DDL-002` | Désactive une règle spécifique sur ce statement |
-| `lint: error` | Élève tous les warnings en erreurs pour ce statement |
+| `no-instrumentation` | Disables runtime injection on this function |
+| `instrumentation` | Forces runtime injection (if disabled globally) |
+| `no-lint` | Disables all lint on this statement |
+| `no-lint: W-DDL-002` | Disables a specific rule on this statement |
+| `lint: error` | Raises all warnings to errors for this statement |
 
 ---
 
-## 6. Workarounds parser — roadmap des cas hors scope
+## 6. Parser workarounds — roadmap for out-of-scope cases
 
-Plusieurs constructions PL/pgSQL ont été temporairement simplifiées pour ne pas bloquer le checker.
-Chaque cas est documenté ici avec l'approche correcte à implémenter.
+Several PL/pgSQL constructs were temporarily simplified so as not to block the checker.
+Each case is documented here with the correct approach to implement.
 
-### Cas 1 — `RETURNING … INTO var` (strip actuel → AST dédié)
+### Case 1 — `RETURNING … INTO var` (current strip → dedicated AST)
 
-**Situation** : `INSERT … RETURNING col INTO v_result` n'est pas compris par sqlparser-rs.
-**Workaround actuel** : `strip_returning_into()` supprime la clause ` INTO var` avant de passer le fragment à sqlparser, perdant l'information sur les variables cibles.
-**Fix correct** :
-1. Ajouter `PlStatement::DmlReturningInto { stmt: Box<Statement>, targets: Vec<Ident> }` dans `pgsql-ast`.
-2. Dans `parse_dml_statement` (parser PL/pgSQL), détecter la présence de `INTO` après `RETURNING`, extraire les cibles, et construire ce variant au lieu de stripper.
-3. Dans le checker, vérifier les colonnes RETURNING contre le schéma et marquer les `targets` comme variables assignées dans le contexte.
+**Situation**: `INSERT … RETURNING col INTO v_result` is not understood by sqlparser-rs.
+**Current workaround**: `strip_returning_into()` removes the ` INTO var` clause before passing the fragment to sqlparser, losing the information about the target variables.
+**Correct fix**:
+1. Add `PlStatement::DmlReturningInto { stmt: Box<Statement>, targets: Vec<Ident> }` to `pgsql-ast`.
+2. In `parse_dml_statement` (PL/pgSQL parser), detect `INTO` after `RETURNING`, extract the targets, and build this variant instead of stripping.
+3. In the checker, check the RETURNING columns against the schema and mark the `targets` as assigned variables in the context.
 
-### Cas 2 — Variables record (`v_rec.col`) dans le SQL embarqué
+### Case 2 — Record variables (`v_rec.col`) in embedded SQL
 
-**Situation** : Une variable déclarée `v_rec RECORD` ou `v_row my_table%ROWTYPE` peut être utilisée comme `v_rec.col` dans des expressions SQL. Le checker voit `v_rec` comme un qualificateur de table et émet E002.
-**Workaround actuel** : le checker texte (`check_plpgsql_body`) supprime tous les E002, au prix de faux négatifs.
-**Fix correct** :
-1. Étendre `TypeContext` avec `record_vars: HashMap<String, Option<&TableSchema>>` — `None` pour `RECORD`, `Some(ts)` pour `%ROWTYPE`.
-2. Dans `BodySchemaProvider::get_table`, consulter `record_vars` en priorité (avant `temp_tables`).
-3. Propager les assignations `SELECT … INTO v_rec FROM t` pour inférer le type de `v_rec` de manière flow-sensitive.
+**Situation**: A variable declared `v_rec RECORD` or `v_row my_table%ROWTYPE` can be used as `v_rec.col` in SQL expressions. The checker sees `v_rec` as a table qualifier and emits E002.
+**Current workaround**: the text checker (`check_plpgsql_body`) suppresses all E002s, at the cost of false negatives.
+**Correct fix**:
+1. Extend `TypeContext` with `record_vars: HashMap<String, Option<&TableSchema>>` — `None` for `RECORD`, `Some(ts)` for `%ROWTYPE`.
+2. In `BodySchemaProvider::get_table`, consult `record_vars` first (before `temp_tables`).
+3. Propagate `SELECT … INTO v_rec FROM t` assignments to infer the type of `v_rec` in a flow-sensitive way.
 
-### Cas 3 — `NEW`/`OLD` dans le SQL embarqué des triggers ✅ (implémenté)
+### Case 3 — `NEW`/`OLD` in trigger embedded SQL ✅ (implemented)
 
-**Situation** : Les triggers utilisent `NEW.col` et `OLD.col` dans leurs corps SQL. Sans contexte, le checker émet E002 pour `NEW` et `OLD`.
-**Fix implémenté** (deux niveaux) :
-1. **Trigger table connue** : quand un `CREATE TRIGGER ... ON table_name EXECUTE FUNCTION fn()` est trouvé dans le même ensemble de fichiers analysés, le checker construit un `TriggerCtx` avec la table, et enregistre `new`/`old` dans `temp_tables` avec le schéma de cette table. `BodySchemaProvider.get_table("new")` retourne alors le bon schéma → vérification de colonnes complète.
-2. **Trigger table inconnue** : quand la fonction a `RETURNS TRIGGER` mais aucun `CREATE TRIGGER` n'est trouvé dans les fichiers analysés (`trigger_table == None`), `is_trigger = true` dans `TypeContext`. Tous les `check_select_*` de ce contexte passent `phantom_qualifiers = {"new", "old"}` : le qualifier est reconnu comme valide, E002 supprimé, mais vérification de colonnes skippée (pas de schéma disponible).
-3. **Multi-fichiers** : le CLI `check` construit maintenant le trigger_map depuis l'ensemble context + fichiers vérifiés via `Checker::run_with_context`. Passer `examples/procs.sql --schema examples/schema.sql` → les `CREATE TRIGGER` dans le schéma sont visibles même si les fonctions sont dans `procs.sql`.
+**Situation**: Triggers use `NEW.col` and `OLD.col` in their SQL bodies. Without context, the checker emits E002 for `NEW` and `OLD`.
+**Implemented fix** (two levels):
+1. **Known trigger table**: when a `CREATE TRIGGER ... ON table_name EXECUTE FUNCTION fn()` is found in the same set of analyzed files, the checker builds a `TriggerCtx` with the table, and registers `new`/`old` in `temp_tables` with that table's schema. `BodySchemaProvider.get_table("new")` then returns the right schema → full column checking.
+2. **Unknown trigger table**: when the function has `RETURNS TRIGGER` but no `CREATE TRIGGER` is found in the analyzed files (`trigger_table == None`), `is_trigger = true` in `TypeContext`. Every `check_select_*` in this context passes `phantom_qualifiers = {"new", "old"}`: the qualifier is recognized as valid, E002 is suppressed, but column checking is skipped (no schema available).
+3. **Multi-file**: the `check` CLI now builds the trigger_map from the context + checked files via `Checker::run_with_context`. Passing `examples/procs.sql --schema examples/schema.sql` → the `CREATE TRIGGER`s in the schema are visible even if the functions are in `procs.sql`.
 
-**Points restants pour le roadmap** :
-- Clause `REFERENCING NEW TABLE AS name` (nommage custom des tables de transition) → nécessite extension AST + parser
-- Détection de la disponibilité flow-sensitive : `INSERT` only → OLD indéfini, `IF TG_OP = 'DELETE'` → OLD défini dans le scope du IF
-- Statement-level triggers (NEW/OLD sont des tables, pas des lignes) → sémantique différente à gérer
+**Remaining roadmap items**:
+- `REFERENCING NEW TABLE AS name` clause (custom naming of transition tables) → requires AST + parser extension
+- Flow-sensitive availability detection: `INSERT` only → OLD undefined, `IF TG_OP = 'DELETE'` → OLD defined within the IF scope
+- Statement-level triggers (NEW/OLD are tables, not rows) → different semantics to handle
 
-### Cas 4 — Plvars dans `INSERT … VALUES (…)`
+### Case 4 — Plvars in `INSERT … VALUES (…)`
 
-**Situation** : `INSERT INTO t (col) VALUES (p_param)` — `p_param` est une variable PL/pgSQL mais `check_sql_in_body` ne parcourt pas les expressions VALUES avec `plvars`, émettant potentiellement E001.
-**Workaround actuel** : seul le SELECT source d'un INSERT est vérifié avec `check_select_with_plvars` ; les VALUES bruts ne sont pas traversés.
-**Fix correct** :
-1. Dans `check_sql_in_body`, pour `Statement::Insert` avec `InsertSource::Values`, parcourir chaque expression avec `check_expr` en passant `plvars`.
-2. Alternativement, traiter les plvars comme des littéraux inconnus (`Expr::Literal`) en aval dans le type-checker.
+**Situation**: `INSERT INTO t (col) VALUES (p_param)` — `p_param` is a PL/pgSQL variable but `check_sql_in_body` does not walk VALUES expressions with `plvars`, potentially emitting E001.
+**Current workaround**: only the source SELECT of an INSERT is checked with `check_select_with_plvars`; raw VALUES are not traversed.
+**Correct fix**:
+1. In `check_sql_in_body`, for `Statement::Insert` with `InsertSource::Values`, walk each expression with `check_expr`, passing `plvars`.
+2. Alternatively, treat plvars as unknown literals (`Expr::Literal`) downstream in the type-checker.
 
-### Cas 5 — Fallback texte (`check_plpgsql_body`) trop permissif
+### Case 5 — Text fallback (`check_plpgsql_body`) too permissive
 
-**Situation** : Quand le parser PL/pgSQL échoue sur un corps complexe (CTEs, FOR IN unnest, etc.), on bascule sur l'analyse ligne-par-ligne. Ce fallback supprime les E002 entiers et rate beaucoup de constructions.
-**Fix correct** :
-1. Étendre le parser PL/pgSQL pour couvrir les cas qui échouent (FOR IN, RETURN QUERY, CTEs imbriquées).
-2. À défaut, que le fallback texte n'émette que des avertissements structurels (W002, W003) sans diagnostics de colonnes/tables — mieux vaut rien que des faux positifs.
-3. Suivre le taux de fallback via un compteur de métriques dans le LSP (ratio corps parsés / corps texte) pour prioriser les cas à traiter.
+**Situation**: When the PL/pgSQL parser fails on a complex body (CTEs, FOR IN unnest, etc.), we fall back to line-by-line analysis. This fallback suppresses E002s entirely and misses many constructs.
+**Correct fix**:
+1. Extend the PL/pgSQL parser to cover the failing cases (FOR IN, RETURN QUERY, nested CTEs).
+2. Failing that, have the text fallback emit only structural warnings (W002, W003) without column/table diagnostics — nothing is better than false positives.
+3. Track the fallback rate with a metrics counter in the LSP (ratio of parsed bodies / text bodies) to prioritize the cases to handle.
 
 ---
 
-## 7. Roadmap — ce qui n'est pas dans cette spec
+## 7. Roadmap — what is not in this spec
 
-À ajouter ultérieurement :
-- **Go-to-definition** : naviguer vers la définition d'une table/colonne/fonction depuis n'importe quel fichier SQL
-- **Rename refactoring** : renommer une table ou colonne avec mise à jour de toutes les références
-- **Introspection live** : `IntrospectionJsonProvider` depuis une connexion DB (complément de `SchemaResolver`)
-- **Plugin PostGIS** : types géométriques dans le type-checker
-- **RLS policies** : type-check des expressions `USING`/`WITH CHECK`
+To add later:
+- **Go-to-definition**: navigate to the definition of a table/column/function from any SQL file
+- **Rename refactoring**: rename a table or column, updating all references
+- **Live introspection**: `IntrospectionJsonProvider` from a DB connection (complement to `SchemaResolver`)
+- **PostGIS plugin**: geometric types in the type-checker
+- **RLS policies**: type-checking of `USING`/`WITH CHECK` expressions

@@ -2,10 +2,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // F5 : compile l'extension, ouvre une fenêtre VS Code de développement
-      // et y charge directement examples/playground/ — un vrai projet avec
-      // schema/, migrations/ et pgweave.toml, pour ne pas avoir à
-      // chercher un dossier à la main.
+      // F5: builds the extension, opens a development VS Code window and
+      // loads examples/playground/ in it directly — a real project with
+      // schema/, migrations/ and pgweave.toml, so you do not have to look
+      // for a folder by hand.
       "name": "Run Extension (playground)",
       "type": "extensionHost",
       "request": "launch",
@@ -17,8 +17,8 @@
       "preLaunchTask": "npm: compile"
     },
     {
-      // Variante : fenêtre vide, à toi d'ouvrir le dossier que tu veux tester.
-      "name": "Run Extension (fenêtre vide)",
+      // Variant: empty window, open the folder you want to test yourself.
+      "name": "Run Extension (empty window)",
       "type": "extensionHost",
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],

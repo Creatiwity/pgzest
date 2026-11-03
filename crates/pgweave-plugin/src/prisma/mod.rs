@@ -109,7 +109,7 @@ fn prisma_type_to_pg(t: &str) -> DataType {
             scale: None,
         },
         "Boolean" => Boolean,
-        // Prisma génère `TIMESTAMP(3)`, sans fuseau horaire.
+        // Prisma generates `TIMESTAMP(3)`, without time zone.
         "DateTime" => Timestamp(Some(3)),
         "Json" => Jsonb,
         "Bytes" => Bytea,

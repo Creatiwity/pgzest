@@ -1,5 +1,5 @@
-//! Statements utilitaires : ni requêtes ni définitions d'objets, mais
-//! présents dans les migrations et les scripts — `DO`, `CALL`, `COPY`, `SET`,
+//! Utility statements: neither queries nor object definitions, but
+//! present in migrations and scripts — `DO`, `CALL`, `COPY`, `SET`,
 //! transactions, `COMMENT ON`, `GRANT`/`REVOKE`, `TRUNCATE`, `ANALYZE`,
 //! `VACUUM`.
 
@@ -17,36 +17,36 @@ pub struct Utility {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UtilityKind {
-    /// `DO [LANGUAGE l] $$ … $$` : bloc anonyme, exécuté immédiatement.
+    /// `DO [LANGUAGE l] $$ … $$`: anonymous block, executed immediately.
     Do {
         language: FunctionLanguage,
         body: FunctionBody,
-        /// Position du premier caractère du corps dans le document.
+        /// Position of the body's first character in the document.
         body_start: u32,
     },
-    /// `CALL procédure(arguments)`.
+    /// `CALL procedure(arguments)`.
     Call {
         name: ObjectName,
         args: Vec<Expr>,
     },
     Copy(CopyStatement),
-    /// `SET [LOCAL | SESSION] paramètre { TO | = } valeur`. `local` : jusqu'à
-    /// la fin de la transaction.
+    /// `SET [LOCAL | SESSION] parameter { TO | = } value`. `local`: until
+    /// the end of the transaction.
     Set {
         local: bool,
         name: String,
         value: SettingValue,
     },
     Transaction(TransactionCommand),
-    /// `COMMENT ON objet IS 'texte'` (`None` : `IS NULL`, suppression).
+    /// `COMMENT ON object IS 'text'` (`None`: `IS NULL`, removal).
     Comment {
         target: CommentTarget,
         name: ObjectName,
         text: Option<String>,
     },
-    /// `GRANT` / `REVOKE`. Modélisé tel qu'écrit, en attendant la phase de
-    /// conception des privilèges (PLAN.md, §6) : le diff de migration doit
-    /// seulement ne pas les perdre.
+    /// `GRANT` / `REVOKE`. Modeled as written, pending the privileges
+    /// design phase (PLAN.md, §6): the migration diff must merely
+    /// not lose them.
     Privilege {
         grant: bool,
         privileges: String,
@@ -58,13 +58,13 @@ pub enum UtilityKind {
         restart_identity: bool,
         cascade: bool,
     },
-    /// `ANALYZE` / `VACUUM [(options)] [table [(colonnes)], …]`.
+    /// `ANALYZE` / `VACUUM [(options)] [table [(columns)], …]`.
     Maintenance {
         command: MaintenanceCommand,
-        /// Options entre parenthèses, ou mots-clés de l'ancienne syntaxe
-        /// (`VACUUM FULL VERBOSE`), en majuscules, dans l'ordre d'écriture.
+        /// Options in parentheses, or keywords of the old syntax
+        /// (`VACUUM FULL VERBOSE`), uppercase, in writing order.
         options: Vec<MaintenanceOption>,
-        /// Vide : toutes les tables de la base.
+        /// Empty: all tables of the database.
         tables: Vec<MaintenanceTarget>,
     },
 }
@@ -78,9 +78,9 @@ pub enum MaintenanceCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaintenanceOption {
     pub name: String,
-    /// Valeur écrite (`ON`, `false`, `4`…), absente pour un drapeau nu.
+    /// Written value (`ON`, `false`, `4`…), absent for a bare flag.
     pub value: Option<String>,
-    /// Ancienne syntaxe, sans parenthèses.
+    /// Old syntax, without parentheses.
     pub legacy: bool,
 }
 
@@ -93,7 +93,7 @@ pub struct MaintenanceTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CopyStatement {
     pub source: CopySource,
-    /// `TO` (export) ou `FROM` (import).
+    /// `TO` (export) or `FROM` (import).
     pub to: bool,
     pub target: CopyTarget,
     pub options: Vec<CopyOption>,
@@ -101,12 +101,12 @@ pub struct CopyStatement {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CopySource {
-    /// `COPY table [(colonnes)]` : colonnes vides = toutes, dans l'ordre.
+    /// `COPY table [(columns)]`: empty columns = all, in order.
     Table {
         name: ObjectName,
         columns: Vec<Ident>,
     },
-    /// `COPY (requête) TO …`.
+    /// `COPY (query) TO …`.
     Query(Box<SelectStmt>),
 }
 
@@ -120,7 +120,7 @@ pub enum CopyTarget {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CopyOption {
-    /// `text`, `csv` ou `binary`.
+    /// `text`, `csv` or `binary`.
     Format(String),
     Header(bool),
     Delimiter(char),

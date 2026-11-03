@@ -1,5 +1,5 @@
--- Couverture : fenêtres, agrégats ordonnés, LATERAL, récursion, ensembles,
--- intervalles, texte intégral, expressions régulières, DML avancé.
+-- Coverage: windows, ordered aggregates, LATERAL, recursion, sets,
+-- intervals, full text, regular expressions, advanced DML.
 
 -- name: window_rank
 SELECT name, budget, rank() OVER (ORDER BY budget DESC), row_number() OVER (PARTITION BY level ORDER BY id), dense_rank() OVER w FROM teams WINDOW w AS (ORDER BY name);

@@ -13,8 +13,8 @@ CREATE TABLE pages (
     published_on DATE
 );
 
--- Chargement par lots (motif siren) : COPY dans une table de staging, puis
--- bascule dans la table finale.
+-- Batch loading (siren pattern): COPY into a staging table, then swap into
+-- the final table.
 CREATE TABLE etablissements (
     siret    CHAR(14) PRIMARY KEY,
     nom      TEXT NOT NULL,

@@ -1,9 +1,9 @@
-//! Tables de transition d'un trigger niveau statement
+//! Transition tables of a statement-level trigger
 //! (`REFERENCING NEW TABLE AS inserted OLD TABLE AS removed`).
 //!
-//! Régression (Mesalia) : dans le corps de la fonction, `inserted` et
-//! `removed` étaient signalés comme tables inexistantes. Ce sont des tables
-//! ayant les colonnes de la table du trigger, visibles du seul corps.
+//! Regression (Mesalia): in the function body, `inserted` and
+//! `removed` were reported as nonexistent tables. They are tables
+//! with the columns of the trigger's table, visible only from the body.
 
 use pgweave_checker::check_sql_self_contained;
 use pgweave_diagnostics::{Diagnostic, codes};
@@ -30,7 +30,7 @@ fn errors<'a>(diags: &'a [Diagnostic], code: &str) -> Vec<&'a Diagnostic> {
 }
 
 #[test]
-fn les_tables_de_transition_sont_en_portee() {
+fn transition_tables_are_in_scope() {
     let d = transition_trigger(
         "INSERT INTO stock_log (id, delta)\n\
          SELECT i.id, i.quantity - r.quantity FROM inserted i JOIN removed r ON r.id = i.id;",
@@ -40,13 +40,13 @@ fn les_tables_de_transition_sont_en_portee() {
 }
 
 #[test]
-fn une_colonne_absente_d_une_table_de_transition_est_signalee() {
+fn a_column_missing_from_a_transition_table_is_reported() {
     let d = transition_trigger("INSERT INTO stock_log (id) SELECT i.nope FROM inserted i;");
     assert_eq!(errors(&d, codes::COLUMN_NOT_FOUND).len(), 1, "{d:?}");
 }
 
 #[test]
-fn hors_du_corps_les_tables_de_transition_n_existent_pas() {
+fn outside_the_body_transition_tables_do_not_exist() {
     let d = transition_trigger("NULL;");
     let outside = "SELECT id FROM inserted;";
     let d2 = check_sql_self_contained(outside);
@@ -55,8 +55,8 @@ fn hors_du_corps_les_tables_de_transition_n_existent_pas() {
 }
 
 #[test]
-fn un_bloc_do_est_verifie_comme_une_procedure() {
-    let body = "BEGIN INSERT INTO absente (id) VALUES (1); END";
+fn a_do_block_is_checked_like_a_procedure() {
+    let body = "BEGIN INSERT INTO missing (id) VALUES (1); END";
     let codes_of = |sql: String| {
         let mut c: Vec<&'static str> = check_sql_self_contained(&sql)
             .iter()
@@ -74,11 +74,11 @@ fn un_bloc_do_est_verifie_comme_une_procedure() {
 }
 
 #[test]
-fn copy_verifie_table_et_colonnes() {
+fn copy_checks_table_and_columns() {
     let d = check_sql_self_contained(
         "CREATE TABLE stock (id BIGINT, quantity INTEGER);\n\
          COPY stock (id, nope) FROM STDIN WITH (FORMAT csv);\n\
-         COPY absente FROM STDIN;",
+         COPY missing FROM STDIN;",
     );
     assert_eq!(errors(&d, codes::COLUMN_NOT_FOUND).len(), 1, "{d:?}");
     assert_eq!(errors(&d, codes::TABLE_NOT_FOUND).len(), 1, "{d:?}");

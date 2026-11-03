@@ -1,4 +1,4 @@
-# @procedure — comme @function, mais sans valeur de retour.
+# @procedure — like @function, but without a return value.
 #
 #   @procedure archive_org(target UUID) {
 #       UPDATE organizations SET archived = true WHERE id = target;

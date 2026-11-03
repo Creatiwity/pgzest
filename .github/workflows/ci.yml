@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # rust-toolchain.toml pilote la version installée.
+      # rust-toolchain.toml drives the installed version.
       - name: Install Rust
         run: rustup show
 
@@ -39,11 +39,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-  # Oracle différentiel (PLAN.md §7) : le corpus crates/pgweave-oracle/cases
-  # est préparé sur un vrai PostgreSQL 18 et comparé à l'analyse de pgweave.
-  # Le rapport attendu est l'instantané tests/snapshots/oracle__rapport.snap :
-  # tout écart, progrès compris, fait échouer le job jusqu'à sa relecture
-  # (`make oracle-accept` en local).
+  # Differential oracle (PLAN.md §7): the crates/pgweave-oracle/cases corpus
+  # is prepared on a real PostgreSQL 18 and compared with pgweave's analysis.
+  # The expected report is the tests/snapshots/oracle__report.snap snapshot:
+  # any difference, improvements included, fails the job until reviewed
+  # (`make oracle-accept` locally).
   oracle:
     name: Oracle PostgreSQL 18
     runs-on: ubuntu-latest
@@ -72,17 +72,17 @@ jobs:
       - name: Oracle
         run: cargo test -p pgweave-oracle --test oracle -- --ignored
 
-      - name: Résolution des surcharges (balayage)
+      - name: Overload resolution (sweep)
         run: cargo test -p pgweave-sema --test oracle_sweep -- --ignored
 
-      - name: Précédence des opérateurs
+      - name: Operator precedence
         run: cargo test -p pgweave-oracle --test precedence -- --ignored
 
-      - name: Service Rust d'exemple (requêtes générées, exécutées)
+      - name: Example Rust service (generated queries, executed)
         run: cargo test -p pgweave-example-rust-service -- --ignored
 
   typescript:
-    name: TypeScript (paquet npm + extension)
+    name: TypeScript (npm package + extension)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,27 +91,27 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install (paquet npm)
+      - name: Install (npm package)
         run: npm install --no-fund --no-audit
         working-directory: npm/pgweave
 
-      - name: Typecheck (paquet npm)
+      - name: Typecheck (npm package)
         run: npx tsc --noEmit
         working-directory: npm/pgweave
 
-      - name: Build (paquet npm)
+      - name: Build (npm package)
         run: npx tsc
         working-directory: npm/pgweave
 
-      - name: Test (paquet npm)
+      - name: Test (npm package)
         run: node --test "dist/**/*.test.js"
         working-directory: npm/pgweave
 
-      - name: Install (extension VS Code)
+      - name: Install (VS Code extension)
         run: npm install --no-fund --no-audit
         working-directory: editors/vscode
 
-      - name: Build (extension VS Code)
+      - name: Build (VS Code extension)
         run: npx tsc -p ./
         working-directory: editors/vscode
 
@@ -147,21 +147,21 @@ jobs:
       - name: Build CLI
         run: cargo build -p pgweave
 
-      # examples/test.sql référence une table absente du schéma : on attend
-      # un exit code 1. Ce test verrouille le contrat "check sort 1 si erreur".
-      - name: check détecte l'erreur attendue
+      # examples/test.sql references a table missing from the schema: exit
+      # code 1 is expected. This locks the "check exits 1 on error" contract.
+      - name: check detects the expected error
         run: |
           if ./target/debug/pgweave check examples/test.sql; then
-            echo "::error::pgweave check aurait dû sortir en erreur sur examples/test.sql"
+            echo "::error::pgweave check should have failed on examples/test.sql"
             exit 1
           fi
 
-      - name: lint tourne sans planter
+      - name: lint runs without crashing
         run: ./target/debug/pgweave lint examples/schema.sql
 
-      - name: codegen produit une interface TS
+      - name: codegen produces a TS interface
         run: |
           out=$(./target/debug/pgweave codegen --input examples/schema.sql)
           echo "$out"
           echo "$out" | grep -q "export interface" \
-            || { echo "::error::codegen n'a produit aucune interface"; exit 1; }
+            || { echo "::error::codegen produced no interface"; exit 1; }

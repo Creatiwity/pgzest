@@ -1,5 +1,5 @@
--- Première version : tables, enum, clé étrangère, vue, fonction SQL,
--- trigger PL/pgSQL.
+-- First version: tables, enum, foreign key, view, SQL function,
+-- PL/pgSQL trigger.
 CREATE TYPE order_status AS ENUM ('draft', 'placed', 'served');
 
 CREATE TABLE customers (

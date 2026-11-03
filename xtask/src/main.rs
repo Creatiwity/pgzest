@@ -1,4 +1,4 @@
-//! Tâches de développement de pgweave : `cargo xtask <commande>`.
+//! pgweave development tasks: `cargo xtask <command>`.
 
 mod catalog_compare;
 mod catalog_gen;
@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "cargo xtask", about = "Tâches de développement de pgweave")]
+#[command(name = "cargo xtask", about = "pgweave development tasks")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -20,61 +20,60 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Rapport « taux d'analyse » sur un corpus externe de migrations.
+    /// "Analysis rate" report on an external migration corpus.
     ///
-    /// Le corpus n'est jamais copié dans le dépôt : son chemin vient de
-    /// `--path` ou de la variable `PGWEAVE_CORPUS_<NOM>` (ex.
-    /// `PGWEAVE_CORPUS_MESALIA`). Le rapport ne contient que des agrégats et
-    /// des formes de statements dont les noms sont masqués.
+    /// The corpus is never copied into the repository: its path comes from
+    /// `--path` or from the `PGWEAVE_CORPUS_<NAME>` variable (e.g.
+    /// `PGWEAVE_CORPUS_MESALIA`). The report only contains aggregates and
+    /// statement shapes with names masked.
     Corpus {
-        /// Nom du corpus (sert au titre et à la variable d'environnement).
+        /// Corpus name (used for the title and the environment variable).
         name: String,
-        /// Répertoire du corpus.
+        /// Corpus directory.
         #[arg(long)]
         path: Option<PathBuf>,
-        /// Organisation des migrations dans le répertoire.
+        /// Layout of the migrations in the directory.
         #[arg(long, value_enum, default_value = "flat")]
         layout: corpus::Layout,
-        /// Serveur PostgreSQL de test sur lequel rejouer les migrations
-        /// (défaut : `PGWEAVE_ORACLE_URL`). Une base y est créée puis supprimée.
+        /// Test PostgreSQL server on which to replay the migrations
+        /// (default: `PGWEAVE_ORACLE_URL`). A database is created then dropped there.
         #[arg(long)]
         pg_url: Option<String>,
-        /// Fichier Markdown à écrire (défaut : sortie standard).
+        /// Markdown file to write (default: standard output).
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Affiche sur la sortie d'erreur le détail de chaque écart, noms
-        /// compris. Pour le travail local uniquement : jamais écrit dans le
-        /// rapport.
+        /// Prints the detail of each gap on standard error, names included.
+        /// For local work only: never written to the report.
         #[arg(long)]
         details: bool,
     },
-    /// Génère un pack de catalogue depuis un PostgreSQL réel (PLAN.md, D9).
+    /// Generates a catalog pack from a real PostgreSQL (PLAN.md, D9).
     ///
-    /// Sans `--extension` : `postgres@<majeure>`. Avec : le delta apporté par
-    /// `CREATE EXTENSION`. Une base temporaire est créée puis supprimée.
+    /// Without `--extension`: `postgres@<major>`. With it: the delta brought by
+    /// `CREATE EXTENSION`. A temporary database is created then dropped.
     CatalogGen {
-        /// Serveur PostgreSQL (défaut : `PGWEAVE_ORACLE_URL`).
+        /// PostgreSQL server (default: `PGWEAVE_ORACLE_URL`).
         #[arg(long)]
         pg_url: Option<String>,
-        /// Extension dont générer le pack.
+        /// Extension whose pack to generate.
         #[arg(long)]
         extension: Option<String>,
-        /// Version de l'extension (défaut : celle par défaut du serveur).
+        /// Extension version (default: the server's default one).
         #[arg(long)]
         version: Option<String>,
-        /// Fichier à écrire (défaut : `crates/pgweave-catalog/packs/<nom>-<version>.json`).
+        /// File to write (default: `crates/pgweave-catalog/packs/<name>-<version>.json`).
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Oracle des migrations d'un projet déclaratif : migrations appliquées
-    /// et schéma déclaratif doivent donner deux bases identiques (P7).
+    /// Migration oracle of a declarative project: applied migrations and the
+    /// declarative schema must yield two identical databases (P7).
     MigrateOracle {
-        /// Répertoire du projet (`pgweave.toml`).
+        /// Project directory (`pgweave.toml`).
         project: PathBuf,
-        /// Serveur PostgreSQL (défaut : `PGWEAVE_ORACLE_URL`).
+        /// PostgreSQL server (default: `PGWEAVE_ORACLE_URL`).
         #[arg(long)]
         pg_url: Option<String>,
-        /// Affiche les écarts, noms compris (sortie d'erreur, travail local).
+        /// Prints the gaps, names included (standard error, local work).
         #[arg(long)]
         details: bool,
     },

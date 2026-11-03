@@ -19,28 +19,28 @@ use crate::completion::{analyze_cursor, build_completions};
 use crate::line_index::LineIndex;
 use crate::semantic;
 
-// ── Requête custom : expansion des macros ─────────────────────────────────────
+// ── Custom request: macro expansion ───────────────────────────────────────────
 
-/// Paramètres de `pgweave/expandMacro`.
+/// Parameters of `pgweave/expandMacro`.
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExpandMacroParams {
-    /// Document à désucrer.
+    /// Document to desugar.
     pub text_document: TextDocumentIdentifier,
-    /// Position du curseur. Si elle tombe dans une macro, seule celle-ci est
-    /// rendue ; sinon tout le fichier l'est.
+    /// Cursor position. If it falls inside a macro, only that one is
+    /// rendered; otherwise the whole file is.
     pub position: Option<Position>,
 }
 
-/// Réponse de `pgweave/expandMacro`.
+/// Response of `pgweave/expandMacro`.
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExpandMacroResult {
-    /// SQL standard produit.
+    /// Standard SQL produced.
     pub sql: String,
-    /// Nombre de macros désucrées dans ce qui a été rendu.
+    /// Number of macros desugared in what was rendered.
     pub expanded: usize,
-    /// Message à afficher quand il n'y a rien à montrer.
+    /// Message to display when there is nothing to show.
     pub note: Option<String>,
 }
 
@@ -49,9 +49,9 @@ pub struct ExpandMacroResult {
 pub struct PgsqlBackend {
     client: Client,
     documents: Mutex<HashMap<String, String>>,
-    /// Projet en base incrémentale : fichiers lus au chargement, remplacés par
-    /// le texte de l'éditeur à mesure qu'il change. Le catalogue n'est
-    /// recalculé que si un fichier de schéma ou une migration change.
+    /// Project in an incremental database: files read at load time, replaced
+    /// by the editor's text as it changes. The catalog is only recomputed if
+    /// a schema file or a migration changes.
     workspace: Mutex<Workspace>,
     /// Project root and config (from pgweave.toml).
     project_root: Mutex<Option<PathBuf>>,
@@ -60,10 +60,10 @@ pub struct PgsqlBackend {
     legacy_schema_path: Mutex<Option<String>>,
     /// WASM plugins loaded from plugins.wasm in pgweave.toml.
     wasm_plugins: Mutex<Vec<Arc<WasmPlugin>>>,
-    /// Macros reconnues : celles fournies, plus les `*.pgmacro` du projet.
+    /// Known macros: the shipped ones, plus the project's `*.pgmacro` files.
     ///
-    /// Reconstruit avec le resolver : un `.pgmacro` modifié doit prendre effet
-    /// sans redémarrer le serveur.
+    /// Rebuilt with the resolver: a modified `.pgmacro` must take effect
+    /// without restarting the server.
     macros: Mutex<Arc<pgweave_macro::MacroSet>>,
 }
 
@@ -84,18 +84,17 @@ impl PgsqlBackend {
         }
     }
 
-    /// Désucre un document, ou seulement la macro sous le curseur.
+    /// Desugars a document, or only the macro under the cursor.
     ///
-    /// Sert la commande « Voir l'expansion » de l'extension : le résultat est
-    /// affiché dans un onglet en lecture seule, comme le fait Rust Analyzer
-    /// pour ses macros.
+    /// Serves the extension's "Show expansion" command: the result is shown in
+    /// a read-only tab, as Rust Analyzer does for its macros.
     pub async fn expand_macro(&self, params: ExpandMacroParams) -> Result<ExpandMacroResult> {
         let uri = params.text_document.uri.to_string();
         let Some(text) = self.documents.lock().await.get(&uri).cloned() else {
             return Ok(ExpandMacroResult {
                 sql: String::new(),
                 expanded: 0,
-                note: Some("document non ouvert côté serveur".into()),
+                note: Some("document not open on the server side".into()),
             });
         };
 
@@ -106,11 +105,11 @@ impl PgsqlBackend {
             return Ok(ExpandMacroResult {
                 sql: String::new(),
                 expanded: 0,
-                note: Some("aucune macro dans ce fichier".into()),
+                note: Some("no macro in this file".into()),
             });
         }
 
-        // Sans position, on rend tout le fichier désucré.
+        // Without a position, render the whole desugared file.
         let Some(pos) = params.position else {
             return Ok(ExpandMacroResult {
                 sql: full.sql,
@@ -119,9 +118,9 @@ impl PgsqlBackend {
             });
         };
 
-        // Avec une position : isoler la macro qui la contient. On retrouve la
-        // plage engendrée dont l'antécédent couvre le curseur, en s'appuyant sur
-        // la même correspondance que les diagnostics.
+        // With a position: isolate the macro containing it. Find the generated
+        // range whose origin covers the cursor, relying on the same mapping as
+        // the diagnostics.
         let index = LineIndex::new(&text);
         let offset = index.offset_at(pos.line as usize, pos.character as usize);
 
@@ -131,37 +130,37 @@ impl PgsqlBackend {
                 expanded: 1,
                 note: None,
             }),
-            // Curseur hors d'une macro : le fichier entier, plutôt que rien.
+            // Cursor outside a macro: the whole file, rather than nothing.
             None => Ok(ExpandMacroResult {
                 sql: full.sql,
                 expanded: full.expanded,
-                note: Some("curseur hors d'une macro — fichier entier désucré".into()),
+                note: Some("cursor outside a macro — whole file desugared".into()),
             }),
         }
     }
 
-    /// Un projet pgweave (`pgweave.toml`) est chargé.
+    /// A pgweave project (`pgweave.toml`) is loaded.
     async fn in_project(&self) -> bool {
         self.config.lock().await.is_some()
     }
 
-    /// Jeu de macros courant (clone d'Arc, bon marché).
+    /// Current macro set (Arc clone, cheap).
     async fn macros(&self) -> Arc<pgweave_macro::MacroSet> {
         self.macros.lock().await.clone()
     }
 
-    /// Recharge les macros du projet par-dessus les macros fournies.
+    /// Reloads the project's macros on top of the shipped ones.
     async fn rebuild_macros(&self) {
         let mut set = pgweave_macro::MacroSet::builtin();
         if let Some(root) = self.project_root.lock().await.clone() {
-            // Config invalide : déjà signalée par `rebuild_resolver` /
-            // `initialize`. On ne devine pas un répertoire de repli.
+            // Invalid config: already reported by `rebuild_resolver` /
+            // `initialize`. No fallback directory is guessed.
             let dir = match ProjectConfig::load(&root.join(ProjectConfig::FILENAME)) {
                 Ok(cfg) => Some(root.join(&cfg.macros.directory)),
                 Err(_) => None,
             };
             if let Some(dir) = dir.filter(|d| d.is_dir()) {
-                // Un fichier ouvert fait foi sur le disque, comme pour le schéma.
+                // An open file wins over the disk, as for the schema.
                 let open: HashMap<std::path::PathBuf, String> = self
                     .documents
                     .lock()
@@ -185,8 +184,8 @@ impl PgsqlBackend {
         self.workspace.lock().await.set_macros(set);
     }
 
-    /// Module de `file` dans son répertoire de requêtes, et les requêtes de
-    /// ce répertoire par module, documents ouverts compris.
+    /// Module of `file` in its query directory, and the queries of that
+    /// directory per module, open documents included.
     async fn query_tree(
         &self,
         file: &Path,
@@ -219,13 +218,13 @@ impl PgsqlBackend {
         (here, modules)
     }
 
-    /// Catalogue du projet à jour (rejeu mémorisé, clone d'Arc).
+    /// Up-to-date project catalog (memoized replay, Arc clone).
     async fn resolver(&self) -> Arc<ProjectCatalog> {
         self.workspace.lock().await.catalog()
     }
 
-    /// Charge le projet formé de `chunks`, puis y reporte le texte des
-    /// documents ouverts : l'éditeur fait foi sur le disque.
+    /// Loads the project formed by `chunks`, then applies the text of the
+    /// open documents: the editor wins over the disk.
     async fn load_workspace(&self, chunks: Vec<pgweave_schema::SqlChunk>) {
         let chunks: Vec<_> = chunks
             .into_iter()
@@ -274,9 +273,9 @@ impl PgsqlBackend {
         FileRole::Schema
     }
 
-    /// Recharge le projet depuis le disque (config, ou chemin historique) :
-    /// nouveau fichier, config modifiée. Une simple modification de texte
-    /// passe par [`Workspace::set_text`], sans relecture.
+    /// Reloads the project from disk (config, or legacy path): new file,
+    /// modified config. A plain text change goes through
+    /// [`Workspace::set_text`], without rereading.
     async fn reload_workspace(&self) {
         let root = self.project_root.lock().await.clone();
 
@@ -284,21 +283,21 @@ impl PgsqlBackend {
             let config_path = root.join(ProjectConfig::FILENAME);
             match ProjectConfig::load(&config_path) {
                 Ok(config) => {
-                    // Macros du projet chargées d'abord : le catalogue doit
-                    // voir les objets déclarés par les macros maison, pas
-                    // seulement par celles fournies.
+                    // Project macros loaded first: the catalog must see the
+                    // objects declared by custom macros, not only by the
+                    // shipped ones.
                     self.rebuild_macros().await;
                     let source = config.to_source(root);
                     let chunks = pgweave_schema::SchemaSource::chunks(&source);
-                    // La config rechargée remplace l'ancienne : sans cela une
-                    // modification de [rules] ou [parse] n'était prise en compte
-                    // qu'au redémarrage du serveur.
+                    // The reloaded config replaces the old one: without this,
+                    // a change to [rules] or [parse] was only taken into
+                    // account on server restart.
                     *self.config.lock().await = Some(config);
                     chunks
                 }
                 Err(e) => {
                     self.client
-                        .show_message(MessageType::ERROR, format!("pgweave : {e}"))
+                        .show_message(MessageType::ERROR, format!("pgweave: {e}"))
                         .await;
                     return;
                 }
@@ -315,7 +314,7 @@ impl PgsqlBackend {
         self.load_workspace(chunks).await;
     }
 
-    /// Règles des plugins WASM chargés.
+    /// Rules of the loaded WASM plugins.
     async fn make_checker(&self) -> pgweave_checker::Checker {
         let mut checker = pgweave_checker::Checker::default();
         for plugin in self.wasm_plugins.lock().await.iter() {
@@ -324,7 +323,7 @@ impl PgsqlBackend {
         checker
     }
 
-    /// Type-check des statements déjà parsés contre `schema`.
+    /// Type-checks already parsed statements against `schema`.
     async fn check_stmts(
         &self,
         stmts: &[pgweave_ast::Statement],
@@ -333,17 +332,17 @@ impl PgsqlBackend {
         self.make_checker().await.run(stmts, schema)
     }
 
-    /// Parse, type-check, lint et publie les diagnostics de `uri`.
+    /// Parses, type-checks, lints and publishes the diagnostics of `uri`.
     ///
-    /// Doit produire exactement ce que produit `pgweave check` sur le même
-    /// fichier : même politique de tolérance du parser, mêmes directives en
-    /// commentaire, mêmes surcharges de sévérité. Toute divergence ici se
-    /// traduit par un fichier vert dans l'éditeur et rouge en CI.
+    /// Must produce exactly what `pgweave check` produces on the same file:
+    /// same parser tolerance policy, same comment directives, same severity
+    /// overrides. Any divergence here shows up as a file green in the editor
+    /// and red in CI.
     async fn run_diagnostics(&self, uri: &str, text: &str) {
         let line_index = LineIndex::new(text);
         if is_rust(uri) {
-            // Requêtes `sql!` / `query!` d'un projet pgweave seulement : une
-            // macro homonyme d'un autre outil n'est pas analysée hors projet.
+            // `sql!` / `query!` queries of a pgweave project only: a macro of
+            // the same name from another tool is not analyzed outside a project.
             let diags = if self.in_project().await {
                 let resolver = self.resolver().await;
                 let macros = self.macros().await;
@@ -358,8 +357,8 @@ impl PgsqlBackend {
             return;
         }
         let role = self.role_of(uri).await;
-        // Fichier de fragments : son format seul ; chaque fragment est vérifié
-        // là où il est inséré.
+        // Fragment file: only its format; each fragment is checked where it
+        // is inserted.
         if role == FileRole::Fragments {
             let diags = pgweave_macro::fragment_file_diagnostics(text);
             self.publish(uri, &diags, &line_index).await;
@@ -368,10 +367,10 @@ impl PgsqlBackend {
         let resolver = self.resolver().await;
         let suppressions = pgweave_diagnostics::Suppressions::scan(text);
 
-        // Désucrage des macros. Une source sans macro est recopiée à
-        // l'identique, donc c'est gratuit et aucun fichier n'y échappe à cause
-        // de son extension. Les spans produits ensuite sont déjà dans le repère
-        // du fichier édité — voir `PreparedSource::parse`.
+        // Macro desugaring. A source without macros is copied verbatim, so it
+        // is free and no file escapes it because of its extension. The spans
+        // produced afterwards are already in the edited file's frame — see
+        // `PreparedSource::parse`.
         let macros = self.macros().await;
         let prepared = if role == FileRole::Query {
             pgweave_analysis::prepare_query_source(text, &macros)
@@ -379,7 +378,7 @@ impl PgsqlBackend {
             pgweave_analysis::prepare_source(text, &macros)
         };
 
-        // Un seul parse pour le checker, le lint et les règles de rôle.
+        // A single parse for the checker, the lint and the role rules.
         let outcome = match prepared.parse_with_outcome() {
             Ok(o) => o,
             Err(e) => {
@@ -394,7 +393,7 @@ impl PgsqlBackend {
         };
         let stmts = outcome.statements;
 
-        // Config projet : tolérance du parser + surcharges de sévérité.
+        // Project config: parser tolerance + severity overrides.
         let (parse_cfg, rule_overrides) = {
             let guard = self.config.lock().await;
             match guard.as_ref() {
@@ -403,10 +402,10 @@ impl PgsqlBackend {
             }
         };
 
-        // ── Macros et statements écartés ──────────────────────────────────────
+        // ── Macros and skipped statements ─────────────────────────────────────
         let mut diags = prepared.diagnostics.clone();
 
-        // Fichier de requêtes nommées : format vérifié en plus, comme en CLI.
+        // Named query file: format checked as well, as in the CLI.
         if let (Some(path), Some(root)) = (uri_to_path(uri), self.project_root.lock().await.clone())
         {
             let is_query_file = self
@@ -426,11 +425,11 @@ impl PgsqlBackend {
             &parse_cfg,
         ));
 
-        // ── Vérification ──────────────────────────────────────────────────────
-        // Comme `pgweave check` : un fichier de schéma ou de migration du
-        // projet est vérifié pendant le rejeu (diagnostics du rejeu, texte de
-        // l'éditeur compris) ; un fichier de requêtes, contre le catalogue
-        // final ; un fichier hors projet, en rejouant son propre DDL.
+        // ── Check ─────────────────────────────────────────────────────────────
+        // Like `pgweave check`: a schema or migration file of the project is
+        // checked during the replay (replay diagnostics, editor text
+        // included); a query file, against the final catalog; a file outside
+        // the project, by replaying its own DDL.
         let path = uri_to_path(uri);
         let in_project = match &path {
             Some(p) => self.workspace.lock().await.contains(p),
@@ -454,22 +453,22 @@ impl PgsqlBackend {
         }
         diags.extend(self.check_stmts(&stmts, resolver.as_ref()).await);
 
-        // ── Lint + règles de rôle ─────────────────────────────────────────────
+        // ── Lint + role rules ─────────────────────────────────────────────────
         diags.extend(pgweave_lint::lint_statements(&stmts, &LintConfig::default()).diagnostics);
         diags.extend(check_ddl_role(&stmts, &role));
 
-        // Les surcharges s'appliquent à tout, checker comme lint : une règle
-        // mise à "off" dans la config doit être muette d'où qu'elle vienne.
+        // Overrides apply to everything, checker and lint alike: a rule set to
+        // "off" in the config must be silent wherever it comes from.
         pgweave_diagnostics::apply_rule_overrides(&mut diags, &rule_overrides);
 
-        // Directives en commentaire, en dernier : elles ont le dernier mot.
+        // Comment directives, last: they have the final say.
         suppressions.apply(&mut diags);
 
         self.publish(uri, &diags, &line_index).await;
     }
 
-    /// Le schéma a changé : chaque autre document ouvert est revérifié (le
-    /// rejeu est mémorisé, seules les vérifications sont refaites).
+    /// The schema changed: every other open document is rechecked (the replay
+    /// is memoized, only the checks are redone).
     async fn refresh_other_documents(&self, changed: &str) {
         let others: Vec<(String, String)> = self
             .documents
@@ -528,7 +527,7 @@ impl PgsqlBackend {
             severity: Some(severity),
             code: Some(NumberOrString::String(d.code.to_string())),
             source: Some("pgweave-lsp".to_string()),
-            // L'indice suit le message, comme le HINT de PostgreSQL.
+            // The hint follows the message, like PostgreSQL's HINT.
             message: match &d.hint {
                 Some(h) => format!("{}\n{h}", d.message),
                 None => d.message.clone(),
@@ -562,10 +561,10 @@ impl LanguageServer for PgsqlBackend {
         let discovered = match workspace_root.as_deref().map(ProjectConfig::find_and_load) {
             Some(Ok(found)) => found,
             Some(Err(e)) => {
-                // Config présente mais invalide : le dire à l'utilisateur, et
-                // ne pas analyser avec une config inventée.
+                // Config present but invalid: tell the user, and do not
+                // analyze with an invented config.
                 self.client
-                    .show_message(MessageType::ERROR, format!("pgweave : {e}"))
+                    .show_message(MessageType::ERROR, format!("pgweave: {e}"))
                     .await;
                 None
             }
@@ -573,11 +572,11 @@ impl LanguageServer for PgsqlBackend {
         };
         if let Some((project_root, config)) = discovered {
             *self.project_root.lock().await = Some(project_root.clone());
-            // La config d'abord : le chargement du projet en dépend (mode
-            // déclaratif).
+            // Config first: loading the project depends on it (declarative
+            // mode).
             *self.config.lock().await = Some(config.clone());
-            // Macros du projet d'abord : le catalogue doit voir les objets
-            // déclarés par les macros maison, pas seulement par celles fournies.
+            // Project macros first: the catalog must see the objects declared
+            // by custom macros, not only by the shipped ones.
             self.rebuild_macros().await;
             let source = config.to_source(&project_root);
             self.load_workspace(pgweave_schema::SchemaSource::chunks(&source))
@@ -772,15 +771,15 @@ impl LanguageServer for PgsqlBackend {
                 .and_then(Path::extension)
                 .is_some_and(|e| e == "pgmacro");
             if macro_file || self.role_of(&uri).await == FileRole::Fragments {
-                // Macro du projet : tous les fichiers sont relus.
+                // Project macro: all files are reread.
                 self.rebuild_macros().await;
                 schema_changed = true;
             } else if matches!(
                 self.role_of(&uri).await,
                 FileRole::Schema | FileRole::Migration { .. }
             ) {
-                // Fichier connu : seul ce qui en dépend est recalculé.
-                // Nouveau fichier : le projet est rechargé.
+                // Known file: only what depends on it is recomputed.
+                // New file: the project is reloaded.
                 let known = match &path {
                     Some(p) => self.workspace.lock().await.set_text(p, &text),
                     None => false,
@@ -790,7 +789,7 @@ impl LanguageServer for PgsqlBackend {
                 }
                 schema_changed = true;
             } else if self.role_of(&uri).await == FileRole::Query {
-                // Une requête peut servir de référence à d'autres (`-> nom`).
+                // A query can be referenced by others (`-> name`).
                 schema_changed = true;
             }
 
@@ -804,7 +803,7 @@ impl LanguageServer for PgsqlBackend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         self.documents.lock().await.remove(&uri);
-        // Modifications abandonnées : le disque refait foi.
+        // Changes discarded: the disk is authoritative again.
         if self.role_of(&uri).await == FileRole::Fragments {
             self.rebuild_macros().await;
             self.refresh_other_documents(&uri).await;
@@ -856,7 +855,7 @@ impl LanguageServer for PgsqlBackend {
             None => return Ok(None),
         };
 
-        // `$nom` : un paramètre de la requête, jamais une colonne homonyme.
+        // `$name`: a query parameter, never a column of the same name.
         if param_at(&text, offset as usize).is_some() {
             let resolver = self.resolver().await;
             let macros = self.macros().await;
@@ -877,8 +876,8 @@ impl LanguageServer for PgsqlBackend {
         let resolver = self.resolver().await;
         let macros = self.macros().await;
 
-        // Un seul parse, macros et fragments désucrés : les spans sont dans le
-        // repère du fichier édité.
+        // A single parse, macros and fragments desugared: spans are in the
+        // edited file's frame.
         let prepared = if role == FileRole::Query {
             pgweave_analysis::prepare_query_source(&text, &macros)
         } else {
@@ -890,9 +889,9 @@ impl LanguageServer for PgsqlBackend {
             .unwrap_or_default();
 
         let hover_text: Option<String> =
-            // Invocation d'un fragment : sa documentation et le SQL inséré.
+            // Fragment invocation: its documentation and the inserted SQL.
             hover_fragment(&prepared, &macros, offset as usize)
-            // En-tête d'une requête nommée : son descripteur.
+            // Named query header: its descriptor.
             .or_else(|| hover_named_query(&text, offset as usize, resolver.as_ref(), &macros))
             // PL/pgSQL declared variables / parameters take priority in any file type.
             .or_else(|| hover_plpgsql_var(&stmts, offset as usize, &word))
@@ -926,7 +925,7 @@ impl LanguageServer for PgsqlBackend {
 
         let resolver = self.resolver().await;
         let cursor_offset = position_to_offset(&text, pos.line, pos.character) as usize;
-        // Fichier Rust : seulement dans le SQL d'un `sql!` / `query!`.
+        // Rust file: only inside the SQL of a `sql!` / `query!`.
         if is_rust(&uri) {
             if !self.in_project().await {
                 return Ok(None);
@@ -977,9 +976,9 @@ fn hover_schema_file(text: &str, word: &str, global: &dyn SchemaProvider) -> Opt
     lookup_hover(word, provider).or_else(|| lookup_hover(word, global))
 }
 
-/// Survol dans une requête : ce que désigne le nom sous le curseur, d'après
-/// l'analyse sémantique du statement qui le contient ; à défaut, la table ou
-/// la colonne de ce nom dans le catalogue.
+/// Hover in a query: what the name under the cursor designates, according to
+/// the semantic analysis of the statement containing it; failing that, the
+/// table or column of that name in the catalog.
 fn hover_query(
     stmts: &[pgweave_ast::Statement],
     catalog: &ProjectCatalog,
@@ -1002,7 +1001,7 @@ fn hover_query(
             pgweave_sema::TypeSystem::new(&catalog.catalog),
             catalog.search_path.clone(),
         );
-        // Les références résolues avant une éventuelle erreur restent valables.
+        // References resolved before a possible error remain valid.
         let _ = a.describe(stmt);
         let under_cursor = a
             .column_refs
@@ -1018,7 +1017,7 @@ fn hover_query(
             let nn = match t.nullable {
                 pgweave_sema::Nullability::NonNull => " NOT NULL",
                 pgweave_sema::Nullability::Nullable => " NULL",
-                pgweave_sema::Nullability::Unknown => " (nullabilité inconnue)",
+                pgweave_sema::Nullability::Unknown => " (unknown nullability)",
             };
             return Some(format!("(column) **{word}**: `{ty}`{nn}"));
         }
@@ -1026,10 +1025,7 @@ fn hover_query(
     lookup_hover(word, catalog)
 }
 
-/// Survol de l'en-tête `-- name: …` d'une requête nommée : ce que décrit
-/// son descripteur (paramètres, colonnes, cardinalité), ou pourquoi il n'y
-/// en a pas.
-/// Nom du paramètre `$nom` (ou `$1`) sous le curseur.
+/// Name of the `$name` (or `$1`) parameter under the cursor.
 fn param_at(text: &str, offset: usize) -> Option<String> {
     let b = text.as_bytes();
     let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
@@ -1047,8 +1043,8 @@ fn param_at(text: &str, offset: usize) -> Option<String> {
     (start > 0 && b[start - 1] == b'$' && end > start).then(|| text[start..end].to_string())
 }
 
-/// Survol d'un paramètre : le type et la nullabilité établis par la
-/// description de sa requête.
+/// Hover of a parameter: the type and nullability established by the
+/// description of its query.
 fn hover_param(
     text: &str,
     offset: usize,
@@ -1066,7 +1062,7 @@ fn hover_param(
         Ok(d) => d,
         Err(_) => {
             return Some(format!(
-                "(paramètre) **${name}** : type non établi, la requête `{}` n'est pas décrite",
+                "(parameter) **${name}**: type not established, query `{}` is not described",
                 q.name
             ));
         }
@@ -1078,22 +1074,22 @@ fn hover_param(
         format!("{}({})", p.ty.pg, p.ty.modifiers.join(","))
     };
     let null = match p.nullable {
-        NullabilityDesc::Nullable => "peut être NULL (`Option` en Rust)",
+        NullabilityDesc::Nullable => "may be NULL (`Option` in Rust)",
         NullabilityDesc::NonNull => "NOT NULL",
-        NullabilityDesc::Unknown => "nullabilité non établie : valeur attendue non nulle",
+        NullabilityDesc::Unknown => "nullability not established: non-null value expected",
     };
     Some(format!(
-        "(paramètre) **${name}** : `{ty}`, {null}\n\nde la requête `{}`",
+        "(parameter) **${name}**: `{ty}`, {null}\n\nfrom query `{}`",
         q.name
     ))
 }
 
-/// Document Rust (requêtes `sql!` / `query!`).
+/// Rust document (`sql!` / `query!` queries).
 fn is_rust(uri: &str) -> bool {
     uri.ends_with(".rs")
 }
 
-/// En-tête de requête nommée équivalent à une requête écrite en Rust.
+/// Named query header equivalent to a query written in Rust.
 fn embedded_header(e: &crate::rust_embed::Embedded) -> String {
     let name = e.name.as_ref().map_or("query", |(n, _)| n.as_str());
     match &e.cardinality {
@@ -1102,9 +1098,9 @@ fn embedded_header(e: &crate::rust_embed::Embedded) -> String {
     }
 }
 
-/// Diagnostics d'une requête écrite en Rust, aux positions du fichier : format,
-/// fragments, analyse et ce qui empêche de la décrire, comme une requête
-/// nommée.
+/// Diagnostics of a query written in Rust, at file positions: format,
+/// fragments, analysis and what prevents describing it, as for a named
+/// query.
 fn embedded_diagnostics(
     e: &crate::rust_embed::Embedded,
     catalog: &ProjectCatalog,
@@ -1123,7 +1119,7 @@ fn embedded_diagnostics(
                 let end = e.to_file(s.end.max(s.start) - header.len()).max(start + 1);
                 pgweave_diagnostics::Span { start, end }
             }
-            // Dans l'en-tête ajouté (nom, cardinalité) : sur le nom écrit.
+            // In the added header (name, cardinality): on the written name.
             _ => pgweave_diagnostics::Span {
                 start: whole.start,
                 end: whole.end,
@@ -1141,8 +1137,8 @@ fn embedded_diagnostics(
     out
 }
 
-/// Survol dans un fichier Rust : le descripteur sur le nom d'un `sql!`, le
-/// type ou le fragment sous le curseur dans le SQL.
+/// Hover in a Rust file: the descriptor on the name of a `sql!`, the type or
+/// fragment under the cursor in the SQL.
 fn hover_rust(
     text: &str,
     offset: usize,
@@ -1180,8 +1176,8 @@ fn hover_rust(
     })
 }
 
-/// Survol d'un `@fragment` : d'où il vient, sa documentation, ce qu'il
-/// insère ici.
+/// Hover of a `@fragment`: where it comes from, its documentation, what it
+/// inserts here.
 fn hover_fragment(
     prepared: &pgweave_analysis::PreparedSource,
     macros: &pgweave_macro::MacroSet,
@@ -1206,6 +1202,8 @@ fn hover_fragment(
     Some(out)
 }
 
+/// Hover of the `-- name: …` header of a named query: what its descriptor
+/// describes (parameters, columns, cardinality), or why there is none.
 fn hover_named_query(
     text: &str,
     offset: usize,
@@ -1228,7 +1226,7 @@ fn hover_named_query(
                 .map(|d| format!("- `{}` {}", d.code, d.message))
                 .collect();
             return Some(format!(
-                "(requête) **{}** : non décrite\n\n{}",
+                "(query) **{}**: not described\n\n{}",
                 q.name,
                 why.join("\n")
             ));
@@ -1239,9 +1237,9 @@ fn hover_named_query(
         pgweave_query::descriptor::NullabilityDesc::Nullable => " NULL",
         pgweave_query::descriptor::NullabilityDesc::Unknown => "",
     };
-    let mut out = format!("(requête) **{}** — `{}`", d.name, d.cardinality.as_str());
+    let mut out = format!("(query) **{}** — `{}`", d.name, d.cardinality.as_str());
     if !d.params.is_empty() {
-        out.push_str("\n\nParamètres :");
+        out.push_str("\n\nParameters:");
         for p in &d.params {
             out.push_str(&format!(
                 "\n- `${}` `{}`{}",
@@ -1252,7 +1250,7 @@ fn hover_named_query(
         }
     }
     if !d.columns.is_empty() {
-        out.push_str("\n\nColonnes :");
+        out.push_str("\n\nColumns:");
         for c in &d.columns {
             out.push_str(&format!(
                 "\n- `{}` `{}`{}",
@@ -1452,8 +1450,8 @@ fn tbl_local(qualified: &str) -> &str {
 
 // ── Schema loading (legacy schemaFile path) ───────────────────────────────────
 
-/// Fragments du schéma désigné par `schemaFile` : le fichier, ou les `.sql`
-/// du répertoire (non récursif), triés par nom.
+/// Chunks of the schema designated by `schemaFile`: the file, or the `.sql`
+/// files of the directory (non-recursive), sorted by name.
 fn legacy_chunks(path: &str) -> std::io::Result<Vec<pgweave_schema::SqlChunk>> {
     let p = Path::new(path);
     let files = if p.is_file() {
@@ -1494,8 +1492,8 @@ fn uri_to_path(uri: &str) -> Option<PathBuf> {
     Some(canonical(Path::new(path_str)))
 }
 
-/// Chemin canonique s'il existe, tel quel sinon : clé commune aux fichiers
-/// du projet et aux documents de l'éditeur.
+/// Canonical path if it exists, as is otherwise: common key for project
+/// files and editor documents.
 fn canonical(p: &Path) -> PathBuf {
     p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
 }

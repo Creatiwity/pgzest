@@ -1,5 +1,5 @@
-//! `pgweave describe` : descripteurs des requêtes nommées (PLAN.md §4), en
-//! JSON sur la sortie standard ; diagnostics sur la sortie d'erreur.
+//! `pgweave describe`: named query descriptors (PLAN.md §4), as JSON on
+//! standard output; diagnostics on standard error.
 
 use std::path::{Path, PathBuf};
 
@@ -13,10 +13,10 @@ pub struct Options<'a> {
     pub name: &'a str,
     pub schemas: &'a [String],
     pub no_project: bool,
-    /// Écrit chaque descripteur dans le cache du projet
-    /// (`.pgweave/queries/<empreinte>.json`).
+    /// Writes each descriptor to the project cache
+    /// (`.pgweave/queries/<fingerprint>.json`).
     pub cache: bool,
-    /// Affiche le code Rust généré (comme `pgweave-build`) au lieu du JSON.
+    /// Prints the generated Rust code (like `pgweave-build`) instead of the JSON.
     pub rust: bool,
 }
 
@@ -37,7 +37,7 @@ pub fn run(o: Options) -> i32 {
         eprintln!("warning: {e}");
     }
 
-    // Catalogue : schémas `--schema`, puis le projet, rejoués dans l'ordre.
+    // Catalog: `--schema` schemas, then the project, replayed in order.
     let mut builder = ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
         .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative));
@@ -140,8 +140,8 @@ pub fn run(o: Options) -> i32 {
     if failed { 1 } else { 0 }
 }
 
-/// `.pgweave/queries` à la racine du projet, sinon dans le répertoire
-/// courant.
+/// `.pgweave/queries` at the project root, otherwise in the current
+/// directory.
 fn cache_dir(root: Option<&Path>) -> PathBuf {
     root.unwrap_or(Path::new("."))
         .join(".pgweave")

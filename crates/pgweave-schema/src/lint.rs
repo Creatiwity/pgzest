@@ -8,7 +8,7 @@ use crate::role::FileRole;
 
 pub fn check_ddl_role(stmts: &[Statement], role: &FileRole) -> Vec<Diagnostic> {
     match role {
-        // Un fichier de fragments n'est pas analysé en statements.
+        // A fragments file is not analyzed as statements.
         FileRole::Migration { .. } | FileRole::Fragments => vec![],
         FileRole::Schema => check_schema_file(stmts),
         FileRole::Query => check_query_file(stmts),

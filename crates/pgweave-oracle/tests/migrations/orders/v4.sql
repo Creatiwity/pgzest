@@ -1,5 +1,5 @@
--- Quatrième version : retour en arrière partiel — schéma, extension et
--- sécurité par ligne retirés, fonction de vue reconstruite à nouveau.
+-- Fourth version: partial rollback: schema, extension and
+-- row-level security removed, view function rebuilt again.
 CREATE TYPE order_status AS ENUM ('draft', 'placed', 'cancelled', 'served');
 
 CREATE TABLE customers (

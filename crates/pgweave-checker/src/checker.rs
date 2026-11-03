@@ -5,8 +5,8 @@ use pgweave_diagnostics::Diagnostic;
 use pgweave_schema::provider::SchemaProvider;
 use std::collections::HashMap;
 
-/// Règles des plugins, appliquées à chaque statement. Les vérifications
-/// intégrées relèvent de `pgweave-sema` (voir [`crate::check`]).
+/// Plugin rules, applied to each statement. The built-in checks belong to
+/// `pgweave-sema` (see [`crate::check`]).
 #[derive(Default)]
 pub struct Checker {
     rules: Vec<Box<dyn CheckRule>>,
@@ -88,8 +88,8 @@ impl Checker {
         // Backfill the statement-level span on every diagnostic that was emitted
         // without an explicit span — this places squiggles on the correct statement
         // rather than defaulting to position 0 in the file.
-        // `pgweave_ast::stmt_span` est le helper partagé ; ce module en avait une
-        // copie privée identique.
+        // `pgweave_ast::stmt_span` is the shared helper; this module used to have
+        // an identical private copy.
         if let Some(span) = pgweave_ast::stmt_span(stmt).map(|sp| pgweave_diagnostics::Span {
             start: sp.start as usize,
             end: sp.end as usize,

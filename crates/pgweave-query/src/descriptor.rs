@@ -1,9 +1,9 @@
-//! Descripteur de requête (PLAN.md §4, D7) : le contrat entre l'analyse et
-//! toutes les cibles (macros Rust, `.d.ts`, LSP). JSON stable, versionné,
-//! ordonné de façon déterministe.
+//! Query descriptor (PLAN.md §4, D7): the contract between analysis and all
+//! targets (Rust macros, `.d.ts`, LSP). Stable, versioned JSON, ordered
+//! deterministically.
 //!
-//! Un descripteur n'est produit que si tout est établi : un paramètre ou une
-//! colonne de type inconnu est un refus explicite, jamais un type supposé.
+//! A descriptor is produced only if everything is established: a parameter
+//! or a column of unknown type is an explicit refusal, never an assumed type.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -19,47 +19,46 @@ use sha2::{Digest, Sha256};
 
 use crate::file::{Cardinality, NamedQuery, Params};
 
-/// Version du format. Tout changement incompatible l'incrémente.
+/// Format version. Any incompatible change increments it.
 pub const VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Descriptor {
     pub version: u32,
     pub name: String,
-    /// SQL envoyé au serveur : paramètres positionnels.
+    /// SQL sent to the server: positional parameters.
     pub sql: String,
     pub command: Command,
     pub params: Vec<ParamDesc>,
     pub columns: Vec<ColumnDesc>,
     pub cardinality: Cardinality,
-    /// Objets du projet dont dépend la requête (relations, types, routines,
-    /// opérateurs), triés ; les objets intégrés à PostgreSQL n'y figurent
-    /// pas, la version du serveur les fixe.
+    /// Project objects the query depends on (relations, types, routines,
+    /// operators), sorted; PostgreSQL built-in objects are not included, the
+    /// server version pins them.
     pub depends_on: Vec<String>,
-    /// Empreinte du SQL normalisé et des définitions de `depends_on`.
+    /// Fingerprint of the normalized SQL and of the `depends_on` definitions.
     pub fingerprint: String,
-    /// Format des données d'un `COPY … FROM STDIN`.
+    /// Data format of a `COPY … FROM STDIN`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy: Option<CopyDesc>,
-    /// `-> autre` : les lignes ont la forme de celles de la requête `autre`,
-    /// dont la struct est reprise (vérifié par [`check_row_reference`]).
+    /// `-> other`: rows have the shape of the rows of query `other`, whose
+    /// struct is reused (checked by [`check_row_reference`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row: Option<String>,
-    /// Requête à variantes : `sql` est la variante de référence.
+    /// Query with variants: `sql` is the reference variant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dynamic: Option<DynamicDesc>,
 }
 
-/// Variantes d'une requête (blocs `[[ … ]]`, choix `{{ … }}`).
+/// Variants of a query (`[[ … ]]` blocks, `{{ … }}` choices).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DynamicDesc {
-    /// Paramètre qui décide de chaque bloc : bits de poids faible de
-    /// l'indice de variante, dans cet ordre (bloc 0 = bit 0).
+    /// Parameter deciding each block: low bits of the variant index, in this
+    /// order (block 0 = bit 0).
     pub conditions: Vec<String>,
-    /// Choix, à la suite, en base mixte.
+    /// Choices, next, in mixed radix.
     pub choices: Vec<ChoiceDesc>,
-    /// SQL et paramètres (dans l'ordre `$1…$n`) de chaque variante, par
-    /// indice.
+    /// SQL and parameters (in `$1…$n` order) of each variant, by index.
     pub variants: Vec<VariantDesc>,
 }
 
@@ -83,23 +82,23 @@ pub enum Command {
     Update,
     Delete,
     Call,
-    /// `COPY table FROM STDIN` : `columns` sont les colonnes alimentées.
+    /// `COPY table FROM STDIN`: `columns` are the loaded columns.
     CopyIn,
 }
 
-/// Format d'un `COPY … FROM STDIN`.
+/// Format of a `COPY … FROM STDIN`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CopyDesc {
-    /// Table alimentée, nom qualifié.
+    /// Loaded table, qualified name.
     pub table: String,
-    /// `text`, `csv` ou `binary`.
+    /// `text`, `csv` or `binary`.
     pub format: String,
-    /// La première ligne (CSV) est un en-tête.
+    /// The first line (CSV) is a header.
     pub header: bool,
 }
 
-/// Référence au catalogue : nom qualifié, modificateurs (`varchar(20)`),
-/// OID s'il est fixé par PostgreSQL (types intégrés).
+/// Catalog reference: qualified name, modifiers (`varchar(20)`), OID if
+/// fixed by PostgreSQL (built-in types).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TypeDesc {
     pub pg: String,
@@ -109,7 +108,7 @@ pub struct TypeDesc {
     pub oid: Option<u32>,
 }
 
-/// Nullabilité (D5) : établie non nulle, possiblement nulle, ou inconnue.
+/// Nullability (D5): established non-null, possibly null, or unknown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NullabilityDesc {
@@ -130,7 +129,7 @@ impl From<Nullability> for NullabilityDesc {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParamDesc {
-    /// Nom (`id` pour `$id`), ou rang (`1` pour `$1`).
+    /// Name (`id` for `$id`), or rank (`1` for `$1`).
     pub name: String,
     #[serde(rename = "type")]
     pub ty: TypeDesc,
@@ -145,11 +144,11 @@ pub struct ColumnDesc {
     pub nullable: NullabilityDesc,
 }
 
-/// Descripteur d'une requête nommée d'un fichier. Les diagnostics sont
-/// positionnés dans le fichier.
+/// Descriptor of a named query of a file. Diagnostics are positioned in the
+/// file.
 ///
-/// Une requête à variantes (`[[ … ]]`, `{{ … }}`) est décrite variante par
-/// variante ; toutes doivent renvoyer les mêmes colonnes.
+/// A query with variants (`[[ … ]]`, `{{ … }}`) is described variant by
+/// variant; all must return the same columns.
 pub fn describe_named(
     catalog: &ProjectCatalog,
     q: &NamedQuery,
@@ -171,7 +170,7 @@ pub fn describe_named(
         let named_order = order.iter().map(|n| format!("${n}")).collect();
         let d = describe_text(catalog, q, &text, sql.clone(), Some(named_order)).map_err(|ds| {
             ds.into_iter()
-                .map(|d| d.with_hint(format!("variante : {}", describe_selection(dynamic, sel))))
+                .map(|d| d.with_hint(format!("variant: {}", describe_selection(dynamic, sel))))
                 .collect::<Vec<_>>()
         })?;
         if *sel == reference {
@@ -180,7 +179,7 @@ pub fn describe_named(
         variants.push(VariantDesc { sql, params: order });
         described.push((sel, d));
     }
-    let mut d = base.expect("la variante de référence est l'une des variantes");
+    let mut d = base.expect("the reference variant is one of the variants");
     let whole = Span {
         start: q.sql_range.start,
         end: q.sql_range.end,
@@ -196,15 +195,15 @@ pub fn describe_named(
                 Diagnostic::error(
                     codes::QUERY_NOT_DESCRIBABLE,
                     format!(
-                        "la variante « {} » ne renvoie pas les mêmes colonnes que les autres",
+                        "variant \"{}\" does not return the same columns as the others",
                         describe_selection(dynamic, sel)
                     ),
                 )
                 .with_span(whole.clone())
-                .with_hint("toutes les variantes doivent renvoyer les mêmes lignes ; un bloc ou un choix change les conditions, pas la projection"),
+                .with_hint("all variants must return the same rows; a block or a choice changes the conditions, not the projection"),
             ]);
         }
-        // La plus large des cardinalités.
+        // The widest cardinality.
         d.cardinality = match (d.cardinality, v.cardinality) {
             (Cardinality::Many, _) | (_, Cardinality::Many) => Cardinality::Many,
             (Cardinality::Optional, _) | (_, Cardinality::Optional) => Cardinality::Optional,
@@ -232,13 +231,13 @@ pub fn describe_named(
     Ok(d)
 }
 
-/// `status absent, tri = id` : une combinaison, pour un message.
+/// `$status absent, sort = id`: a combination, for a message.
 fn describe_selection(d: &crate::file::Dynamic, sel: &crate::dynamic::Selection) -> String {
     let blocks = d
         .conditions
         .iter()
         .zip(&sel.blocks)
-        .map(|(c, on)| format!("${c} {}", if *on { "fourni" } else { "absent" }));
+        .map(|(c, on)| format!("${c} {}", if *on { "provided" } else { "absent" }));
     let choices = d
         .structure
         .choices
@@ -248,8 +247,8 @@ fn describe_selection(d: &crate::file::Dynamic, sel: &crate::dynamic::Selection)
     blocks.chain(choices).collect::<Vec<_>>().join(", ")
 }
 
-/// Descripteur d'un texte analysé de `q` (même longueur que son SQL) :
-/// parse aux positions du fichier, puis analyse.
+/// Descriptor of an analyzed text of `q` (same length as its SQL): parse at
+/// file positions, then analysis.
 fn describe_text(
     catalog: &ProjectCatalog,
     q: &NamedQuery,
@@ -261,9 +260,9 @@ fn describe_text(
         start: q.sql_range.start,
         end: q.sql_range.end,
     };
-    // Fragments insérés : le SQL analysé n'est pas le texte du fichier, la
-    // source-map y ramène chaque position. Marqueurs effacés (même
-    // longueur) : le parser lit du SQL.
+    // Fragments inserted: the analyzed SQL is not the file text, the source
+    // map brings each position back to it. Markers blanked (same length):
+    // the parser reads SQL.
     let parsed = match &q.expanded {
         Some(e) => pgweave_parser::parse_mapped_with_outcome(analysis, &e.map),
         None => pgweave_parser::parse_at_with_outcome(analysis, q.sql_range.start),
@@ -279,7 +278,7 @@ fn describe_text(
             Diagnostic::error(
                 codes::UNPARSABLE_STATEMENT,
                 format!(
-                    "statement non lu, la requête n'est pas décrite : {:?}",
+                    "statement not read, the query is not described: {:?}",
                     sk.reason
                 ),
             )
@@ -299,7 +298,7 @@ fn describe_text(
         whole,
     )?;
     d.row = q.row.as_ref().map(|(r, _)| r.clone());
-    // `$nom?` : la valeur peut manquer, quoi qu'infère l'analyse.
+    // `$name?`: the value may be missing, whatever the analysis infers.
     if let Params::Named(list) = &q.params {
         for p in d.params.iter_mut() {
             if list.iter().any(|n| n.optional && n.name == p.name) {
@@ -310,37 +309,37 @@ fn describe_text(
     Ok(d)
 }
 
-/// `d` peut-il reprendre la struct de ligne de la requête qu'il désigne
-/// (`-> autre`) ? Mêmes colonnes, dans le même ordre et du même type ; une
-/// colonne non nulle dans la référence doit l'être ici (la struct promet une
-/// valeur). Jamais de conversion : un écart est une erreur.
+/// Can `d` reuse the row struct of the query it designates (`-> other`)?
+/// Same columns, in the same order and of the same type; a column non-null
+/// in the reference must be non-null here (the struct promises a value).
+/// Never a conversion: any mismatch is an error.
 ///
-/// `target` : la requête désignée, résolue par l'appelant (`None` si
-/// introuvable).
+/// `target`: the designated query, resolved by the caller (`None` if not
+/// found).
 pub fn check_row_reference(d: &Descriptor, target: Option<&Descriptor>) -> Result<(), String> {
     let Some(r) = &d.row else {
         return Ok(());
     };
     let Some(target) = target else {
-        return Err(format!("requête de référence `{r}` introuvable"));
+        return Err(format!("reference query `{r}` not found"));
     };
     if let Some(next) = &target.row {
         return Err(format!(
-            "`{r}` reprend déjà les lignes de `{next}` : désigner `{next}`"
+            "`{r}` already reuses the rows of `{next}`: designate `{next}`"
         ));
     }
     if target.columns.is_empty() || target.copy.is_some() {
-        return Err(format!("`{r}` ne renvoie pas de ligne"));
+        return Err(format!("`{r}` returns no rows"));
     }
     if d.copy.is_some() || d.columns.is_empty() {
         return Err(format!(
-            "`{}` ne renvoie pas de ligne : `-> {r}` est sans objet",
+            "`{}` returns no rows: `-> {r}` is irrelevant",
             d.name
         ));
     }
     if d.columns.len() != target.columns.len() {
         return Err(format!(
-            "{} colonne(s), `{r}` en a {} ({})",
+            "{} column(s), `{r}` has {} ({})",
             d.columns.len(),
             target.columns.len(),
             target
@@ -355,7 +354,7 @@ pub fn check_row_reference(d: &Descriptor, target: Option<&Descriptor>) -> Resul
     for (i, (mine, theirs)) in d.columns.iter().zip(&target.columns).enumerate() {
         if mine.name != theirs.name {
             problems.push(format!(
-                "colonne {} : `{}` là où `{r}` a `{}`",
+                "column {}: `{}` where `{r}` has `{}`",
                 i + 1,
                 mine.name,
                 theirs.name
@@ -364,29 +363,26 @@ pub fn check_row_reference(d: &Descriptor, target: Option<&Descriptor>) -> Resul
         }
         if mine.ty.pg != theirs.ty.pg {
             problems.push(format!(
-                "`{}` : {} là où `{r}` a {}",
+                "`{}`: {} where `{r}` has {}",
                 mine.name, mine.ty.pg, theirs.ty.pg
             ));
         }
         if theirs.nullable == NullabilityDesc::NonNull && mine.nullable != NullabilityDesc::NonNull
         {
-            problems.push(format!(
-                "`{}` peut être nulle ici, pas dans `{r}`",
-                mine.name
-            ));
+            problems.push(format!("`{}` may be null here, not in `{r}`", mine.name));
         }
     }
     if problems.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "lignes incompatibles avec `{r}` : {}",
-            problems.join(" ; ")
+            "rows incompatible with `{r}`: {}",
+            problems.join("; ")
         ))
     }
 }
 
-/// Descripteur d'un statement SQL (`$n` ou `$name`), nommé `name`.
+/// Descriptor of a SQL statement (`$n` or `$name`), named `name`.
 pub fn describe_sql(
     catalog: &ProjectCatalog,
     name: &str,
@@ -395,7 +391,7 @@ pub fn describe_sql(
     describe_sql_with(catalog, name, sql, &pgweave_macro::MacroSet::default())
 }
 
-/// Comme [`describe_sql`], les fragments de `macros` insérés.
+/// Like [`describe_sql`], with the fragments of `macros` inserted.
 pub fn describe_sql_with(
     catalog: &ProjectCatalog,
     name: &str,
@@ -408,13 +404,13 @@ pub fn describe_sql_with(
         return Err(if file.diagnostics.is_empty() {
             vec![Diagnostic::error(
                 codes::QUERY_EMPTY,
-                "aucune requête à décrire",
+                "no query to describe",
             )]
         } else {
             file.diagnostics
         });
     };
-    // Positions rapportées au texte donné, sans l'en-tête ajouté.
+    // Positions relative to the given text, without the added header.
     describe_named(catalog, q).map_err(|ds| {
         ds.into_iter()
             .map(|mut d| {
@@ -442,10 +438,7 @@ fn describe(
         return Err(vec![
             Diagnostic::error(
                 codes::QUERY_MULTIPLE_STATEMENTS,
-                format!(
-                    "{} statements : une requête en contient exactement un",
-                    stmts.len()
-                ),
+                format!("{} statements: a query contains exactly one", stmts.len()),
             )
             .with_span(whole),
         ]);
@@ -463,7 +456,7 @@ fn describe(
             return Err(vec![
                 Diagnostic::error(
                     codes::QUERY_NOT_DESCRIBABLE,
-                    "seuls SELECT, INSERT, UPDATE, DELETE, CALL et COPY … FROM STDIN sont décrits",
+                    "only SELECT, INSERT, UPDATE, DELETE, CALL and COPY … FROM STDIN are described",
                 )
                 .with_span(whole),
             ]);
@@ -532,12 +525,12 @@ fn describe(
                 Diagnostic::error(
                     codes::QUERY_PARAMETER_UNTYPED,
                     format!(
-                        "le type du paramètre {} n'est pas établi par son usage",
+                        "the type of parameter {} is not established by its usage",
                         p.name
                     ),
                 )
                 .with_span(whole.clone())
-                .with_hint(format!("préciser le type par un cast : {}::type", p.name)),
+                .with_hint(format!("specify the type with a cast: {}::type", p.name)),
             ),
         }
     }
@@ -608,8 +601,7 @@ fn describe(
     })
 }
 
-/// `COPY table [(colonnes)] FROM STDIN [(options)]` : table, colonnes,
-/// format.
+/// `COPY table [(columns)] FROM STDIN [(options)]`: table, columns, format.
 fn copy_in(
     u: &pgweave_ast::UtilityKind,
 ) -> Option<(
@@ -641,27 +633,27 @@ fn copy_in(
     Some((name, columns.as_slice(), desc))
 }
 
-/// Une déclaration (`-- name: x :one`) restreint l'inférence, sans la
-/// contredire : `none` exige une requête sans ligne renvoyée, et
-/// inversement. Restreindre `many` en `one` ou `optional` est un contrat
-/// vérifié à l'exécution.
+/// A declaration (`-- name: x :one`) narrows the inference without
+/// contradicting it: `none` requires a query returning no rows, and vice
+/// versa. Narrowing `many` to `one` or `optional` is a contract checked at
+/// run time.
 fn check_declared(declared: Cardinality, inferred: Cardinality) -> Result<(), String> {
     match (declared, inferred) {
         (Cardinality::None, Cardinality::None) => Ok(()),
         (Cardinality::None, i) => Err(format!(
-            "déclarée `none`, mais la requête renvoie des lignes (inférée : `{}`)",
+            "declared `none`, but the query returns rows (inferred: `{}`)",
             i.as_str()
         )),
         (d, Cardinality::None) => Err(format!(
-            "déclarée `{}`, mais la requête ne renvoie aucune ligne (pas de RETURNING)",
+            "declared `{}`, but the query returns no rows (no RETURNING)",
             d.as_str()
         )),
         _ => Ok(()),
     }
 }
 
-/// Cardinalité inférée de façon conservatrice (PLAN.md §4) ; `many` dès
-/// qu'une règle sûre ne s'applique pas.
+/// Cardinality inferred conservatively (PLAN.md §4); `many` as soon as no
+/// safe rule applies.
 fn infer_cardinality(
     catalog: &ProjectCatalog,
     stmt: &Statement,
@@ -676,8 +668,8 @@ fn infer_cardinality(
         Statement::Insert(i) => match (&i.source, &i.on_conflict) {
             (InsertSource::Values(rows), None) if rows.len() == 1 => Cardinality::One,
             (InsertSource::DefaultValues, None) => Cardinality::One,
-            // `ON CONFLICT DO UPDATE` sans condition : la ligne insérée ou
-            // mise à jour est toujours renvoyée.
+            // Unconditional `ON CONFLICT DO UPDATE`: the inserted or updated
+            // row is always returned.
             (
                 InsertSource::Values(rows),
                 Some(pgweave_ast::stmt::OnConflict {
@@ -688,8 +680,8 @@ fn infer_cardinality(
                     ..
                 }),
             ) if rows.len() == 1 => Cardinality::One,
-            // `DO NOTHING` / `DO UPDATE … WHERE` : la ligne peut ne pas être
-            // renvoyée.
+            // `DO NOTHING` / `DO UPDATE … WHERE`: the row may not be
+            // returned.
             (InsertSource::Values(rows), Some(_)) if rows.len() == 1 => Cardinality::Optional,
             _ => Cardinality::Many,
         },
@@ -725,7 +717,7 @@ fn infer_cardinality(
                 Cardinality::Many
             }
         }
-        // `CALL` d'une procédure à arguments `INOUT` : une ligne.
+        // `CALL` of a procedure with `INOUT` arguments: one row.
         _ => Cardinality::One,
     }
 }
@@ -742,7 +734,7 @@ fn select_cardinality(catalog: &ProjectCatalog, s: &SelectStmt, a: &Analyzer) ->
     }
     let filtered = s.where_clause.is_some() || s.having.is_some();
     let limited = s.offset.is_some();
-    // Agrégat sans GROUP BY : exactement une ligne (`HAVING` peut l'écarter).
+    // Aggregate without GROUP BY: exactly one row (`HAVING` may discard it).
     let aggregate = s.group_by.is_empty() && has_aggregate(s, a);
     let base = if s.from.is_empty() && s.joins.is_empty() {
         if filtered || limited {
@@ -766,7 +758,7 @@ fn select_cardinality(catalog: &ProjectCatalog, s: &SelectStmt, a: &Analyzer) ->
     } else {
         Cardinality::Many
     };
-    // `LIMIT 1` : au plus une ligne.
+    // `LIMIT 1`: at most one row.
     let limit_one = matches!(
         s.limit.as_ref().map(|l| &l.kind),
         Some(pgweave_ast::expr::ExprKind::Literal(pgweave_ast::expr::Literal::Number(n))) if n == "1"
@@ -777,8 +769,7 @@ fn select_cardinality(catalog: &ProjectCatalog, s: &SelectStmt, a: &Analyzer) ->
     }
 }
 
-/// Fonctions renvoyant un ensemble dans la liste `SELECT` (une ligne par
-/// élément).
+/// Set-returning functions in the `SELECT` list (one row per element).
 fn returns_sets(s: &SelectStmt, a: &Analyzer) -> bool {
     let mut found = false;
     for item in &s.columns {
@@ -828,7 +819,7 @@ fn split(name: &pgweave_ast::ObjectName) -> (Option<&str>, &str) {
     }
 }
 
-/// Appels de fonction d'une expression, hors sous-requêtes : (nom, fenêtré).
+/// Function calls of an expression, excluding subqueries: (name, windowed).
 fn visit_calls(e: &pgweave_ast::Expr, f: &mut dyn FnMut(&pgweave_ast::ObjectName, bool)) {
     use pgweave_ast::expr::ExprKind;
     if let ExprKind::FunctionCall { name, over, .. } = &e.kind {
@@ -845,9 +836,9 @@ fn visit_calls(e: &pgweave_ast::Expr, f: &mut dyn FnMut(&pgweave_ast::ObjectName
     }
 }
 
-/// `WHERE` fixe toutes les colonnes d'une clé primaire ou unique de la
-/// table par des égalités en conjonction (`col = valeur` sans référence à
-/// la table) : au plus une ligne.
+/// `WHERE` fixes all columns of a primary or unique key of the table through
+/// conjunctive equalities (`col = value` without reference to the table):
+/// at most one row.
 fn unique_key_fixed(
     catalog: &ProjectCatalog,
     a: &Analyzer,
@@ -870,10 +861,10 @@ fn unique_key_fixed(
         .any(|key| !key.is_empty() && key.iter().all(|c| fixed.contains(c)))
 }
 
-/// Clés uniques d'une table : clé primaire, contraintes `UNIQUE`, et index
-/// uniques sur de simples colonnes, sans prédicat (Prisma pose ainsi ses
-/// `@unique`). Un index partiel ou sur expression ne garantit rien pour une
-/// égalité sur ses colonnes.
+/// Unique keys of a table: primary key, `UNIQUE` constraints, and unique
+/// indexes on plain columns, without a predicate (this is how Prisma sets
+/// its `@unique`). A partial or expression index guarantees nothing for an
+/// equality on its columns.
 fn unique_keys(catalog: &ProjectCatalog, rel: &Relation) -> Vec<Vec<String>> {
     let mut keys: Vec<Vec<String>> = rel
         .constraints
@@ -916,8 +907,8 @@ fn unique_keys(catalog: &ProjectCatalog, rel: &Relation) -> Vec<Vec<String>> {
     keys
 }
 
-/// Nom qualifié d'un descripteur (`schéma.nom`, identifiants quotés au
-/// besoin : `public."User"`).
+/// Qualified name of a descriptor (`schema.name`, identifiers quoted when
+/// needed: `public."User"`).
 pub fn parse_qualified(s: &str) -> Option<pgweave_catalog::QName> {
     let mut parts = Vec::new();
     let mut chars = s.chars().peekable();
@@ -949,8 +940,8 @@ pub fn parse_qualified(s: &str) -> Option<pgweave_catalog::QName> {
     }
 }
 
-/// Colonnes de la table fixées par `col = expr` dans une conjonction de
-/// premier niveau, `expr` ne citant aucune colonne.
+/// Table columns fixed by `col = expr` in a top-level conjunction, `expr`
+/// referencing no column.
 fn equalities(e: &pgweave_ast::Expr, qualifier: &str, out: &mut BTreeSet<String>) {
     use pgweave_ast::expr::{BinaryOp, ExprKind};
     match &e.kind {
@@ -993,8 +984,8 @@ fn references_columns(e: &pgweave_ast::Expr) -> bool {
     }
 }
 
-/// SHA-256 du SQL normalisé (réémis depuis l'AST : la mise en forme et les
-/// commentaires n'y comptent pas) et des définitions des dépendances.
+/// SHA-256 of the normalized SQL (re-emitted from the AST: formatting and
+/// comments do not count) and of the dependency definitions.
 fn fingerprint(catalog: &ProjectCatalog, stmt: &Statement, deps: &BTreeSet<Dependency>) -> String {
     let mut h = Sha256::new();
     h.update(format!("pgweave-descriptor/{VERSION}\n").as_bytes());
@@ -1024,7 +1015,7 @@ fn fingerprint(catalog: &ProjectCatalog, stmt: &Statement, deps: &BTreeSet<Depen
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Écrit `d` dans le cache (`<dir>/<fingerprint>.json`).
+/// Writes `d` to the cache (`<dir>/<fingerprint>.json`).
 pub fn write_cache(dir: &Path, d: &Descriptor) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join(format!("{}.json", d.fingerprint));
@@ -1033,8 +1024,8 @@ pub fn write_cache(dir: &Path, d: &Descriptor) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// Descripteur en cache pour cette empreinte, s'il existe et est de cette
-/// version du format.
+/// Cached descriptor for this fingerprint, if it exists and has this format
+/// version.
 pub fn read_cache(dir: &Path, fingerprint: &str) -> Option<Descriptor> {
     let text = std::fs::read_to_string(dir.join(format!("{fingerprint}.json"))).ok()?;
     serde_json::from_str::<Descriptor>(&text)
@@ -1044,31 +1035,31 @@ pub fn read_cache(dir: &Path, fingerprint: &str) -> Option<Descriptor> {
 
 // ── Modules ───────────────────────────────────────────────────────────────────
 
-/// Requêtes d'un fichier et le module qui les reçoit : chemin depuis la
-/// racine du code généré (`["order", "book"]` pour `order/book.sql`), vide
-/// pour la racine.
+/// Queries of a file and the module receiving them: path from the root of
+/// the generated code (`["order", "book"]` for `order/book.sql`), empty for
+/// the root.
 #[derive(Debug, Clone)]
 pub struct QueryModule {
     pub path: Vec<String>,
     pub descriptors: Vec<Descriptor>,
-    /// Fichier d'origine (libellé lisible, chemin absolu) et ligne de
-    /// l'en-tête de chaque requête : le code généré y renvoie.
+    /// Source file (readable label, absolute path) and header line of each
+    /// query: the generated code links back to it.
     pub source: Option<QuerySource>,
 }
 
-/// Où une requête générée est écrite.
+/// Where a generated query is written.
 #[derive(Debug, Clone, Default)]
 pub struct QuerySource {
-    /// Chemin affiché (`queries/menu.sql`).
+    /// Displayed path (`queries/menu.sql`).
     pub label: String,
-    /// Chemin absolu, pour le lien.
+    /// Absolute path, for the link.
     pub path: std::path::PathBuf,
-    /// Ligne (1-based) de l'en-tête `-- name:` de chaque requête.
+    /// Line (1-based) of the `-- name:` header of each query.
     pub lines: std::collections::BTreeMap<String, usize>,
 }
 
-/// Requête désignée par `-> r` depuis le module `from` : `nom` dans le même
-/// module, `a::b::nom` depuis la racine du code généré.
+/// Query designated by `-> r` from module `from`: `name` in the same module,
+/// `a::b::name` from the root of the generated code.
 pub fn resolve_row<'m>(
     from: &[String],
     r: &str,
