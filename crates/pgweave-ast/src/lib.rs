@@ -13,7 +13,7 @@ pub mod visit;
 pub use ddl::*;
 pub use expr::*;
 pub use node::{NodeId, Span};
-pub use source_map::SourceMap;
+pub use source_map::{MapEdit, SourceMap};
 pub use stmt::*;
 pub use types::*;
 pub use utility::{Utility, UtilityKind};

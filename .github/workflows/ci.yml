@@ -78,6 +78,12 @@ jobs:
       - name: Operator precedence
         run: cargo test -p pgweave-oracle --test precedence -- --ignored
 
+      - name: Migrations (generated, applied)
+        run: cargo test -p pgweave-oracle --test migrations -- --ignored
+
+      - name: Isolated temp tables and snapshots
+        run: cargo test -p pgweave-oracle --test instrument -- --ignored
+
       - name: Example Rust service (generated queries, executed)
         run: cargo test -p pgweave-example-rust-service -- --ignored
 

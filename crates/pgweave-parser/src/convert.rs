@@ -1890,8 +1890,11 @@ fn convert_function_args(args: sp::FunctionArguments) -> Result<Vec<Expr>, Parse
 // ── INSERT ────────────────────────────────────────────────────────────────────
 
 fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
-    let table = match ins.table {
-        sp::TableObject::TableName(n) => convert_object_name(n),
+    let (table, table_span) = match ins.table {
+        sp::TableObject::TableName(n) => {
+            let span = object_name_span(&n);
+            (convert_object_name(n), span)
+        }
         sp::TableObject::TableFunction(_) | sp::TableObject::TableQuery(_) => {
             return Err(ParseError::Unsupported(
                 "INSERT INTO TABLE FUNCTION/QUERY not supported".to_string(),
@@ -1973,6 +1976,7 @@ fn convert_insert(ins: sp::Insert) -> Result<InsertStmt, ParseError> {
         with: vec![],
         with_recursive: false,
         table,
+        table_span,
         alias: ins.table_alias.map(|a| convert_ident(a.alias)),
         columns,
         source,
@@ -2158,6 +2162,7 @@ fn convert_target(factor: sp::TableFactor) -> Result<TargetTable, ParseError> {
             args: None,
             ..
         } => Ok(TargetTable {
+            span: object_name_span(&name),
             name: convert_object_name(name),
             alias: alias.map(|a| convert_ident(a.name)),
         }),
@@ -3112,7 +3117,6 @@ thread_local! {
 /// RAII guard: restores the previous position context when going out of
 /// scope. Contexts stack: a routine's body is parsed inside the parse of
 /// its file, and the file must get its context back afterwards.
-/// contexte ensuite.
 pub(crate) struct SpanCtxGuard {
     previous: Option<SpanCtx>,
 }
@@ -3134,6 +3138,19 @@ pub(crate) fn enter_span_ctx(
 ) -> SpanCtxGuard {
     let previous = SPAN_CTX.with(|c| c.replace(Some(SpanCtx::new(source, stmt_offset, offsets))));
     SpanCtxGuard { previous }
+}
+
+/// Span of a sqlparser object name, in byte offsets in the document
+/// ([`Span::DUMMY`] outside a position context, as for expressions).
+fn object_name_span(name: &sp::ObjectName) -> Span {
+    use sqlparser::ast::Spanned;
+    let sp_span = name.span();
+    SPAN_CTX.with(|c| {
+        c.borrow()
+            .as_ref()
+            .map(|ctx| ctx.resolve(sp_span))
+            .unwrap_or(Span::DUMMY)
+    })
 }
 
 /// Span of a sqlparser expression, in byte offsets in the document.

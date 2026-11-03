@@ -29,6 +29,7 @@ pub mod def;
 pub mod expand;
 pub mod fragment;
 pub mod header;
+pub mod instrument;
 mod lex;
 
 pub use def::{MacroDef, MacroSet};

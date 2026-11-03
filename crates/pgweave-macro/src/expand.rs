@@ -96,6 +96,17 @@ pub fn expand_source_at(source: &str, base: usize, macros: &MacroSet) -> Expansi
             }
             Some(at) => {
                 x.copy_code(source, i, at);
+                // Body directives are not macros: kept as text for
+                // `crate::instrument`, which applies or reports them.
+                let word = source[at + 1..]
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .next()
+                    .unwrap_or("");
+                if crate::instrument::DIRECTIVES.contains(&word) && macros.get(word).is_none() {
+                    x.copy(source, at, at + 1);
+                    i = at + 1;
+                    continue;
+                }
                 match parse_invocation(source, at, macros) {
                     Ok(inv) => {
                         let gen_start = x.out.len();
@@ -126,13 +137,14 @@ pub fn expand_source_at(source: &str, base: usize, macros: &MacroSet) -> Expansi
         }
     }
 
-    Expansion {
+    let expansion = Expansion {
         sql: x.out,
         map: x.map,
         diagnostics: x.diagnostics,
         expanded: x.expanded,
         regions: x.regions,
-    }
+    };
+    crate::instrument::instrument(expansion, macros.debug())
 }
 
 /// SQL being generated, and what maps it back to the source.

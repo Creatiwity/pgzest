@@ -199,6 +199,44 @@ reports the one missing on any of them — as it also does for a
 hand-written shared function (`set_updated_at` attached to several
 tables): the body is checked once per table that fires it.
 
+### Isolated temp tables and snapshots
+
+In the body of `@function`, `@procedure` or `@trigger` (PL/pgSQL):
+
+```sql
+@function close_month(m DATE): BIGINT {
+    DECLARE total BIGINT;
+    @temp_table work (order_id BIGINT PRIMARY KEY, amount INT NOT NULL);
+    INSERT INTO work SELECT id, total FROM orders WHERE month = m;
+    @snapshot filled;
+    UPDATE work SET amount = amount * 2 WHERE amount < 10;
+    SELECT sum(amount) INTO total FROM work;
+    RETURN total;
+}
+```
+
+- **`@temp_table name (columns);`** — a temp table private to each run. A
+  plain temp table is shared by the whole session: a nested or recursive
+  call, or a call per loop iteration, mixes its rows with the caller's
+  (or collides on its keys). pgweave gives each run an id and rewrites
+  every access from the analysis of the body: reads see the run's rows
+  only, `UPDATE`/`DELETE` touch them only, `INSERT` tags them, keys are
+  unique per run, and the run's rows are deleted on `RETURN`. The table is
+  created under a name derived from its definition, so two routines
+  declaring `work` differently never meet.
+- **`@snapshot label;`** — with `pgweave build --debug`, copies at that
+  point the run's rows of each temp table and the variables in scope into
+  `pgweave_debug.snapshot` / `pgweave_debug.snapshot_rows` (created by the
+  debug build). In any other build — analysis, migrations, deployment —
+  it emits nothing.
+
+Nothing is guessed: an access pgweave cannot rewrite is an error
+(`TRUNCATE` → write `DELETE`, `RETURNING *`, a `RETURN` reading the table,
+a CTE of the same name), and dynamic SQL (`EXECUTE`) in such a body is a
+warning, since it is not rewritten. "Show expansion" displays the
+rewritten body. A snapshot taken in a transaction that fails is rolled
+back with it.
+
 ### Viewing the expansion in VS Code
 
 Cursor inside a macro, then **⌘⌥E** (`Ctrl+Alt+E` elsewhere) — or the

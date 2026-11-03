@@ -936,6 +936,53 @@ Remaining:
 **Exit**: a real evolution of the Mesalia schema produced by `pgweave
 migrate create` and validated by the oracle, including an extension addition.
 
+### P9 — Procedure observability — 🚧 in progress (scheduled before P8)
+
+Ports the mechanisms of kysely-pg-procedures that take the "black box"
+out of a PL/pgSQL run, as directives of the PL/pgSQL macros (`@function`,
+`@procedure`, `@trigger`), instrumented by pgweave from the analysis of
+the body rather than by hand. Order: (1) isolated temp tables and (3)
+`@snapshot`, then (2) log levels and (5) `pgweave dev` (apply on save),
+then (6) tamper detection and (4) OpenTelemetry.
+
+**Isolated temp tables** — `@temp_table name (columns);` at the top of a
+body. A session-scoped temp table is shared by every call in the session:
+a nested or recursive call, or a call per loop iteration, mixes its rows
+with the caller's. Each run therefore gets an id (`_pgweave_run uuid :=
+gen_random_uuid()`) and every access is rewritten from the parsed body:
+
+- the table is created `IF NOT EXISTS` under a physical name suffixed with
+  a hash of its definition (two routines declaring `work` differently, or
+  a definition changed by a deployment while a pooled session keeps the old
+  table, never meet), with a hidden last column `_pgweave_run`;
+  `PRIMARY KEY` / `UNIQUE` include it (uniqueness per run);
+- a read (`FROM`, `JOIN`, `USING`, subqueries, CTEs, expressions) becomes
+  `(SELECT <declared columns> FROM <physical> WHERE _pgweave_run = <run>)`
+  under the written alias, so `*` never shows the hidden column;
+- `UPDATE` / `DELETE` get `AND <alias>._pgweave_run = <run>`;
+- `INSERT` fills the hidden column through its default
+  (`current_setting('pgweave.run')`), set by `set_config(…, true)` right
+  before each statement that inserts (a nested call may have changed it);
+- the run's rows are deleted before each `RETURN` and at the end of the
+  body; an error rolls them back with the rest.
+
+Nothing is guessed: an access pgweave cannot rewrite is an error (temp
+table in `TRUNCATE`, DDL, `RETURNING *`, a CTE shadowing it, a `RETURN`
+expression reading it, a position the parser could not give), and dynamic
+SQL in an instrumented body is a warning (not isolated).
+
+**`@snapshot label;`** — in a debug build (`pgweave build --debug`, later
+`pgweave dev`), copies at that point the run's rows of every isolated temp
+table and the variables in scope (parameters and declarations) into
+`pgweave_debug.snapshot` / `pgweave_debug.snapshot_rows`; in a normal
+build (analysis, migrations, deployment) it emits nothing. A record not
+yet assigned cannot be read: it is reported as skipped, never guessed.
+Snapshots written in a transaction that fails are rolled back with it.
+
+**Exit**: a routine using a temp table, called recursively and from a loop
+on PostgreSQL 18, keeps its rows apart (oracle test), and its snapshots
+show each step.
+
 ### P8 — TypeScript
 
 - Extraction of queries in TS files (oxc parser), descriptors →

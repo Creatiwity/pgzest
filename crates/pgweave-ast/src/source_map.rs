@@ -143,6 +143,86 @@ impl SourceMap {
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
+
+    /// Applies `edits` to `text` (the generated text this map describes):
+    /// returns the edited text and its map to the same source.
+    ///
+    /// Untouched text keeps its exact mapping. Inserted text is opaque,
+    /// mapped to the antecedent of its edit's `anchor`. Edits must be sorted
+    /// by start and must not overlap.
+    pub fn apply_edits(&self, text: &str, edits: &[MapEdit]) -> (String, SourceMap) {
+        let mut out = String::with_capacity(text.len());
+        let mut map = SourceMap::new();
+        let mut at = 0usize;
+        for edit in edits {
+            debug_assert!(edit.range.start >= at, "edits overlap or are unsorted");
+            self.copy_piece(at, edit.range.start, &mut out, &mut map, text);
+            if let Some((s, e)) = self.remap(edit.anchor.start, edit.anchor.end) {
+                map.add_opaque(out.len(), edit.text.len(), s, e - s);
+            }
+            out.push_str(&edit.text);
+            at = edit.range.end;
+        }
+        self.copy_piece(at, text.len(), &mut out, &mut map, text);
+        (out, map)
+    }
+
+    /// Copies `text[from..to]` to the end of `out`, with its segments.
+    fn copy_piece(
+        &self,
+        from: usize,
+        to: usize,
+        out: &mut String,
+        map: &mut SourceMap,
+        text: &str,
+    ) {
+        if to <= from {
+            return;
+        }
+        let base = out.len();
+        for seg in &self.segments {
+            let start = seg.generated.max(from);
+            let end = (seg.generated + seg.len).min(to);
+            if start >= end {
+                continue;
+            }
+            let generated = base + (start - from);
+            match seg.opaque {
+                Some(n) => map.add_opaque(generated, end - start, seg.source, n),
+                None => map.add(generated, seg.source + (start - seg.generated), end - start),
+            }
+        }
+        out.push_str(&text[from..to]);
+    }
+}
+
+/// Replacement of `range` of a generated text by `text`; the inserted text
+/// is mapped to the source antecedent of `anchor`, a range of the same
+/// generated text (the construct it implements).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapEdit {
+    pub range: std::ops::Range<usize>,
+    pub text: String,
+    pub anchor: std::ops::Range<usize>,
+}
+
+impl MapEdit {
+    /// Position of `offset` once `edits` (sorted, non-overlapping) are
+    /// applied. Text inserted at `offset` lands before it; an offset inside
+    /// a replaced range moves to the start of its replacement.
+    pub fn shift(edits: &[MapEdit], offset: usize) -> usize {
+        let mut delta: isize = 0;
+        for e in edits {
+            if e.range.end <= offset {
+                delta += e.text.len() as isize - e.range.len() as isize;
+            } else if e.range.start < offset {
+                return (e.range.start as isize + delta) as usize;
+            } else {
+                break;
+            }
+        }
+        (offset as isize + delta) as usize
+    }
 }
 
 #[cfg(test)]
@@ -211,6 +291,62 @@ mod tests {
         let mut m = SourceMap::new();
         m.add(0, 0, 0);
         assert!(m.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+
+    fn edit(range: std::ops::Range<usize>, text: &str, anchor: std::ops::Range<usize>) -> MapEdit {
+        MapEdit {
+            range,
+            text: text.into(),
+            anchor,
+        }
+    }
+
+    #[test]
+    fn untouched_text_keeps_its_exact_mapping() {
+        // generated "SELECT a FROM t" ← source[100..115]
+        let mut m = SourceMap::new();
+        m.add(0, 100, 15);
+        let edits = [edit(14..15, "(SELECT 1) AS t", 14..15)];
+        let (text, map) = m.apply_edits("SELECT a FROM t", &edits);
+        assert_eq!(text, "SELECT a FROM (SELECT 1) AS t");
+        assert_eq!(map.to_source(7), Some(107), "`a` is still exact");
+        // The replacement is mapped to the replaced name.
+        assert_eq!(map.remap(14, 20), Some((114, 115)));
+    }
+
+    #[test]
+    fn insertions_shift_what_follows() {
+        let mut m = SourceMap::new();
+        m.add(0, 0, 10);
+        let edits = [edit(3..3, "XX", 3..4), edit(6..6, "Y", 6..7)];
+        let (text, map) = m.apply_edits("0123456789", &edits);
+        assert_eq!(text, "012XX345Y6789");
+        assert_eq!(map.to_source(5), Some(3));
+        assert_eq!(map.to_source(9), Some(6));
+        assert_eq!(MapEdit::shift(&edits, 3), 5, "after the insertion at 3");
+        assert_eq!(MapEdit::shift(&edits, 7), 10);
+        assert_eq!(MapEdit::shift(&edits, 0), 0);
+    }
+
+    #[test]
+    fn opaque_segments_stay_opaque() {
+        let mut m = SourceMap::new();
+        m.add(0, 0, 4);
+        m.add_opaque(4, 6, 4, 2); // a fragment call of 2 bytes, 6 generated
+        m.add(10, 6, 4);
+        let (text, map) = m.apply_edits("abcdFFFFFFwxyz", &[edit(12..12, "!", 12..13)]);
+        assert_eq!(text, "abcdFFFFFFwx!yz");
+        assert_eq!(
+            map.remap(5, 6),
+            Some((4, 6)),
+            "inside the fragment: its call"
+        );
+        assert_eq!(map.to_source(13), Some(8));
     }
 }
 

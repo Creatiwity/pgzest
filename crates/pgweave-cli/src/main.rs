@@ -114,6 +114,11 @@ enum Command {
         /// Directory to write the generated `.sql` files into
         #[arg(long = "out-dir")]
         out_dir: Option<String>,
+        /// Debug build: `@snapshot` copies the temp tables and variables
+        /// into `pgweave_debug` (whose tables are created first). Never for
+        /// a deployment.
+        #[arg(long)]
+        debug: bool,
     },
 
     /// Lint a SQL file for style and best-practice violations.
@@ -725,7 +730,11 @@ fn main() {
             rust,
         }),
         Command::Macros { verbose } => cmd_macros(verbose),
-        Command::Build { files, out_dir } => cmd_build(&files, out_dir.as_deref()),
+        Command::Build {
+            files,
+            out_dir,
+            debug,
+        } => cmd_build(&files, out_dir.as_deref(), debug),
         Command::Lint { file } => cmd_lint(&file),
         Command::Schema { action } => match action {
             SchemaAction::Import {
@@ -851,9 +860,10 @@ fn cmd_macros(verbose: bool) -> i32 {
     if errors.is_empty() { 0 } else { 1 }
 }
 
-fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
+fn cmd_build(files: &[String], out_dir: Option<&str>, debug: bool) -> i32 {
     let project = discover_project_or_exit();
     let (set, errors) = load_macros(project.as_ref());
+    let set = set.with_debug(debug);
     for e in &errors {
         eprintln!("warning: {e}");
     }
@@ -868,7 +878,14 @@ fn cmd_build(files: &[String], out_dir: Option<&str>) -> i32 {
                 continue;
             }
         };
-        let expansion = pgweave_macro::expand_source(&src, &set);
+        let mut expansion = pgweave_macro::expand_source(&src, &set);
+        if debug {
+            expansion.sql = format!(
+                "{}\n{}",
+                pgweave_macro::instrument::DEBUG_SETUP,
+                expansion.sql
+            );
+        }
 
         for d in &expansion.diagnostics {
             use pgweave_diagnostics::Severity;

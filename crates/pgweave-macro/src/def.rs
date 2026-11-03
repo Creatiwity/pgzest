@@ -230,6 +230,8 @@ pub struct MacroSet {
     defs: HashMap<String, MacroDef>,
     /// Project fragments (`*.sql` of `[macros] directory`), by name.
     fragments: HashMap<String, crate::fragment::FragmentDef>,
+    /// Debug build: `@snapshot` emits its copy (see [`crate::instrument`]).
+    debug: bool,
 }
 
 impl MacroSet {
@@ -329,6 +331,12 @@ impl MacroSet {
     /// Adds a fragment; a name already taken is an error (no fragment silently
     /// replaces another).
     pub fn insert_fragment(&mut self, def: crate::fragment::FragmentDef) -> Result<(), String> {
+        if crate::instrument::DIRECTIVES.contains(&def.name.as_str()) {
+            return Err(format!(
+                "{}:{}: `@{}` is a body directive: rename the fragment",
+                def.origin, def.line, def.name
+            ));
+        }
         if let Some(prev) = self.fragments.get(&def.name) {
             return Err(format!(
                 "{}:{}: fragment `{}` already defined at {}:{}",
@@ -352,6 +360,17 @@ impl MacroSet {
         let mut v: Vec<&str> = self.fragments.keys().map(String::as_str).collect();
         v.sort_unstable();
         v
+    }
+
+    /// Debug build: `@snapshot` emits its copy instead of nothing. Never for
+    /// analysis, migrations or deployment.
+    pub fn with_debug(mut self, debug: bool) -> Self {
+        self.debug = debug;
+        self
+    }
+
+    pub fn debug(&self) -> bool {
+        self.debug
     }
 
     pub fn get(&self, name: &str) -> Option<&MacroDef> {

@@ -109,6 +109,9 @@ pub enum SelectItem {
 pub struct TargetTable {
     pub name: ObjectName,
     pub alias: Option<Ident>,
+    /// Position of the name, `DUMMY` if unknown.
+    #[serde(default)]
+    pub span: Span,
 }
 
 /// `FROM` or join item.
@@ -233,6 +236,9 @@ pub struct InsertStmt {
     pub with: Vec<Cte>,
     pub with_recursive: bool,
     pub table: ObjectName,
+    /// Position of the target table's name, `DUMMY` if unknown.
+    #[serde(default)]
+    pub table_span: Span,
     /// `INSERT INTO t AS alias`: name of the target table in `ON CONFLICT` and
     /// `RETURNING`.
     pub alias: Option<Ident>,
