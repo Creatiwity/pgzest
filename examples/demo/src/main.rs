@@ -8,7 +8,8 @@
 //! `DATABASE_URL` désigne un autre serveur (la base `pgweave_demo` y est
 //! recréée).
 
-use pgweave_demo::queries::{self, DishKind, OrderStatus};
+use pgweave_demo::db::{DishKind, OrderStatus};
+use pgweave_demo::{carte, queries};
 use pgweave_runtime::futures_util::StreamExt;
 
 const DEFAULT_URL: &str = "postgres://postgres:pgweave@localhost:54318/postgres";
@@ -62,6 +63,17 @@ async fn main() -> Result<()> {
     println!(
         "   restaurant_by_slug(le-bistrot) → {:?}",
         found.map(|r| r.name)
+    );
+
+    let since = time::Date::from_calendar_date(2020, time::Month::January, 1)?;
+    let recent = carte::opened_since(&client, carte::OpenedSinceParams { since }).await?;
+    println!(
+        "   ouverts depuis 2020 (sql!) : {}",
+        recent
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     );
 
     println!("── Plats : COPY CSV, puis un ajout typé");
@@ -133,6 +145,15 @@ async fn main() -> Result<()> {
     };
     println!("   végétariens : {}", names(&veggie));
     println!("   à moins de 10 € : {}", names(&affordable));
+    // Requête écrite dans le code (`sql!`), même struct de ligne.
+    let by_price = carte::dishes_by_price(
+        &client,
+        carte::DishesByPriceParams {
+            restaurant: bistro.id,
+        },
+    )
+    .await?;
+    println!("   par prix (sql!) : {}", names(&by_price));
     let counts = queries::menu::dish_counts(
         &client,
         queries::menu::DishCountsParams {

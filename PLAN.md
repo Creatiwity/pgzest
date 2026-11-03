@@ -823,7 +823,22 @@ Ajouts (2026-11-03, après la sortie) :
   migration de la vue générée par `migrate create`, `src/queries.rs` par la
   macro, un sous-module `promotions::deals`.
 
+- `sql!` : une requête par macro, nom, cardinalité, doc et visibilité en
+  paramètres, chaîne réduite au SQL ; `-> Chemin` (struct Rust d'une autre
+  requête, `sql!` ou fichier) vérifié par assertions constantes sur
+  `PGWEAVE_COLUMNS`. Rafraîchie à la frappe dans rust-analyzer (mesuré :
+  0,1 s), là où `queries!` ne l'est qu'au redémarrage du serveur (limite de
+  rust-analyzer, mesurée : ni `rebuildProcMacros` ni `reloadWorkspace` ne
+  relancent une macro dont l'entrée est inchangée).
+- `#[pgweave_macros::types] mod db {}` et `[rust] types` : enums générés
+  une fois, référencés par `sql!`, `queries!` et `build.rs`.
+- Positions : tokens générés situés sur l'appel (plus de panique de
+  rust-analyzer), noms sur le nom écrit, lien vers la ligne SQL au survol.
+
 Reste :
+- Coloration SQL et assistance (survol, diagnostics, complétion) dans les
+  chaînes de `sql!`/`query!` : extension VS Code et `pgweave-lsp` sur les
+  `.rs`.
 - Fragments dans un `CREATE FUNCTION … AS $$…$$` écrit à la main : non
   insérés (une chaîne dollar n'est pas interprétée) ; passer par `@function`.
 - `pgweave build` n'éjecte pas encore un fichier de requêtes (les

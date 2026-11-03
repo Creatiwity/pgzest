@@ -6,6 +6,11 @@
 //! Pour voir le code généré : `pgweave describe --rust queries/*.sql`, ou
 //! « Go to Definition » sur une fonction de `queries` dans VS Code.
 
+pub mod carte;
+/// Enums des types énumérés du projet (`dish_kind`, `order_status`…),
+/// générés une fois : `[rust] types = "crate::db"` dans pgweave.toml.
+#[pgweave_macros::types]
+pub mod db {}
 pub mod queries;
 
 /// Plat le plus cher d'un restaurant : requête écrite en ligne, analysée à

@@ -12,6 +12,7 @@ queries/              les requêtes nommées, un module Rust par fichier
 sandbox/              zone d'essai : erreurs volontaires, requêtes à survoler
 data/dishes.csv       importé par COPY
 src/queries.rs        une ligne : `pgweave_macros::queries!("queries");`
+src/carte.rs          requêtes écrites dans le code : `pgweave_macros::sql! { … }`
 src/main.rs           le programme qui utilise le code généré
 ```
 
@@ -153,8 +154,18 @@ Cassez une requête de `queries/` (par exemple `restaurant_id` →
 échoue, avec la position de l'erreur dans le fichier SQL. Aucune base
 n'est contactée pour cela.
 
-`src/lib.rs` montre `query!`, une requête écrite dans le code Rust et
-vérifiée à la compilation de la même façon.
+`src/carte.rs` montre `sql!` : une requête écrite dans le code Rust, la
+chaîne ne contenant que le SQL, le nom et la cardinalité en paramètres de la
+macro. `dishes_by_price` reprend la fiche de plat de `queries/menu.sql`
+(`-> crate::queries::menu::DishCardRow`), vérifiée à la compilation :
+remplacez `FROM dishes d` par `FROM restaurants r LEFT JOIN dishes d ON
+d.restaurant_id = r.id`, et `cargo build` refuse, colonne par colonne
+(« `price` peut être nulle ici… »). Modifier la chaîne est pris en compte
+par l'éditeur à la frappe. Les enums sont générés une fois, dans `crate::db`
+(`#[pgweave_macros::types]`, `[rust] types` dans pgweave.toml).
+
+`src/lib.rs` montre aussi `query!`, une requête ponctuelle dans une
+expression, vérifiée de la même façon.
 
 ### 7. L'exécution
 

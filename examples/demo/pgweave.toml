@@ -13,3 +13,8 @@ declarative = true
 
 [queries]
 directory = "queries"
+
+# Enums PostgreSQL générés une fois, dans `crate::db` (src/lib.rs) : les
+# requêtes en fichiers et les requêtes `sql!` y renvoient.
+[rust]
+types = "crate::db"

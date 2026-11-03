@@ -118,6 +118,12 @@ schéma.
 |---|---|---|---|
 | `directory` | chemin | `"macros"` | Macros du projet (`*.pgmacro`) et fragments (`*.sql`, en-têtes `-- fragment: nom`, voir [`named-queries.md`](named-queries.md#fragments)). Une macro du projet portant le nom d'une macro fournie la remplace ; deux fragments du même nom, ou un fragment et une macro, sont une erreur. Ses `.sql` ne sont jamais des fichiers de schéma ni de requêtes. |
 
+### `[rust]`
+
+| Clé | Type | Défaut | Rôle |
+|---|---|---|---|
+| `types` | chemin Rust | absent | Module où `#[pgweave_macros::types] mod … {}` génère les enums du projet (`"crate::db"`). Présent, le code des requêtes y renvoie ; requis dès qu'une requête `sql!` utilise un enum. Ajouté le 2026-11-03. |
+
 ### `[parse]`
 
 | Clé | Valeurs | Défaut | Rôle |

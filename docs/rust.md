@@ -14,7 +14,9 @@ Deux façons d'écrire une requête :
 - **requête nommée** dans `queries/**/*.sql`, compilée par la macro
   `queries!` ou par `build.rs` : c'est la forme principale (enums générés,
   `COPY`, fragments, lignes partagées), un module Rust par fichier ;
-- **`query!`**, en ligne dans le code Rust, pour une requête ponctuelle.
+- **`sql!`**, une requête définie dans le code Rust : même génération
+  qu'une requête nommée, la chaîne ne contenant que le SQL ;
+- **`query!`**, en ligne dans une expression, pour une requête ponctuelle.
 
 ## Mise en place
 
@@ -58,6 +60,62 @@ qui les utilise : déclarez leur répertoire dans `[queries] include`, puis
 `pgweave_macros::queries!("src/order/queries");` dans `src/order/mod.rs`.
 Chaque fichier lu est surveillé ; un fichier **ajouté** à un répertoire
 n'est vu qu'à la recompilation du module qui appelle la macro.
+
+### Requêtes dans le code : `sql!`
+
+```rust
+// src/carte.rs
+pgweave_macros::sql! {
+    /// Les plats d'un restaurant, du moins cher au plus cher.
+    pub dishes_by_price: many -> crate::queries::menu::DishCardRow,
+    r#"SELECT @dish_card(d) FROM dishes d
+       WHERE d.restaurant_id = $restaurant ORDER BY d.price"#
+}
+// crate::carte::dishes_by_price(&client, DishesByPriceParams { restaurant })
+```
+
+- Une requête par macro ; nom, cardinalité (optionnelle, inférée sinon),
+  documentation et visibilité sont des paramètres, la chaîne ne contient que
+  le SQL (fragments `@nom` compris).
+- `-> Chemin` reprend la struct de ligne d'une autre requête, `sql!` ou
+  fichier, par son chemin Rust. La compatibilité (noms, ordre, types,
+  nullabilité jamais relâchée) est vérifiée à la compilation, par des
+  assertions constantes : `` `price` peut être nulle ici, pas dans
+  crate::queries::menu::DishCardRow ``.
+- Modifier la chaîne relance l'analyse immédiatement, dans l'éditeur aussi
+  (l'entrée de la macro change) ; « aller à la définition » mène au nom
+  écrit dans la macro.
+
+### Enums : `#[types]`
+
+Une requête `sql!` qui utilise un enum PostgreSQL ne peut pas le définir
+elle-même (deux requêtes du même module le définiraient deux fois). Les
+enums du projet sont générés une fois, dans un module déclaré :
+
+```toml
+# pgweave.toml
+[rust]
+types = "crate::db"
+```
+
+```rust
+// src/lib.rs
+#[pgweave_macros::types]
+pub mod db {}
+// crate::db::DishKind, crate::db::OrderStatus…
+```
+
+Avec `[rust] types`, `queries!` et `build.rs` y renvoient aussi au lieu de
+générer leurs propres enums.
+
+### Rafraîchissement dans l'éditeur
+
+rust-analyzer ne relance une macro que si son entrée change. Pour `sql!`
+et `query!`, l'entrée est le SQL : toute modification est prise en compte
+à la frappe. Pour `queries!("dossier")`, l'entrée est le chemin : une
+modification d'un `.sql` n'est vue par rust-analyzer qu'au redémarrage du
+serveur (`cargo check`, lui, la voit toujours). Un changement de schéma
+est dans le même cas pour toutes les formes.
 
 Variante sans macro, depuis `build.rs` (le répertoire `[queries] directory`
 entier, y compris ses fichiers ajoutés, surveillés par Cargo) :
