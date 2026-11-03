@@ -787,6 +787,23 @@ impl LanguageServer for PgsqlBackend {
             None => return Ok(None),
         };
 
+        // `$nom` : un paramètre de la requête, jamais une colonne homonyme.
+        if param_at(&text, offset as usize).is_some() {
+            let resolver = self.resolver().await;
+            let macros = self.macros().await;
+            return Ok(
+                hover_param(&text, offset as usize, resolver.as_ref(), &macros).map(|value| {
+                    Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value,
+                        }),
+                        range: None,
+                    }
+                }),
+            );
+        }
+
         let role = self.role_of(&uri).await;
         let resolver = self.resolver().await;
         let macros = self.macros().await;
@@ -939,6 +956,65 @@ fn hover_query(
 /// Survol de l'en-tête `-- name: …` d'une requête nommée : ce que décrit
 /// son descripteur (paramètres, colonnes, cardinalité), ou pourquoi il n'y
 /// en a pas.
+/// Nom du paramètre `$nom` (ou `$1`) sous le curseur.
+fn param_at(text: &str, offset: usize) -> Option<String> {
+    let b = text.as_bytes();
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    if offset > b.len() {
+        return None;
+    }
+    let mut start = offset.min(b.len());
+    while start > 0 && word(b[start - 1]) {
+        start -= 1;
+    }
+    let mut end = offset;
+    while end < b.len() && word(b[end]) {
+        end += 1;
+    }
+    (start > 0 && b[start - 1] == b'$' && end > start).then(|| text[start..end].to_string())
+}
+
+/// Survol d'un paramètre : le type et la nullabilité établis par la
+/// description de sa requête.
+fn hover_param(
+    text: &str,
+    offset: usize,
+    catalog: &ProjectCatalog,
+    macros: &pgweave_macro::MacroSet,
+) -> Option<String> {
+    use pgweave_query::descriptor::NullabilityDesc;
+    let name = param_at(text, offset)?;
+    let file = pgweave_query::parse_query_file_with(text, macros);
+    let q = file
+        .queries
+        .iter()
+        .find(|q| q.sql_range.start <= offset && offset <= q.sql_range.end)?;
+    let d = match pgweave_query::describe_named(catalog, q) {
+        Ok(d) => d,
+        Err(_) => {
+            return Some(format!(
+                "(paramètre) **${name}** : type non établi, la requête `{}` n'est pas décrite",
+                q.name
+            ));
+        }
+    };
+    let p = d.params.iter().find(|p| p.name == name)?;
+    let ty = if p.ty.modifiers.is_empty() {
+        p.ty.pg.clone()
+    } else {
+        format!("{}({})", p.ty.pg, p.ty.modifiers.join(","))
+    };
+    let null = match p.nullable {
+        NullabilityDesc::Nullable => "peut être NULL (`Option` en Rust)",
+        NullabilityDesc::NonNull => "NOT NULL",
+        NullabilityDesc::Unknown => "nullabilité non établie : valeur attendue non nulle",
+    };
+    Some(format!(
+        "(paramètre) **${name}** : `{ty}`, {null}\n\nde la requête `{}`",
+        q.name
+    ))
+}
+
 /// Document Rust (requêtes `sql!` / `query!`).
 fn is_rust(uri: &str) -> bool {
     uri.ends_with(".rs")
@@ -1011,6 +1087,15 @@ fn hover_rust(
     let (e, at) = found
         .iter()
         .find_map(|e| e.to_sql(offset).map(|at| (e, at)))?;
+    if param_at(&e.sql, at).is_some() {
+        let header = embedded_header(e);
+        return hover_param(
+            &format!("{header}{}", e.sql),
+            header.len() + at,
+            catalog,
+            macros,
+        );
+    }
     let prepared = pgweave_analysis::prepare_source(&e.sql, macros);
     let stmts = prepared
         .parse_with_outcome()

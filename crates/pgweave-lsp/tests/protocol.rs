@@ -618,3 +618,48 @@ fn requete_sql_dans_un_fichier_rust() {
     assert_eq!(diags[0]["range"]["start"]["line"], 2);
     assert_eq!(diags[0]["range"]["start"]["character"], 17);
 }
+
+#[test]
+fn le_survol_d_un_parametre_donne_son_type_pas_une_colonne() {
+    // `restaurant` est aussi le nom d'une colonne d'une autre relation : le
+    // survol de `$restaurant` doit donner le paramètre.
+    let root = scaffold(
+        "param",
+        &[
+            (
+                "pgweave.toml",
+                "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+                 [queries]\ndirectory = \"queries\"\n",
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE d (id BIGINT PRIMARY KEY, restaurant_id BIGINT NOT NULL);\n\
+                 CREATE VIEW v AS SELECT 'x'::text AS restaurant;\n",
+            ),
+            (
+                "queries/q.sql",
+                "-- name: q\nSELECT id FROM d WHERE restaurant_id = $restaurant;\n",
+            ),
+        ],
+    );
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let uri = lsp.open(&root.join("queries/q.sql"), "sql");
+    lsp.await_diagnostics(&uri);
+    let id = lsp.request(
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 1, "character": 42 }
+        }),
+    );
+    let response = lsp.await_response(id);
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        value.starts_with("(paramètre) **$restaurant** : `pg_catalog.int8`"),
+        "{value}"
+    );
+}
