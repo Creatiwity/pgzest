@@ -153,6 +153,7 @@ pub fn query_descriptor_diagnostics(
     let mut modules: Vec<pgweave_query::QueryModule> =
         others.iter().filter(|m| m.path != here).cloned().collect();
     modules.push(pgweave_query::QueryModule {
+        source: None,
         path: here.to_vec(),
         descriptors: described.iter().map(|(_, d)| d.clone()).collect(),
     });
@@ -200,7 +201,11 @@ pub fn query_modules(
                 .iter()
                 .filter_map(|q| pgweave_query::describe_named(catalog, q).ok())
                 .collect();
-            Some(pgweave_query::QueryModule { path, descriptors })
+            Some(pgweave_query::QueryModule {
+                path,
+                descriptors,
+                source: None,
+            })
         })
         .collect()
 }

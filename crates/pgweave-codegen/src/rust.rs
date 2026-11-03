@@ -80,6 +80,7 @@ pub fn generate_rust(
 ) -> Result<String, Vec<String>> {
     generate_rust_modules(
         &[QueryModule {
+            source: None,
             path: Vec::new(),
             descriptors: descriptors.to_vec(),
         }],
@@ -164,7 +165,7 @@ pub fn generate_rust_modules(
                 }
             };
             match g.query(d, row) {
-                Ok(code) => body.push_str(&code),
+                Ok(code) => body.push_str(&with_source(code, m.source.as_ref(), d)),
                 Err(e) => errors.push(format!("{where_}{} : {e}", d.name)),
             }
         }
@@ -187,6 +188,43 @@ pub fn generate_rust_modules(
     }
     out.push_str(&body);
     Ok(out)
+}
+
+/// `code` (celui d'une requête), chaque fonction et la struct de ligne
+/// précédées d'un lien vers l'en-tête de la requête dans son fichier SQL :
+/// une macro ne peut situer son code que dans le fichier Rust qui l'appelle,
+/// le lien mène au SQL (survol, ou ⌘-clic sur le lien).
+fn with_source(
+    code: String,
+    source: Option<&pgweave_query::QuerySource>,
+    d: &Descriptor,
+) -> String {
+    let Some(src) = source else {
+        return code;
+    };
+    let Some(line) = src.lines.get(&d.name) else {
+        return code;
+    };
+    // Attribut plutôt que `///` : un commentaire de doc reparsé par le
+    // serveur de macros de rust-analyzer y garde un `/` de trop.
+    let doc = format!(
+        "#[doc = {:?}]\n",
+        format!(
+            " Requête `{}` : [{}:{line}](file://{}#L{line})",
+            d.name,
+            src.label,
+            src.path.display()
+        )
+    );
+    let row = format!("pub struct {}Row ", pascal(&d.name));
+    let mut out = String::with_capacity(code.len() + 4 * doc.len());
+    for l in code.split_inclusive('\n') {
+        if l.starts_with("pub async fn ") || l.starts_with(&row) {
+            out.push_str(&doc);
+        }
+        out.push_str(l);
+    }
+    out
 }
 
 /// Code du module `at` et de ses sous-modules.

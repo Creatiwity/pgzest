@@ -913,6 +913,20 @@ pub fn read_cache(dir: &Path, fingerprint: &str) -> Option<Descriptor> {
 pub struct QueryModule {
     pub path: Vec<String>,
     pub descriptors: Vec<Descriptor>,
+    /// Fichier d'origine (libellé lisible, chemin absolu) et ligne de
+    /// l'en-tête de chaque requête : le code généré y renvoie.
+    pub source: Option<QuerySource>,
+}
+
+/// Où une requête générée est écrite.
+#[derive(Debug, Clone, Default)]
+pub struct QuerySource {
+    /// Chemin affiché (`queries/menu.sql`).
+    pub label: String,
+    /// Chemin absolu, pour le lien.
+    pub path: std::path::PathBuf,
+    /// Ligne (1-based) de l'en-tête `-- name:` de chaque requête.
+    pub lines: std::collections::BTreeMap<String, usize>,
 }
 
 /// Requête désignée par `-> r` depuis le module `from` : `nom` dans le même

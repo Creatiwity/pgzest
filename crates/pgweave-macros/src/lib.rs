@@ -108,11 +108,34 @@ pub fn queries(input: TokenStream) -> TokenStream {
         }
     };
     match expand_queries(root, &path.value()) {
-        Ok(tokens) => tokens.into(),
+        // Chaque token généré porte la position du chemin : « aller à la
+        // définition » mène à l'appel `queries!("…")`. Un token reparsé
+        // depuis une chaîne n'a pas de position dans le fichier, et
+        // rust-analyzer en déduit un décalage hors du fichier (panique).
+        Ok(tokens) => respan(tokens, path.span()).into(),
         Err(message) => syn::Error::new(path.span(), message)
             .to_compile_error()
             .into(),
     }
+}
+
+/// `tokens`, chacun (groupes compris) à la position `span`.
+fn respan(tokens: Tokens, span: proc_macro2::Span) -> Tokens {
+    use proc_macro2::TokenTree;
+    tokens
+        .into_iter()
+        .map(|t| match t {
+            TokenTree::Group(g) => {
+                let mut out = proc_macro2::Group::new(g.delimiter(), respan(g.stream(), span));
+                out.set_span(span);
+                TokenTree::Group(out)
+            }
+            mut other => {
+                other.set_span(span);
+                other
+            }
+        })
+        .collect()
 }
 
 fn expand_queries(root: PathBuf, rel: &str) -> Result<Tokens, String> {
@@ -256,6 +279,10 @@ fn expand_in(root: PathBuf, input: &Input, from_file: bool) -> Result<Tokens, St
         ..Default::default()
     };
     let q = pgweave_codegen::rust::inline_query(&d, &project.catalog, &opts)?;
+    // Code généré à la position de la chaîne SQL (voir `queries!`) ; les
+    // expressions liées gardent la leur.
+    let span = input.sql.span();
+    let parse = |code: &str| parse(code).map(|t| respan(t, span));
     let query_const = parse(&q.query_const)?;
     let (row_def, row_ty, decode) = match &q.row {
         Some(code) => (parse(code)?, quote!(Row), quote!(Row::from_row)),

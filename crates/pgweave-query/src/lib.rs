@@ -11,8 +11,8 @@ mod file;
 mod line_index;
 
 pub use descriptor::{
-    Descriptor, QueryModule, check_row_reference, describe_named, describe_sql, describe_sql_with,
-    resolve_row,
+    Descriptor, QueryModule, QuerySource, check_row_reference, describe_named, describe_sql,
+    describe_sql_with, resolve_row,
 };
 pub use file::{
     Cardinality, ExpandedSql, NamedParam, NamedQuery, Params, QueryFile, parse_query_file,

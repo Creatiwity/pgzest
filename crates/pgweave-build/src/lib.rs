@@ -156,6 +156,16 @@ pub fn generate_path(
                 Err(diags) => diags.iter().for_each(&mut report),
             }
         }
+        let lines = parsed
+            .queries
+            .iter()
+            .map(|q| (q.name.clone(), line_col(&text, q.name_range.start).0))
+            .collect();
+        let label = file
+            .strip_prefix(&project.root)
+            .unwrap_or(file)
+            .display()
+            .to_string();
         modules.push(QueryModule {
             path: if path.is_dir() {
                 module_path(path, file)
@@ -163,6 +173,11 @@ pub fn generate_path(
                 Vec::new()
             },
             descriptors,
+            source: Some(pgweave_query::QuerySource {
+                label,
+                path: file.canonicalize().unwrap_or_else(|_| file.clone()),
+                lines,
+            }),
         });
     }
     if !errors.is_empty() {
