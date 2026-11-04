@@ -1013,7 +1013,9 @@ trigger): the calls of the value are runs of the routine, and it may read
 field or a constant (`RETURN NEW;`) needs no block. `pgweave.max_depth`
 bounds the depth (`54001`, naming the routine). The `notice` target raises
 a start and an end event per run, which reach the client even when the
-transaction fails; `pgweave-runtime::trace` (feature `trace`) assembles
+transaction fails — only under a sampled `pgweave.traceparent` (W3C flag,
+matched by a pattern: absent or malformed reads as not sampled, never an
+error), so that unsampled requests pay ~3 µs per run instead of ~37; `pgweave-runtime::trace` (feature `trace`) assembles
 them into trees, closes the runs a failed statement left open, and
 (feature `opentelemetry`) exports each tree as spans under the caller's
 `traceparent` — the SDK generates span ids, so a tree is exported when its
@@ -1025,7 +1027,8 @@ restored after a handled failure, an endless recursion seen through its
 notices; spans checked in an in-memory exporter. Only macro routines are
 instrumented: logging is opted in, and visible in the migration. Cost per
 run (PostgreSQL 18): ~6 µs at `info`, ~12 µs at `step` (`table` or
-`notify`), ~30 µs with `notice`; nothing at `none`.
+`notify`), ~37 µs with `notice` when sampled (~25 µs of it sending), ~3 µs
+when not; nothing at `none`.
 
 **Macro slots** — every slot of a macro header is rendered by its
 template, checked when the definition loads: `@trigger … when (…)` used to

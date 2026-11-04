@@ -15,6 +15,7 @@ DECLARE
     _pgweave_parent uuid := nullif(current_setting('pgweave.span', true), '')::uuid;
     _pgweave_depth int := set_config('pgweave.depth', (coalesce(nullif(current_setting('pgweave.depth', true), '')::int, 0) + 1)::text, true)::int;
     _pgweave_config text := set_config('pgweave.span', _pgweave_run_id::text, true);
+    _pgweave_sampled boolean := coalesce(_pgweave_traceparent ~ '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f][13579bdf]$', false);
     _pgweave_rows bigint;
     _pgweave_steps jsonb[] := ARRAY[]::jsonb[];
     _pgweave_found boolean;
@@ -22,11 +23,13 @@ BEGIN
     IF _pgweave_depth > coalesce(nullif(current_setting('pgweave.max_depth', true), '')::int, _pgweave_depth) THEN
         RAISE EXCEPTION 'pgweave: % called at depth %, beyond pgweave.max_depth', 'loyalty_points_of', _pgweave_depth USING ERRCODE = '54001';
     END IF;
-    RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'start', 'run', _pgweave_run_id, 'routine', 'loyalty_points_of', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at)::text;
+    IF _pgweave_sampled THEN
+        RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'start', 'run', _pgweave_run_id, 'routine', 'loyalty_points_of', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at)::text;
+    END IF;
 
     DECLARE _pgweave_result INTEGER := (order_total(p_order) / 100)::integer;
     BEGIN
-        RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'end', 'run', _pgweave_run_id, 'routine', 'loyalty_points_of', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at, 'duration_ms', 1000 * extract(epoch FROM clock_timestamp() - _pgweave_started_at)::float8, 'steps', to_jsonb(_pgweave_steps), 'error', NULL::text)::text;
+        IF _pgweave_sampled THEN RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'end', 'run', _pgweave_run_id, 'routine', 'loyalty_points_of', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at, 'duration_ms', 1000 * extract(epoch FROM clock_timestamp() - _pgweave_started_at)::float8, 'steps', to_jsonb(_pgweave_steps), 'error', NULL::text)::text; END IF;
         _pgweave_config := set_config('pgweave.span', coalesce(_pgweave_parent::text, ''), true);
         _pgweave_config := set_config('pgweave.depth', (_pgweave_depth - 1)::text, true);
         RETURN _pgweave_result;
@@ -46,6 +49,7 @@ DECLARE
     _pgweave_parent uuid := nullif(current_setting('pgweave.span', true), '')::uuid;
     _pgweave_depth int := set_config('pgweave.depth', (coalesce(nullif(current_setting('pgweave.depth', true), '')::int, 0) + 1)::text, true)::int;
     _pgweave_config text := set_config('pgweave.span', _pgweave_run_id::text, true);
+    _pgweave_sampled boolean := coalesce(_pgweave_traceparent ~ '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f][13579bdf]$', false);
     _pgweave_rows bigint;
     _pgweave_steps jsonb[] := ARRAY[]::jsonb[];
     _pgweave_found boolean;
@@ -53,14 +57,16 @@ BEGIN
     IF _pgweave_depth > coalesce(nullif(current_setting('pgweave.max_depth', true), '')::int, _pgweave_depth) THEN
         RAISE EXCEPTION 'pgweave: % called at depth %, beyond pgweave.max_depth', 'orders_award_loyalty_fn', _pgweave_depth USING ERRCODE = '54001';
     END IF;
-    RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'start', 'run', _pgweave_run_id, 'routine', 'orders_award_loyalty_fn', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at)::text;
+    IF _pgweave_sampled THEN
+        RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'start', 'run', _pgweave_run_id, 'routine', 'orders_award_loyalty_fn', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at)::text;
+    END IF;
 
     UPDATE customers
     SET loyalty_points = loyalty_points + loyalty_points_of(NEW.id)
     WHERE id = NEW.customer_id;
     GET DIAGNOSTICS _pgweave_rows = ROW_COUNT;
-    _pgweave_steps := array_append(_pgweave_steps, jsonb_build_object('kind', 'UPDATE', 'target', 'customers', 'line', 16, 'row_count', _pgweave_rows, 'executed_at', clock_timestamp()));
-    RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'end', 'run', _pgweave_run_id, 'routine', 'orders_award_loyalty_fn', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at, 'duration_ms', 1000 * extract(epoch FROM clock_timestamp() - _pgweave_started_at)::float8, 'steps', to_jsonb(_pgweave_steps), 'error', NULL::text)::text;
+    IF _pgweave_sampled THEN _pgweave_steps := array_append(_pgweave_steps, jsonb_build_object('kind', 'UPDATE', 'target', 'customers', 'line', 16, 'row_count', _pgweave_rows, 'executed_at', clock_timestamp())); END IF;
+    IF _pgweave_sampled THEN RAISE NOTICE 'pgweave_log' USING DETAIL = jsonb_build_object('type', 'end', 'run', _pgweave_run_id, 'routine', 'orders_award_loyalty_fn', 'parent', _pgweave_parent, 'depth', _pgweave_depth, 'traceparent', left(_pgweave_traceparent, 512), 'started_at', _pgweave_started_at, 'duration_ms', 1000 * extract(epoch FROM clock_timestamp() - _pgweave_started_at)::float8, 'steps', to_jsonb(_pgweave_steps), 'error', NULL::text)::text; END IF;
     _pgweave_config := set_config('pgweave.span', coalesce(_pgweave_parent::text, ''), true);
     _pgweave_config := set_config('pgweave.depth', (_pgweave_depth - 1)::text, true);
     RETURN NULL;

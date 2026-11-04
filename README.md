@@ -267,7 +267,12 @@ is the run that caused it. With `notify`, each entry is a JSON
 `pg_notify('pgweave_log', …)` (steps, then the run). With `notice`, a run
 raises `RAISE NOTICE 'pgweave_log'` with its JSON in `DETAIL` when it
 starts and when it ends (steps included): notices reach the client at
-once, even when the transaction then fails — the target for tracing.
+once, even when the transaction then fails — the target for tracing. Only
+the runs of a sampled trace raise them: the caller's `pgweave.traceparent`
+is a W3C `traceparent` whose `sampled` flag is set. Without one, or when
+it is not sampled or malformed, the run raises nothing and never fails
+for it; to trace by hand in `psql`:
+`SET pgweave.traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'`.
 
 Steps are kept in a variable and written when the run ends, before each
 `RETURN` and at the end of the body: the recording changes neither
@@ -300,14 +305,18 @@ call without logging:
 | `step`, `table` | +35 µs | ~12 µs |
 | `info`, `notify` | +23 µs | ~8 µs |
 | `step`, `notify` | +36 µs | ~12 µs |
-| `info`, `notice` | +88 µs | ~29 µs |
-| `step`, `notice` | +98 µs | ~33 µs |
+| `info` or `step`, `notice`, trace not sampled | +9 µs | ~3 µs |
+| `info`, `notice`, sampled trace | +110 µs | ~37 µs |
+| `step`, `notice`, sampled trace | +120 µs | ~40 µs |
 
 A few microseconds per run, to compare with the round trip of a query
 (100 µs to a few ms): negligible for business routines, noticeable for a
 trigger on a bulk load of millions of rows — log it at `none`, or below
-the level it would cost. `notice` costs the most: two messages per run,
-sent to the client.
+the level it would cost. A sampled run with `notice` costs the most: of
+its ~37 µs, building the two JSON events takes ~8 µs and sending them to
+the client ~25 µs (measured with `client_min_messages = warning`, which
+builds them without sending). Sampling bounds it: only the requests the
+application traces pay it.
 
 ### Traces
 
@@ -342,8 +351,10 @@ spans show the chain of calls that led there. `statement_timeout` stops a
 loop that does not recurse the same way: the runs it left open are closed
 as failed.
 
-Notices reach the client when `client_min_messages` is `notice` or below
-(the default). Only the routines of macros (`@function`, `@procedure`,
+Only a sampled trace is traced: `set_traceparent` with the application's
+current `traceparent`, whose `sampled` flag the routines read. Notices
+reach the client when `client_min_messages` is `notice` or below (the
+default). Only the routines of macros (`@function`, `@procedure`,
 `@trigger`) are logged: a plain `CREATE FUNCTION` runs untraced.
 
 ### `pgweave dev`

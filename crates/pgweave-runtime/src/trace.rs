@@ -1,6 +1,7 @@
 //! Runs of the logged PL/pgSQL routines, as traces (PLAN.md P9).
 //!
-//! Routines built with `[log] target = "notice"` raise a notice
+//! Routines built with `[log] target = "notice"`, called under a sampled
+//! `pgweave.traceparent` ([`set_traceparent`]), raise a notice
 //! `pgweave_log` when a run starts and when it ends, its JSON in `DETAIL`:
 //! the routine, its run, the run that caused it (calling routine, or the
 //! statement that fired a trigger), its depth, the caller's
@@ -42,7 +43,8 @@ pub const TRACEPARENT_SETTING: &str = "pgweave.traceparent";
 
 /// Sets the `traceparent` the routines run under: for the current
 /// transaction when `local`, otherwise for the session (a pooled connection
-/// keeps it for its next user: prefer `local` inside a transaction).
+/// keeps it for its next user: prefer `local` inside a transaction). The
+/// routines raise their notices only when its `sampled` flag is set.
 pub async fn set_traceparent<C: GenericClient>(
     client: &C,
     traceparent: &str,

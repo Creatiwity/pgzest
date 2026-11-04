@@ -13,10 +13,13 @@ use std::sync::{Arc, Mutex};
 use pgweave_demo::db::{DishKind, OrderStatus};
 use pgweave_demo::{inline, queries};
 use pgweave_runtime::futures_util::StreamExt;
-use pgweave_runtime::trace::{RoutineRun, Tracing};
+use pgweave_runtime::trace::{self, RoutineRun, Tracing};
 
 const DEFAULT_URL: &str = "postgres://postgres:pgweave@localhost:54318/postgres";
 const DB: &str = "pgweave_demo";
+/// W3C trace context of the request, `sampled` flag set (`-01`): an
+/// application passes its current span's.
+const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -257,6 +260,8 @@ async fn main() -> Result<()> {
     tx.commit().await?;
     println!("   order {} ({:?})", order.id, order.status);
 
+    // The routines raise their runs only under a sampled trace.
+    trace::set_traceparent(&client, TRACEPARENT, false).await?;
     for status in [OrderStatus::Placed, OrderStatus::Served] {
         let updated = queries::orders::set_status(
             &client,

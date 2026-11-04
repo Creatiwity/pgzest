@@ -59,6 +59,12 @@ pub const NOT_LOGGED: &str = "not-logged";
 /// Variables of a logged run.
 const STARTED_VAR: &str = "_pgweave_started_at";
 const TRACEPARENT_VAR: &str = "_pgweave_traceparent";
+/// `notice` target: the caller's `traceparent` is sampled.
+const SAMPLED_VAR: &str = "_pgweave_sampled";
+/// A W3C `traceparent` whose flags have the `sampled` bit. Anything else —
+/// no setting, not sampled, malformed — reads as not sampled, never as an
+/// error: a business routine never fails on its caller's tracing.
+const SAMPLED_PATTERN: &str = "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f][13579bdf]$";
 const ROWS_VAR: &str = "_pgweave_rows";
 const STEPS_VAR: &str = "_pgweave_steps";
 /// `FOUND` kept across the exit code, for a `RETURN` that reads it.
@@ -773,6 +779,11 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
         decls.push(format!(
             "{CONFIG_VAR} text := set_config('{SPAN_SETTING}', {RUN_VAR}::text, true);"
         ));
+        if opts.target == LogTarget::Notice {
+            decls.push(format!(
+                "{SAMPLED_VAR} boolean := coalesce({TRACEPARENT_VAR} ~ '{SAMPLED_PATTERN}', false);"
+            ));
+        }
     }
     if opts.log >= LogLevel::Step {
         decls.push(format!("{ROWS_VAR} bigint;"));
@@ -930,8 +941,8 @@ impl RunLog {
         );
         if self.target == LogTarget::Notice {
             out.push_str(&format!(
-                "\n    RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = jsonb_build_object('type', \
-                 'start', {})::text;",
+                "\n    IF {SAMPLED_VAR} THEN\n        RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = \
+                 jsonb_build_object('type', 'start', {})::text;\n    END IF;",
                 self.identity()
             ));
         }
@@ -1001,9 +1012,9 @@ impl RunLog {
                     "NULL::jsonb".into()
                 };
                 out.push(format!(
-                    "RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = jsonb_build_object('type', \
-                     'end', {}, 'duration_ms', {duration}, 'steps', {steps}, 'error', \
-                     {error})::text;",
+                    "IF {SAMPLED_VAR} THEN RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = \
+                     jsonb_build_object('type', 'end', {}, 'duration_ms', {duration}, 'steps', \
+                     {steps}, 'error', {error})::text; END IF;",
                     self.identity()
                 ));
             }
@@ -1020,15 +1031,29 @@ impl RunLog {
 }
 
 /// Records the statement that just ran as a step: `GET DIAGNOSTICS` and a
-/// simple assignment, which change neither `ROW_COUNT` nor `FOUND`.
-fn step_sql(kind: &str, target: Option<&str>, line: Option<usize>, indent: &str) -> String {
+/// simple assignment, which change neither `ROW_COUNT` nor `FOUND`. With
+/// the `notice` target, only in a sampled run (`GET DIAGNOSTICS` first: it
+/// reads the statement right before it).
+fn step_sql(
+    kind: &str,
+    target: Option<&str>,
+    line: Option<usize>,
+    sampled_only: bool,
+    indent: &str,
+) -> String {
     let target = target.map_or("NULL::text".to_string(), literal);
     let line = line.map_or("NULL::int".to_string(), |l| l.to_string());
-    format!(
-        "GET DIAGNOSTICS {ROWS_VAR} = ROW_COUNT;\n{indent}{STEPS_VAR} := array_append({STEPS_VAR}, \
-         jsonb_build_object('kind', '{kind}', 'target', {target}, 'line', {line}, 'row_count', \
-         {ROWS_VAR}, 'executed_at', clock_timestamp()));"
-    )
+    let append = format!(
+        "{STEPS_VAR} := array_append({STEPS_VAR}, jsonb_build_object('kind', '{kind}', \
+         'target', {target}, 'line', {line}, 'row_count', {ROWS_VAR}, 'executed_at', \
+         clock_timestamp()));"
+    );
+    let append = if sampled_only {
+        format!("IF {SAMPLED_VAR} THEN {append} END IF;")
+    } else {
+        append
+    };
+    format!("GET DIAGNOSTICS {ROWS_VAR} = ROW_COUNT;\n{indent}{append}")
 }
 
 fn cleanup_sql(tables: &[TempTable]) -> Vec<String> {
@@ -1632,14 +1657,21 @@ impl Walker<'_> {
 
     /// Records the statement at `range` as a step, in a build logging steps.
     fn step(&mut self, range: &Range<usize>, kind: &str, target: Option<&str>) {
-        if !self.exit.log.as_ref().is_some_and(|l| l.steps) {
+        let Some(log) = self.exit.log.as_ref().filter(|l| l.steps) else {
             return;
-        }
+        };
+        let sampled_only = log.target == LogTarget::Notice;
         let at = after_semicolon(self.sql, range.end);
         let indent = indent_at(self.sql, range.start);
         let text = format!(
             "\n{indent}{}",
-            step_sql(kind, target, self.lines.line(range.start), &indent)
+            step_sql(
+                kind,
+                target,
+                self.lines.line(range.start),
+                sampled_only,
+                &indent
+            )
         );
         self.out.edit(at..at, text, range.clone());
     }

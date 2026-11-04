@@ -159,7 +159,10 @@ checks the routines against it. Set `level = "none"` and run `pgweave
 migrate check`: the migrations no longer match — the instrumentation is
 part of the schema, never added behind its back.
 
-`src/main.rs` reads the notices off the connection
+Only the runs of a sampled trace raise them: `src/main.rs` passes a W3C
+`traceparent` whose `sampled` flag is set (`trace::set_traceparent`); a
+request the application does not trace pays a few microseconds per run.
+It reads the notices off the connection
 (`pgweave_runtime::trace::Tracing`, feature `trace`) and prints the tree
 of runs the statement serving the order caused:
 

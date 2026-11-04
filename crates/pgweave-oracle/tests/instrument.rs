@@ -546,6 +546,30 @@ async fn noticed_runs_survive_their_failure() {
         .batch_execute(&sql)
         .await
         .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+    // Runs emit only under a sampled trace: none without a traceparent, nor
+    // with one not sampled or malformed — which never fails the routine.
+    for (total, traceparent) in (1..).zip([
+        None,
+        Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"),
+        Some("not a traceparent"),
+    ]) {
+        if let Some(tp) = traceparent {
+            client
+                .batch_execute(&format!("SET pgweave.traceparent = '{tp}'"))
+                .await
+                .expect("traceparent");
+        }
+        assert_eq!(count(&client, "SELECT add_line(1, 1)::bigint").await, total);
+        client.batch_execute("SELECT 1").await.expect("round trip");
+        assert!(rx.try_recv().is_err(), "unsampled: {traceparent:?}");
+    }
+    client
+        .batch_execute(
+            "SET pgweave.traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'",
+        )
+        .await
+        .expect("traceparent");
+
     let mut next = async || {
         let detail = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
             .await
