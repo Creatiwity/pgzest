@@ -10,6 +10,7 @@ use pgweave_ast::stmt::{
 use pgweave_ast::utility::UtilityKind;
 use pgweave_catalog::QName;
 use pgweave_catalog::model::{ArgMode, RelationKind, TypeKind};
+use pgweave_diagnostics::codes;
 use pgweave_parser::normalize_select;
 
 use crate::coerce::CoercionContext;
@@ -250,7 +251,7 @@ impl<'c> Analyzer<'c> {
             let other = self.select(&op.select, outer, false)?;
             if other.len() != columns.len() {
                 return Err(SemaError::new(
-                    "set-operation-columns",
+                    codes::SET_OPERATION_COLUMNS,
                     "each UNION query must have the same number of columns",
                     op.select.span,
                 ));
@@ -261,7 +262,7 @@ impl<'c> Analyzer<'c> {
                     .common_type(&[c.ty.clone(), o.ty.clone()])
                     .map_err(|e| {
                         SemaError::new(
-                            "type-mismatch",
+                            codes::TYPE_MISMATCH,
                             format!("UNION types cannot be matched: {e:?}"),
                             op.select.span,
                         )
@@ -298,7 +299,7 @@ impl<'c> Analyzer<'c> {
                 )
             {
                 return Err(SemaError::new(
-                    "type-mismatch",
+                    codes::TYPE_MISMATCH,
                     format!(
                         "argument of LIMIT must be type bigint, not type {}",
                         crate::expr::format_type(&t.ty)
@@ -322,7 +323,7 @@ impl<'c> Analyzer<'c> {
         for row in rows {
             if row.len() != width {
                 return Err(SemaError::new(
-                    "values-columns",
+                    codes::VALUES_COLUMNS,
                     "VALUES lists must all be the same length",
                     row.first().map_or(Span::DUMMY, |e| e.span),
                 ));
@@ -338,7 +339,7 @@ impl<'c> Analyzer<'c> {
             let types: Vec<Ty> = typed.iter().map(|r| r[i].ty.clone()).collect();
             let common = self.ts.common_type(&types).map_err(|e| {
                 SemaError::new(
-                    "type-mismatch",
+                    codes::TYPE_MISMATCH,
                     format!("VALUES types cannot be matched: {e:?}"),
                     rows[0][i].span,
                 )
@@ -397,7 +398,7 @@ impl<'c> Analyzer<'c> {
                             != pgweave_ast::emit::emit_expr(expr) =>
                     {
                         return Err(SemaError::new(
-                            "ambiguous-column",
+                            codes::AMBIGUOUS_COLUMN,
                             format!("{} \"{}\" is ambiguous", clause.label(), c.column.value),
                             e.span,
                         ));
@@ -426,7 +427,7 @@ impl<'c> Analyzer<'c> {
                 SelectItem::Wildcard => {
                     if scope.sources.is_empty() {
                         return Err(SemaError::new(
-                            "type-mismatch",
+                            codes::TYPE_MISMATCH,
                             "SELECT * with no tables specified is not valid",
                             Span::DUMMY,
                         ));
@@ -442,7 +443,7 @@ impl<'c> Analyzer<'c> {
                         .position(|s| s.name.as_deref() == Some(t.value.as_str()))
                         .ok_or_else(|| {
                             SemaError::new(
-                                "table-not-found",
+                                codes::TABLE_NOT_FOUND,
                                 format!("missing FROM-clause entry for table \"{}\"", t.value),
                                 Span::DUMMY,
                             )
@@ -489,7 +490,7 @@ impl<'c> Analyzer<'c> {
                     None => {
                         let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
                             SemaError::new(
-                                "table-not-found",
+                                codes::TABLE_NOT_FOUND,
                                 format!("relation \"{n}\" does not exist"),
                                 t.span,
                             )
@@ -571,7 +572,7 @@ impl<'c> Analyzer<'c> {
                 || columns[0].ty != Some(pg("record"))
             {
                 return Err(SemaError::new(
-                    "type-mismatch",
+                    codes::TYPE_MISMATCH,
                     "a column definition list is only allowed for functions returning \"record\"",
                     Span::DUMMY,
                 ));
@@ -754,7 +755,7 @@ impl<'c> Analyzer<'c> {
             for u in &using {
                 let Some(l) = left_before.iter().find(|c| c.name == *u) else {
                     return Err(SemaError::new(
-                        "column-not-found",
+                        codes::COLUMN_NOT_FOUND,
                         format!(
                             "column \"{u}\" specified in USING clause does not exist in left table"
                         ),
@@ -763,7 +764,7 @@ impl<'c> Analyzer<'c> {
                 };
                 let Some(r) = right_before.iter().find(|c| c.name == *u) else {
                     return Err(SemaError::new(
-                        "column-not-found",
+                        codes::COLUMN_NOT_FOUND,
                         format!(
                             "column \"{u}\" specified in USING clause does not exist in right table"
                         ),
@@ -775,7 +776,7 @@ impl<'c> Analyzer<'c> {
                     (Some(a), Some(b)) => {
                         Some(self.ts.common_type(&[a.clone(), b.clone()]).map_err(|_| {
                             SemaError::new(
-                                "type-mismatch",
+                                codes::TYPE_MISMATCH,
                                 format!(
                                     "JOIN/USING types {} and {} cannot be matched",
                                     a.name, b.name
@@ -840,7 +841,7 @@ impl<'c> Analyzer<'c> {
         let (schema, n) = split_name(name);
         let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
             SemaError::new(
-                "table-not-found",
+                codes::TABLE_NOT_FOUND,
                 format!("relation \"{n}\" does not exist"),
                 Span::DUMMY,
             )
@@ -895,7 +896,7 @@ impl<'c> Analyzer<'c> {
             )
         {
             return Err(SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 format!(
                     "column \"{}\" is of type {} but expression is of type {}",
                     column.name,
@@ -961,7 +962,7 @@ impl<'c> Analyzer<'c> {
                         .cloned()
                         .ok_or_else(|| {
                             SemaError::new(
-                                "column-not-found",
+                                codes::COLUMN_NOT_FOUND,
                                 format!(
                                     "column \"{}\" of relation \"{}\" does not exist",
                                     c.value,
@@ -1011,7 +1012,7 @@ impl<'c> Analyzer<'c> {
                         )
                     {
                         return Err(SemaError::new(
-                            "type-mismatch",
+                            codes::TYPE_MISMATCH,
                             format!(
                                 "column \"{}\" is of type {} but expression is of type {}",
                                 c.name,
@@ -1084,7 +1085,7 @@ impl<'c> Analyzer<'c> {
                     .cloned()
                     .ok_or_else(|| {
                         SemaError::new(
-                            "column-not-found",
+                            codes::COLUMN_NOT_FOUND,
                             format!("column \"{}\" does not exist", c.value),
                             Span::DUMMY,
                         )
@@ -1101,7 +1102,7 @@ impl<'c> Analyzer<'c> {
                     ty = base.and_then(|b| self.composite_attribute(&b, &f.value));
                     if ty.is_none() {
                         return Err(SemaError::new(
-                            "column-not-found",
+                            codes::COLUMN_NOT_FOUND,
                             format!(
                                 "cannot assign to field \"{}\" of column \"{}\"",
                                 f.value, c.name
@@ -1128,7 +1129,7 @@ impl<'c> Analyzer<'c> {
                 let out = self.subquery(q, scope)?;
                 if out.len() != cols.len() {
                     return Err(SemaError::new(
-                        "subquery-columns",
+                        codes::SUBQUERY_COLUMNS,
                         format!(
                             "number of columns does not match number of values ({} for {})",
                             out.len(),
@@ -1146,7 +1147,7 @@ impl<'c> Analyzer<'c> {
                         )
                     {
                         return Err(SemaError::new(
-                            "type-mismatch",
+                            codes::TYPE_MISMATCH,
                             format!(
                                 "column \"{}\" is of type {} but expression is of type {}",
                                 c.name,
@@ -1239,21 +1240,21 @@ impl Analyzer<'_> {
             .resolve_function(schema, n, &inputs, &self.path)
             .map_err(|_| {
                 SemaError::new(
-                    "function-not-found",
+                    codes::FUNCTION_NOT_FOUND,
                     format!("procedure {n} does not exist"),
                     span,
                 )
             })?;
         let crate::resolve::Resolution::Routine(r) = call.target else {
             return Err(SemaError::new(
-                "function-not-found",
+                codes::FUNCTION_NOT_FOUND,
                 format!("procedure {n} does not exist"),
                 span,
             ));
         };
         if r.kind != pgweave_catalog::model::RoutineKind::Procedure {
             return Err(SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 format!("{n} is not a procedure"),
                 span,
             ));
@@ -1332,7 +1333,7 @@ impl Analyzer<'_> {
         } else {
             format!("column \"{column}\" can only be updated to DEFAULT")
         };
-        Err(SemaError::new("generated-column", message, span))
+        Err(SemaError::new(codes::GENERATED_COLUMN, message, span))
     }
 }
 

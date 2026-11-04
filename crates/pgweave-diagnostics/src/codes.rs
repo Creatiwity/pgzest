@@ -1,18 +1,66 @@
-/// Rule ID constants for all built-in diagnostic rules.
-///
-/// Use these constants instead of raw string literals when emitting or
-/// filtering diagnostics. Plugin-specific rules should be prefixed with the
-/// plugin name and a `/`, e.g. `"my-plugin/my-rule"`.
+//! Codes of the built-in diagnostics.
+//!
+//! Every code a diagnostic of pgweave carries is a constant of this file
+//! (or of a lint rule, a migration risk, a macro), with its documentation:
+//! `cargo xtask docs` generates the diagnostics reference of the site from
+//! them, and fails on a code written as a literal elsewhere. Plugin rules
+//! are prefixed with the plugin name and a `/` (`"my-plugin/my-rule"`).
+
+// ── Analysis ─────────────────────────────────────────────────────────────────
+
+/// SQL that does not parse: the statement is skipped, with the parser's
+/// message.
 pub const PARSE_ERROR: &str = "parse-error";
+/// Column reference that resolves to no column in scope (PostgreSQL
+/// `42703`).
 pub const COLUMN_NOT_FOUND: &str = "column-not-found";
-pub const TABLE_NOT_IN_SCOPE: &str = "table-not-in-scope";
+/// Column reference that several relations in scope provide (`42702`):
+/// qualify it.
+pub const AMBIGUOUS_COLUMN: &str = "ambiguous-column";
+/// Relation that does not exist at this point (`42P01`).
 pub const TABLE_NOT_FOUND: &str = "table-not-found";
-pub const ASSIGN_TO_OLD: &str = "assign-to-old";
-pub const TRIGGER_AMBIGUOUS_TABLE: &str = "trigger-ambiguous-table";
+/// Function or operator with no overload matching the argument types
+/// (`42883`).
 pub const FUNCTION_NOT_FOUND: &str = "function-not-found";
+/// Call that several overloads match equally (`42725`): cast an argument.
+pub const AMBIGUOUS_FUNCTION: &str = "ambiguous-function";
+/// Types PostgreSQL would refuse: a value assigned to a column of another
+/// type, `CASE`/`UNION`/`ARRAY` branches without a common type, an
+/// impossible cast, a non-boolean condition, a procedure called as a
+/// function… (a comparison without a matching operator is a
+/// `function-not-found`, as PostgreSQL reports it).
+pub const TYPE_MISMATCH: &str = "type-mismatch";
+/// `$n` beyond the parameters of the routine (`42P02`).
+pub const PARAMETER_NOT_FOUND: &str = "parameter-not-found";
+/// `DEFAULT` outside an `INSERT … VALUES` or an `UPDATE … SET`.
+pub const DEFAULT_NOT_ALLOWED: &str = "default-not-allowed";
+/// Value written to a generated column, or a generated column used in a
+/// generation expression.
+pub const GENERATED_COLUMN: &str = "generated-column";
+/// Subquery returning more columns than its context takes (`42601`).
+pub const SUBQUERY_COLUMNS: &str = "subquery-columns";
+/// `VALUES` rows of different lengths.
+pub const VALUES_COLUMNS: &str = "values-columns";
+/// Branches of a `UNION`, `INTERSECT` or `EXCEPT` with different numbers of
+/// columns.
+pub const SET_OPERATION_COLUMNS: &str = "set-operation-columns";
+/// What the analysis does not cover, stated (information): no conclusion
+/// is drawn from it, and nothing is guessed.
+pub const NOT_ANALYZED: &str = "not-analyzed";
+
+// ── PL/pgSQL ─────────────────────────────────────────────────────────────────
+
+/// Routine whose body is empty (PL/pgSQL refuses it).
 pub const EMPTY_FUNCTION_BODY: &str = "empty-function-body";
+/// Trigger function no `CREATE TRIGGER` of the analyzed files attaches:
+/// `NEW` and `OLD` have no table to take their type from.
 pub const TRIGGER_NO_CONTEXT: &str = "trigger-no-context";
+/// Variable used without being declared.
 pub const UNDECLARED_VARIABLE: &str = "undeclared-variable";
+/// `RAISE` whose `%` placeholders and arguments do not match in number.
+pub const RAISE_ARGUMENTS: &str = "raise-arguments";
+
+// ── Parsing ──────────────────────────────────────────────────────────────────
 
 /// Statement the parser could not read: either valid PostgreSQL outside the
 /// supported scope, or a syntax error. Level controlled by `[parse] unparsable`.
@@ -21,17 +69,11 @@ pub const UNPARSABLE_STATEMENT: &str = "unparsable-statement";
 /// Level controlled by `[parse] unsupported`.
 pub const UNSUPPORTED_STATEMENT: &str = "unsupported-statement";
 
-/// Unparsed PL/pgSQL function or procedure body: it falls back to an almost
-/// blind textual fallback. Level controlled by `[parse] unparsable`.
+/// PL/pgSQL body the parser could not read: the routine is replayed, its
+/// body is not analyzed. Level controlled by `[parse] unparsable`.
 pub const UNPARSED_FUNCTION_BODY: &str = "unparsed-function-body";
-/// Expression the AST does not model. Analysis walks through it without concluding.
-pub const UNSUPPORTED_EXPRESSION: &str = "unsupported-expression";
 
-// ── Named queries (docs/named-queries.md) ────────────────────────────────────
-
-/// Migration header `-- pgweave: postgres=… extensions=…` malformed,
-/// duplicated or misplaced (PLAN.md, D9).
-pub const MIGRATION_HEADER_INVALID: &str = "migration-header-invalid";
+// ── Named queries ────────────────────────────────────────────────────────────
 
 /// Malformed `-- name:` header (name, cardinality, position).
 pub const QUERY_HEADER_INVALID: &str = "query-header-invalid";
@@ -70,7 +112,7 @@ pub const OBJECT_NOT_FOUND: &str = "object-not-found";
 pub const OBJECT_ALREADY_EXISTS: &str = "object-already-exists";
 /// Nonexistent schema.
 pub const SCHEMA_NOT_FOUND: &str = "schema-not-found";
-/// Extension with no pack available for this version (PLAN.md, D9).
+/// Extension whose catalog pgweave does not ship for this version.
 pub const EXTENSION_UNAVAILABLE: &str = "extension-unavailable";
 /// Routine name without a signature that designates several overloads.
 pub const AMBIGUOUS_ROUTINE: &str = "ambiguous-routine";
@@ -80,18 +122,22 @@ pub const DEPENDENT_OBJECTS: &str = "dependent-objects";
 /// evaluable on the catalog, dynamic SQL, loop, unanalyzed body. The
 /// catalog may then differ from the database's.
 pub const DDL_NOT_REPLAYED: &str = "ddl-not-replayed";
-/// Migration header inconsistent with the replayed state (extension announced
-/// but absent, or active but not announced) — PLAN.md, D9.
+/// Migration header `-- pgweave: postgres=… extensions=…` malformed,
+/// duplicated or misplaced.
+pub const MIGRATION_HEADER_INVALID: &str = "migration-header-invalid";
+/// Migration header inconsistent with the replayed state: an extension
+/// announced but absent or active but not announced, routines generated at
+/// another `log=` level.
 pub const MIGRATION_HEADER_MISMATCH: &str = "migration-header-mismatch";
 /// Migrations without a `-- pgweave:` header: analyzed with the configured
 /// version (reported once).
 pub const MIGRATION_WITHOUT_HEADER: &str = "migration-without-header";
-/// Declarative schema the migrations do not reach (D10): a migration
-/// remains to be generated (`pgweave migrate create`), or a change cannot
+/// Declarative schema the migrations do not reach: a migration remains to
+/// be generated (`pgweave migrate create`), or a change cannot
 /// be expressed automatically.
 pub const SCHEMA_DRIFT: &str = "schema-drift";
 /// Query declared to return the rows of another one (`-> other`) whose
-/// columns do not match (name, type, nullability) — P6.
+/// columns do not match (name, type, nullability).
 pub const QUERY_ROW_MISMATCH: &str = "query-row-mismatch";
 
 /// View columns whose types the query analysis did not establish.

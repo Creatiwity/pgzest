@@ -62,7 +62,3 @@ stay consistent — here `last_seen_at` appears in both.
 - An expression synthesized by the tool has no position: the `true` coming
   from desugaring `IS TRUE`, for example. A diagnostic on it falls back to
   the statement.
-- `table-not-in-scope` (reference to a table missing from the `FROM`) does
-  not fire at top level yet.
-- The same trigger function serving several tables produces a false
-  positive `trigger-ambiguous-table`.

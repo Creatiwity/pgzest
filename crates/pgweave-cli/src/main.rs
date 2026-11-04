@@ -114,7 +114,7 @@ enum Command {
     },
 
     /// Describe named queries (parameters, columns, nullability,
-    /// cardinality, dependencies) as JSON descriptors (PLAN.md §4).
+    /// cardinality, dependencies) as JSON descriptors.
     ///
     /// Each file is a named-query file (`-- name: …` headers). The schema is
     /// the project's (pgweave.toml) plus any `--schema` files. Exits 1 if a

@@ -13,6 +13,7 @@
 //!
 //! [`check_statements`] chains both against the same catalog.
 
+use pgweave_diagnostics::codes;
 use std::collections::BTreeMap;
 
 use pgweave_ast::Span;
@@ -45,7 +46,7 @@ fn diagnostic(e: SemaError, fallback: Span) -> Diagnostic {
     };
     let mut d = match e.code {
         // What the analysis does not cover is stated, without being an error.
-        "not-analyzed" => Diagnostic::info(e.code, e.message),
+        codes::NOT_ANALYZED => Diagnostic::info(e.code, e.message),
         _ => Diagnostic::error(e.code, e.message),
     };
     d.hint = e.hint;
@@ -384,7 +385,7 @@ fn empty_body(body: &FunctionBody, name: &str, span: Span, out: &mut Vec<Diagnos
         && raw.trim().is_empty()
     {
         let d = Diagnostic::warning(
-            pgweave_diagnostics::codes::EMPTY_FUNCTION_BODY,
+            codes::EMPTY_FUNCTION_BODY,
             format!("function '{name}' has an empty body"),
         )
         .with_hint("add a BEGIN … END block or a RETURN statement");
@@ -406,7 +407,7 @@ impl Analyzer<'_> {
         let (schema, n) = split_name(name);
         let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
             SemaError::new(
-                "table-not-found",
+                codes::TABLE_NOT_FOUND,
                 format!("relation \"{n}\" does not exist"),
                 Span::DUMMY,
             )
@@ -414,7 +415,7 @@ impl Analyzer<'_> {
         for c in columns {
             if !rel.columns.iter().any(|x| x.name == c.value) {
                 return Err(SemaError::new(
-                    "column-not-found",
+                    codes::COLUMN_NOT_FOUND,
                     format!("column \"{}\" of relation \"{n}\" does not exist", c.value),
                     Span::DUMMY,
                 ));
@@ -460,7 +461,7 @@ impl Analyzer<'_> {
                     })
                 {
                     return Err(SemaError::new(
-                        "generated-column",
+                        codes::GENERATED_COLUMN,
                         format!(
                             "cannot use generated column \"{}\" in column generation expression",
                             other.column.value
@@ -504,7 +505,7 @@ impl Analyzer<'_> {
         };
         let missing = |name: &str| {
             SemaError::new(
-                "column-not-found",
+                codes::COLUMN_NOT_FOUND,
                 format!("column \"{name}\" does not exist"),
                 Span::DUMMY,
             )
@@ -540,7 +541,7 @@ impl Analyzer<'_> {
                 });
                 if !known {
                     return Err(SemaError::new(
-                        "object-not-found",
+                        codes::OBJECT_NOT_FOUND,
                         format!(
                             "operator class \"{}\" does not exist for access method \"{method}\"",
                             pgweave_ast::emit::emit_object_name(op)
@@ -585,7 +586,7 @@ impl Analyzer<'_> {
     ) -> Result<(), SemaError> {
         if first_column_ref(e).is_some() {
             return Err(SemaError::new(
-                "column-not-found",
+                codes::COLUMN_NOT_FOUND,
                 "cannot use column reference in DEFAULT expression",
                 e.span,
             ));
@@ -615,7 +616,7 @@ impl Analyzer<'_> {
             return Ok(());
         }
         Err(SemaError::new(
-            "type-mismatch",
+            codes::TYPE_MISMATCH,
             format!(
                 "column \"{column}\" is of type {} but {what} expression is of type {}",
                 crate::expr::format_type(target),
@@ -682,7 +683,7 @@ impl Analyzer<'_> {
                     .find(|x| x.name == c.value)
                     .ok_or_else(|| {
                         SemaError::new(
-                            "column-not-found",
+                            codes::COLUMN_NOT_FOUND,
                             format!(
                                 "column \"{}\" of relation \"{}\" does not exist",
                                 c.value,
@@ -693,7 +694,7 @@ impl Analyzer<'_> {
                     })?;
                 if generated(&c.value) {
                     return Err(SemaError::new(
-                        "generated-column",
+                        codes::GENERATED_COLUMN,
                         format!("column \"{}\" is a generated column", c.value),
                         Span::DUMMY,
                     ));
@@ -964,7 +965,7 @@ fn plpgsql_function(
     if contexts.is_empty() {
         out.push(
             Diagnostic::warning(
-                pgweave_diagnostics::codes::TRIGGER_NO_CONTEXT,
+                codes::TRIGGER_NO_CONTEXT,
                 format!(
                     "trigger function '{name}' has no associated CREATE TRIGGER in the \
                      analyzed files: NEW/OLD cannot be verified"
@@ -986,8 +987,9 @@ fn plpgsql_function(
         // NEW and OLD without a table: what depends on them is not checkable, and
         // has just been said once for the function.
         out.extend(
-            d.into_iter()
-                .filter(|d| !(d.code == "not-analyzed" && d.message.contains(NO_TRIGGER_TABLE))),
+            d.into_iter().filter(|d| {
+                !(d.code == codes::NOT_ANALYZED && d.message.contains(NO_TRIGGER_TABLE))
+            }),
         );
         return;
     }
@@ -1240,7 +1242,7 @@ impl<'c> Walker<'c> {
                     Some(ty) => self.routine.declare(&name.value, ty),
                     None => {
                         ctx.out.push(Diagnostic::error(
-                            "undeclared-variable",
+                            codes::UNDECLARED_VARIABLE,
                             format!("variable \"{target}\" does not exist"),
                         ));
                         self.routine
@@ -1295,7 +1297,7 @@ impl<'c> Walker<'c> {
             return Ok(VarTy::Row(ty.name.clone()));
         }
         Err(SemaError::new(
-            "type-not-found",
+            codes::TYPE_NOT_FOUND,
             format!("relation \"{n}\" does not exist"),
             span,
         ))
@@ -1314,7 +1316,7 @@ impl<'c> Walker<'c> {
             [s, r, c] => (Some(*s), *r, *c),
             _ => {
                 return Err(SemaError::new(
-                    "type-not-found",
+                    codes::TYPE_NOT_FOUND,
                     format!("type \"{}%TYPE\" does not exist", parts.join(".")),
                     span,
                 ));
@@ -1331,7 +1333,7 @@ impl<'c> Walker<'c> {
             .resolve_relation(rel_schema, rel, &self.path)
             .ok_or_else(|| {
                 SemaError::new(
-                    "table-not-found",
+                    codes::TABLE_NOT_FOUND,
                     format!("relation \"{rel}\" does not exist"),
                     span,
                 )
@@ -1342,7 +1344,7 @@ impl<'c> Walker<'c> {
             .find(|c| c.name == col)
             .ok_or_else(|| {
                 SemaError::new(
-                    "column-not-found",
+                    codes::COLUMN_NOT_FOUND,
                     format!("column \"{col}\" of relation \"{rel}\" does not exist"),
                     span,
                 )
@@ -1506,7 +1508,7 @@ impl<'c> Walker<'c> {
                     && n != args.len()
                 {
                     ctx.out.push(Diagnostic::error(
-                        "raise-arguments",
+                        codes::RAISE_ARGUMENTS,
                         if n > args.len() {
                             "too few parameters specified for RAISE"
                         } else {
@@ -1630,7 +1632,7 @@ impl<'c> Walker<'c> {
                     Some(None) => VarTy::Unknown(format!("query of cursor \"{}\"", cursor.value)),
                     None => {
                         ctx.out.push(Diagnostic::error(
-                            "undeclared-variable",
+                            codes::UNDECLARED_VARIABLE,
                             format!("cursor \"{}\" does not exist", cursor.value),
                         ));
                         VarTy::Unknown(format!("cursor \"{}\"", cursor.value))
@@ -1728,7 +1730,7 @@ impl<'c> Walker<'c> {
         match self.routine.lookup(&r) {
             None => ctx.out.push(
                 Diagnostic::error(
-                    "undeclared-variable",
+                    codes::UNDECLARED_VARIABLE,
                     format!("\"{name}\" is not a known variable"),
                 )
                 .with_span(pgweave_diagnostics::Span {
@@ -1739,7 +1741,7 @@ impl<'c> Walker<'c> {
             Some(VarRef::Field(..)) => {
                 let a = self.analyzer(ctx.catalog);
                 if let Err(e) = a.variable_type(&r, span)
-                    && e.code != "not-analyzed"
+                    && e.code != codes::NOT_ANALYZED
                 {
                     ctx.out.push(diagnostic(e, span));
                 }
@@ -1928,7 +1930,7 @@ impl Analyzer<'_> {
             .and_then(|routine| routine.lookup(r))
             .ok_or_else(|| {
                 SemaError::new(
-                    "undeclared-variable",
+                    codes::UNDECLARED_VARIABLE,
                     format!("\"{}\" is not a known variable", r.column.value),
                     span,
                 )
@@ -1945,7 +1947,7 @@ impl Analyzer<'_> {
         let (schema, n) = split_name(name);
         let rel = self.ts.relation(schema, n, &self.path).ok_or_else(|| {
             SemaError::new(
-                "table-not-found",
+                codes::TABLE_NOT_FOUND,
                 format!("relation \"{n}\" does not exist"),
                 Span::DUMMY,
             )

@@ -1,7 +1,7 @@
 /// L007 — Aggregate function mixed with bare column references without GROUP BY.
 ///
-/// SELECT count(*), user_id FROM tasks  -- missing GROUP BY user_id
-/// This is invalid SQL in standard mode and causes errors in strict PostgreSQL.
+/// `SELECT count(*), user_id FROM tasks` lacks `GROUP BY user_id`:
+/// PostgreSQL refuses it.
 use pgweave_ast::expr::Expr;
 use pgweave_ast::stmt::{SelectItem, SelectStmt, Statement};
 use pgweave_diagnostics::Diagnostic;

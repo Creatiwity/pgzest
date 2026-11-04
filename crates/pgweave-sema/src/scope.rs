@@ -2,6 +2,7 @@
 //! scope (correlated subqueries), the visible CTEs.
 
 use pgweave_ast::Span;
+use pgweave_diagnostics::codes;
 
 use crate::types::Ty;
 
@@ -122,7 +123,7 @@ impl SemaError {
 
     /// Construct the analysis does not cover: reported, never guessed.
     pub fn not_analyzed(what: impl std::fmt::Display, span: Span) -> Self {
-        SemaError::new("not-analyzed", format!("not analyzed: {what}"), span)
+        SemaError::new(codes::NOT_ANALYZED, format!("not analyzed: {what}"), span)
     }
 }
 
@@ -182,7 +183,7 @@ impl<'p> Scope<'p> {
         match found.as_slice() {
             [one] => Ok(one),
             [_, _, ..] if table.is_some() || !self.using_merged(column) => Err(SemaError::new(
-                "ambiguous-column",
+                codes::AMBIGUOUS_COLUMN,
                 format!("column reference \"{column}\" is ambiguous"),
                 span,
             )),
@@ -196,7 +197,7 @@ impl<'p> Scope<'p> {
             // Source found at this level, column absent: PostgreSQL does not
             // look further.
             [] if table_seen => Err(SemaError::new(
-                "column-not-found",
+                codes::COLUMN_NOT_FOUND,
                 format!(
                     "column {}.{column} does not exist",
                     table.unwrap_or_default()
@@ -206,7 +207,7 @@ impl<'p> Scope<'p> {
             [] => match self.parent {
                 Some(p) => p.lookup(table, column, span),
                 None if table.is_some() && !table_seen => Err(SemaError::new(
-                    "table-not-found",
+                    codes::TABLE_NOT_FOUND,
                     format!(
                         "missing FROM-clause entry for table \"{}\"",
                         table.unwrap_or_default()
@@ -214,7 +215,7 @@ impl<'p> Scope<'p> {
                     span,
                 )),
                 None => Err(SemaError::new(
-                    "column-not-found",
+                    codes::COLUMN_NOT_FOUND,
                     match table {
                         Some(t) => format!("column {t}.{column} does not exist"),
                         None => format!("column \"{column}\" does not exist"),
@@ -253,7 +254,7 @@ impl<'p> Scope<'p> {
                     .find(|col| col.name == c.column.value)
                     .ok_or_else(|| {
                         SemaError::new(
-                            "column-not-found",
+                            codes::COLUMN_NOT_FOUND,
                             format!(
                                 "column {}.{}.{} does not exist",
                                 schema.value, table.value, c.column.value
@@ -265,7 +266,7 @@ impl<'p> Scope<'p> {
             scope = s.parent;
         }
         Err(SemaError::new(
-            "table-not-found",
+            codes::TABLE_NOT_FOUND,
             format!("missing FROM-clause entry for table \"{}\"", table.value),
             span,
         ))

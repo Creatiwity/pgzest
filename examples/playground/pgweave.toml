@@ -1,4 +1,4 @@
-# Demo project for pgweave. Format: docs/config.md.
+# Demo project for pgweave. Format: site/src/content/docs/reference/config.md.
 # Opened automatically by F5 from editors/vscode/.
 
 [postgres]

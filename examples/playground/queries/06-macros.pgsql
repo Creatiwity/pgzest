@@ -28,17 +28,13 @@
     RETURN NEW;
 }
 
--- Multi-table: one function per table is generated, so NEW and OLD can be
--- resolved.
+-- Multi-table: one function and one trigger per table are generated, each
+-- bound to its table (Show expansion to see them).
 --
--- That is the real gain. With a shared function, the checker cannot
--- resolve NEW and settles for a `trigger-ambiguous-table` — a useless false
--- positive (that is what you see on examples/schema.sql). Here it really
--- checks the column on EACH table.
---
--- Try: replace `updated_at` with `last_seen_at` below. The column exists on
--- `users` but not on `organizations`, and the checker will say so
--- precisely — where the old form could not assert anything.
+-- In a schema file, the body is then checked on EACH table: `last_seen_at`
+-- instead of `updated_at` would be reported on `organizations`, which lacks
+-- it. Here, in a query file, the triggers are not applied (known gap,
+-- PLAN.md P10): the functions report `trigger-no-context`.
 @trigger touch_all before update on (users, organizations) for each row {
     NEW.updated_at = now();
     RETURN NEW;

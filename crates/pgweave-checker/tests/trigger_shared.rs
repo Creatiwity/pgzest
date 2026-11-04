@@ -36,7 +36,7 @@ fn with_code<'a>(diags: &'a [Diagnostic], code: &str) -> Vec<&'a Diagnostic> {
 fn a_column_common_to_all_tables_produces_nothing() {
     let d = shared_trigger("    NEW.updated_at = now();\n    RETURN NEW;");
     assert!(
-        with_code(&d, codes::TRIGGER_AMBIGUOUS_TABLE).is_empty(),
+        with_code(&d, "trigger-ambiguous-table").is_empty(),
         "no more ambiguity reported: {d:?}"
     );
     assert!(

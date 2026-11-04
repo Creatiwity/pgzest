@@ -51,9 +51,12 @@ pub const RUN_COLUMN: &str = "_pgweave_run";
 pub const RUN_SETTING: &str = "pgweave.run";
 /// Body directives, at the start of a line of a PL/pgSQL macro body.
 pub const DIRECTIVES: [&str; 2] = ["temp_table", "snapshot"];
-/// Diagnostic code: access to an isolated temp table pgweave cannot see.
+/// Dynamic SQL (`EXECUTE`) in a body with isolated temp tables: what it
+/// runs is not rewritten, and may see the rows of other runs.
 pub const NOT_ISOLATED: &str = "not-isolated";
-/// Diagnostic code: a routine a logged build leaves unlogged.
+/// What a logged build cannot log: a routine whose body pgweave cannot
+/// instrument (it runs unlogged), or the routines a `RETURN` of a
+/// polymorphic result calls (logged as called by the caller).
 pub const NOT_LOGGED: &str = "not-logged";
 
 /// Variables of a logged run.

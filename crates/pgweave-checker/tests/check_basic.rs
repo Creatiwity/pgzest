@@ -328,7 +328,7 @@ $$"#,
     );
     let e002: Vec<_> = diags
         .iter()
-        .filter(|d| d.code == codes::TABLE_NOT_IN_SCOPE)
+        .filter(|d| d.code == "table-not-in-scope")
         .collect();
     assert!(
         e002.is_empty(),

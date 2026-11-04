@@ -3,6 +3,12 @@ use pgweave_ast::stmt::SelectStmt;
 use pgweave_checker::rule::{CheckRule, RuleCtx};
 use pgweave_schema::provider::object_name_to_string;
 
+/// Table created without row-level security enabled (warning: RLS may be
+/// enabled separately, by `ALTER TABLE … ENABLE ROW LEVEL SECURITY`).
+pub const TABLE_WITHOUT_RLS: &str = "rls/table-without-rls";
+/// `SELECT *` in an application query: list the columns.
+pub const SELECT_STAR: &str = "rls/select-star";
+
 pub struct RlsEnforcerPlugin;
 
 impl crate::plugin::Plugin for RlsEnforcerPlugin {
@@ -31,7 +37,7 @@ impl CheckRule for RequireRlsRule {
         {
             ctx.diags.push(
                 pgweave_diagnostics::Diagnostic::warning(
-                    "rls/table-without-rls",
+                    TABLE_WITHOUT_RLS,
                     format!("table '{}' does not have RLS enabled", table_name),
                 )
                 .with_hint(format!(
@@ -57,7 +63,7 @@ impl CheckRule for NoSelectStarRule {
             if matches!(item, SelectItem::Wildcard) {
                 ctx.diags.push(
                     pgweave_diagnostics::Diagnostic::warning(
-                        "rls/select-star",
+                        SELECT_STAR,
                         "SELECT * is not recommended in application queries".to_string(),
                     )
                     .with_hint("list columns explicitly for better performance and type safety"),

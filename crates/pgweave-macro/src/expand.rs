@@ -11,7 +11,9 @@ use pgweave_diagnostics::{Diagnostic, Severity, Span};
 use crate::def::{Keywords, MacroDef, MacroSet};
 use pgweave_ast::SourceMap;
 
-/// Diagnostic code of macro errors.
+/// Macro invocation that cannot be expanded: unknown macro or fragment,
+/// header not matching the macro's pattern, missing `}`, a directive
+/// pgweave cannot rewrite.
 pub const MACRO_ERROR: &str = "macro-error";
 
 /// A desugared invocation, and where it sits on both sides.

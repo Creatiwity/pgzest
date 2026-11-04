@@ -7,6 +7,7 @@ use pgweave_ast::types::DataType;
 use pgweave_ast::{Span, stmt::SelectStmt};
 use pgweave_catalog::SearchPath;
 use pgweave_catalog::model::RoutineKind;
+use pgweave_diagnostics::codes;
 
 use crate::coerce::{CoercionContext, Pathway};
 use crate::resolve::{Resolution, ResolveError, ResolvedCall};
@@ -120,7 +121,7 @@ fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
     const CAST: &str = "You might need to add explicit type casts.";
     let types = |tys: &[Ty]| tys.iter().map(format_type).collect::<Vec<_>>().join(", ");
     match (e, subject) {
-        (ResolveError::Polymorphic(m), _) => SemaError::new("type-mismatch", m, span),
+        (ResolveError::Polymorphic(m), _) => SemaError::new(codes::TYPE_MISMATCH, m, span),
         (e, Subject::Operator(op, l, r)) => {
             let sig = match l {
                 Some(l) => format!("{} {op} {}", format_type(l), format_type(r)),
@@ -128,7 +129,7 @@ fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
             };
             match e {
                 ResolveError::Ambiguous => SemaError::new(
-                    "ambiguous-function",
+                    codes::AMBIGUOUS_FUNCTION,
                     format!("operator is not unique: {sig}"),
                     span,
                 )
@@ -136,7 +137,7 @@ fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
                     "Could not choose a best candidate operator. {CAST}"
                 )),
                 _ => SemaError::new(
-                    "function-not-found",
+                    codes::FUNCTION_NOT_FOUND,
                     format!("operator does not exist: {sig}"),
                     span,
                 )
@@ -149,7 +150,7 @@ fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
             let sig = format!("{name}({})", types(args));
             match e {
                 ResolveError::Ambiguous => SemaError::new(
-                    "ambiguous-function",
+                    codes::AMBIGUOUS_FUNCTION,
                     format!("function {sig} is not unique"),
                     span,
                 )
@@ -157,7 +158,7 @@ fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
                     "Could not choose a best candidate function. {CAST}"
                 )),
                 _ => SemaError::new(
-                    "function-not-found",
+                    codes::FUNCTION_NOT_FOUND,
                     format!("function {sig} does not exist"),
                     span,
                 )
@@ -166,12 +167,16 @@ fn resolve_error(e: ResolveError, subject: Subject, span: Span) -> SemaError {
                 )),
             }
         }
-        (ResolveError::Ambiguous, Subject::Other(what)) => {
-            SemaError::new("ambiguous-function", format!("{what} is not unique"), span)
-        }
-        (_, Subject::Other(what)) => {
-            SemaError::new("function-not-found", format!("{what} does not exist"), span)
-        }
+        (ResolveError::Ambiguous, Subject::Other(what)) => SemaError::new(
+            codes::AMBIGUOUS_FUNCTION,
+            format!("{what} is not unique"),
+            span,
+        ),
+        (_, Subject::Other(what)) => SemaError::new(
+            codes::FUNCTION_NOT_FOUND,
+            format!("{what} does not exist"),
+            span,
+        ),
     }
 }
 
@@ -185,7 +190,7 @@ fn column_ref(
     let col = match scope.lookup_ref(c, span) {
         Ok(col) => col,
         // Name of a source: the whole row, of its row type.
-        Err(e) if e.code == "column-not-found" && c.table.is_none() => {
+        Err(e) if e.code == codes::COLUMN_NOT_FOUND && c.table.is_none() => {
             return match scope.whole_row(&c.column.value) {
                 Some(ty) => Ok(Typed::new(ty, Nullability::Unknown)),
                 None => Err(e),
@@ -325,7 +330,7 @@ impl<'c> Analyzer<'c> {
                 let e = self.data_type(inner, span)?;
                 return self.ts.array_of(&e).ok_or_else(|| {
                     SemaError::new(
-                        "type-not-found",
+                        codes::TYPE_NOT_FOUND,
                         format!("could not find array type for data type {e}"),
                         span,
                     )
@@ -347,7 +352,7 @@ impl<'c> Analyzer<'c> {
                     })
                     .ok_or_else(|| {
                         SemaError::new(
-                            "type-not-found",
+                            codes::TYPE_NOT_FOUND,
                             format!("type \"{name}\" does not exist"),
                             span,
                         )
@@ -370,7 +375,7 @@ impl<'c> Analyzer<'c> {
             )
         {
             return Err(SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 format!(
                     "argument must be type boolean, not type {}",
                     format_type(&t.ty)
@@ -442,7 +447,7 @@ impl<'c> Analyzer<'c> {
                 match cols.as_slice() {
                     [c] => Ok(Typed::new(c.ty.clone(), Nullability::Nullable)),
                     _ => Err(SemaError::new(
-                        "subquery-columns",
+                        codes::SUBQUERY_COLUMNS,
                         "subquery must return only one column",
                         span,
                     )),
@@ -459,7 +464,7 @@ impl<'c> Analyzer<'c> {
                 if let ExprKind::Tuple(items) = &expr.kind {
                     if items.len() != cols.len() {
                         return Err(SemaError::new(
-                            "subquery-columns",
+                            codes::SUBQUERY_COLUMNS,
                             if items.len() < cols.len() {
                                 "subquery has too many columns"
                             } else {
@@ -482,7 +487,7 @@ impl<'c> Analyzer<'c> {
                 }
                 let [c] = cols.as_slice() else {
                     return Err(SemaError::new(
-                        "subquery-columns",
+                        codes::SUBQUERY_COLUMNS,
                         "subquery has too many columns",
                         span,
                     ));
@@ -543,7 +548,7 @@ impl<'c> Analyzer<'c> {
                 Err(SemaError::not_analyzed("`*` in an expression", span))
             }
             ExprKind::GroupingSets { .. } => Err(SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 "ROLLUP, CUBE and GROUPING SETS are only allowed in GROUP BY",
                 span,
             )),
@@ -570,7 +575,7 @@ impl<'c> Analyzer<'c> {
             && !(self.ts.is_complex(&t.ty) && self.ts.is_complex(&target))
         {
             return Err(SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 format!(
                     "cannot cast type {} to {}",
                     format_type(&t.ty),
@@ -630,7 +635,7 @@ impl<'c> Analyzer<'c> {
         {
             if ls.len() != rs.len() {
                 return Err(SemaError::new(
-                    "type-mismatch",
+                    codes::TYPE_MISMATCH,
                     "unequal number of entries in row expressions",
                     span,
                 ));
@@ -722,7 +727,7 @@ impl<'c> Analyzer<'c> {
                 let cols = self.subquery(q, scope)?;
                 let [c] = cols.as_slice() else {
                     return Err(SemaError::new(
-                        "subquery-columns",
+                        codes::SUBQUERY_COLUMNS,
                         "subquery has too many columns",
                         span,
                     ));
@@ -737,7 +742,7 @@ impl<'c> Analyzer<'c> {
                     let base = self.ts.base_type(&r.ty);
                     let e = self.ts.element(&base).ok_or_else(|| {
                         SemaError::new(
-                            "type-mismatch",
+                            codes::TYPE_MISMATCH,
                             "op ANY/ALL (array) requires array on right side",
                             span,
                         )
@@ -793,7 +798,7 @@ impl<'c> Analyzer<'c> {
         }
         let common = self.ts.common_type(&types).map_err(|e| {
             SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 format!("CASE types cannot be matched: {e:?}"),
                 whens[0].1.span,
             )
@@ -825,7 +830,7 @@ impl<'c> Analyzer<'c> {
             if let Some(field) = step.strip_prefix('.') {
                 let attr = self.composite_attribute(&base, field).ok_or_else(|| {
                     SemaError::new(
-                        "column-not-found",
+                        codes::COLUMN_NOT_FOUND,
                         format!("column \"{field}\" not found in data type {}", t.ty.name),
                         span,
                     )
@@ -839,7 +844,7 @@ impl<'c> Analyzer<'c> {
                     t = Typed::new(if slice { base } else { elem }, Nullability::Nullable);
                 } else {
                     return Err(SemaError::new(
-                        "type-mismatch",
+                        codes::TYPE_MISMATCH,
                         format!(
                             "cannot subscript type {} because it does not support subscripting",
                             t.ty.name
@@ -871,7 +876,7 @@ impl<'c> Analyzer<'c> {
             && c.column.value == "default"
         {
             return Err(SemaError::new(
-                "default-not-allowed",
+                codes::DEFAULT_NOT_ALLOWED,
                 "DEFAULT is not allowed in this context",
                 span,
             ));
@@ -881,10 +886,10 @@ impl<'c> Analyzer<'c> {
             return core;
         };
         match core {
-            Err(e) if e.code == "ambiguous-column" => Err(e),
+            Err(e) if e.code == codes::AMBIGUOUS_COLUMN => Err(e),
             Ok(t) => match (routine.language, routine.lookup(c)) {
                 (Language::Plpgsql, Some(_)) => Err(SemaError::new(
-                    "ambiguous-column",
+                    codes::AMBIGUOUS_COLUMN,
                     format!(
                         "column reference \"{}\" is ambiguous (PL/pgSQL variable or table column)",
                         emit_column_ref(c)
@@ -902,7 +907,7 @@ impl<'c> Analyzer<'c> {
                 // PL/pgSQL expression without `FROM`: the name can only
                 // designate a variable.
                 None if routine.language == Language::Plpgsql
-                    && e.code == "column-not-found"
+                    && e.code == codes::COLUMN_NOT_FOUND
                     && c.table.is_none()
                     && scope.is_empty() =>
                 {
@@ -916,7 +921,7 @@ impl<'c> Analyzer<'c> {
                     known.sort_unstable();
                     known.dedup();
                     let err = SemaError::new(
-                        "undeclared-variable",
+                        codes::UNDECLARED_VARIABLE,
                         format!("variable '{}' is not declared", c.column.value),
                         span,
                     );
@@ -979,7 +984,7 @@ impl<'c> Analyzer<'c> {
                         _ => String::new(),
                     };
                     SemaError::new(
-                        "column-not-found",
+                        codes::COLUMN_NOT_FOUND,
                         format!("record \"{}\" has no field \"{field}\"{of}", var.name),
                         span,
                     )
@@ -998,7 +1003,7 @@ impl<'c> Analyzer<'c> {
         let ty = n.and_then(|n| self.routine.as_ref()?.positional.get(n - 1).cloned());
         let Some(ty) = ty else {
             return Err(SemaError::new(
-                "parameter-not-found",
+                codes::PARAMETER_NOT_FOUND,
                 format!("there is no parameter {name}"),
                 span,
             ));
@@ -1076,7 +1081,7 @@ impl<'c> Analyzer<'c> {
                 "nullif" => {
                     let [a, b] = args.as_slice() else {
                         return Err(SemaError::new(
-                            "function-not-found",
+                            codes::FUNCTION_NOT_FOUND,
                             "nullif takes two arguments",
                             span,
                         ));
@@ -1146,7 +1151,11 @@ impl<'c> Analyzer<'c> {
             self.coerce_to(a, t);
         }
         let ty = call.returns.clone().ok_or_else(|| {
-            SemaError::new("type-mismatch", format!("{fname} is a procedure"), span)
+            SemaError::new(
+                codes::TYPE_MISMATCH,
+                format!("{fname} is a procedure"),
+                span,
+            )
         })?;
         let nullable = match call.target {
             Resolution::Coercion => typed[0].nullable,
@@ -1176,7 +1185,7 @@ impl<'c> Analyzer<'c> {
         let types: Vec<Ty> = typed.iter().map(|t| t.ty.clone()).collect();
         let common = self.ts.common_type(&types).map_err(|e| {
             SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 format!("{} types cannot be matched: {e:?}", what.to_uppercase()),
                 span,
             )
@@ -1208,7 +1217,7 @@ impl<'c> Analyzer<'c> {
     ) -> Result<Typed, SemaError> {
         if elems.is_empty() {
             return Err(SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 "cannot determine type of empty array",
                 span,
             ));
@@ -1219,7 +1228,7 @@ impl<'c> Analyzer<'c> {
         }
         let common = self.ts.common_type(&types).map_err(|e| {
             SemaError::new(
-                "type-mismatch",
+                codes::TYPE_MISMATCH,
                 format!("ARRAY types cannot be matched: {e:?}"),
                 span,
             )
@@ -1232,7 +1241,7 @@ impl<'c> Analyzer<'c> {
         } else {
             self.ts.array_of(&common).ok_or_else(|| {
                 SemaError::new(
-                    "type-mismatch",
+                    codes::TYPE_MISMATCH,
                     format!("could not find array type for data type {}", common.name),
                     span,
                 )

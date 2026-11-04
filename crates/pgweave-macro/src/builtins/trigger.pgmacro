@@ -10,8 +10,8 @@
 # differs by timing would be a trap.
 #
 # On several tables — `on (a, b, c)` — the expander generates one function per
-# table, each bound to a known table. NEW and OLD thus become resolvable,
-# whereas a shared function produces a `trigger-ambiguous-table`.
+# table, each bound to a known table: a diagnostic on NEW or OLD names its
+# table.
 
 macro trigger
 header {name:ident} {timing:word} {events:words} on {tables:list} for each {each:word}[ when ({when:parens})]
