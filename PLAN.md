@@ -22,7 +22,7 @@ Concrete needs that frame the priorities:
   Constructs used: procedures, triggers, temporary tables, `CHECK`,
   `GENERATED ALWAYS AS … STORED`, enums (modified via `ALTER TYPE`),
   `citext` and `btree_gist` extensions. Quoted PascalCase identifiers
-  (`"MenuComponent"`), inherited from Prisma. History of 224
+  (`"OrderLine"`), inherited from Prisma. History of 224
   Prisma migrations.
 - **Sherpa** — a personal project used as a testing ground; schema being
   redesigned, no existing reference schema. Same scope as
@@ -73,7 +73,7 @@ They settle future trade-offs; a PR that violates one must justify it.
    against PostgreSQL (differential oracle, §7) and against real corpora.
 8. **Faithful identifiers.** An unquoted identifier is folded to
    lowercase, a quoted identifier is kept as is — exactly like
-   PostgreSQL. `"MenuComponent"` and `menucomponent` are two distinct
+   PostgreSQL. `"OrderLine"` and `orderline` are two distinct
    objects. (The current code lowercases everything: this is a bug for
    Mesalia, fixed in P1/P2.)
 9. **Every name is qualified by its schema** once resolved. No catalog
@@ -1118,7 +1118,17 @@ there, scattered between the README, `docs/` and this plan.
   generated from the code (`--help`, the config structs) so it cannot
   drift.
 - Before publishing: final name and repository, license, package names
-  (crates.io, npm), versioning and changelog. Publishing itself — site,
+  (crates.io, npm), versioning and changelog.
+- Before publishing, the history: no private corpus structure may be
+  public. Audit of 2026-11-04 (every blob of every commit, every commit
+  message, against the identifiers of the Mesalia migrations): no
+  migration, schema or column list ever committed; the baselines hold
+  aggregates only. Two isolated names: a table name used as a quoted
+  identifier example (in the tree until 2026-11-04, replaced by
+  `"OrderLine"`; still in older commits) and an enum type name in the
+  message of `e0e4420`. Both are already on the private remote: rewrite
+  the history (`git filter-repo --replace-text/--replace-message`) or
+  publish a fresh history — the owner's decision. Publishing itself — site,
   packages, pushes — only with explicit approval.
 
 **Exit**: the README and the site, previewed locally, describe every

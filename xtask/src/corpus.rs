@@ -842,7 +842,7 @@ mod tests {
     #[test]
     fn shape_contains_no_name() {
         let s = shape(
-            r#"ALTER TABLE "MenuComponent" ADD CONSTRAINT "fk_x" FOREIGN KEY ("a") REFERENCES "Other"("id") ON DELETE CASCADE"#,
+            r#"ALTER TABLE "OrderLine" ADD CONSTRAINT "fk_x" FOREIGN KEY ("a") REFERENCES "Other"("id") ON DELETE CASCADE"#,
         );
         assert!(
             !s.contains("Menu") && !s.contains("Other") && !s.contains("fk_x"),
@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn redact_masks_identifiers() {
         assert_eq!(
-            redact(r#"relation "MenuComponent" does not exist"#),
+            redact(r#"relation "OrderLine" does not exist"#),
             r#"relation "…" does not exist"#
         );
     }

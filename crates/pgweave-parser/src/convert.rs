@@ -2965,7 +2965,7 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
 
 /// Identifier as PostgreSQL understands it: unquoted, it is folded to
 /// lowercase (ASCII only, like `downcase_identifier` in UTF-8);
-/// quoted, it is kept as is. `"MenuComponent"` and `MenuComponent`
+/// quoted, it is kept as is. `"OrderLine"` and `OrderLine`
 /// denote two distinct objects.
 pub(crate) fn convert_ident(id: sp::Ident) -> Ident {
     match id.quote_style {

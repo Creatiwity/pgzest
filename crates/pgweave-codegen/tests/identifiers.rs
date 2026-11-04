@@ -25,14 +25,14 @@ fn same_table(a: &pgweave_ast::ddl::CreateTable, b: &pgweave_ast::ddl::CreateTab
 
 #[test]
 fn unquoted_is_folded_quoted_is_kept() {
-    let ct = table(r#"CREATE TABLE "MenuComponent" (Id INT, "Label" TEXT)"#);
-    assert_eq!(ct.name.0[0].value, "MenuComponent");
+    let ct = table(r#"CREATE TABLE "OrderLine" (Id INT, "Label" TEXT)"#);
+    assert_eq!(ct.name.0[0].value, "OrderLine");
     assert!(ct.name.0[0].quoted);
     assert_eq!(ct.columns[0].name.value, "id");
     assert_eq!(ct.columns[1].name.value, "Label");
 
-    let ct = table("CREATE TABLE MenuComponent (a INT)");
-    assert_eq!(ct.name.0[0].value, "menucomponent");
+    let ct = table("CREATE TABLE OrderLine (a INT)");
+    assert_eq!(ct.name.0[0].value, "orderline");
 }
 
 #[test]
@@ -53,12 +53,12 @@ fn emission_quotes_what_would_not_read_back_identically() {
         quoted: false,
     };
     assert_eq!(emit_ident(&plain("users")), "users");
-    assert_eq!(emit_ident(&plain("MenuComponent")), "\"MenuComponent\"");
+    assert_eq!(emit_ident(&plain("OrderLine")), "\"OrderLine\"");
     assert_eq!(emit_ident(&plain("with space")), "\"with space\"");
 
-    let sql = r#"CREATE TABLE "MenuComponent" ("Label" "MyEnum", n INT)"#;
+    let sql = r#"CREATE TABLE "OrderLine" ("Label" "MyEnum", n INT)"#;
     let out = emit_statement(&pgweave_parser::parse(sql).unwrap()[0]);
-    assert!(out.contains(r#""MenuComponent""#), "{out}");
+    assert!(out.contains(r#""OrderLine""#), "{out}");
     assert!(out.contains(r#""Label" "MyEnum""#), "{out}");
     assert!(
         same_table(&table(&out), &table(sql)),
