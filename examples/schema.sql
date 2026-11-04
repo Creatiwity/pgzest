@@ -1,4 +1,4 @@
--- pgweave — Example schema
+-- pgzest — Example schema
 --
 -- Cases covered for the toolchain:
 --   - Multi-table DDL with FK, CHECK, indexes
@@ -18,7 +18,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ---------------------------------------------------------------------------
--- External dependency: on Supabase, the `auth` schema already exists. pgweave
+-- External dependency: on Supabase, the `auth` schema already exists. pgzest
 -- assumes nothing it cannot see: the signature is declared.
 -- ---------------------------------------------------------------------------
 

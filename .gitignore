@@ -3,7 +3,7 @@
 
 # Node
 node_modules/
-npm/pgweave/dist/
+npm/pgzest/dist/
 editors/vscode/out/
 
 # WASM

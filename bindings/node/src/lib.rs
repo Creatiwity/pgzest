@@ -9,9 +9,9 @@ pub struct JsDiagnostic {
 
 #[napi]
 pub fn check(sql: String, schema_sql: String) -> Vec<JsDiagnostic> {
-    let schema = pgweave_catalog::ProjectCatalog::from_sql(&schema_sql)
-        .unwrap_or_else(|_| pgweave_catalog::ProjectCatalog::empty());
-    let diagnostics = pgweave_checker::check_sql(&sql, &schema);
+    let schema = pgzest_catalog::ProjectCatalog::from_sql(&schema_sql)
+        .unwrap_or_else(|_| pgzest_catalog::ProjectCatalog::empty());
+    let diagnostics = pgzest_checker::check_sql(&sql, &schema);
     diagnostics
         .into_iter()
         .map(|d| JsDiagnostic {
@@ -24,7 +24,7 @@ pub fn check(sql: String, schema_sql: String) -> Vec<JsDiagnostic> {
 
 #[napi]
 pub fn lint(sql: String) -> Vec<JsDiagnostic> {
-    let stmts = match pgweave_parser::parse(&sql) {
+    let stmts = match pgzest_parser::parse(&sql) {
         Ok(s) => s,
         Err(e) => {
             return vec![JsDiagnostic {
@@ -34,7 +34,7 @@ pub fn lint(sql: String) -> Vec<JsDiagnostic> {
             }];
         }
     };
-    let result = pgweave_lint::lint_statements(&stmts, &pgweave_lint::LintConfig::default());
+    let result = pgzest_lint::lint_statements(&stmts, &pgzest_lint::LintConfig::default());
     result
         .diagnostics
         .into_iter()
@@ -50,7 +50,7 @@ pub fn lint(sql: String) -> Vec<JsDiagnostic> {
 pub fn migrate_diff(old_sql: String, new_sql: String) -> String {
     // An unreadable schema does not yield an empty migration: the error is
     // rendered as a SQL comment.
-    match pgweave_catalog::diff::diff_sql(&old_sql, &new_sql) {
+    match pgzest_catalog::diff::diff_sql(&old_sql, &new_sql) {
         Ok(m) => {
             let mut out = m.to_sql();
             for u in &m.unsupported {
@@ -64,10 +64,10 @@ pub fn migrate_diff(old_sql: String, new_sql: String) -> String {
 
 #[napi]
 pub fn parse_and_emit(sql: String) -> String {
-    match pgweave_parser::parse(&sql) {
+    match pgzest_parser::parse(&sql) {
         Ok(stmts) => stmts
             .iter()
-            .map(pgweave_codegen::emit_statement)
+            .map(pgzest_codegen::emit_statement)
             .collect::<Vec<_>>()
             .join(";\n"),
         Err(e) => format!("-- error: {e}"),
@@ -83,13 +83,13 @@ pub fn generate_types(sql: String, schema_sql: String) -> String {
     } else {
         format!("{}\n\n{}", schema_sql, sql)
     };
-    pgweave_codegen::generate_ts_types_from_sql(&combined)
+    pgzest_codegen::generate_ts_types_from_sql(&combined)
 }
 
 /// Parse SQL and return AST as a JSON string.
 #[napi]
 pub fn parse_to_json(sql: String) -> String {
-    match pgweave_parser::parse(&sql) {
+    match pgzest_parser::parse(&sql) {
         Ok(stmts) => serde_json::to_string_pretty(&stmts)
             .unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)),
         Err(e) => format!("{{\"error\":\"parse error: {e}\"}}"),

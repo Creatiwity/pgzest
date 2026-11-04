@@ -1,0 +1,21 @@
+[package]
+name = "pgzest-query"
+version = "0.1.0"
+edition = "2024"
+description = "Named queries: file format, positional rewriting, query descriptor"
+
+[dependencies]
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-diagnostics = { workspace = true }
+pgzest-macro = { path = "../pgzest-macro" }
+pgzest-parser = { path = "../pgzest-parser" }
+pgzest-sema = { path = "../pgzest-sema" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.11"
+sqlparser = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+serde_json = { workspace = true }

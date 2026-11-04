@@ -4,7 +4,7 @@ description: "Isolated temp tables, snapshots, run logs, OpenTelemetry traces of
 ---
 
 PL/pgSQL routines and triggers are a black box: which trigger ran, in
-what order, how long, on which rows, and why it loops. pgweave instruments
+what order, how long, on which rows, and why it loops. pgzest instruments
 the routines written as [macros](../fragments-and-macros/) — `@function`,
 `@procedure`, `@trigger` — from the analysis of their body. A plain
 `CREATE FUNCTION` stays as written: instrumenting a routine is opting in,
@@ -27,31 +27,31 @@ and the code that does it is in the migration, for review.
 - **`@temp_table name (columns);`** — a temp table private to each run. A
   plain temp table is shared by the whole session: a nested or recursive
   call, or one per loop iteration, mixes its rows with the caller's.
-  pgweave gives each run an id and rewrites every access: reads see the
+  pgzest gives each run an id and rewrites every access: reads see the
   run's rows only, `UPDATE` and `DELETE` touch them only, keys are unique
   per run, and the rows are deleted when the run returns.
 - **`@snapshot label;`** — at the `debug` log level, copies the run's rows
   of each temp table and the variables in scope into
-  `pgweave_debug.snapshot` and `pgweave_debug.snapshot_rows`. At any other
+  `pgzest_debug.snapshot` and `pgzest_debug.snapshot_rows`. At any other
   level it emits nothing.
 
-An access pgweave cannot rewrite is an error (`TRUNCATE`, `RETURNING *`, a
+An access pgzest cannot rewrite is an error (`TRUNCATE`, `RETURNING *`, a
 CTE of the same name); dynamic SQL (`EXECUTE`) in such a body is a
 warning, since it is not rewritten.
 
 ## Run logs
 
 ```toml
-# pgweave.toml
+# pgzest.toml
 [log]
 level = "step"     # none (default) | info | step | debug
 target = "table"   # table (default) | notify | notice
 ```
 
 The level is part of the generated code: below it, nothing is emitted.
-Analysis, the editor, `pgweave build` and `pgweave migrate` all see the
+Analysis, the editor, `pgzest build` and `pgzest migrate` all see the
 routines at this level, and a migration records it in its header
-(`-- pgweave: postgres=18 log=step`).
+(`-- pgzest: postgres=18 log=step`).
 
 | Level | Recorded per run |
 |-------|------------------|
@@ -62,9 +62,9 @@ routines at this level, and a migration records it in its header
 
 | Target | Where |
 |--------|-------|
-| `table` | unlogged tables `pgweave_log.run` and `pgweave_log.step`, created by the migrations |
-| `notify` | one JSON `pg_notify('pgweave_log', …)` per entry |
-| `notice` | a `RAISE NOTICE 'pgweave_log'` when a run starts and when it ends, sent to the client at once — even when the transaction then fails: the target for traces |
+| `table` | unlogged tables `pgzest_log.run` and `pgzest_log.step`, created by the migrations |
+| `notify` | one JSON `pg_notify('pgzest_log', …)` per entry |
+| `notice` | a `RAISE NOTICE 'pgzest_log'` when a run starts and when it ends, sent to the client at once — even when the transaction then fails: the target for traces |
 
 The recording changes neither `ROW_COUNT` nor `FOUND` for the body. A run
 whose error leaves the routine is rolled back with its log (`table`,
@@ -77,7 +77,7 @@ trace is **sampled**: the W3C `traceparent` the application passes, with
 its `sampled` flag set. A request that is not traced pays about a
 microsecond per run.
 
-`pgweave-runtime` reads the events off the connection and hands each
+`pgzest-runtime` reads the events off the connection and hands each
 finished tree of runs — the routine called, the triggers it fired, the
 routines they called, with their timings and steps — to the application.
 With the `opentelemetry` feature, `trace::otel::export` turns a tree into
@@ -85,7 +85,7 @@ spans under the application's span, through the `opentelemetry` API only:
 the tracer provider, its exporter and the backend are yours.
 
 ```rust
-use pgweave_runtime::trace::{self, Tracing};
+use pgzest_runtime::trace::{self, Tracing};
 
 let tracing = Tracing::new(move |run| trace::otel::export(&tracer, &run, &Context::current()));
 let (client, connection) = config.connect(NoTls).await?;
@@ -108,12 +108,12 @@ orders_award_loyalty_fn — 0.79 ms
 ```
 
 By hand, in `psql`:
-`SET pgweave.traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'`.
+`SET pgzest.traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'`.
 
 ## Endless cascades
 
 ```sql
-SET pgweave.max_depth = 50;
+SET pgzest.max_depth = 50;
 ```
 
 A logged routine called deeper than this raises `54001` naming itself, and
@@ -144,7 +144,7 @@ sending the two events to the client.
 ## A development loop
 
 ```sh
-pgweave dev --url postgres://localhost/myapp_dev   # or DATABASE_URL
+pgzest dev --url postgres://localhost/myapp_dev   # or DATABASE_URL
 ```
 
 Applies the routines of the schema files — functions, procedures,

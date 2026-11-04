@@ -1,10 +1,10 @@
 {
-  "name": "@pgweave/native",
+  "name": "@pgzest/native",
   "version": "0.1.0",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
-    "name": "pgweave-node"
+    "name": "pgzest-node"
   },
   "scripts": {
     "build": "napi build --platform --release",

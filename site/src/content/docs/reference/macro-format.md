@@ -71,11 +71,11 @@ template
 CREATE OR REPLACE FUNCTION {name}_fn()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $pgweave_macro$
+AS $pgzest_macro$
 {declares}BEGIN
 {body}
 END;
-$pgweave_macro$;
+$pgzest_macro$;
 
 CREATE TRIGGER {name}
 {timing} {events} ON {tables}
@@ -84,5 +84,5 @@ EXECUTE FUNCTION {name}_fn();
 end
 ```
 
-PL/pgSQL bodies between `$pgweave_macro$` tags are the ones pgweave
+PL/pgSQL bodies between `$pgzest_macro$` tags are the ones pgzest
 instruments: [isolated temp tables, snapshots, run logs](../../guides/observability/).

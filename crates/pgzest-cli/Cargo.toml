@@ -1,0 +1,33 @@
+[package]
+name = "pgzest"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "pgzest"
+path = "src/main.rs"
+
+[dependencies]
+pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-sema = { path = "../pgzest-sema" }
+pgzest-analysis = { path = "../pgzest-analysis" }
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-macro = { path = "../pgzest-macro" }
+pgzest-diagnostics = { workspace = true }
+pgzest-schema = { path = "../pgzest-schema" }
+pgzest-parser = { path = "../pgzest-parser" }
+pgzest-checker = { path = "../pgzest-checker" }
+pgzest-query = { path = "../pgzest-query" }
+pgzest-codegen = { path = "../pgzest-codegen" }
+pgzest-lint = { path = "../pgzest-lint" }
+pgzest-plugin = { path = "../pgzest-plugin" }
+pgzest-plugin-wasm = { path = "../pgzest-plugin-wasm" }
+pgzest-oracle = { path = "../pgzest-oracle" }
+similar = "2"
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }

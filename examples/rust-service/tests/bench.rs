@@ -5,21 +5,21 @@
 
 use std::time::{Duration, Instant};
 
-use pgweave_example_rust_service::queries;
+use pgzest_example_rust_service::queries;
 use tokio_postgres::types::Type;
 
 const ITERATIONS: usize = 2_000;
 const ROUNDS: usize = 5;
 
 #[tokio::test]
-#[ignore = "requires PostgreSQL 18: `make bench` (PGWEAVE_ORACLE_URL variable)"]
+#[ignore = "requires PostgreSQL 18: `make bench` (PGZEST_ORACLE_URL variable)"]
 async fn generated_code_vs_tokio_postgres() {
-    let url = std::env::var("PGWEAVE_ORACLE_URL").expect("PGWEAVE_ORACLE_URL");
+    let url = std::env::var("PGZEST_ORACLE_URL").expect("PGZEST_ORACLE_URL");
     let (admin, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
         .expect("connection");
     tokio::spawn(conn);
-    let db = format!("pgweave_bench_{}", std::process::id());
+    let db = format!("pgzest_bench_{}", std::process::id());
     for sql in [
         format!("DROP DATABASE IF EXISTS {db}"),
         format!("CREATE DATABASE {db}"),
@@ -33,11 +33,11 @@ async fn generated_code_vs_tokio_postgres() {
         .await
         .expect("connection");
     tokio::spawn(conn);
-    // Desugared schema (fragments), as pgweave analyzes it.
+    // Desugared schema (fragments), as pgzest analyzes it.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let project = pgweave_build::load_project(root).expect("project");
+    let project = pgzest_build::load_project(root).expect("project");
     let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schema");
-    let schema = pgweave_macro::expand_source(&schema, &project.macros).sql;
+    let schema = pgzest_macro::expand_source(&schema, &project.macros).sql;
     client.batch_execute(&schema).await.expect("schema applied");
     client
         .batch_execute(

@@ -1,28 +1,28 @@
 [workspace]
 members = [
-    "crates/pgweave-ast",
-    "crates/pgweave-diagnostics",
-    "crates/pgweave-analysis",
-    "crates/pgweave-macro",
-    "crates/pgweave-parser",
-    "crates/pgweave-checker",
-    "crates/pgweave-schema",
-    "crates/pgweave-catalog",
-    "crates/pgweave-project",
-    "crates/pgweave-sema",
-    "crates/pgweave-plugin",
-    "crates/pgweave-lint",
-    "crates/pgweave-cli",
-    "crates/pgweave-codegen",
-    "crates/pgweave-lsp",
-    "crates/pgweave-plugin-wasm",
-    "crates/pgweave-query",
-    "crates/pgweave-runtime",
-    "crates/pgweave-build",
-    "crates/pgweave-macros",
+    "crates/pgzest-ast",
+    "crates/pgzest-diagnostics",
+    "crates/pgzest-analysis",
+    "crates/pgzest-macro",
+    "crates/pgzest-parser",
+    "crates/pgzest-checker",
+    "crates/pgzest-schema",
+    "crates/pgzest-catalog",
+    "crates/pgzest-project",
+    "crates/pgzest-sema",
+    "crates/pgzest-plugin",
+    "crates/pgzest-lint",
+    "crates/pgzest-cli",
+    "crates/pgzest-codegen",
+    "crates/pgzest-lsp",
+    "crates/pgzest-plugin-wasm",
+    "crates/pgzest-query",
+    "crates/pgzest-runtime",
+    "crates/pgzest-build",
+    "crates/pgzest-macros",
     "examples/rust-service",
     "examples/demo",
-    "crates/pgweave-oracle",
+    "crates/pgzest-oracle",
     "xtask",
     "bindings/wasm",
     "bindings/node",
@@ -30,7 +30,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-pgweave-diagnostics = { path = "crates/pgweave-diagnostics" }
+pgzest-diagnostics = { path = "crates/pgzest-diagnostics" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

@@ -1,5 +1,5 @@
 {
-  "scopeName": "pgweave.injection.rust-sql",
+  "scopeName": "pgzest.injection.rust-sql",
   "injectionSelector": "L:source.rust -comment -string",
   "patterns": [
     { "include": "#macro-paren" },
@@ -8,7 +8,7 @@
   ],
   "repository": {
     "macro-paren": {
-      "begin": "\\b((?:pgweave_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\()",
+      "begin": "\\b((?:pgzest_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\()",
       "beginCaptures": {
         "1": { "name": "entity.name.function.macro.rust" },
         "2": { "name": "entity.name.function.macro.rust" },
@@ -19,7 +19,7 @@
       "patterns": [{ "include": "#arguments" }]
     },
     "macro-brace": {
-      "begin": "\\b((?:pgweave_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\{)",
+      "begin": "\\b((?:pgzest_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\{)",
       "beginCaptures": {
         "1": { "name": "entity.name.function.macro.rust" },
         "2": { "name": "entity.name.function.macro.rust" },
@@ -30,7 +30,7 @@
       "patterns": [{ "include": "#arguments" }]
     },
     "macro-bracket": {
-      "begin": "\\b((?:pgweave_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\[)",
+      "begin": "\\b((?:pgzest_macros\\s*::\\s*)?(?:sql|query))\\s*(!)\\s*(\\[)",
       "beginCaptures": {
         "1": { "name": "entity.name.function.macro.rust" },
         "2": { "name": "entity.name.function.macro.rust" },

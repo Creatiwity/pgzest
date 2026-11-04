@@ -4,17 +4,17 @@ description: "The query file format: headers, parameters, cardinality, variants,
 ---
 
 The format is stable: changes are additive. Reference implementation:
-`crates/pgweave-query`.
+`crates/pgzest-query`.
 
 A named query is a SQL statement, written in a `.sql` file of the
-`[queries] directory` (see [`pgweave.toml`](../config/)), preceded by a
+`[queries] directory` (see [`pgzest.toml`](../config/)), preceded by a
 header that gives it a name. It is the unit from which typed calls are
 generated: one function per query, one parameter struct, one row struct
 (Rust today, TypeScript next).
 
-`pgweave check` and the editor check the format of these files, each query
+`pgzest check` and the editor check the format of these files, each query
 against the schema, and anything that would prevent describing it (untyped
-parameter, contradicted cardinality). `pgweave describe` produces the
+parameter, contradicted cardinality). `pgzest describe` produces the
 descriptors; their use in Rust is described in
 [Typed queries in Rust](../../guides/rust/).
 
@@ -272,4 +272,4 @@ comments, formatting).
 | `query-row-mismatch` | `-> other`: reference not found or incompatible rows |
 
 They add to the usual diagnostics (`column-not-found`, …) and follow
-`[rules]` and the `-- pgweave-disable…` directives like all the others.
+`[rules]` and the `-- pgzest-disable…` directives like all the others.

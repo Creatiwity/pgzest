@@ -1,0 +1,15 @@
+[package]
+name = "pgzest-lint"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-diagnostics = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pgzest-diagnostics = { workspace = true }
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-parser = { path = "../pgzest-parser" }

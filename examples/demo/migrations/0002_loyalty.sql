@@ -1,4 +1,4 @@
--- pgweave: postgres=18 extensions=citext@1.8
+-- pgzest: postgres=18 extensions=citext@1.8
 -- Loyalty points, credited when an order is served.
 
 ALTER TABLE customers ADD COLUMN loyalty_points INTEGER NOT NULL DEFAULT 0;

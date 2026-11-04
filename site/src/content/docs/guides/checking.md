@@ -1,10 +1,10 @@
 ---
 title: "Checking SQL"
-description: "pgweave check — errors as PostgreSQL would report them, what is not analyzed, and how to tune both."
+description: "pgzest check — errors as PostgreSQL would report them, what is not analyzed, and how to tune both."
 ---
 
 ```sh
-pgweave check schema/*.sql queries/*.sql
+pgzest check schema/*.sql queries/*.sql
 ```
 
 `check` reports what PostgreSQL would refuse, with PostgreSQL's own words,
@@ -57,14 +57,14 @@ says so, rather than a misleading one:
 | `not-analyzed` | an expression or construct the analysis does not conclude on | `info` |
 
 ```toml
-# pgweave.toml
+# pgzest.toml
 [parse]
 unparsable  = "warn"    # error | warn | ignore
 unsupported = "warn"
 ```
 
 ```sh
-pgweave check q.sql --on-unparsable error    # tighten in CI
+pgzest check q.sql --on-unparsable error    # tighten in CI
 ```
 
 A statement the parser could not read in a schema file also removes the
@@ -85,26 +85,26 @@ Or silenced at one place, ESLint-style, in a line (`--`) or block
 (`/* */`) comment:
 
 ```sql
--- pgweave-disable-next-line                          -- every rule
--- pgweave-disable-next-line column-not-found         -- one
--- pgweave-disable-next-line column-not-found, L001   -- several
--- pgweave-enable-next-line L001                      -- re-enabled locally
--- pgweave-disable                                    -- start of a block
--- pgweave-enable                                     -- end of the block
--- pgweave-disable-file                               -- the whole file
+-- pgzest-disable-next-line                          -- every rule
+-- pgzest-disable-next-line column-not-found         -- one
+-- pgzest-disable-next-line column-not-found, L001   -- several
+-- pgzest-enable-next-line L001                      -- re-enabled locally
+-- pgzest-disable                                    -- start of a block
+-- pgzest-enable                                     -- end of the block
+-- pgzest-disable-file                               -- the whole file
 ```
 
 A justification can follow a second `--`:
 
 ```sql
--- pgweave-disable-next-line unparsable-statement -- PG 18 syntax, see #214
+-- pgzest-disable-next-line unparsable-statement -- PG 18 syntax, see #214
 ```
 
 ## The project's scope
 
 `check` and the editor share one model: every file of the project is
 replayed into the catalog, then the files you ask about are reported on.
-The scope is what `pgweave.toml` declares:
+The scope is what `pgzest.toml` declares:
 
 ```toml
 [migrations]
@@ -124,7 +124,7 @@ adds a schema source.
 ## Lint
 
 ```sh
-pgweave lint query.sql
+pgzest lint query.sql
 ```
 
 Style and practice rules — `SELECT *`, a table without a primary key,

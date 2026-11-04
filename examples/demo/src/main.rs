@@ -2,21 +2,21 @@
 //!
 //! ```text
 //! make oracle-up                 # PostgreSQL 18 in Docker (port 54318)
-//! cargo run -p pgweave-demo
+//! cargo run -p pgzest-demo
 //! ```
 //!
-//! `DATABASE_URL` points to another server (the `pgweave_demo` database is
+//! `DATABASE_URL` points to another server (the `pgzest_demo` database is
 //! recreated there).
 
 use std::sync::{Arc, Mutex};
 
-use pgweave_demo::db::{DishKind, OrderStatus};
-use pgweave_demo::{inline, queries};
-use pgweave_runtime::futures_util::StreamExt;
-use pgweave_runtime::trace::{self, RoutineRun, Tracing};
+use pgzest_demo::db::{DishKind, OrderStatus};
+use pgzest_demo::{inline, queries};
+use pgzest_runtime::futures_util::StreamExt;
+use pgzest_runtime::trace::{self, RoutineRun, Tracing};
 
-const DEFAULT_URL: &str = "postgres://postgres:pgweave@localhost:54318/postgres";
-const DB: &str = "pgweave_demo";
+const DEFAULT_URL: &str = "postgres://postgres:pgzest@localhost:54318/postgres";
+const DB: &str = "pgzest_demo";
 /// W3C trace context of the request, `sampled` flag set (`-01`): an
 /// application passes its current span's.
 const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
@@ -65,7 +65,7 @@ fn print_run(run: &RoutineRun, depth: usize) {
 async fn main() -> Result<()> {
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
     // The macro routines record their runs as notices (`[log]` in
-    // pgweave.toml): each finished tree of runs lands here. An application
+    // pgzest.toml): each finished tree of runs lands here. An application
     // would export them (`trace::otel::export`, feature `opentelemetry`).
     let runs: Arc<Mutex<Vec<RoutineRun>>> = Arc::default();
     let tracing = Tracing::new({
@@ -208,7 +208,7 @@ async fn main() -> Result<()> {
             .cheapest
             .map_or_else(|| "—".into(), |c| euros(c.into()))
     );
-    if let Some((name, price)) = pgweave_demo::priciest_dish(&client, bistro.id).await? {
+    if let Some((name, price)) = pgzest_demo::priciest_dish(&client, bistro.id).await? {
         println!(
             "   most expensive (query!): {name}, {}",
             euros(price.into())
@@ -379,7 +379,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Recreates the `pgweave_demo` database and applies the migrations to it,
+/// Recreates the `pgzest_demo` database and applies the migrations to it,
 /// like a deployment: the declarative schema is their target, not a script.
 /// The connection's run notices go to `tracing`.
 async fn fresh_database(url: &str, tracing: &Tracing) -> Result<tokio_postgres::Client> {

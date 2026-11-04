@@ -1,18 +1,18 @@
-//! Comparison of the catalog rebuilt by pgweave (migration replay) with the
+//! Comparison of the catalog rebuilt by pgzest (migration replay) with the
 //! real catalog of a PostgreSQL on which the same migrations were applied:
 //! the P2 exit criterion.
 //!
 //! The scope is the project's: user schemas, objects that are not members
 //! of an extension (those come from packs, compared separately by name and
 //! version). Expressions (defaults, `CHECK`) are compared by presence: the
-//! text PostgreSQL gives back is not the one pgweave emits.
+//! text PostgreSQL gives back is not the one pgzest emits.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pgweave_catalog::model::{
+use pgzest_catalog::model::{
     ConstraintKind, Extension, Index, Policy, Schema, Sequence, Trigger, TypeKind,
 };
-use pgweave_catalog::{Catalog, Contributor, QName};
+use pgzest_catalog::{Catalog, Contributor, QName};
 use tokio_postgres::Client;
 
 use crate::catalog_gen::Snapshot;
@@ -103,7 +103,7 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
                 .iter_mut()
                 .find(|c| c.name == r.get::<_, String>(2))
         {
-            col.identity = Some(pgweave_catalog::model::IdentityKind::Always);
+            col.identity = Some(pgzest_catalog::model::IdentityKind::Always);
         }
     }
 
@@ -141,7 +141,7 @@ pub(crate) async fn real_catalog(client: &Client) -> Result<Catalog, String> {
                 columns: vec![],
             },
         };
-        rel.constraints.push(pgweave_catalog::model::Constraint {
+        rel.constraints.push(pgzest_catalog::model::Constraint {
             name: r.get(2),
             kind,
             definition: None,
@@ -314,7 +314,7 @@ pub(crate) struct Category {
     pub extra: usize,
     /// Present on both sides, but different.
     pub different: usize,
-    /// Present on both sides, value not yet established by pgweave (type of
+    /// Present on both sides, value not yet established by pgzest (type of
     /// a view column before semantic analysis, P3).
     pub unknown: usize,
 }
@@ -345,7 +345,7 @@ fn compare_maps(
             Some(o) => {
                 c.different += 1;
                 out.details.push(format!(
-                    "{category} different: {k}\n  real: {v}\n  pgweave: {o}"
+                    "{category} different: {k}\n  real: {v}\n  pgzest: {o}"
                 ));
             }
         }

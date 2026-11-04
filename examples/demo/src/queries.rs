@@ -2,4 +2,4 @@
 //! time: `queries/menu.sql` → `menu`, `queries/promotions/deals.sql`
 //! → `promotions::deals`. PostgreSQL enums live here, at the root.
 
-pgweave_macros::queries!("queries");
+pgzest_macros::queries!("queries");

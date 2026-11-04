@@ -1,0 +1,17 @@
+[package]
+name = "pgzest-project"
+version = "0.1.0"
+edition = "2024"
+description = "pgzest incremental project database (salsa): files, parse, catalog, checking"
+
+[dependencies]
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-sema = { path = "../pgzest-sema" }
+pgzest-checker = { path = "../pgzest-checker" }
+pgzest-diagnostics = { workspace = true }
+pgzest-macro = { path = "../pgzest-macro" }
+pgzest-parser = { path = "../pgzest-parser" }
+pgzest-schema = { path = "../pgzest-schema" }
+# Pinned (decision 0001): version bumps are deliberate and isolated.
+salsa = "=0.28.5"

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="pgweave: plain PostgreSQL, checked the way PostgreSQL would, then woven into typed code. A named query, restaurant_by_slug, with each column threaded to the field of the Rust struct generated from it; the nullable opened_on becomes Option&lt;Date&gt;.">
+  <img src="./assets/readme/hero.svg" width="100%" alt="pgzest: raw PostgreSQL with zest, checked the way PostgreSQL would, then turned into typed code. A named query, restaurant_by_slug, with each column dripping into the field of the Rust struct generated from it; the nullable opened_on becomes Option&lt;Date&gt;.">
 </p>
 
 <p align="center">
@@ -9,9 +9,10 @@
 </p>
 
 You write PostgreSQL — queries in `.sql` files, a schema, migrations,
-PL/pgSQL routines. pgweave rebuilds the catalog from those files, without
-a database, checks every statement the way PostgreSQL would, and turns
-the result into typed Rust, verified migrations, editor feedback and
+PL/pgSQL routines — and it stays raw: no ORM, no DSL. pgzest only
+seasons it: it rebuilds the catalog from those files, without a
+database, checks every statement the way PostgreSQL would, and turns the
+result into typed Rust, verified migrations, editor feedback and
 traceable routines.
 
 ```sql
@@ -24,7 +25,7 @@ WHERE slug = $slug;
 
 ```rust
 // src/queries.rs
-pgweave_macros::queries!("queries");
+pgzest_macros::queries!("queries");
 
 // slug is UNIQUE: at most one row. opened_on is nullable: Option.
 let r: Option<RestaurantBySlugRow> =
@@ -36,15 +37,16 @@ A mistake in the SQL fails the build, at its place in the `.sql` file:
 ```text
 error: undescribed queries:
        …/examples/demo/queries/restaurants.sql:11:18: error[column-not-found]: column "opened_at" does not exist
- --> examples/demo/src/queries.rs:5:26
+ --> examples/demo/src/queries.rs:5:25
   |
-5 | pgweave_macros::queries!("queries");
+5 | pgzest_macros::queries!("queries");
+  |                         ^^^^^^^^^
 ```
 
 ## Checked against PostgreSQL itself
 
 An oracle runs in CI against a real PostgreSQL 18 and compares what
-PostgreSQL says with what pgweave says:
+PostgreSQL says with what pgzest says:
 
 | What | Result |
 |------|--------|
@@ -53,7 +55,7 @@ PostgreSQL says with what pgweave says:
 | Two real projects' migrations (1,740 and 294 statements) | fully parsed; catalogs rebuilt identical to the real databases — DDL run through dynamic SQL aside, reported instead of guessed |
 | Generated Rust against hand-written `tokio-postgres` | **145.0 vs 145.7 µs** per query |
 
-What pgweave cannot establish, it says (`not-analyzed`,
+What pgzest cannot establish, it says (`not-analyzed`,
 `query-parameter-untyped`…). It never guesses a type or a nullability.
 
 ## What it does
@@ -77,15 +79,15 @@ so an index and the query that must use it cannot drift apart.
 to plain SQL. → [guide](./site/src/content/docs/guides/fragments-and-macros.md)
 
 **Declarative schema, generated migrations.** Edit `schema/`, then
-`pgweave migrate create` writes the migration and replays it to verify
+`pgzest migrate create` writes the migration and replays it to verify
 it reaches the schema; what may lose data or fail on a populated table is
 listed at its top. Prisma and Diesel layouts are read as they are.
-`pgweave db check` finds what was changed by hand in a production
+`pgzest db check` finds what was changed by hand in a production
 database. → [guide](./site/src/content/docs/guides/migrations.md)
 
 **Observable routines.** Isolated temp tables, snapshots and run logs in
 PL/pgSQL routines; the triggers a statement fired, as OpenTelemetry spans
-under your request's span; `pgweave.max_depth` to stop an endless trigger
+under your request's span; `pgzest.max_depth` to stop an endless trigger
 cascade by name. About a microsecond per run when the request is not
 traced. → [guide](./site/src/content/docs/guides/observability.md)
 
@@ -114,7 +116,7 @@ extension), Docker (PostgreSQL 18).
 
 ```sh
 make bootstrap   # Rust and npm dependencies
-make demo        # VS Code on examples/demo, with the pgweave extension loaded
+make demo        # VS Code on examples/demo, with the pgzest extension loaded
 make demo-run    # the demo's Rust program against PostgreSQL 18 (Docker)
 ```
 
@@ -126,7 +128,7 @@ To start a project of your own:
 
 ## Status
 
-pgweave works on real projects' schemas and is tested against PostgreSQL
+pgzest works on real projects' schemas and is tested against PostgreSQL
 18 in CI, but it is not released yet:
 
 - not published to crates.io or npm, nor the extension to the VS Code

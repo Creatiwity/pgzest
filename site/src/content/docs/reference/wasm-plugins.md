@@ -1,29 +1,29 @@
 ---
 title: "WASM plugins"
-description: "Writing a pgweave plugin compiled to WebAssembly."
+description: "Writing a pgzest plugin compiled to WebAssembly."
 ---
 
 ## Overview
 
-WASM plugins let you add custom lint rules to pgweave without modifying the core.
-A WASM plugin is compiled to `.wasm` and declared in `pgweave.toml` (see [pgweave.toml](../config/)).
+WASM plugins let you add custom lint rules to pgzest without modifying the core.
+A WASM plugin is compiled to `.wasm` and declared in `pgzest.toml` (see [pgzest.toml](../config/)).
 
 ## Required Exports
 
 ```c
 // Plugin identity
-char* pgweave_plugin_name();         // null-terminated UTF-8 name
-int   pgweave_plugin_version();      // 100*major + minor
+char* pgzest_plugin_name();         // null-terminated UTF-8 name
+int   pgzest_plugin_version();      // 100*major + minor
 
 // Memory management (must expose an allocator)
-void* pgweave_alloc(int size);
-void  pgweave_free(void* ptr);
+void* pgzest_alloc(int size);
+void  pgzest_free(void* ptr);
 
 // Check hooks (optional — implement what you need)
 // Input: JSON string (SelectStmt / CreateTable AST node)
 // Output: JSON array of WasmDiagnostic, null-terminated
-char* pgweave_check_select(char* json, int len);
-char* pgweave_check_table(char* json, int len);
+char* pgzest_check_select(char* json, int len);
+char* pgzest_check_table(char* json, int len);
 ```
 
 ## WasmDiagnostic JSON format
@@ -43,11 +43,11 @@ char* pgweave_check_table(char* json, int len);
 
 ```c
 // Available as imports from "env"
-char* pgweave_get_table(char* name, int len);  // → JSON TableSchema or null
-void  pgweave_log(char* msg, int len);         // log to stderr
+char* pgzest_get_table(char* name, int len);  // → JSON TableSchema or null
+void  pgzest_log(char* msg, int len);         // log to stderr
 ```
 
-## pgweave.toml
+## pgzest.toml
 
 Paths are relative to the config file. A plugin that fails to load is an error.
 

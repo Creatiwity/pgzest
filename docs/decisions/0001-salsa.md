@@ -62,7 +62,7 @@ comparable scope), and an edit costs microseconds.
 
 ## Decision
 
-**GO.** `pgweave-project` (P2) is built on salsa, with a **pinned** version
+**GO.** `pgzest-project` (P2) is built on salsa, with a **pinned** version
 (`=0.28.5`); version bumps are deliberate and isolated.
 
 ## What the spike taught us, to carry into P2
@@ -79,7 +79,7 @@ comparable scope), and an edit costs microseconds.
    everything P1 models (types, views, extensions, `DROP`…).
 3. **Moving salsa API**: the `Update` trait became `SalsaValue` between
    versions. Hence the exact pinning and the isolation of salsa inside
-   `pgweave-project`: other crates manipulate our own types.
+   `pgzest-project`: other crates manipulate our own types.
 4. **Not yet evaluated**: parallel queries and cancellation (the LSP
    cancels an obsolete analysis), on-disk persistence (`persistence`
    feature, useful for the Rust macro cache in P5). To be validated at the

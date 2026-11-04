@@ -1,10 +1,10 @@
-//! `cargo xtask corpus`: pgweave's analysis rate on an external corpus.
+//! `cargo xtask corpus`: pgzest's analysis rate on an external corpus.
 //!
 //! The report is meant to be committed (`docs/baselines/`) while the corpus
 //! itself is private. Strict rule: **no corpus identifier** in the report.
 //! Only counters, diagnostic codes and statement "shapes", where every name
 //! is replaced by `…`, are written to it. Error messages (from sqlparser,
-//! pgweave or PostgreSQL) quote names: they only go to standard error with
+//! pgzest or PostgreSQL) quote names: they only go to standard error with
 //! `--details`, or are masked.
 
 use std::collections::BTreeMap;
@@ -12,10 +12,10 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use pgweave_ast::Statement;
-use pgweave_ast::ddl::{DdlStatement, FunctionBody};
-use pgweave_diagnostics::Severity;
-use pgweave_parser::{SkipReason, SkippedStatement};
+use pgzest_ast::Statement;
+use pgzest_ast::ddl::{DdlStatement, FunctionBody};
+use pgzest_diagnostics::Severity;
+use pgzest_parser::{SkipReason, SkippedStatement};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::keywords::Keyword;
 use sqlparser::tokenizer::{Token, Tokenizer};
@@ -60,7 +60,7 @@ pub fn run(
     out: Option<PathBuf>,
     details: bool,
 ) -> Result<(), String> {
-    let env_var = format!("PGWEAVE_CORPUS_{}", name.to_ascii_uppercase());
+    let env_var = format!("PGZEST_CORPUS_{}", name.to_ascii_uppercase());
     let dir = path
         .or_else(|| std::env::var_os(&env_var).map(PathBuf::from))
         .ok_or_else(|| format!("corpus not found: pass --path or set {env_var}"))?;
@@ -82,7 +82,7 @@ pub fn run(
     let parse_start = Instant::now();
     let mut parsed_files = Vec::new();
     for (path, sql) in &sources {
-        match pgweave_parser::parse_with_outcome(sql) {
+        match pgzest_parser::parse_with_outcome(sql) {
             Ok(outcome) => {
                 stats.record_parse(&outcome.statements, &outcome.skipped);
                 if details {
@@ -105,17 +105,17 @@ pub fn run(
     // Statements skipped at parse time: missing from the replayed catalog.
     stats.index_skipped = stats.statements - stats.analyzed;
 
-    // Replay by pgweave and `check` diagnostics: each migration is checked
+    // Replay by pgzest and `check` diagnostics: each migration is checked
     // against the catalog as it is right after it, i.e. the real database
     // state at the time it applies (P2), not the final state.
-    let mut replay = pgweave_catalog::Replay::new(
-        pgweave_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
+    let mut replay = pgzest_catalog::Replay::new(
+        pgzest_catalog::Catalog::for_postgres(18).map_err(|e| e.to_string())?,
     );
-    replay.typer = Some(pgweave_sema::ViewTyper::shared());
+    replay.typer = Some(pgzest_sema::ViewTyper::shared());
     // Each statement is checked when it applies, against the state at that
     // moment; a PL/pgSQL body, run later, is checked against the final state
-    // if it is still in force (`pgweave_sema::check`).
-    let mut check_diags: Vec<(usize, pgweave_diagnostics::Diagnostic)> = Vec::new();
+    // if it is still in force (`pgzest_sema::check`).
+    let mut check_diags: Vec<(usize, pgzest_diagnostics::Diagnostic)> = Vec::new();
     let mut deferred = Vec::new();
     let mut routines = Vec::new();
     for (i, (path, sql, stmts)) in parsed_files.iter().enumerate() {
@@ -125,19 +125,19 @@ pub fn run(
             replay.apply(st, &mut replay_diags);
             stats.replay_time += replay_start.elapsed();
             // Routine body as written, for the export.
-            pgweave_catalog::project::attach_source(&mut replay.catalog, st, sql);
+            pgzest_catalog::project::attach_source(&mut replay.catalog, st, sql);
             let check_start = Instant::now();
             let mut d = Vec::new();
-            pgweave_sema::check::check_applied(&replay.catalog, &replay.search_path, st, &mut d);
+            pgzest_sema::check::check_applied(&replay.catalog, &replay.search_path, st, &mut d);
             check_diags.extend(d.into_iter().map(|d| (i, d)));
-            if pgweave_sema::check::is_deferred(st) {
+            if pgzest_sema::check::is_deferred(st) {
                 deferred.push((i, replay.search_path.clone(), st));
             }
             if matches!(
                 st,
                 Statement::Ddl(
-                    pgweave_ast::DdlStatement::CreateFunction(_)
-                        | pgweave_ast::DdlStatement::CreateProcedure(_)
+                    pgzest_ast::DdlStatement::CreateFunction(_)
+                        | pgzest_ast::DdlStatement::CreateProcedure(_)
                 )
             ) {
                 routines.push((replay.search_path.clone(), st));
@@ -153,9 +153,9 @@ pub fn run(
     }
     let check_start = Instant::now();
     for (i, path, st) in deferred {
-        if pgweave_catalog::project::routine_in_force(&replay.catalog, st) {
+        if pgzest_catalog::project::routine_in_force(&replay.catalog, st) {
             let mut d = Vec::new();
-            pgweave_sema::check::check_deferred(&replay.catalog, &path, st, &mut d);
+            pgzest_sema::check::check_deferred(&replay.catalog, &path, st, &mut d);
             check_diags.extend(d.into_iter().map(|d| (i, d)));
         }
     }
@@ -182,13 +182,13 @@ pub fn run(
     }
     stats.files_with_errors = files_with_errors.len();
 
-    let pg_url_for_import = pg_url.or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok());
+    let pg_url_for_import = pg_url.or_else(|| std::env::var("PGZEST_ORACLE_URL").ok());
     let mut probes = crate::probes::generate(&replay.catalog);
     // Queries of the routine bodies in force, analyzed in their scope.
     let mut queries = Vec::new();
     for (path, st) in &routines {
-        if pgweave_catalog::project::routine_in_force(&replay.catalog, st) {
-            queries.extend(pgweave_sema::check::body_queries(&replay.catalog, path, st));
+        if pgzest_catalog::project::routine_in_force(&replay.catalog, st) {
+            queries.extend(pgzest_sema::check::body_queries(&replay.catalog, path, st));
         }
     }
     let (body_probes, bodies_skipped) = crate::probes::body_probes(&replay.catalog, queries);
@@ -216,8 +216,8 @@ pub fn run(
         pg.as_ref().and_then(|p| p.catalog.as_ref()),
     ) {
         (Some(url), Some(real)) => {
-            let dump = pgweave_catalog::dump::dump(&replay.catalog, 18);
-            if let Some(path) = std::env::var_os("PGWEAVE_IMPORT_DUMP") {
+            let dump = pgzest_catalog::dump::dump(&replay.catalog, 18);
+            if let Some(path) = std::env::var_os("PGZEST_IMPORT_DUMP") {
                 let _ = std::fs::write(path, &dump.baseline);
             }
             Some(match apply_on_fresh_db(url, &dump.baseline) {
@@ -231,7 +231,7 @@ pub fn run(
     // says about each object of both databases.
     let fidelity = match (pg_url_for_import.as_deref(), &import_comparison) {
         (Some(url), Some(Ok(_))) => {
-            let dump = pgweave_catalog::dump::dump(&replay.catalog, 18);
+            let dump = pgzest_catalog::dump::dump(&replay.catalog, 18);
             let migrations: Vec<(String, String)> = sources
                 .iter()
                 .map(|(p, sql)| (p.display().to_string(), sql.clone()))
@@ -240,7 +240,7 @@ pub fn run(
                 .enable_all()
                 .build()
                 .map_err(|e| e.to_string())?;
-            let r = rt.block_on(pgweave_oracle::schema::compare(
+            let r = rt.block_on(pgzest_oracle::schema::compare(
                 url,
                 "corpus",
                 &migrations,
@@ -339,7 +339,7 @@ struct Stats {
     files_with_errors: usize,
     parse_time: Duration,
     check_time: Duration,
-    /// pgweave replay diagnostics, by code.
+    /// pgzest replay diagnostics, by code.
     replay_diagnostics: BTreeMap<&'static str, usize>,
     replay_time: Duration,
 }
@@ -419,7 +419,7 @@ struct PgReplay {
     major: u32,
     applied: usize,
     /// Project catalog in PostgreSQL, if every migration was applied.
-    catalog: Option<pgweave_catalog::Catalog>,
+    catalog: Option<pgzest_catalog::Catalog>,
     /// Rank (1-based) of the first rejected migration and masked message.
     first_failure: Option<(usize, String)>,
     /// PostgreSQL's description of each probe, in order.
@@ -446,7 +446,7 @@ fn replay_on_postgres(
             .await
             .map_err(|e| db_message(&e))?
             .get(0);
-        let db = format!("pgweave_corpus_{}", std::process::id());
+        let db = format!("pgzest_corpus_{}", std::process::id());
         admin
             .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
             .await
@@ -506,14 +506,14 @@ fn replay_on_postgres(
 }
 
 /// Applies a script to an empty database and returns its project catalog.
-fn apply_on_fresh_db(url: &str, sql: &str) -> Result<pgweave_catalog::Catalog, String> {
+fn apply_on_fresh_db(url: &str, sql: &str) -> Result<pgzest_catalog::Catalog, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     rt.block_on(async {
         let admin = connect(url).await?;
-        let db = format!("pgweave_import_{}", std::process::id());
+        let db = format!("pgzest_import_{}", std::process::id());
         admin
             .batch_execute(&format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))
             .await
@@ -591,7 +591,7 @@ struct Oracle<'a> {
     comparison: Option<&'a crate::catalog_compare::Comparison>,
     /// Import: schema exported then applied, compared to the real one.
     import: Option<&'a Result<crate::catalog_compare::Comparison, String>>,
-    fidelity: Option<&'a Result<pgweave_oracle::schema::SchemaComparison, String>>,
+    fidelity: Option<&'a Result<pgzest_oracle::schema::SchemaComparison, String>>,
     probes: Option<&'a crate::probes::ProbeStats>,
 }
 
@@ -612,7 +612,7 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
     let _ = writeln!(o, "# Corpus `{name}` — analysis rate\n");
     let _ = writeln!(
         o,
-        "> Generated on {date} by `cargo xtask corpus {name}` (pgweave `{commit}`).\n\
+        "> Generated on {date} by `cargo xtask corpus {name}` (pgzest `{commit}`).\n\
          > Files kept: {}.\n\
          > Aggregates only: no corpus identifier appears here.",
         layout.describe()
@@ -680,7 +680,7 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
     let _ = writeln!(o, "\n## Replay on PostgreSQL\n");
     match pg {
         None => {
-            let _ = writeln!(o, "Not run (neither `--pg-url` nor `PGWEAVE_ORACLE_URL`).");
+            let _ = writeln!(o, "Not run (neither `--pg-url` nor `PGZEST_ORACLE_URL`).");
         }
         Some(r) => {
             let _ = writeln!(
@@ -697,7 +697,7 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
         }
     }
 
-    let _ = writeln!(o, "\n## Catalog rebuilt by pgweave\n");
+    let _ = writeln!(o, "\n## Catalog rebuilt by pgzest\n");
     let _ = writeln!(
         o,
         "Replay of the migrations in order on the `postgres@18` catalog (extension packs included)."
@@ -751,7 +751,7 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
         Some(Ok(c)) => {
             let _ = writeln!(
                 o,
-                "The rebuilt catalog, exported as SQL (`pgweave_catalog::dump`) and applied to an \
+                "The rebuilt catalog, exported as SQL (`pgzest_catalog::dump`) and applied to an \
                  empty database, compared with the real catalog of the migrations:\n"
             );
             let _ = writeln!(
@@ -815,7 +815,7 @@ fn render(name: &str, layout: Layout, files: usize, s: &Stats, oracle: Oracle<'_
     );
     let _ = writeln!(
         o,
-        "| Replay on the catalog (`pgweave-catalog`) | {} ms |",
+        "| Replay on the catalog (`pgzest-catalog`) | {} ms |",
         s.replay_time.as_millis()
     );
     o

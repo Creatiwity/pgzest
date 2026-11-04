@@ -1,7 +1,7 @@
 -- Loyalty points, credited when an order is served.
 --
 -- Written with macros, the routines record their runs at the `[log]` level
--- of pgweave.toml: with the `notice` target, src/main.rs traces them — the
+-- of pgzest.toml: with the `notice` target, src/main.rs traces them — the
 -- trigger, then the function it calls, nested under the statement that
 -- served the order.
 

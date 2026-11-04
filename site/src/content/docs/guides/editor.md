@@ -3,15 +3,15 @@ title: "Editor"
 description: "The VS Code extension — diagnostics as you type, hover, completion and macro expansion, in SQL files and inside Rust strings."
 ---
 
-The `pgweave-lsp` language server and its VS Code extension give the same
-answers as `pgweave check`, as you type, from the same project model —
+The `pgzest-lsp` language server and its VS Code extension give the same
+answers as `pgzest check`, as you type, from the same project model —
 the unsaved text of an open file taking precedence over the disk.
 
 ## Features
 
 - **Diagnostics** in `.sql` and `.pgsql` files, and inside the SQL
   strings of `sql!` and `query!` in Rust files. Editing a fragment, a
-  `.pgmacro` or `pgweave.toml` rechecks the open files at once.
+  `.pgmacro` or `pgzest.toml` rechecks the open files at once.
 - **Hover**: the type and nullability of a column, a variable or an
   expression; the descriptor of a named query on its `-- name:` header
   (parameters, columns, number of rows); a fragment's documentation and
@@ -34,13 +34,13 @@ make demo          # try it on the demo, in development mode
 make vscode-dev    # build the server and the extension, then F5 in editors/vscode
 ```
 
-The extension finds `pgweave-lsp` in the repository's `target/` in
+The extension finds `pgzest-lsp` in the repository's `target/` in
 development; elsewhere, set its path.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `pgweave.lspPath` | `pgweave-lsp` | path to the `pgweave-lsp` binary |
-| `pgweave.schemaFile` | `""` | a schema file for files outside a pgweave project |
+| `pgzest.lspPath` | `pgzest-lsp` | path to the `pgzest-lsp` binary |
+| `pgzest.schemaFile` | `""` | a schema file for files outside a pgzest project |
 
 With rust-analyzer, the extension turns off rust-analyzer's semantic
 highlighting of strings, which would cover the SQL highlighting.

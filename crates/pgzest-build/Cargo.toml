@@ -1,0 +1,14 @@
+[package]
+name = "pgzest-build"
+version = "0.1.0"
+edition = "2024"
+description = "Named query generation for build.rs (PLAN.md §5, P5)"
+
+[dependencies]
+pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-codegen = { path = "../pgzest-codegen" }
+pgzest-diagnostics = { workspace = true }
+pgzest-macro = { path = "../pgzest-macro" }
+pgzest-query = { path = "../pgzest-query" }
+pgzest-schema = { path = "../pgzest-schema" }
+pgzest-sema = { path = "../pgzest-sema" }

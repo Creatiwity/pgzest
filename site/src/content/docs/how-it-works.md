@@ -3,7 +3,7 @@ title: "How it works"
 description: "From SQL files to a catalog, typed queries, migrations and editor feedback — without a database."
 ---
 
-pgweave never reads your schema from a database. It rebuilds it.
+pgzest never reads your schema from a database. It rebuilds it.
 
 ## 1. The catalog, replayed
 
@@ -45,7 +45,7 @@ What the analysis cannot establish is reported (`not-analyzed`,
 
 An oracle keeps the model honest. It applies the same schemas and
 prepares the same queries on a real PostgreSQL 18, and compares what
-PostgreSQL says with what pgweave says:
+PostgreSQL says with what pgzest says:
 
 | What | Result |
 |------|--------|
@@ -61,10 +61,10 @@ reviewed.
 
 ## Under the hood
 
-pgweave is a Rust workspace. The parser is
+pgzest is a Rust workspace. The parser is
 [`sqlparser-rs`](https://github.com/apache/datafusion-sqlparser-rs) with a
 PostgreSQL dialect wrapper, plus a PL/pgSQL parser of its own; the
 semantic analysis, catalog, descriptors, code generation, migrations and
 language server are separate crates sharing one AST. The design
 decisions and the phase plan are in
-[`PLAN.md`](https://github.com/Creatiwity/pgweave/blob/main/PLAN.md).
+[`PLAN.md`](https://github.com/Creatiwity/pgzest/blob/main/PLAN.md).

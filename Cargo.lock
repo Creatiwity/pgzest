@@ -1136,26 +1136,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "pgweave"
+name = "pgzest"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
- "pgweave-analysis",
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-checker",
- "pgweave-codegen",
- "pgweave-diagnostics",
- "pgweave-lint",
- "pgweave-macro",
- "pgweave-oracle",
- "pgweave-parser",
- "pgweave-plugin",
- "pgweave-plugin-wasm",
- "pgweave-query",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-analysis",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-checker",
+ "pgzest-codegen",
+ "pgzest-diagnostics",
+ "pgzest-lint",
+ "pgzest-macro",
+ "pgzest-oracle",
+ "pgzest-parser",
+ "pgzest-plugin",
+ "pgzest-plugin-wasm",
+ "pgzest-query",
+ "pgzest-schema",
+ "pgzest-sema",
  "serde",
  "serde_json",
  "similar",
@@ -1164,91 +1164,91 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgweave-analysis"
+name = "pgzest-analysis"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-checker",
- "pgweave-codegen",
- "pgweave-diagnostics",
- "pgweave-lint",
- "pgweave-macro",
- "pgweave-parser",
- "pgweave-query",
- "pgweave-schema",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-checker",
+ "pgzest-codegen",
+ "pgzest-diagnostics",
+ "pgzest-lint",
+ "pgzest-macro",
+ "pgzest-parser",
+ "pgzest-query",
+ "pgzest-schema",
 ]
 
 [[package]]
-name = "pgweave-ast"
+name = "pgzest-ast"
 version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
-name = "pgweave-build"
+name = "pgzest-build"
 version = "0.1.0"
 dependencies = [
- "pgweave-catalog",
- "pgweave-codegen",
- "pgweave-diagnostics",
- "pgweave-macro",
- "pgweave-query",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-catalog",
+ "pgzest-codegen",
+ "pgzest-diagnostics",
+ "pgzest-macro",
+ "pgzest-query",
+ "pgzest-schema",
+ "pgzest-sema",
 ]
 
 [[package]]
-name = "pgweave-catalog"
+name = "pgzest-catalog"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-diagnostics",
- "pgweave-macro",
- "pgweave-parser",
- "pgweave-schema",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "pgweave-checker"
-version = "0.1.0"
-dependencies = [
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-diagnostics",
- "pgweave-parser",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-ast",
+ "pgzest-diagnostics",
+ "pgzest-macro",
+ "pgzest-parser",
+ "pgzest-schema",
  "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
-name = "pgweave-codegen"
+name = "pgzest-checker"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-diagnostics",
- "pgweave-parser",
- "pgweave-query",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-diagnostics",
+ "pgzest-parser",
+ "pgzest-schema",
+ "pgzest-sema",
  "serde",
  "serde_json",
  "thiserror",
 ]
 
 [[package]]
-name = "pgweave-demo"
+name = "pgzest-codegen"
 version = "0.1.0"
 dependencies = [
- "pgweave-macros",
- "pgweave-runtime",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-diagnostics",
+ "pgzest-parser",
+ "pgzest-query",
+ "pgzest-schema",
+ "pgzest-sema",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "pgzest-demo"
+version = "0.1.0"
+dependencies = [
+ "pgzest-macros",
+ "pgzest-runtime",
  "time",
  "tokio",
  "tokio-postgres",
@@ -1256,20 +1256,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgweave-diagnostics"
+name = "pgzest-diagnostics"
 version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
-name = "pgweave-example-rust-service"
+name = "pgzest-example-rust-service"
 version = "0.1.0"
 dependencies = [
- "pgweave-build",
- "pgweave-macro",
- "pgweave-macros",
- "pgweave-runtime",
+ "pgzest-build",
+ "pgzest-macro",
+ "pgzest-macros",
+ "pgzest-runtime",
  "time",
  "tokio",
  "tokio-postgres",
@@ -1277,33 +1277,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgweave-lint"
+name = "pgzest-lint"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-diagnostics",
- "pgweave-parser",
+ "pgzest-ast",
+ "pgzest-diagnostics",
+ "pgzest-parser",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "pgweave-lsp"
+name = "pgzest-lsp"
 version = "0.1.0"
 dependencies = [
- "pgweave-analysis",
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-checker",
- "pgweave-diagnostics",
- "pgweave-lint",
- "pgweave-macro",
- "pgweave-parser",
- "pgweave-plugin-wasm",
- "pgweave-project",
- "pgweave-query",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-analysis",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-checker",
+ "pgzest-diagnostics",
+ "pgzest-lint",
+ "pgzest-macro",
+ "pgzest-parser",
+ "pgzest-plugin-wasm",
+ "pgzest-project",
+ "pgzest-query",
+ "pgzest-schema",
+ "pgzest-sema",
  "serde",
  "serde_json",
  "tokio",
@@ -1311,69 +1311,69 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgweave-macro"
+name = "pgzest-macro"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-diagnostics",
- "pgweave-parser",
+ "pgzest-ast",
+ "pgzest-diagnostics",
+ "pgzest-parser",
 ]
 
 [[package]]
-name = "pgweave-macros"
+name = "pgzest-macros"
 version = "0.1.0"
 dependencies = [
- "pgweave-build",
- "pgweave-codegen",
- "pgweave-diagnostics",
- "pgweave-query",
+ "pgzest-build",
+ "pgzest-codegen",
+ "pgzest-diagnostics",
+ "pgzest-query",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
 ]
 
 [[package]]
-name = "pgweave-node"
+name = "pgzest-node"
 version = "0.1.0"
 dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "pgweave-catalog",
- "pgweave-checker",
- "pgweave-codegen",
- "pgweave-diagnostics",
- "pgweave-lint",
- "pgweave-parser",
- "pgweave-schema",
+ "pgzest-catalog",
+ "pgzest-checker",
+ "pgzest-codegen",
+ "pgzest-diagnostics",
+ "pgzest-lint",
+ "pgzest-parser",
+ "pgzest-schema",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "pgweave-oracle"
+name = "pgzest-oracle"
 version = "0.1.0"
 dependencies = [
  "insta",
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-diagnostics",
- "pgweave-macro",
- "pgweave-parser",
- "pgweave-query",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-diagnostics",
+ "pgzest-macro",
+ "pgzest-parser",
+ "pgzest-query",
+ "pgzest-schema",
+ "pgzest-sema",
  "serde_json",
  "tokio",
  "tokio-postgres",
 ]
 
 [[package]]
-name = "pgweave-parser"
+name = "pgzest-parser"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-checker",
+ "pgzest-ast",
+ "pgzest-checker",
  "serde",
  "serde_json",
  "sqlparser",
@@ -1381,27 +1381,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgweave-plugin"
+name = "pgzest-plugin"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-checker",
- "pgweave-diagnostics",
- "pgweave-schema",
+ "pgzest-ast",
+ "pgzest-checker",
+ "pgzest-diagnostics",
+ "pgzest-schema",
  "serde",
  "serde_json",
  "thiserror",
 ]
 
 [[package]]
-name = "pgweave-plugin-wasm"
+name = "pgzest-plugin-wasm"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-checker",
- "pgweave-diagnostics",
- "pgweave-plugin",
- "pgweave-schema",
+ "pgzest-ast",
+ "pgzest-checker",
+ "pgzest-diagnostics",
+ "pgzest-plugin",
+ "pgzest-schema",
  "serde",
  "serde_json",
  "thiserror",
@@ -1409,31 +1409,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgweave-project"
+name = "pgzest-project"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-checker",
- "pgweave-diagnostics",
- "pgweave-macro",
- "pgweave-parser",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-checker",
+ "pgzest-diagnostics",
+ "pgzest-macro",
+ "pgzest-parser",
+ "pgzest-schema",
+ "pgzest-sema",
  "salsa",
 ]
 
 [[package]]
-name = "pgweave-query"
+name = "pgzest-query"
 version = "0.1.0"
 dependencies = [
  "insta",
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-diagnostics",
- "pgweave-macro",
- "pgweave-parser",
- "pgweave-sema",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-diagnostics",
+ "pgzest-macro",
+ "pgzest-parser",
+ "pgzest-sema",
  "serde",
  "serde_json",
  "sha2",
@@ -1441,7 +1441,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgweave-runtime"
+name = "pgzest-runtime"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -1449,49 +1449,49 @@ dependencies = [
  "futures-util",
  "opentelemetry",
  "opentelemetry_sdk",
- "pgweave-macro",
+ "pgzest-macro",
  "serde_json",
  "tokio",
  "tokio-postgres",
 ]
 
 [[package]]
-name = "pgweave-schema"
+name = "pgzest-schema"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-diagnostics",
- "pgweave-macro",
- "pgweave-parser",
+ "pgzest-ast",
+ "pgzest-diagnostics",
+ "pgzest-macro",
+ "pgzest-parser",
  "serde",
  "serde_json",
  "toml",
 ]
 
 [[package]]
-name = "pgweave-sema"
+name = "pgzest-sema"
 version = "0.1.0"
 dependencies = [
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-diagnostics",
- "pgweave-parser",
- "pgweave-schema",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-diagnostics",
+ "pgzest-parser",
+ "pgzest-schema",
  "tokio",
  "tokio-postgres",
 ]
 
 [[package]]
-name = "pgweave-wasm"
+name = "pgzest-wasm"
 version = "0.1.0"
 dependencies = [
- "pgweave-catalog",
- "pgweave-checker",
- "pgweave-codegen",
- "pgweave-diagnostics",
- "pgweave-lint",
- "pgweave-parser",
- "pgweave-schema",
+ "pgzest-catalog",
+ "pgzest-checker",
+ "pgzest-codegen",
+ "pgzest-diagnostics",
+ "pgzest-lint",
+ "pgzest-parser",
+ "pgzest-schema",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -2798,14 +2798,14 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
- "pgweave-ast",
- "pgweave-catalog",
- "pgweave-checker",
- "pgweave-diagnostics",
- "pgweave-oracle",
- "pgweave-parser",
- "pgweave-schema",
- "pgweave-sema",
+ "pgzest-ast",
+ "pgzest-catalog",
+ "pgzest-checker",
+ "pgzest-diagnostics",
+ "pgzest-oracle",
+ "pgzest-parser",
+ "pgzest-schema",
+ "pgzest-sema",
  "serde_json",
  "sqlparser",
  "tokio",

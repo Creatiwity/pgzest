@@ -1,0 +1,21 @@
+# @procedure — like @function, but without a return value.
+#
+#   @procedure archive_org(target UUID) {
+#       UPDATE organizations SET archived = true WHERE id = target;
+#   }
+
+macro procedure
+header {name:ident}({params:parens})[ {attrs:keywords}]
+
+option language = plpgsql -> LANGUAGE {}
+flag security_definer -> SECURITY DEFINER
+
+template
+CREATE OR REPLACE PROCEDURE {name}({params})
+{options}
+AS $pgzest_macro$
+{declares}BEGIN
+{body}
+END;
+$pgzest_macro$;
+end

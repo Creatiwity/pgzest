@@ -3,7 +3,7 @@ title: "Getting started"
 description: "Try the demo, then set up a project of your own."
 ---
 
-pgweave is not published to crates.io or npm yet: you build it from the
+pgzest is not published to crates.io or npm yet: you build it from the
 repository.
 
 ## Try the demo
@@ -13,10 +13,10 @@ Prerequisites: [Rust](https://rustup.rs) (the version is pinned by
 Docker for PostgreSQL 18.
 
 ```sh
-git clone https://github.com/Creatiwity/pgweave
-cd pgweave
+git clone https://github.com/Creatiwity/pgzest
+cd pgzest
 make bootstrap   # Rust and npm dependencies, checks the tooling
-make demo        # VS Code on examples/demo, with the pgweave extension
+make demo        # VS Code on examples/demo, with the pgzest extension
 make demo-run    # the demo's Rust program against PostgreSQL 18 (Docker)
 ```
 
@@ -30,11 +30,11 @@ nothing is installed in your VS Code.
 
 ## Set up a project
 
-A project is a directory with a `pgweave.toml`; the CLI and the editor
+A project is a directory with a `pgzest.toml`; the CLI and the editor
 find it by walking up from the file they work on.
 
 ```toml
-# pgweave.toml
+# pgzest.toml
 [postgres]
 version = 18
 
@@ -56,11 +56,11 @@ directory = "prisma/migrations"
 Check the project:
 
 ```sh
-cargo build --release -p pgweave        # the CLI, in target/release/pgweave
-pgweave check schema/*.sql queries/*.sql
+cargo build --release -p pgzest        # the CLI, in target/release/pgzest
+pgzest check schema/*.sql queries/*.sql
 ```
 
-Every option: [`pgweave.toml`](../reference/config/).
+Every option: [`pgzest.toml`](../reference/config/).
 
 ## Next
 

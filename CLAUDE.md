@@ -1,4 +1,4 @@
-# pgweave (ex-pgweave)
+# pgzest (formerly pgweave, pgsql-tools)
 
 PostgreSQL language toolchain in Rust. **PLAN.md is the steering document** (principles, decisions D1–D11, phases P0–P8); SPECS.md and ARCHITECTURE.md are historical context.
 
@@ -15,7 +15,7 @@ PostgreSQL language toolchain in Rust. **PLAN.md is the steering document** (pri
 
 - The AST is normalized into logical evaluation order (FROM → JOIN → WHERE → SELECT …) before the type checker — never bypass this step
 - The type checker only sees the normalized AST, never the raw syntactic AST
-- A single entry point for schema info: today `SchemaProvider`, eventually the `pgweave-catalog` catalog (PLAN.md D2) — no direct access to DDL files from the checker
+- A single entry point for schema info: today `SchemaProvider`, eventually the `pgzest-catalog` catalog (PLAN.md D2) — no direct access to DDL files from the checker
 - Never guess a type or nullability: unknown = `Unknown` + diagnostic (PLAN.md §1)
 - Silence is a bug: everything not analyzed is reported
 - Plugins generate schema from the analysis (the reverse of Prisma's logic)

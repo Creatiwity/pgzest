@@ -1,0 +1,23 @@
+[package]
+name = "pgzest-runtime"
+version = "0.1.0"
+edition = "2024"
+description = "Execution of pgzest-generated queries on tokio-postgres (PLAN.md D8)"
+
+[dependencies]
+tokio-postgres = { workspace = true }
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio = { workspace = true }
+# `trace`: runs of the logged routines (notices), as trees of runs.
+serde_json = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+
+[features]
+trace = ["dep:serde_json", "dep:chrono"]
+opentelemetry = ["trace", "dep:opentelemetry"]
+
+[dev-dependencies]
+pgzest-macro = { path = "../pgzest-macro" }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }

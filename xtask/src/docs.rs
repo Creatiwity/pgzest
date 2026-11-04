@@ -53,11 +53,11 @@ fn workspace_root() -> PathBuf {
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
-/// `pgweave <args> --help`, built from the workspace, without the
+/// `pgzest <args> --help`, built from the workspace, without the
 /// environment the help would show (`[env: DATABASE_URL=…]`).
 fn help(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new(env!("CARGO"))
-        .args(["run", "-q", "-p", "pgweave", "--"])
+        .args(["run", "-q", "-p", "pgzest", "--"])
         .args(args)
         .arg("--help")
         .env_remove("DATABASE_URL")
@@ -67,7 +67,7 @@ fn help(root: &Path, args: &[&str]) -> Result<String, String> {
         .map_err(|e| format!("cargo run: {e}"))?;
     if !out.status.success() {
         return Err(format!(
-            "pgweave {} --help: {}",
+            "pgzest {} --help: {}",
             args.join(" "),
             String::from_utf8_lossy(&out.stderr)
         ));
@@ -100,12 +100,12 @@ fn subcommands(help: &str) -> Vec<String> {
 
 fn cli_reference(root: &Path) -> Result<String, String> {
     let mut out = format!(
-        "---\ntitle: \"CLI reference\"\ndescription: \"Every pgweave command and option, as \
-         `pgweave --help` prints them.\"\n---\n\n{NOTICE}\n\nEvery command, with its help as \
+        "---\ntitle: \"CLI reference\"\ndescription: \"Every pgzest command and option, as \
+         `pgzest --help` prints them.\"\n---\n\n{NOTICE}\n\nEvery command, with its help as \
          the binary prints it.\n"
     );
     let top = help(root, &[])?;
-    out.push_str(&format!("\n## `pgweave`\n\n```text\n{top}\n```\n"));
+    out.push_str(&format!("\n## `pgzest`\n\n```text\n{top}\n```\n"));
     let mut stack: Vec<Vec<String>> = subcommands(&top)
         .into_iter()
         .rev()
@@ -115,7 +115,7 @@ fn cli_reference(root: &Path) -> Result<String, String> {
         let args: Vec<&str> = path.iter().map(String::as_str).collect();
         let text = help(root, &args)?;
         out.push_str(&format!(
-            "\n## `pgweave {}`\n\n```text\n{text}\n```\n",
+            "\n## `pgzest {}`\n\n```text\n{text}\n```\n",
             path.join(" ")
         ));
         for sub in subcommands(&text).into_iter().rev() {
@@ -188,7 +188,7 @@ fn constants(path: &Path) -> Result<Vec<(String, Vec<Code>)>, String> {
 /// The lint rules: code and description from each rule's leading
 /// `/// L00x — summary` documentation.
 fn lint_rules(root: &Path) -> Result<Vec<Code>, String> {
-    let dir = root.join("crates/pgweave-lint/src/rules");
+    let dir = root.join("crates/pgzest-lint/src/rules");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -242,17 +242,17 @@ fn table(codes: &[Code]) -> String {
 
 fn diagnostics_reference(root: &Path) -> Result<String, String> {
     let mut out = format!(
-        "---\ntitle: \"Diagnostics\"\ndescription: \"Every diagnostic code pgweave reports, and \
+        "---\ntitle: \"Diagnostics\"\ndescription: \"Every diagnostic code pgzest reports, and \
          what it means.\"\n---\n\n{NOTICE}\n\nEvery diagnostic carries a code: the one to name in \
-         `[rules]` of `pgweave.toml` to change its severity, or in a `-- pgweave-disable-next-line \
+         `[rules]` of `pgzest.toml` to change its severity, or in a `-- pgzest-disable-next-line \
          <code>` comment to silence it at one place.\n"
     );
-    for (title, codes) in constants(&root.join("crates/pgweave-diagnostics/src/codes.rs"))? {
+    for (title, codes) in constants(&root.join("crates/pgzest-diagnostics/src/codes.rs"))? {
         out.push_str(&format!("\n## {title}\n\n{}", table(&codes)));
     }
     let macros: Vec<Code> = [
-        "crates/pgweave-macro/src/expand.rs",
-        "crates/pgweave-macro/src/instrument.rs",
+        "crates/pgzest-macro/src/expand.rs",
+        "crates/pgzest-macro/src/instrument.rs",
     ]
     .iter()
     .map(|f| constants(&root.join(f)))
@@ -262,26 +262,25 @@ fn diagnostics_reference(root: &Path) -> Result<String, String> {
     .flat_map(|(_, c)| c)
     .collect();
     out.push_str(&format!("\n## Macros\n\n{}", table(&macros)));
-    let risks: Vec<Code> = constants(&root.join("crates/pgweave-catalog/src/diff.rs"))?
+    let risks: Vec<Code> = constants(&root.join("crates/pgzest-catalog/src/diff.rs"))?
         .into_iter()
         .flat_map(|(_, c)| c)
         .filter(|c| c.code.starts_with('M'))
         .collect();
     out.push_str(&format!(
         "\n## Migration risks\n\nReported on the statements of a generated migration \
-         (`pgweave migrate create`), and listed in its `!! TO ADAPT` header when the \
+         (`pgzest migrate create`), and listed in its `!! TO ADAPT` header when the \
          migration may lose data or fail on a populated database.\n\n{}",
         table(&risks)
     ));
     out.push_str(&format!(
-        "\n## Lint\n\nStyle and practice rules (`pgweave lint`).\n\n{}",
+        "\n## Lint\n\nStyle and practice rules (`pgzest lint`).\n\n{}",
         table(&lint_rules(root)?)
     ));
-    let rls: Vec<Code> =
-        constants(&root.join("crates/pgweave-plugin/src/builtin/rls_enforcer.rs"))?
-            .into_iter()
-            .flat_map(|(_, c)| c)
-            .collect();
+    let rls: Vec<Code> = constants(&root.join("crates/pgzest-plugin/src/builtin/rls_enforcer.rs"))?
+        .into_iter()
+        .flat_map(|(_, c)| c)
+        .collect();
     out.push_str(&format!(
         "\n## Plugin `rls-enforcer`\n\nEnabled by `[plugins] builtin = {{ rls-enforcer = {{}} \
          }}`.\n\n{}",
@@ -314,7 +313,7 @@ fn literal_codes(root: &Path) -> Result<Vec<String>, String> {
                     let line = text[..text.len() - rest.len() + i].lines().count();
                     problems.push(format!(
                         "{file}:{line}: diagnostic code written as a literal: declare a documented \
-                         constant (pgweave-diagnostics/src/codes.rs)"
+                         constant (pgzest-diagnostics/src/codes.rs)"
                     ));
                 }
                 rest = &rest[i + pattern.len()..];

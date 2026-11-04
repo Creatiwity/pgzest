@@ -82,18 +82,18 @@ rule varying with timing would be a trap. On several tables —
 `on (users, organizations)` — one function and one trigger are generated
 per table.
 
-Inside these bodies, pgweave adds what plain PL/pgSQL lacks:
+Inside these bodies, pgzest adds what plain PL/pgSQL lacks:
 [isolated temp tables, snapshots and run logs](../observability/).
 
 ## Expanding
 
-`pgweave check` and the editor expand on their own. To produce plain SQL
+`pgzest check` and the editor expand on their own. To produce plain SQL
 for `psql` or a deployment:
 
 ```sh
-pgweave macros               # the available macros
-pgweave build q.pgsql        # prints the expansion
-pgweave build q.pgsql --out-dir gen
+pgzest macros               # the available macros
+pgzest build q.pgsql        # prints the expansion
+pgzest build q.pgsql --out-dir gen
 ```
 
 In VS Code, **⌘⌥E** (`Ctrl+Alt+E`) opens the expansion of the macro under

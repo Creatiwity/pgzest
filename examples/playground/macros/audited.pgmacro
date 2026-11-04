@@ -1,5 +1,5 @@
 # Example of a custom macro. The format is the same as the bundled macros —
-# see `pgweave macros --verbose`.
+# see `pgzest macros --verbose`.
 #
 # @audited adds the audit columns repeated on every table:
 #

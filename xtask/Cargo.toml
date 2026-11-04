@@ -2,18 +2,18 @@
 name = "xtask"
 version = "0.1.0"
 edition = "2024"
-description = "pgweave development tasks (cargo xtask ...)"
+description = "pgzest development tasks (cargo xtask ...)"
 publish = false
 
 [dependencies]
-pgweave-ast = { path = "../crates/pgweave-ast" }
-pgweave-catalog = { path = "../crates/pgweave-catalog" }
-pgweave-sema = { path = "../crates/pgweave-sema" }
-pgweave-checker = { path = "../crates/pgweave-checker" }
-pgweave-diagnostics = { workspace = true }
-pgweave-oracle = { path = "../crates/pgweave-oracle" }
-pgweave-parser = { path = "../crates/pgweave-parser" }
-pgweave-schema = { path = "../crates/pgweave-schema" }
+pgzest-ast = { path = "../crates/pgzest-ast" }
+pgzest-catalog = { path = "../crates/pgzest-catalog" }
+pgzest-sema = { path = "../crates/pgzest-sema" }
+pgzest-checker = { path = "../crates/pgzest-checker" }
+pgzest-diagnostics = { workspace = true }
+pgzest-oracle = { path = "../crates/pgzest-oracle" }
+pgzest-parser = { path = "../crates/pgzest-parser" }
+pgzest-schema = { path = "../crates/pgzest-schema" }
 clap = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

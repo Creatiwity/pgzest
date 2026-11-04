@@ -4,7 +4,7 @@
     {
       // F5: builds the extension, opens a development VS Code window and
       // loads examples/playground/ in it directly — a real project with
-      // schema/, migrations/ and pgweave.toml, so you do not have to look
+      // schema/, migrations/ and pgzest.toml, so you do not have to look
       // for a folder by hand.
       "name": "Run Extension (playground)",
       "type": "extensionHost",

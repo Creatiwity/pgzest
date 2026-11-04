@@ -1,9 +1,9 @@
 ---
-title: "pgweave"
-description: "Write plain PostgreSQL. pgweave checks it the way PostgreSQL would, and turns it into typed code, migrations and observable routines."
+title: "pgzest"
+description: "Raw PostgreSQL, with zest. pgzest checks it the way PostgreSQL would, and turns it into typed code, migrations and observable routines."
 template: splash
 hero:
-  tagline: "Write plain PostgreSQL. pgweave checks it the way PostgreSQL would, and turns it into typed Rust, migrations and observable routines — without a database connection."
+  tagline: "Raw PostgreSQL, with zest. Write plain SQL; pgzest checks it the way PostgreSQL would, and turns it into typed Rust, migrations and observable routines — without a database connection."
   image:
     file: ../../assets/mark.svg
   actions:
@@ -14,7 +14,7 @@ hero:
       link: how-it-works/
       variant: secondary
     - text: GitHub
-      link: https://github.com/Creatiwity/pgweave
+      link: https://github.com/Creatiwity/pgzest
       icon: external
       variant: minimal
 ---
@@ -31,7 +31,7 @@ FROM restaurants
 WHERE slug = $slug;
 ```
 
-`slug` is `UNIQUE`, `opened_on` is nullable: pgweave reads it from the
+`slug` is `UNIQUE`, `opened_on` is nullable: pgzest reads it from the
 schema, and the query becomes a function returning at most one row.
 
 ```rust
@@ -45,14 +45,14 @@ pub struct RestaurantBySlugRow {
 pub async fn restaurant_by_slug<C: GenericClient + ?Sized>(
     client: &C,
     params: RestaurantBySlugParams<'_>,
-) -> Result<Option<RestaurantBySlugRow>, pgweave_runtime::Error>;
+) -> Result<Option<RestaurantBySlugRow>, pgzest_runtime::Error>;
 ```
 
 A mistake in the SQL fails `cargo build`, at its line in the `.sql` file.
 
 ## Checked against PostgreSQL itself
 
-pgweave rebuilds the catalog by replaying your schema or migrations, then
+pgzest rebuilds the catalog by replaying your schema or migrations, then
 types every query as PostgreSQL would. An oracle runs the same queries on
 a real PostgreSQL 18 and compares:
 
@@ -82,7 +82,7 @@ a real PostgreSQL 18 and compares:
     `@function`, `@trigger` without the boilerplate, expanded to plain SQL.
   </Card>
   <Card title="Declarative schema, generated migrations" icon="list-format">
-    Edit the schema, `pgweave migrate create` writes the migration and
+    Edit the schema, `pgzest migrate create` writes the migration and
     verifies it by replay. Prisma and Diesel layouts read as is.
   </Card>
   <Card title="Observable routines" icon="magnifier">

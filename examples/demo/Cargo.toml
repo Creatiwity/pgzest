@@ -1,13 +1,13 @@
 [package]
-name = "pgweave-demo"
+name = "pgzest-demo"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "pgweave demo: named SQL queries compiled into typed Rust, run against PostgreSQL"
+description = "pgzest demo: named SQL queries compiled into typed Rust, run against PostgreSQL"
 
 [dependencies]
-pgweave-runtime = { path = "../../crates/pgweave-runtime", features = ["trace"] }
-pgweave-macros = { path = "../../crates/pgweave-macros" }
+pgzest-runtime = { path = "../../crates/pgzest-runtime", features = ["trace"] }
+pgzest-macros = { path = "../../crates/pgzest-macros" }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, features = ["with-time-0_3", "with-uuid-1"] }
 time = "0.3"

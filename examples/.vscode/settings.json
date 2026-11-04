@@ -1,5 +1,5 @@
 {
-  "pgweave.schemaFile": "/Users/jblatecky/dev/lab/pgweave-tools/examples/schema/",
+  "pgzest.schemaFile": "/Users/jblatecky/dev/lab/pgzest-tools/examples/schema/",
   "files.associations": {
     "*.sql": "pgsql",
     "*.pgsql": "pgsql"

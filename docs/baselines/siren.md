@@ -1,6 +1,6 @@
 # Corpus `siren` — analysis rate
 
-> Generated on 2026-11-03 by `cargo xtask corpus siren` (pgweave `d49e938`).
+> Generated on 2026-11-03 by `cargo xtask corpus siren` (pgzest `d49e938`).
 > Files selected: Diesel: `*/up.sql`, sorted by timestamped directory.
 > Aggregates only: no identifier from the corpus appears here.
 
@@ -33,7 +33,7 @@ Files with at least one error: 0/21. Statements missing from the index: 0.
 
 PostgreSQL 18: 21/21 migrations applied on a fresh database.
 
-## Catalog rebuilt by pgweave
+## Catalog rebuilt by pgzest
 
 Replay of the migrations in order on the `postgres@18` catalog (extension packs included).
 
@@ -59,7 +59,7 @@ Comparison with the real catalog (project objects, excluding extension members; 
 
 ## Import (declarative schema)
 
-The rebuilt catalog, exported as SQL (`pgweave_catalog::dump`) and applied to a fresh database, compared with the real catalog of the migrations:
+The rebuilt catalog, exported as SQL (`pgzest_catalog::dump`) and applied to a fresh database, compared with the real catalog of the migrations:
 
 | Objects | Real | Identical | Different | Missing | Extra |
 |---|--:|--:|--:|--:|--:|
@@ -79,7 +79,7 @@ Text-exact, according to PostgreSQL (`format_type`, `pg_get_*def`: defaults, ind
 
 ## Generated queries (oracle)
 
-Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations' database and described by `pgweave-sema` (parameter types, column names and types; a refusal on both sides counts as agreement). Queries from the bodies of current routines are prepared with their variables as typed parameters (`PREPARE`), the way PL/pgSQL executes them; only column types are compared:
+Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations' database and described by `pgzest-sema` (parameter types, column names and types; a refusal on both sides counts as agreement). Queries from the bodies of current routines are prepared with their variables as typed parameters (`PREPARE`), the way PL/pgSQL executes them; only column types are compared:
 
 | Probe | Total | Identical |
 |---|--:|--:|
@@ -88,7 +88,7 @@ Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations'
 | WHERE column = $1 | 232 | 232 |
 | routine body query | 10 | 10 |
 
-Body queries not probed (not analyzed by pgweave, or variable without a position in the AST): 0.
+Body queries not probed (not analyzed by pgzest, or variable without a position in the AST): 0.
 
 ## Time (indicative, machine-dependent)
 
@@ -96,4 +96,4 @@ Body queries not probed (not analyzed by pgweave, or variable without a position
 |---|--:|
 | Parse all files | 29 ms |
 | Check all files | 100 ms |
-| Replay on the catalog (`pgweave-catalog`) | 40 ms |
+| Replay on the catalog (`pgzest-catalog`) | 40 ms |

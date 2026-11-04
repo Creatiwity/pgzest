@@ -1,26 +1,33 @@
-/* pgweave palette: ink blue ground, a blue thread (SQL) and an amber one
-   (the typed code it becomes). Shared with the README visuals. */
+/* pgzest palette: a warm dark ground, lemon (the raw SQL) and orange (the
+   zest: the typed code it becomes). Shared with the README visuals. */
 
 :root {
-  --sl-color-accent-low: #10263c;
-  --sl-color-accent: #5ba4e6;
-  --sl-color-accent-high: #cfe5fa;
-  --pgw-amber: #f2a65a;
+  --sl-color-accent-low: #3a2a0f;
+  --sl-color-accent: #ffb547;
+  --sl-color-accent-high: #ffe7b8;
+  --pgz-zest: #ff9f1c;
 }
 
-/* Dark theme only: the page ground is the ink blue of the visuals. */
+/* Dark theme only: warm grays and the ground of the visuals. */
 :root[data-theme='dark'] {
-  --sl-color-black: #0e1621;
+  --sl-color-white: #fff8ec;
+  --sl-color-gray-1: #f3ebdc;
+  --sl-color-gray-2: #d6cbb8;
+  --sl-color-gray-3: #a89c86;
+  --sl-color-gray-4: #6f6553;
+  --sl-color-gray-5: #3d362a;
+  --sl-color-gray-6: #262119;
+  --sl-color-black: #17140f;
 }
 
 :root[data-theme='light'] {
-  --sl-color-accent-low: #d6e8f8;
-  --sl-color-accent: #1f6fb8;
-  --sl-color-accent-high: #0e2f52;
-  --pgw-amber: #b0621c;
+  --sl-color-accent-low: #fdecc8;
+  --sl-color-accent: #b45309;
+  --sl-color-accent-high: #5a2d05;
+  --pgz-zest: #b45309;
 }
 
-/* The second thread, used sparingly: emphasis in the landing page. */
-.pgw-amber {
-  color: var(--pgw-amber);
+/* The zest, used sparingly: emphasis in the landing page. */
+.pgz-zest {
+  color: var(--pgz-zest);
 }

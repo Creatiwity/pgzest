@@ -1,5 +1,5 @@
 [package]
-name = "pgweave-wasm"
+name = "pgzest-wasm"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,13 +7,13 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pgweave-catalog = { path = "../../crates/pgweave-catalog" }
-pgweave-parser = { path = "../../crates/pgweave-parser" }
-pgweave-checker = { path = "../../crates/pgweave-checker" }
-pgweave-diagnostics = { workspace = true }
-pgweave-schema = { path = "../../crates/pgweave-schema" }
-pgweave-lint = { path = "../../crates/pgweave-lint" }
-pgweave-codegen = { path = "../../crates/pgweave-codegen" }
+pgzest-catalog = { path = "../../crates/pgzest-catalog" }
+pgzest-parser = { path = "../../crates/pgzest-parser" }
+pgzest-checker = { path = "../../crates/pgzest-checker" }
+pgzest-diagnostics = { workspace = true }
+pgzest-schema = { path = "../../crates/pgzest-schema" }
+pgzest-lint = { path = "../../crates/pgzest-lint" }
+pgzest-codegen = { path = "../../crates/pgzest-codegen" }
 wasm-bindgen = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

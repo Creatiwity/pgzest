@@ -1,6 +1,6 @@
--- Macros. Compile with:  pgweave build queries/06-macros.pgsql
+-- Macros. Compile with:  pgzest build queries/06-macros.pgsql
 --
--- This file is .pgsql: macros live here, and `pgweave build` turns it into
+-- This file is .pgsql: macros live here, and `pgzest build` turns it into
 -- standard .sql, readable by psql and pg_dump.
 
 -- @function: the function from schema/functions/user_count.sql, in 5 lines

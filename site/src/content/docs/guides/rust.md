@@ -4,13 +4,13 @@ description: "Named queries and inline SQL compiled into typed Rust over tokio-p
 ---
 
 Full example:
-[`examples/rust-service`](https://github.com/Creatiwity/pgweave/tree/main/examples/rust-service),
+[`examples/rust-service`](https://github.com/Creatiwity/pgzest/tree/main/examples/rust-service),
 run against PostgreSQL 18 in CI.
 
 A project's SQL queries become typed Rust functions, at compile time and
 **without a database connection**. Types come from the catalog that
-pgweave rebuilds by replaying the project's schema and migrations
-(`pgweave.toml`). Execution goes through `tokio-postgres`.
+pgzest rebuilds by replaying the project's schema and migrations
+(`pgzest.toml`). Execution goes through `tokio-postgres`.
 
 Three ways to write a query:
 
@@ -24,7 +24,7 @@ Three ways to write a query:
 ## Setup
 
 ```toml
-# pgweave.toml
+# pgzest.toml
 [postgres]
 version = 18
 
@@ -38,8 +38,8 @@ directory = "queries"
 ```toml
 # Cargo.toml
 [dependencies]
-pgweave-runtime = { path = "…/crates/pgweave-runtime" }
-pgweave-macros  = { path = "…/crates/pgweave-macros" }   # queries!, query!
+pgzest-runtime = { path = "…/crates/pgzest-runtime" }
+pgzest-macros  = { path = "…/crates/pgzest-macros" }   # queries!, query!
 tokio-postgres  = { version = "0.7", features = ["with-time-0_3", "with-uuid-1"] }
 time = "0.3"      # dates (or chrono, see below)
 uuid = "1"        # if the schema has uuids
@@ -47,7 +47,7 @@ uuid = "1"        # if the schema has uuids
 
 ```rust
 // src/queries.rs — all content is generated at compile time
-pgweave_macros::queries!("queries");
+pgzest_macros::queries!("queries");
 ```
 
 ```rust
@@ -60,7 +60,7 @@ pub mod queries;
 PostgreSQL enums at the root) or a file (its queries at the call site).
 Queries can live close to the code that uses them: declare their directory
 in `[queries] include`, then
-`pgweave_macros::queries!("src/order/queries");` in `src/order/mod.rs`.
+`pgzest_macros::queries!("src/order/queries");` in `src/order/mod.rs`.
 Each file read is tracked; a file **added** to a directory is only seen
 when the module calling the macro is recompiled.
 
@@ -68,7 +68,7 @@ when the module calling the macro is recompiled.
 
 ```rust
 // src/inline.rs
-pgweave_macros::sql! {
+pgzest_macros::sql! {
     /// A restaurant's dishes, from cheapest to most expensive.
     pub dishes_by_price: many -> crate::queries::menu::DishCardRow,
     r#"SELECT @dish_card(d) FROM dishes d
@@ -89,12 +89,12 @@ pgweave_macros::sql! {
   (the macro's input changes); "go to definition" leads to the name
   written in the macro.
 
-In VS Code, the pgweave extension treats the string like a query file: SQL
+In VS Code, the pgzest extension treats the string like a query file: SQL
 highlighting (`$param`, `@fragment` included), diagnostics positioned in
 the string, hover (descriptor on the name, a column's type, fragment),
 completion. It disables rust-analyzer's semantic tokens on strings
 (`rust-analyzer.semanticHighlighting.strings.enable`), which would cover
-the highlighting. Outside a pgweave project (`pgweave.toml`), a `query!`
+the highlighting. Outside a pgzest project (`pgzest.toml`), a `query!`
 with the same name (sqlx…) is not analyzed.
 
 ### Enums: `#[types]`
@@ -104,14 +104,14 @@ queries in the same module would define it twice). The project's enums are
 generated once, in a declared module:
 
 ```toml
-# pgweave.toml
+# pgzest.toml
 [rust]
 types = "crate::db"
 ```
 
 ```rust
 // src/lib.rs
-#[pgweave_macros::types]
+#[pgzest_macros::types]
 pub mod db {}
 // crate::db::DishKind, crate::db::OrderStatus…
 ```
@@ -131,16 +131,16 @@ Macro-free variant, from `build.rs` (the whole `[queries] directory`,
 including files added to it, tracked by Cargo):
 
 ```rust
-// build.rs  ([build-dependencies] pgweave-build)
+// build.rs  ([build-dependencies] pgzest-build)
 fn main() {
-    pgweave_build::Builder::new()
+    pgzest_build::Builder::new()
         .generate()
-        .unwrap_or_else(|e| panic!("pgweave: {e}"));
+        .unwrap_or_else(|e| panic!("pgzest: {e}"));
 }
 
 // src/lib.rs
 pub mod queries {
-    include!(concat!(env!("OUT_DIR"), "/pgweave_queries.rs"));
+    include!(concat!(env!("OUT_DIR"), "/pgzest_queries.rs"));
 }
 ```
 
@@ -159,8 +159,8 @@ directory = "packages/models/prisma/migrations"
 A query the analysis cannot describe **fails the build**, with its
 position in the SQL file. Changing the schema, a migration or a query
 reruns the generation: rust-analyzer follows, with no watcher to start.
-`pgweave describe --rust queries/x.sql` prints the generated code without
-compiling; `pgweave describe` alone prints the JSON descriptors.
+`pgzest describe --rust queries/x.sql` prints the generated code without
+compiling; `pgzest describe` alone prints the JSON descriptors.
 
 ## Named queries
 
@@ -183,7 +183,7 @@ pub struct PageByIdRow {
     pub published_on: Option<time::Date>, // nullable column → Option
 }
 pub async fn page_by_id<C: GenericClient + ?Sized>(client: &C, params: PageByIdParams)
-    -> Result<Option<PageByIdRow>, pgweave_runtime::Error>;
+    -> Result<Option<PageByIdRow>, pgzest_runtime::Error>;
 ```
 
 `client` is anything implementing `GenericClient`: client, transaction,
@@ -238,8 +238,8 @@ A type missing from the table is a **refusal**, never a fallback: declare
 it in `build.rs`.
 
 ```rust
-pgweave_build::Builder::new()
-    .temporal(pgweave_codegen::rust::Temporal::Chrono)
+pgzest_build::Builder::new()
+    .temporal(pgzest_codegen::rust::Temporal::Chrono)
     .type_override("public.geometry", "geo_types::Geometry<f64>")
     .generate()
 ```
@@ -280,12 +280,12 @@ staging, `COPY` and an `INSERT … ON CONFLICT` switchover in a transaction.
 ## `query!`
 
 ```rust
-let title = pgweave_macros::query!("SELECT title FROM pages WHERE id = $id", id = id)
+let title = pgzest_macros::query!("SELECT title FROM pages WHERE id = $id", id = id)
     .fetch(&client)          // optional → Option<Row>
     .await?
     .map(|r| r.title);
 
-let n = pgweave_macros::query!(
+let n = pgzest_macros::query!(
     "UPDATE pages SET title = $title WHERE author = $author",
     title = "Hello",
     author = author,
@@ -309,6 +309,6 @@ is included for recompilation, and an error is positioned inside it
 
 ## Errors
 
-`pgweave_runtime::Error`: `Db` (PostgreSQL or connection error),
+`pgzest_runtime::Error`: `Db` (PostgreSQL or connection error),
 `RowCount` (number of rows contrary to the cardinality), `Decode`
 (undecodable value), `Io` (reading `COPY` data). Each one names the query.

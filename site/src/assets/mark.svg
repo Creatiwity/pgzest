@@ -1,10 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="t">
-  <title id="t">pgweave</title>
-  <rect width="64" height="64" rx="14" fill="#0E1621"/>
-  <!-- Two threads woven: SQL (blue) and the typed code (amber), crossing
-       over and under. -->
-  <path d="M12 22 C 24 22, 26 42, 38 42 S 52 22, 52 22" fill="none" stroke="#5BA4E6" stroke-width="6" stroke-linecap="round"/>
-  <path d="M12 42 C 24 42, 26 22, 38 22" fill="none" stroke="#F2A65A" stroke-width="6" stroke-linecap="round"/>
-  <path d="M38 22 C 46 22, 48 42, 52 42" fill="none" stroke="#0E1621" stroke-width="10" stroke-linecap="round"/>
-  <path d="M38 22 C 46 22, 48 42, 52 42" fill="none" stroke="#F2A65A" stroke-width="6" stroke-linecap="round"/>
+  <title id="t">pgzest</title>
+  <rect width="64" height="64" rx="14" fill="#17140F"/>
+  <!-- A citrus slice: the zest (rind), the pith, the segments of juice. -->
+  <circle cx="32" cy="32" r="24" fill="#FF9F1C"/>
+  <circle cx="32" cy="32" r="20.5" fill="#FFF1C9"/>
+  <circle cx="32" cy="32" r="18.5" fill="#FFD43B"/>
+  <g stroke="#FFF1C9" stroke-width="2.4" stroke-linecap="round">
+    <path d="M32 32 V13.5 M32 32 V50.5 M32 32 H13.5 M32 32 H50.5"/>
+    <path d="M32 32 L18.9 18.9 M32 32 L45.1 45.1 M32 32 L45.1 18.9 M32 32 L18.9 45.1"/>
+  </g>
+  <circle cx="32" cy="32" r="3" fill="#FFF1C9"/>
 </svg>

@@ -12,17 +12,17 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
-use pgweave_catalog::model::{
+use pgzest_catalog::model::{
     Arg, ArgMode, Attribute, Cast, CastContext, CastMethod, CheckConstraint, Column, OpClass,
     Operator, Persistence, Relation, RelationKind, Routine, RoutineKind, Schema, TypeDef, TypeKind,
     Volatility,
 };
-use pgweave_catalog::pack::{EXTSCHEMA, PACK_FORMAT};
-use pgweave_catalog::{Contributor, Pack, QName, TypeRef};
+use pgzest_catalog::pack::{EXTSCHEMA, PACK_FORMAT};
+use pgzest_catalog::{Contributor, Pack, QName, TypeRef};
 use tokio_postgres::{Client, NoTls};
 
 /// Work schema where the extension is created.
-const WORK_SCHEMA: &str = "pgweave_ext";
+const WORK_SCHEMA: &str = "pgzest_ext";
 
 pub fn run(
     url: Option<String>,
@@ -31,8 +31,8 @@ pub fn run(
     out: Option<PathBuf>,
 ) -> Result<(), String> {
     let url = url
-        .or_else(|| std::env::var("PGWEAVE_ORACLE_URL").ok())
-        .ok_or("--pg-url or PGWEAVE_ORACLE_URL required")?;
+        .or_else(|| std::env::var("PGZEST_ORACLE_URL").ok())
+        .ok_or("--pg-url or PGZEST_ORACLE_URL required")?;
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -41,7 +41,7 @@ pub fn run(
     let json = pack.to_json();
     let path = out.unwrap_or_else(|| {
         PathBuf::from(format!(
-            "crates/pgweave-catalog/packs/{}-{}.json",
+            "crates/pgzest-catalog/packs/{}-{}.json",
             pack.contributor.name, pack.contributor.version
         ))
     });
@@ -85,7 +85,7 @@ async fn generate(
 ) -> Result<Pack, String> {
     let base: tokio_postgres::Config = url.parse().map_err(|e| format!("URL: {e}"))?;
     let admin = connect(&base).await?;
-    let db = format!("pgweave_catalog_{}", std::process::id());
+    let db = format!("pgzest_catalog_{}", std::process::id());
     admin
         .batch_execute(&format!("CREATE DATABASE \"{db}\" TEMPLATE template0"))
         .await

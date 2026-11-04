@@ -3,7 +3,7 @@
 //! the string reruns the analysis, in the editor as well as at compile
 //! time.
 
-pgweave_macros::sql! {
+pgzest_macros::sql! {
     /// A restaurant's dishes, from cheapest to most expensive. Same row as
     /// the dish card of `queries/menu.sql`: the struct is reused, and the
     /// column compatibility checked at compile time.
@@ -14,7 +14,7 @@ pgweave_macros::sql! {
        ORDER BY d.price, d.name"#
 }
 
-pgweave_macros::sql! {
+pgzest_macros::sql! {
     /// Restaurants open since a date (inferred cardinality: `many`).
     pub opened_since,
     r#"SELECT slug, name, opened_on

@@ -5,15 +5,15 @@ The figures below date from 2026-11-01 (commit `62f1e61`).
 
 | Report | What it measures | How to regenerate it |
 |---|---|---|
-| [`crates/pgweave-oracle/tests/snapshots/oracle__report.snap`](../../crates/pgweave-oracle/tests/snapshots/oracle__report.snap) | Parameter and column types, checked against PostgreSQL 18's `Prepare`, on the public corpus `crates/pgweave-oracle/cases` | `make oracle` (check), `make oracle-accept` (update) |
-| [`mesalia.md`](mesalia.md) | Analysis rate and false positives on Mesalia's 220 Prisma migrations (private corpus, aggregates without names) | `PGWEAVE_CORPUS_MESALIA=… cargo xtask corpus mesalia --layout prisma --out docs/baselines/mesalia.md` (with `make oracle-up` for the replay on PG 18) |
+| [`crates/pgzest-oracle/tests/snapshots/oracle__report.snap`](../../crates/pgzest-oracle/tests/snapshots/oracle__report.snap) | Parameter and column types, checked against PostgreSQL 18's `Prepare`, on the public corpus `crates/pgzest-oracle/cases` | `make oracle` (check), `make oracle-accept` (update) |
+| [`mesalia.md`](mesalia.md) | Analysis rate and false positives on Mesalia's 220 Prisma migrations (private corpus, aggregates without names) | `PGZEST_CORPUS_MESALIA=… cargo xtask corpus mesalia --layout prisma --out docs/baselines/mesalia.md` (with `make oracle-up` for the replay on PG 18) |
 
-## Oracle: what pgweave claims vs PostgreSQL 18
+## Oracle: what pgzest claims vs PostgreSQL 18
 
 - **Columns: 73/112 match (65 %). Parameters: 0/29 (0 %)** — no parameter
   type inference exists.
 - **Silent fallback to `text`**: when a column's type is not inferred,
-  `pgweave-semantic` claims `text` (numeric `coalesce`, `max` of a
+  `pgzest-semantic` claims `text` (numeric `coalesce`, `max` of a
   `timestamptz`, `array_length`, scalar subquery, aggregate in a CTE…).
   This is exactly what the "never guess" principle forbids: a generator
   would produce a wrong type without knowing it. To be replaced by an
@@ -71,9 +71,9 @@ The figures below date from 2026-11-01 (commit `62f1e61`).
 | Mesalia: routine body queries identical to PG | — | 58/58 |
 | siren: generated / body queries identical to PG | — | 476/476 · 10/10 |
 
-- `check` goes through `pgweave-sema`: each migration is checked against
+- `check` goes through `pgzest-sema`: each migration is checked against
   the catalog replayed up to it, a PL/pgSQL body against the final state.
-- The old analyzer (`pgweave-semantic`, and its silent fallback to
+- The old analyzer (`pgzest-semantic`, and its silent fallback to
   `text`) has been removed.
 
 ---

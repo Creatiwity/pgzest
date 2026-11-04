@@ -1,22 +1,22 @@
-# pgweave playground
+# pgzest playground
 
 Demo project. Opened automatically by **F5** from `editors/vscode/`.
 
 ## Running
 
 ```bash
-make lsp                 # builds the LSP server (target/debug/pgweave-lsp)
+make lsp                 # builds the LSP server (target/debug/pgzest-lsp)
 code editors/vscode      # then F5 → "Run Extension (playground)"
 ```
 
-The extension finds `target/debug/pgweave-lsp` on its own. An
+The extension finds `target/debug/pgzest-lsp` on its own. An
 "Extension Development Host" window opens on this folder.
 
 From the CLI, in this folder:
 
 ```bash
-pgweave check queries/02-errors.sql
-pgweave lint  queries/05-lint.sql
+pgzest check queries/02-errors.sql
+pgzest lint  queries/05-lint.sql
 ```
 
 ## What to look at
@@ -27,7 +27,7 @@ pgweave lint  queries/05-lint.sql
 | `queries/02-errors.sql` | Nonexistent column and table. The hint lists the available columns. |
 | `queries/03-directives.sql` | Comment directives, ESLint-style. Only the last `SELECT` should be underlined. |
 | `queries/04-tolerance-parser.sql` | An unreadable statement is reported as a warning without interrupting the analysis of the rest. |
-| `queries/05-lint.sql` | Lint rules. **Invisible with `pgweave check`**: the linter is a separate command. Visible in VS Code, where the LSP runs both. |
+| `queries/05-lint.sql` | Lint rules. **Invisible with `pgzest check`**: the linter is a separate command. Visible in VS Code, where the LSP runs both. |
 | `queries/06-macros.pgsql` | Macros. Analyzed directly by `check` and by the LSP — no need for `build`. Cursor in a macro + **⌘⌥E** to see its expansion. Contains a multi-table trigger and a custom macro (`macros/audited.pgmacro`). |
 
 Also try:
@@ -36,13 +36,13 @@ Also try:
 - **Completion** after `SELECT ` or after `u.` in a query on `users`.
 - Edit `schema/tables/users.sql` (add a column), then go back to
   `queries/01-ok.sql`: the index is rebuilt.
-- Set `unparsable = "error"` in `pgweave.toml`: the warning in
+- Set `unparsable = "error"` in `pgzest.toml`: the warning in
   `04-tolerance-parser.sql` becomes an error.
 
 ## Layout
 
 ```
-pgweave.toml   ← defines the scope, the tolerance, the severities
+pgzest.toml   ← defines the scope, the tolerance, the severities
 schema/
   tables/                 ← indexed recursively…
   functions/              ← …subdirectories included

@@ -1,4 +1,4 @@
-//! pgweave development tasks: `cargo xtask <command>`.
+//! pgzest development tasks: `cargo xtask <command>`.
 
 mod catalog_compare;
 mod catalog_gen;
@@ -13,7 +13,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "cargo xtask", about = "pgweave development tasks")]
+#[command(name = "cargo xtask", about = "pgzest development tasks")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -24,8 +24,8 @@ enum Command {
     /// "Analysis rate" report on an external migration corpus.
     ///
     /// The corpus is never copied into the repository: its path comes from
-    /// `--path` or from the `PGWEAVE_CORPUS_<NAME>` variable (e.g.
-    /// `PGWEAVE_CORPUS_MESALIA`). The report only contains aggregates and
+    /// `--path` or from the `PGZEST_CORPUS_<NAME>` variable (e.g.
+    /// `PGZEST_CORPUS_MESALIA`). The report only contains aggregates and
     /// statement shapes with names masked.
     Corpus {
         /// Corpus name (used for the title and the environment variable).
@@ -37,7 +37,7 @@ enum Command {
         #[arg(long, value_enum, default_value = "flat")]
         layout: corpus::Layout,
         /// Test PostgreSQL server on which to replay the migrations
-        /// (default: `PGWEAVE_ORACLE_URL`). A database is created then dropped there.
+        /// (default: `PGZEST_ORACLE_URL`). A database is created then dropped there.
         #[arg(long)]
         pg_url: Option<String>,
         /// Markdown file to write (default: standard output).
@@ -53,7 +53,7 @@ enum Command {
     /// Without `--extension`: `postgres@<major>`. With it: the delta brought by
     /// `CREATE EXTENSION`. A temporary database is created then dropped.
     CatalogGen {
-        /// PostgreSQL server (default: `PGWEAVE_ORACLE_URL`).
+        /// PostgreSQL server (default: `PGZEST_ORACLE_URL`).
         #[arg(long)]
         pg_url: Option<String>,
         /// Extension whose pack to generate.
@@ -62,16 +62,16 @@ enum Command {
         /// Extension version (default: the server's default one).
         #[arg(long)]
         version: Option<String>,
-        /// File to write (default: `crates/pgweave-catalog/packs/<name>-<version>.json`).
+        /// File to write (default: `crates/pgzest-catalog/packs/<name>-<version>.json`).
         #[arg(long)]
         out: Option<PathBuf>,
     },
     /// Migration oracle of a declarative project: applied migrations and the
     /// declarative schema must yield two identical databases (P7).
     MigrateOracle {
-        /// Project directory (`pgweave.toml`).
+        /// Project directory (`pgzest.toml`).
         project: PathBuf,
-        /// PostgreSQL server (default: `PGWEAVE_ORACLE_URL`).
+        /// PostgreSQL server (default: `PGZEST_ORACLE_URL`).
         #[arg(long)]
         pg_url: Option<String>,
         /// Prints the gaps, names included (standard error, local work).

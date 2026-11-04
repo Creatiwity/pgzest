@@ -2,7 +2,7 @@
 //! relation, `SELECT *` (column types and names), then per column a
 //! `= $1` filter and, for a table, a `VALUES ($1)` insert (parameter types,
 //! generated columns). Prepared by PostgreSQL on the database of the
-//! replayed migrations, and described by `pgweave-sema`.
+//! replayed migrations, and described by `pgzest-sema`.
 //!
 //! The report only publishes aggregates; the detail (relation names) only
 //! goes to standard error, with `--details`.
@@ -10,9 +10,9 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use pgweave_catalog::model::{RelationKind, quote_sql_ident};
-use pgweave_catalog::{Catalog, QName, SearchPath};
-use pgweave_sema::{Analyzer, Ty, TypeSystem};
+use pgzest_catalog::model::{RelationKind, quote_sql_ident};
+use pgzest_catalog::{Catalog, QName, SearchPath};
+use pgzest_sema::{Analyzer, Ty, TypeSystem};
 
 /// A probe: its family and its SQL.
 pub struct Probe {
@@ -30,7 +30,7 @@ pub struct TypedProbe {
     /// SQL run beforehand, in a transaction rolled back afterwards: the
     /// body's temporary tables, transition tables.
     pub setup: Vec<String>,
-    /// Description by pgweave: column types, qualified.
+    /// Description by pgzest: column types, qualified.
     pub expected: Result<Described, String>,
 }
 
@@ -106,12 +106,12 @@ pub fn generate(cat: &Catalog) -> Vec<Probe> {
 /// Probes for routine body queries: each variable reference becomes a `$n`
 /// parameter of the type established by sema, as PL/pgSQL passes it to the
 /// query it prepares.
-/// Also returns the number of unprobed queries: not analyzed by pgweave
+/// Also returns the number of unprobed queries: not analyzed by pgzest
 /// (agreeing on a refusal would prove nothing there), or with a variable
 /// reference that has no position in the AST.
 pub fn body_probes(
     cat: &Catalog,
-    queries: Vec<pgweave_sema::check::BodyQuery>,
+    queries: Vec<pgzest_sema::check::BodyQuery>,
 ) -> (Vec<Probe>, usize) {
     let ts = TypeSystem::new(cat);
     let mut out = Vec::new();
@@ -166,11 +166,11 @@ fn qualified_type(t: &Ty) -> String {
 /// SQL of the query, with variables replaced by `$1`, `$2`... (one per
 /// position), and the types of those parameters. `None` if a reference has
 /// no position in the AST.
-fn substitute(q: &pgweave_sema::check::BodyQuery) -> Option<(String, Vec<Ty>)> {
+fn substitute(q: &pgzest_sema::check::BodyQuery) -> Option<(String, Vec<Ty>)> {
     use serde_json::Value;
     let mut refs: Vec<(u32, u32, Ty)> = Vec::new();
     for (span, ty) in &q.var_refs {
-        if *span == pgweave_ast::Span::DUMMY {
+        if *span == pgzest_ast::Span::DUMMY {
             return None;
         }
         if !refs
@@ -221,8 +221,8 @@ fn substitute(q: &pgweave_sema::check::BodyQuery) -> Option<(String, Vec<Ty>)> {
     if replaced.iter().any(|r| !r) {
         return None;
     }
-    let stmt: pgweave_ast::Statement = serde_json::from_value(json).ok()?;
-    let sql = pgweave_ast::emit::emit_statement(&stmt);
+    let stmt: pgzest_ast::Statement = serde_json::from_value(json).ok()?;
+    let sql = pgzest_ast::emit::emit_statement(&stmt);
     Some((sql, refs.into_iter().map(|(_, _, t)| t).collect()))
 }
 
@@ -273,7 +273,7 @@ async fn prepare_typed(
     // rollback.
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let name = format!(
-        "pgweave_body_probe_{}",
+        "pgzest_body_probe_{}",
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
     let sql = sql.trim_end().trim_end_matches(';');
@@ -321,9 +321,9 @@ fn pg_name(ts: &TypeSystem, ty: &Ty) -> String {
     }
 }
 
-/// Description by pgweave.
+/// Description by pgzest.
 pub fn ours(cat: &Catalog, path: &SearchPath, sql: &str) -> Result<Described, String> {
-    let stmts = pgweave_parser::parse(sql).map_err(|e| e.to_string())?;
+    let stmts = pgzest_parser::parse(sql).map_err(|e| e.to_string())?;
     let [stmt] = stmts.as_slice() else {
         return Err("one statement expected".into());
     };
@@ -405,7 +405,7 @@ pub fn compare(
             entry.1 += 1;
         } else if details {
             eprintln!(
-                "probe: {}\n    PostgreSQL: {theirs:?}\n    pgweave   : {mine:?}",
+                "probe: {}\n    PostgreSQL: {theirs:?}\n    pgzest   : {mine:?}",
                 probe.sql
             );
         }
@@ -422,7 +422,7 @@ pub fn render(o: &mut String, stats: Option<&ProbeStats>) {
     let _ = writeln!(
         o,
         "Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations' \
-         database and described by `pgweave-sema` (parameter types, column names and \
+         database and described by `pgzest-sema` (parameter types, column names and \
          types; a refusal on both sides counts as agreement). Queries of the current \
          routine bodies are prepared with their variables as typed parameters \
          (`PREPARE`), as PL/pgSQL runs them; only column types are \
@@ -434,7 +434,7 @@ pub fn render(o: &mut String, stats: Option<&ProbeStats>) {
     }
     let _ = writeln!(
         o,
-        "\nUnprobed body queries (not analyzed by pgweave, or variable without a \
+        "\nUnprobed body queries (not analyzed by pgzest, or variable without a \
          position in the AST): {}.",
         s.bodies_skipped
     );

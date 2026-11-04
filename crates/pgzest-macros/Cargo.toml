@@ -1,0 +1,17 @@
+[package]
+name = "pgzest-macros"
+version = "0.1.0"
+edition = "2024"
+description = "`query!` macro: inline SQL query analyzed at compile time (PLAN.md §5, P5)"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+pgzest-diagnostics = { workspace = true }
+pgzest-build = { path = "../pgzest-build" }
+pgzest-codegen = { path = "../pgzest-codegen" }
+pgzest-query = { path = "../pgzest-query" }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }

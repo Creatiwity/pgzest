@@ -1,0 +1,23 @@
+# Demo project for pgzest. Format: site/src/content/docs/reference/config.md.
+# Opened automatically by F5 from editors/vscode/.
+
+[postgres]
+version = 18
+
+[schema]
+# Walked recursively: schema/tables/ and schema/functions/ are included.
+directory = "schema"
+
+[migrations]
+directory = "migrations"
+
+[parse]
+# An unreadable statement is reported as a warning: visible, without breaking the build.
+# Switch to "error" to harden, "ignore" for the duration of a migration.
+unparsable = "warn"
+unsupported = "ignore"
+
+[rules]
+# Severity override per diagnostic code. Uncomment to see the effect.
+# "L001" = "off"        # SELECT *
+# "L005" = "error"      # missing index on FK

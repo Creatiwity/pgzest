@@ -1,9 +1,9 @@
 {
-  "name": "pgweave",
-  "displayName": "pgweave",
+  "name": "pgzest",
+  "displayName": "pgzest",
   "description": "PostgreSQL SQL + PL/pgSQL language support (type-checking, completion, hover)",
   "version": "0.1.0",
-  "publisher": "pgweave",
+  "publisher": "pgzest",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -35,7 +35,7 @@
       {
         "id": "pgmacro",
         "aliases": [
-          "pgweave macro"
+          "pgzest macro"
         ],
         "extensions": [
           ".pgmacro"
@@ -54,7 +54,7 @@
         "path": "./syntaxes/plpgsql.tmLanguage.json"
       },
       {
-        "scopeName": "pgweave.injection.rust-sql",
+        "scopeName": "pgzest.injection.rust-sql",
         "path": "./syntaxes/rust-sql.injection.tmLanguage.json",
         "injectTo": [
           "source.rust"
@@ -89,14 +89,14 @@
       }
     ],
     "configuration": {
-      "title": "pgweave",
+      "title": "pgzest",
       "properties": {
-        "pgweave.lspPath": {
+        "pgzest.lspPath": {
           "type": "string",
-          "default": "pgweave-lsp",
-          "description": "Path to the pgweave-lsp binary"
+          "default": "pgzest-lsp",
+          "description": "Path to the pgzest-lsp binary"
         },
-        "pgweave.schemaFile": {
+        "pgzest.schemaFile": {
           "type": "string",
           "default": "",
           "description": "Path to a schema.sql file for type-checking"
@@ -114,14 +114,14 @@
     },
     "commands": [
       {
-        "command": "pgweave.expandMacro",
+        "command": "pgzest.expandMacro",
         "title": "Show Macro Expansion",
-        "category": "pgweave"
+        "category": "pgzest"
       }
     ],
     "keybindings": [
       {
-        "command": "pgweave.expandMacro",
+        "command": "pgzest.expandMacro",
         "key": "ctrl+alt+e",
         "mac": "cmd+alt+e",
         "when": "editorTextFocus && (editorLangId == pgsql || editorLangId == sql)"
@@ -130,9 +130,9 @@
     "menus": {
       "editor/context": [
         {
-          "command": "pgweave.expandMacro",
+          "command": "pgzest.expandMacro",
           "when": "editorLangId == pgsql || editorLangId == sql",
-          "group": "pgweave"
+          "group": "pgzest"
         }
       ]
     }

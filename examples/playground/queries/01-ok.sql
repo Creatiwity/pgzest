@@ -1,7 +1,7 @@
 -- This file should be entirely clean.
 --
 -- `users` and `organizations` are not defined here: they come from
--- schema/tables/, indexed automatically through pgweave.toml.
+-- schema/tables/, indexed automatically through pgzest.toml.
 -- No --schema to pass.
 
 SELECT u.email, o.name

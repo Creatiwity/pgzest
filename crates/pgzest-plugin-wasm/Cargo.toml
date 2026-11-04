@@ -1,0 +1,15 @@
+[package]
+name = "pgzest-plugin-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgzest-plugin = { path = "../pgzest-plugin" }
+pgzest-checker = { path = "../pgzest-checker" }
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-diagnostics = { workspace = true }
+pgzest-schema = { path = "../pgzest-schema" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+wasmi = "1"

@@ -1,0 +1,34 @@
+# @trigger — the function AND the CREATE TRIGGER, in a single form.
+#
+#   @trigger touch_updated_at before update on users for each row {
+#       NEW.updated_at = now();
+#       RETURN NEW;
+#   }
+#
+# `RETURN` stays explicit: an AFTER or a FOR EACH STATEMENT does not follow the
+# same conventions as a BEFORE ... FOR EACH ROW, and an implicit rule that
+# differs by timing would be a trap.
+#
+# On several tables — `on (a, b, c)` — the expander generates one function per
+# table, each bound to a known table: a diagnostic on NEW or OLD names its
+# table.
+
+macro trigger
+header {name:ident} {timing:word} {events:words} on {tables:list} for each {each:word}[ when ({when:parens})]
+wrap when -> \nWHEN ({})
+
+template
+CREATE OR REPLACE FUNCTION {name}_fn()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $pgzest_macro$
+{declares}BEGIN
+{body}
+END;
+$pgzest_macro$;
+
+CREATE TRIGGER {name}
+{timing} {events} ON {tables}
+FOR EACH {each}{when}
+EXECUTE FUNCTION {name}_fn();
+end

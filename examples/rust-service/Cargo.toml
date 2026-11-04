@@ -1,22 +1,22 @@
 [package]
-name = "pgweave-example-rust-service"
+name = "pgzest-example-rust-service"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "End-to-end example: named queries compiled by pgweave-build, run by pgweave-runtime"
+description = "End-to-end example: named queries compiled by pgzest-build, run by pgzest-runtime"
 
 [dependencies]
-pgweave-macros = { path = "../../crates/pgweave-macros" }
-pgweave-runtime = { path = "../../crates/pgweave-runtime" }
+pgzest-macros = { path = "../../crates/pgzest-macros" }
+pgzest-runtime = { path = "../../crates/pgzest-runtime" }
 tokio-postgres = { workspace = true, features = ["with-time-0_3", "with-uuid-1"] }
 time = "0.3"
 uuid = "1"
 
 [build-dependencies]
-pgweave-build = { path = "../../crates/pgweave-build" }
+pgzest-build = { path = "../../crates/pgzest-build" }
 
 [dev-dependencies]
-pgweave-build = { path = "../../crates/pgweave-build" }
-pgweave-macro = { path = "../../crates/pgweave-macro" }
-pgweave-runtime = { path = "../../crates/pgweave-runtime" }
+pgzest-build = { path = "../../crates/pgzest-build" }
+pgzest-macro = { path = "../../crates/pgzest-macro" }
+pgzest-runtime = { path = "../../crates/pgzest-runtime" }
 tokio = { workspace = true }

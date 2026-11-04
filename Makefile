@@ -1,4 +1,4 @@
-# pgweave — development
+# pgzest — development
 #
 # Single entry point. `make help` lists the targets.
 # Cold start:  make bootstrap && make demo
@@ -7,9 +7,9 @@ SHELL := /bin/bash
 CARGO ?= cargo
 NPM   ?= npm
 
-NPM_PKG   := npm/pgweave
+NPM_PKG   := npm/pgzest
 VSCODE    := editors/vscode
-CLI       := ./target/debug/pgweave
+CLI       := ./target/debug/pgzest
 EXAMPLES  := examples
 
 .DEFAULT_GOAL := help
@@ -18,7 +18,7 @@ EXAMPLES  := examples
 
 .PHONY: help
 help: ## Show this help
-	@echo "pgweave — available targets:"
+	@echo "pgzest — available targets:"
 	@echo
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | sort \
@@ -54,7 +54,7 @@ release: ## Build all Rust crates (release)
 	$(CARGO) build --workspace --release
 
 .PHONY: ts
-ts: ## Build the pgweave npm package -> dist/
+ts: ## Build the pgzest npm package -> dist/
 	cd $(NPM_PKG) && npx tsc
 
 .PHONY: vscode
@@ -106,16 +106,16 @@ ci: build test fmt-check clippy typecheck ## Exactly what CI checks
 # A disposable PostgreSQL 18 in Docker, on a dedicated port so as never to
 # touch a local database. The oracle creates then drops one database per case.
 
-ORACLE_CONTAINER := pgweave-oracle-pg18
+ORACLE_CONTAINER := pgzest-oracle-pg18
 ORACLE_PORT      := 54318
-ORACLE_URL       := postgres://postgres:pgweave@localhost:$(ORACLE_PORT)/postgres
+ORACLE_URL       := postgres://postgres:pgzest@localhost:$(ORACLE_PORT)/postgres
 
 .PHONY: oracle-up
 oracle-up: ## Start the oracle's PostgreSQL 18 (Docker)
 	@command -v docker >/dev/null || { echo "docker not found"; exit 1; }
 	@if [ -z "$$(docker ps -q -f name=^$(ORACLE_CONTAINER)$$)" ]; then \
 	  docker rm -f $(ORACLE_CONTAINER) >/dev/null 2>&1 || true; \
-	  docker run -d --name $(ORACLE_CONTAINER) -e POSTGRES_PASSWORD=pgweave \
+	  docker run -d --name $(ORACLE_CONTAINER) -e POSTGRES_PASSWORD=pgzest \
 	    -p $(ORACLE_PORT):5432 postgres:18 >/dev/null; \
 	fi
 	@for i in $$(seq 1 30); do \
@@ -124,24 +124,24 @@ oracle-up: ## Start the oracle's PostgreSQL 18 (Docker)
 	done; echo "PostgreSQL is not responding"; exit 1
 
 .PHONY: oracle
-oracle: oracle-up ## Check the analysis against PostgreSQL 18 (report: crates/pgweave-oracle/tests/snapshots)
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-sema --test oracle_sweep -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test precedence -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test migrations -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-oracle --test instrument -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave --test dev -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave --test db_check -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-runtime --features opentelemetry --test trace -- --ignored
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgweave-example-rust-service -- --ignored
+oracle: oracle-up ## Check the analysis against PostgreSQL 18 (report: crates/pgzest-oracle/tests/snapshots)
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-oracle --test oracle -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-sema --test oracle_sweep -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-oracle --test precedence -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-oracle --test migrations -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-oracle --test instrument -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest --test dev -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest --test db_check -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-runtime --features opentelemetry --test trace -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-example-rust-service -- --ignored
 
 .PHONY: bench
 bench: oracle-up ## Cost of the generated code vs hand-written tokio-postgres (report printed)
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) $(CARGO) test --release -p pgweave-example-rust-service --test bench -- --ignored --nocapture
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test --release -p pgzest-example-rust-service --test bench -- --ignored --nocapture
 
 .PHONY: oracle-accept
 oracle-accept: oracle-up ## Like `oracle`, accepting the new report (review before committing)
-	PGWEAVE_ORACLE_URL=$(ORACLE_URL) INSTA_UPDATE=always $(CARGO) test -p pgweave-oracle --test oracle -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) INSTA_UPDATE=always $(CARGO) test -p pgzest-oracle --test oracle -- --ignored
 
 .PHONY: oracle-down
 oracle-down: ## Stop and remove the oracle's PostgreSQL
@@ -152,27 +152,27 @@ oracle-down: ## Stop and remove the oracle's PostgreSQL
 .PHONY: demo-cli
 demo-cli: build ## Run the CLI on examples/ — shows the tool in action
 	@echo
-	@echo "════ pgweave check examples/test.sql ════"
+	@echo "════ pgzest check examples/test.sql ════"
 	@echo "   (expected error: nonexistent table)"
 	@$(CLI) check $(EXAMPLES)/test.sql || true
 	@echo
-	@echo "════ pgweave check examples/schema.sql ════"
+	@echo "════ pgzest check examples/schema.sql ════"
 	@$(CLI) check $(EXAMPLES)/schema.sql || true
 	@echo
-	@echo "════ pgweave lint examples/schema.sql ════"
+	@echo "════ pgzest lint examples/schema.sql ════"
 	@$(CLI) lint $(EXAMPLES)/schema.sql || true
 	@echo
-	@echo "════ pgweave codegen --input examples/schema.sql ════"
+	@echo "════ pgzest codegen --input examples/schema.sql ════"
 	@$(CLI) codegen --input $(EXAMPLES)/schema.sql || true
 	@echo
-	@echo "════ pgweave emit examples/test.sql ════"
+	@echo "════ pgzest emit examples/test.sql ════"
 	@$(CLI) emit $(EXAMPLES)/test.sql || true
 	@echo
 	@echo "Demo done. The CLI is at $(CLI) — see 'make help'."
 
 .PHONY: demo
-demo: ## Open the demo (examples/demo) in VS Code, pgweave extension in development mode
-	$(CARGO) build -p pgweave-lsp -p pgweave
+demo: ## Open the demo (examples/demo) in VS Code, pgzest extension in development mode
+	$(CARGO) build -p pgzest-lsp -p pgzest
 	$(MAKE) vscode
 	code --extensionDevelopmentPath=$(CURDIR)/$(VSCODE) $(CURDIR)/examples/demo
 	@echo
@@ -180,13 +180,13 @@ demo: ## Open the demo (examples/demo) in VS Code, pgweave extension in developm
 
 .PHONY: demo-run
 demo-run: oracle-up ## Run the demo's Rust scenario on PostgreSQL 18 (Docker)
-	$(CARGO) run -p pgweave-demo
+	$(CARGO) run -p pgzest-demo
 
 .PHONY: lsp
 lsp: ## Build the LSP server and recall how to launch it in VS Code
-	$(CARGO) build -p pgweave-lsp
+	$(CARGO) build -p pgzest-lsp
 	@echo
-	@echo "LSP binary: ./target/debug/pgweave-lsp"
+	@echo "LSP binary: ./target/debug/pgzest-lsp"
 	@echo "To try it:  make vscode-dev"
 
 .PHONY: vscode-dev
@@ -211,10 +211,10 @@ vscode-dev: lsp vscode ## Prepare everything to test in VS Code, then explain F5
 .PHONY: playground
 playground: build ## Run the CLI on the demo project
 	@cd $(EXAMPLES)/playground && for f in queries/*.sql; do \
-	  echo "════ pgweave check $$f ════"; \
+	  echo "════ pgzest check $$f ════"; \
 	  ../../$(CLI) check "$$f" || true; \
 	done; \
-	echo "════ pgweave lint queries/05-lint.sql ════"; \
+	echo "════ pgzest lint queries/05-lint.sql ════"; \
 	../../$(CLI) lint queries/05-lint.sql || true
 
 # ── Documentation site ──────────────────────────────────────────────────────

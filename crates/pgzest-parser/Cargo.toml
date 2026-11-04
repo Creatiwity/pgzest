@@ -1,0 +1,14 @@
+[package]
+name = "pgzest-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgzest-ast = { path = "../pgzest-ast" }
+sqlparser = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+pgzest-checker = { path = "../pgzest-checker" }

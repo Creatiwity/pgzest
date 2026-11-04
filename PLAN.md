@@ -1,10 +1,10 @@
-# pgweave — Master plan
+# pgzest — Master plan
 
 > Written on 2026-10-31. Replaces `ROADMAP.md` as the steering reference.
 > `SPECS.md`, `ARCHITECTURE.md`, `PLPGSQL_SPEC.md` and `SPECS-schema-plpgsql.md`
 > remain context documents; in case of contradiction, this plan prevails.
 >
-> **Project name: `pgweave`** (formerly `pgsql-tools`).
+> **Project name: `pgzest`** (formerly `pgweave`, `pgsql-tools`).
 
 ---
 
@@ -103,13 +103,13 @@ and it is then documented (minimal patch, tracked rebase).
 Several rewrites date from sqlparser 0.54; 0.62 may cover some of them
 natively — to be inventoried first.
 
-The in-house AST `pgweave-ast` is kept: it isolates the rest of the code from
+The in-house AST `pgzest-ast` is kept: it isolates the rest of the code from
 sqlparser AST changes.
 
 ### D2 — Single, layered catalog, resolved on demand
 
 Replaces `SchemaProvider`, `SchemaResolver` (eager today), `SchemaIndex`,
-the checker's `TypeContext` and the `SymbolTable` of `pgweave-semantic`.
+the checker's `TypeContext` and the `SymbolTable` of `pgzest-semantic`.
 
 Layers, from outermost to innermost, each able to shadow the
 previous one:
@@ -159,8 +159,8 @@ modification; routine scope expressed without difficulty.
 
 ### D4 — A single semantic analyzer, on a resolved representation
 
-`pgweave-semantic` and the checker each do their own resolution today.
-**Decision**: a `pgweave-sema` crate produces a resolved representation
+`pgzest-semantic` and the checker each do their own resolution today.
+**Decision**: a `pgzest-sema` crate produces a resolved representation
 (HIR) — each reference points to a catalog object or a
 scope entry, each expression carries `(type, nullability)`. The
 normalization into logical order (FROM → … → ORDER BY) remains the entry step,
@@ -231,7 +231,7 @@ The PostgreSQL major version and each extension are
 
 **Where does the list of active contributors come from?**
 
-- **Major version**: `[postgres] version` in `pgweave.toml`, the only source.
+- **Major version**: `[postgres] version` in `pgzest.toml`, the only source.
 - **Extensions**: deduced from the schema state, not declared separately. The
   `CREATE EXTENSION` / `DROP EXTENSION` / `ALTER EXTENSION … UPDATE` of the
   declarative schema define the target state; replaying the migrations
@@ -256,7 +256,7 @@ Each generated migration carries a machine-readable header stating the
 context against which it was generated and verified:
 
 ```sql
--- pgweave: postgres=18 extensions=btree_gist@1.7,citext@1.6
+-- pgzest: postgres=18 extensions=btree_gist@1.7,citext@1.6
 ```
 
 The replay checks the consistency of this header with the reconstructed state
@@ -309,19 +309,19 @@ The schema (namespace) is part of every object's identity, everywhere:
 
 | Item | Fate | Note |
 |---|---|---|
-| `pgweave-ast` | Keep, extend | Missing DDL (§P1), spans on all nodes, deterministic per-file IDs |
+| `pgzest-ast` | Keep, extend | Missing DDL (§P1), spans on all nodes, deterministic per-file IDs |
 | PL/pgSQL parser (lexer + parser) | Keep, extend | Remaining cases from `SPECS-schema-plpgsql.md` §6 |
 | Parser textual rewrites | **Remove** | Replaced by D1 |
-| `pgweave-diagnostics`, `pgweave-disable…` directives | Keep | |
-| `pgweave-macro`, source maps, `build`/expansion | Keep, extend | Expression fragments (§P6) |
-| `SchemaProvider`/`SchemaResolver`/`SchemaIndex` | **Rework** → `pgweave-catalog` | D2, D3 |
-| `pgweave-semantic` + the checker's `TypeContext` | **Merge** → `pgweave-sema` | D4 |
+| `pgzest-diagnostics`, `pgzest-disable…` directives | Keep | |
+| `pgzest-macro`, source maps, `build`/expansion | Keep, extend | Expression fragments (§P6) |
+| `SchemaProvider`/`SchemaResolver`/`SchemaIndex` | **Rework** → `pgzest-catalog` | D2, D3 |
+| `pgzest-semantic` + the checker's `TypeContext` | **Merge** → `pgzest-sema` | D4 |
 | Hand-written `builtins.rs` | **Remove** | Generated (D9, principle 1) |
 | Checker/lint rules | Keep, port to the HIR | |
-| `pgweave-codegen::diff`, migration safety | Keep, extend | Full D2 model |
-| `pgweave-codegen::ts_types` | **Remove** | `HashMap` ordering bug; replaced by the descriptor (§P8) |
+| `pgzest-codegen::diff`, migration safety | Keep, extend | Full D2 model |
+| `pgzest-codegen::ts_types` | **Remove** | `HashMap` ordering bug; replaced by the descriptor (§P8) |
 | LSP + VS Code extension | Keep | Rewired onto salsa/HIR, no new feature before P4 |
-| `npm/pgweave` (`db.query<T>` = cast) | **Freeze** | Resumed in §P8 on top of the descriptor |
+| `npm/pgzest` (`db.query<T>` = cast) | **Freeze** | Resumed in §P8 on top of the descriptor |
 | WASM/Node bindings | Freeze | Resumed in §P8 |
 | `ROADMAP.md` | Archive | Banner pointing here |
 
@@ -362,7 +362,7 @@ Contract between the analysis and all targets. Stable JSON format, versioned
 - Types are references to the catalog (including enums, domains,
   composites, extension types); the mapping to a language type
   is done by the target, via the mapping table (D9).
-- On-disk cache (`.pgweave/queries/<fingerprint>.json`), usable offline
+- On-disk cache (`.pgzest/queries/<fingerprint>.json`), usable offline
   in CI and by tools that do not want to embed the analyzer.
 
 ---
@@ -373,7 +373,7 @@ Illustrative — final names are set in P5.
 
 ```rust
 // Inline query: analyzed at compile time, SQL errors at the right Rust span.
-let page = pgweave::query!(
+let page = pgzest::query!(
     "SELECT id, title, creation_date FROM pages WHERE id = $id",
     id = page_id,
 )
@@ -386,7 +386,7 @@ let page = pgweave::query!(
 let rows = queries::pages::list_recent(&client, ListRecentParams { limit: 20 }).await?;
 
 // Typed COPY: column list checked against the catalog, CSV or binary stream.
-let n = pgweave::copy_in!("etablissement_staging", columns = @etablissement_columns, format = csv(header))
+let n = pgzest::copy_in!("etablissement_staging", columns = @etablissement_columns, format = csv(header))
     .from_reader(&client, csv_stream)
     .await?;
 ```
@@ -455,8 +455,8 @@ on an unfinished phase, except where parallelization is explicitly noted.
 
 - ✅ Documentation aligned with reality (`CLAUDE.md`, `ROADMAP.md` banner,
   README).
-- ✅ PG 18 differential oracle: `pgweave-oracle` crate, corpus
-  `crates/pgweave-oracle/cases`, snapshot report (`insta`), `make oracle`
+- ✅ PG 18 differential oracle: `pgzest-oracle` crate, corpus
+  `crates/pgzest-oracle/cases`, snapshot report (`insta`), `make oracle`
   (Docker) and `postgres:18` CI job. Baseline: 65 % of columns conformant, 0 %
   of parameters (no parameter inference).
 - ✅ "Analysis rate" report on Mesalia: `cargo xtask corpus` (corpus
@@ -464,17 +464,17 @@ on an unfinished phase, except where parallelization is explicitly noted.
   87 % of statements analyzed, 220/220 migrations valid on PG 18,
   27 false positives, all due to the textual fallback for PL/pgSQL bodies.
 - ✅ Deterministic node identifiers: numbering per parse
-  (`crates/pgweave-parser/src/ids.rs`), the (file, `NodeId`) pair
+  (`crates/pgzest-parser/src/ids.rs`), the (file, `NodeId`) pair
   identifies a node.
 - ✅ salsa spike (D3): GO, `docs/decisions/0001-salsa.md`.
 - ✅ Named-query format frozen: `site/src/content/docs/reference/named-queries.md` (header
   `-- name: x [:one|:optional|:many|:none]`, `$name`, checked by `check`
   and the LSP).
 - ✅ Project config format frozen: `site/src/content/docs/reference/config.md` (`[postgres] version`
-  required, single `pgweave.toml` file, strict keys). `search_path`
+  required, single `pgzest.toml` file, strict keys). `search_path`
   and per-directory default schema are described there as P2 evolutions.
-- ✅ Renamed to `pgweave` (`pgweave-*` crates, `pgweave` /
-  `pgweave-lsp` binaries, `pgweave.toml` config, `pgweave-disable…` directives,
+- ✅ Renamed to `pgzest` (`pgzest-*` crates, `pgzest` /
+  `pgzest-lsp` binaries, `pgzest.toml` config, `pgzest-disable…` directives,
   VS Code extension, CI). The `.pgsql` / `.pgmacro` file extensions and
   the `pgsql` language identifier are kept: they name the language,
   not the tool. No compatibility alias.
@@ -487,10 +487,10 @@ published.
 
 Summary: Mesalia 1740/1740 statements and 28/28 bodies analyzed, siren
 294/294 and 10/10; no textual rewriting (wrapper dialect +
-pgweave grammar over tokens); PL/pgSQL parser rewritten over the dialect's
+pgzest grammar over tokens); PL/pgSQL parser rewritten over the dialect's
 tokens (ordinary SQL expressions, spans); faithful identifiers
-(principle 8); `-- pgweave:` header read; deterministic fuzzing without panics
-(`crates/pgweave-analysis/tests/no_panic.rs`). An audit of ignored sqlparser
+(principle 8); `-- pgzest:` header read; deterministic fuzzing without panics
+(`crates/pgzest-analysis/tests/no_panic.rs`). An audit of ignored sqlparser
 fields removed a series of silent losses (windows,
 `FILTER`, named arguments, `NOT VALID`, `USING`, `DEFAULT VALUES`…).
 Sherpa: no usable schema corpus (sandbox), not applicable.
@@ -510,7 +510,7 @@ built-in or extension functions (generated catalog, D9 packs).
   and `VERSION`), `ALTER TYPE … ADD VALUE / RENAME`, `ALTER … SET SCHEMA`,
   `SET search_path`, `ALTER` variants used by the corpora, `COMMENT ON`.
 - Quoted identifiers kept with their case in the AST (principle 8).
-- `-- pgweave: postgres=… extensions=…` header recognized (D9).
+- `-- pgzest: postgres=… extensions=…` header recognized (D9).
 - PL/pgSQL: remaining cases from `SPECS-schema-plpgsql.md` §6 (`RETURNING …
   INTO`, record variables, `VALUES` with variables, `FOR … IN`, `RETURN
   QUERY`, `GET DIAGNOSTICS`, `EXCEPTION`), removal of the textual fallback
@@ -523,29 +523,29 @@ left.
 
 ### P2 — Catalog — ✅ done (2026-11-01, `26e08b8`)
 
-Done: `pgweave-catalog` crate (D2/D11 model, exact case), generated packs
+Done: `pgzest-catalog` crate (D2/D11 model, exact case), generated packs
 (`cargo xtask catalog-gen`: postgres@18, citext, btree_gist, btree_gin,
 pg_trgm, unaccent, fuzzystrmatch, postgis@3.6.4), ordered DDL replay
 (`Replay`, `DO` blocks evaluated over virtual tables, `ddl-not-replayed`
 otherwise), `ProjectCatalog` replacing `SchemaResolver`/`DdlSchemaProvider`/
 `builtins.rs` (removed) for checker, analysis, CLI and LSP, exact
 resolution everywhere, D9 diagnostics (missing extension suggested, migration
-headers), brownfield import `pgweave schema import`, salsa database
-`pgweave-project` with an incrementality test. Mesalia: reconstructed catalog
+headers), brownfield import `pgzest schema import`, salsa database
+`pgzest-project` with an incrementality test. Mesalia: reconstructed catalog
 identical to the real one, 0 `check` diagnostics, import verified (exported schema →
 empty database → identical catalog).
 
 siren (`cargo xtask corpus siren --path ~/dev/creat/siren/migrations
---layout diesel --pg-url postgres://postgres:pgweave@localhost:54319/postgres
---details`, `pgweave-postgis` container, `postgis/postgis:18-3.6` image on
+--layout diesel --pg-url postgres://postgres:pgzest@localhost:54319/postgres
+--details`, `pgzest-postgis` container, `postgis/postgis:18-3.6` image on
 amd64): catalog and import identical to the real one, except the 2 triggers created
 by `diesel_manage_updated_at` (dynamic SQL: `ddl-not-replayed`).
 Executing this very common Diesel helper would require evaluating `EXECUTE
 format(…)`: to be picked up with body interpretation (P3+).
 
-LSP on `pgweave-project`: salsa `Workspace` (project macros as input,
+LSP on `pgzest-project`: salsa `Workspace` (project macros as input,
 editor text taking priority over disk until closed, per-file replay
-diagnostics like `pgweave check`), `ProjectBuilder` shared with
+diagnostics like `pgzest check`), `ProjectBuilder` shared with
 the CLI. Baselines regenerated (`docs/baselines/`).
 
 Exit criteria: met. Explicitly postponed to P3:
@@ -556,7 +556,7 @@ Exit criteria: met. Explicitly postponed to P3:
 - execution of dynamic SQL in bodies (`EXECUTE format(…)`, the
   `diesel_manage_updated_at` case), currently reported as `ddl-not-replayed`.
 
-- `pgweave-catalog` crate: D2 model, layers, schemas and `search_path`
+- `pgzest-catalog` crate: D2 model, layers, schemas and `search_path`
   (D11), case-sensitive keys (principle 8).
 - Generator (`xtask catalog-gen`): extracts `pg_namespace`, `pg_type`,
   `pg_proc`, `pg_operator`, `pg_cast`, `pg_aggregate`, `pg_opclass`,
@@ -577,7 +577,7 @@ Exit criteria: met. Explicitly postponed to P3:
 
 - **Brownfield import** (brought forward from P7, Mesalia critical path):
   replay the Prisma migrations → declarative schema files organized
-  by PG schema (`pgweave schema import`) + baseline migration with header.
+  by PG schema (`pgzest schema import`) + baseline migration with header.
   The import only emits the reconstructed catalog; it does not require the
   P7 diff.
 
@@ -590,7 +590,7 @@ recomputed (test).
 ### P3 — Unified semantic analysis — ✅ done (2026-11-02)
 
 Done (2026-11-01):
-- `pgweave-sema`, type system drawn from the catalog:
+- `pgzest-sema`, type system drawn from the catalog:
   - coercions, common type, polymorphism;
   - function and operator overload resolution;
   - differential sweep: 19,032/19,032 resolutions identical to PostgreSQL.
@@ -602,7 +602,7 @@ Done (2026-11-01):
   unreadable for sqlparser, still to be read), 146/146 parameters; operator
   precedence checked against PostgreSQL (`make oracle`).
 - View columns typed during replay (`QueryTyper`): Mesalia identical to the real one, 1,622/1,622 columns.
-- (2026-11-02) `check` goes through sema (`pgweave_sema::check`): each
+- (2026-11-02) `check` goes through sema (`pgzest_sema::check`): each
   statement is checked when it applies, against the catalog state at that
   point (the replay's `StatementChecker`); a PL/pgSQL body is checked against the final
   state if it is still in effect. CLI, LSP, incremental database and corpus
@@ -631,10 +631,10 @@ Remaining, in order:
    column before parameter in SQL, records whose structure follows
    assignments, cursors, `NEW`/`OLD`/`TG_*` per trigger table, transition
    tables, temporary tables of the body.
-5. ✅ Checker ported to `pgweave-sema` (the old `TypeContext` and its rules
-   are removed; `pgweave-checker` now only hosts plugin
+5. ✅ Checker ported to `pgzest-sema` (the old `TypeContext` and its rules
+   are removed; `pgzest-checker` now only hosts plugin
    rules); compatibility diagnostic (`WHERE text_col = 42`).
-   `pgweave-semantic` is removed: positional LSP hover (references
+   `pgzest-semantic` is removed: positional LSP hover (references
    resolved by sema), TypeScript codegen typed by sema (D5 nullability,
    enums, no more ordering heuristic). Remaining: lints ported to sema.
 6. Execution of dynamic SQL in bodies: postponed from P2.
@@ -650,7 +650,7 @@ without blocking P4: lints ported to sema, full HIR, dynamic SQL in
 bodies, `ROWS FROM (…)` (unreadable for sqlparser). (`DEFAULT` outside
 assignment: rejected as PostgreSQL does since 2026-11-02.)
 
-- `pgweave-sema` crate: normalization → resolution → typed HIR.
+- `pgzest-sema` crate: normalization → resolution → typed HIR.
 - Faithful type system: categories, implicit/assignment casts,
   operator and function overload resolution, `unknown` literals,
   `UNION`/`CASE`/`COALESCE`/`VALUES`, arrays, enums, domains.
@@ -660,7 +660,7 @@ assignment: rejected as PostgreSQL does since 2026-11-02.)
   context of their table; `DEFAULT`; `ON CONFLICT`; `RETURNING`; `CALL`
   checked against the procedure signature; trigger body checked per
   table (existing, ported).
-- Checker and lint ported to the HIR; removal of `pgweave-semantic` and of
+- Checker and lint ported to the HIR; removal of `pgzest-semantic` and of
   `TypeContext`.
 
 **Exit**: differential oracle green on the query corpus (≥ 300
@@ -671,30 +671,30 @@ diagnostic).
 ### P4 — Query descriptor — ✅ done (2026-11-02)
 
 Done (2026-11-02):
-- `pgweave_query::descriptor`: types (catalog references, OIDs of
+- `pgzest_query::descriptor`: types (catalog references, OIDs of
   built-in types), three-state nullability of parameters (established by
   assignment to a column) and columns, cardinality inferred
   conservatively (primary/unique key fixed by equalities, aggregate without
   `GROUP BY`, `LIMIT 1`, single-row `INSERT … VALUES`, set-returning
   functions), `depends_on` (project relations, types, routines and operators
   resolved by sema), SHA-256 fingerprint of the re-emitted SQL and of the
-  dependency definitions, `.pgweave/queries/<fingerprint>.json` cache.
+  dependency definitions, `.pgzest/queries/<fingerprint>.json` cache.
 - Parameters in the order of the positional rewrite (first
   appearance), not in analysis order.
 - Declared cardinality (`-- name: x :one`): narrows inference (contract
   checked at runtime), does not contradict it (`none` against returned
   rows, or the reverse: error).
-- `pgweave describe` (query files, `--sql`, `--cache`), JSON.
+- `pgzest describe` (query files, `--sql`, `--cache`), JSON.
 - The oracle now goes through the descriptor: 749/751 columns, 146/146
   parameters.
-- `pgweave check` and the LSP report, on a query file, what
+- `pgzest check` and the LSP report, on a query file, what
   prevents describing it (untyped parameter, contradicted cardinality).
 
-- `pgweave-query` crate: §4 descriptor, cardinality, `depends_on`,
+- `pgzest-query` crate: §4 descriptor, cardinality, `depends_on`,
   fingerprint, disk cache.
 - Named queries in files (`queries/*.sql`, `-- name: …` header or
   dedicated macro), `$name` → positional rewrite.
-- CLI `pgweave describe <file|query>` and JSON output.
+- CLI `pgzest describe <file|query>` and JSON output.
 
 **Exit**: deterministic descriptors (snapshots); explicit refusal when
 a type is unknown; oracle green on parameter and column types.
@@ -702,20 +702,20 @@ a type is unknown; oracle green on parameter and column types.
 ### P5 — Rust integration — 🚧 exit reached except the comparison with sqlx
 
 Done (2026-11-02):
-- `pgweave-runtime`: `Query` (positional SQL, parameter OIDs),
+- `pgzest-runtime`: `Query` (positional SQL, parameter OIDs),
   `fetch_one`/`fetch_optional`/`fetch_all`/`execute` aligned with the
   cardinality, over `GenericClient` (client, transaction, pool);
   `query_typed` when OIDs are fixed, server-side preparation for a
   project type (enum); decoding by index; `Db`/`RowCount`/
   `Decode` errors.
-- `pgweave_codegen::rust`: one function per query, parameter struct
+- `pgzest_codegen::rust`: one function per query, parameter struct
   (borrowed) and row struct, D5 nullability (`Option` unless non-nullness is
   established; parameter of unknown nullability expected non-null), generated
   enums (labels), domains as their base type, arrays as
   `Vec<Option<T>>`, `time` or `chrono`; project mapping table;
   explicit refusal of a type without a mapping or of a column without a Rust
   name.
-- `pgweave-build`: generation from `build.rs` (project from `pgweave.toml`,
+- `pgzest-build`: generation from `build.rs` (project from `pgzest.toml`,
   no connection), `rerun-if-changed` on the schema, the migrations, the
   queries and the macros; an undescribable query fails the
   compilation with its position.
@@ -723,7 +723,7 @@ Done (2026-11-02):
   named queries, end-to-end test against PostgreSQL 18 (`make
   oracle`, CI).
 
-- `pgweave-macros`: `query!` (inline query, `$name` parameters bound by
+- `pgzest-macros`: `query!` (inline query, `$name` parameters bound by
   `name = expr` and checked against the expected type, `fetch` aligned with the
   cardinality, `execute` without rows; SQL error = compile error on
   the string; `include_bytes!` of the project files for
@@ -759,11 +759,11 @@ Remaining: per-pack type mapping (PostGIS), checked CSV
 header (`HEADER MATCH`), comparison with sqlx (crate unavailable
 offline), budget measured on a Mesalia-sized project.
 
-- `pgweave-runtime`: D8 execution, `fetch_one`/`fetch_optional`/`fetch_all`/
+- `pgzest-runtime`: D8 execution, `fetch_one`/`fetch_optional`/`fetch_all`/
   `execute` aligned with the cardinality, streams (`RowStream`), transactions,
   typed `copy_in` (CSV with optional header validation, binary with
   structs).
-- `pgweave-macros`: `query!`, `query_file!`, `copy_in!`; SQL diagnostics
+- `pgzest-macros`: `query!`, `query_file!`, `copy_in!`; SQL diagnostics
   relocated into the Rust source; correct recompilation (§5).
 - `build.rs` generation of named queries.
 - Rust type mapping, extensible per pack (PostGIS).
@@ -812,10 +812,10 @@ Additions (2026-11-03, after exit):
   `queries::order::book`), enums at the root of the tree; qualified
   references `-> order::book::card` (relative path in the generated code);
   the promise of `site/src/content/docs/reference/named-queries.md` is kept.
-- `pgweave_macros::queries!("queries")`: the tree of a directory, or the
+- `pgzest_macros::queries!("queries")`: the tree of a directory, or the
   queries of a file, generated at the call site (a one-line
-  `src/queries.rs`); same generation as `pgweave-build`
-  (`pgweave_build::generate_path`).
+  `src/queries.rs`); same generation as `pgzest-build`
+  (`pgzest_build::generate_path`).
 - `[queries] include`: query directories next to the code, each the root
   of its own tree; a query file outside these directories (sandbox)
   is attached to the main root.
@@ -826,16 +826,16 @@ Additions (2026-11-03, after exit):
 - `sql!`: one query per macro, name, cardinality, doc and visibility as
   parameters, string reduced to the SQL; `-> Path` (Rust struct of another
   query, `sql!` or file) checked by constant assertions on
-  `PGWEAVE_COLUMNS`. Refreshed as you type in rust-analyzer (measured:
+  `PGZEST_COLUMNS`. Refreshed as you type in rust-analyzer (measured:
   0.1 s), whereas `queries!` only refreshes when the server restarts (a
   rust-analyzer limitation, measured: neither `rebuildProcMacros` nor `reloadWorkspace`
   rerun a macro whose input is unchanged).
-- `#[pgweave_macros::types] mod db {}` and `[rust] types`: enums generated
+- `#[pgzest_macros::types] mod db {}` and `[rust] types`: enums generated
   once, referenced by `sql!`, `queries!` and `build.rs`.
 - Positions: generated tokens located on the call (no more rust-analyzer
   panics), names on the written name, link to the SQL line on hover.
 - SQL highlighting of `sql!`/`query!` strings (injection grammar,
-  verified with VS Code's Rust grammar), `pgweave-lsp` on `.rs` files
+  verified with VS Code's Rust grammar), `pgzest-lsp` on `.rs` files
   (queries extracted by lexical scan, exact positions including
   escapes: diagnostics, hover, completion), semantic tokens reserved
   for SQL documents; hover on a `$parameter` (established type, not a
@@ -850,7 +850,7 @@ Additions (2026-11-03, after exit):
 Remaining:
 - Fragments in a hand-written `CREATE FUNCTION … AS $$…$$`: not
   inserted (a dollar string is not interpreted); use `@function`.
-- `pgweave build` does not yet eject a query file (the
+- `pgzest build` does not yet eject a query file (the
   descriptors carry the inserted SQL, and so does the generated code).
 - A real Mesalia projection: Mesalia's Rust component does not exist
   yet; the pattern is shown in the demo.
@@ -859,7 +859,7 @@ Remaining:
   their context of use, with source maps (existing mechanism extended).
 - A named query usable as a reference type by others
   (compatibility check, never a forced cast).
-- Visible (LSP) and ejectable (`pgweave build`) expansion, like the current
+- Visible (LSP) and ejectable (`pgzest build`) expansion, like the current
   macros.
 
 **Exit**: the siren column list and the recurring projections of
@@ -868,7 +868,7 @@ Mesalia/Sherpa expressed only once.
 ### P7 — Migrations — ✅ exit reached (2026-11-03)
 
 Done (2026-11-03):
-- `pgweave_catalog::diff`: two catalogs compared object by object
+- `pgzest_catalog::diff`: two catalogs compared object by object
   (schemas, extensions, enums with `ADD VALUE` at its position, types,
   domains, sequences, tables, columns, constraints, views, routines,
   indexes, triggers, policies, row-level security, comments); ordering by
@@ -883,14 +883,14 @@ Done (2026-11-03):
 - Safety rules M001 to M007 carried by each statement. The migration is
   always written, as simple as possible: data loss and likely failures are
   listed in its header for the developer to adapt (no `--allow-destructive`
-  refusal); changes pgweave cannot express are left as `TODO`, and
+  refusal); changes pgzest cannot express are left as `TODO`, and
   `migrate check` fails until they are written.
 - Declarative mode (`[schema] declarative = true`, D10): the analysis
   replays only the schema, migrations are replayed separately (their
   diagnostics and context header checked against their own state),
   the gap is reported (`schema-drift`).
-- `pgweave migrate create` (directory format: flat, Prisma, Diesel;
-  `-- pgweave:` header; verified by replay before writing), `migrate
+- `pgzest migrate create` (directory format: flat, Prisma, Diesel;
+  `-- pgzest:` header; verified by replay before writing), `migrate
   check` (CI), `migrate diff` on the catalog. The old AST-based diff and
   `.schema-snapshots` are removed.
 - Fidelity: a routine's body is kept as written (export and
@@ -899,7 +899,7 @@ Done (2026-11-03):
   keeping its type when the column changes type, as PostgreSQL does;
   `CREATE INDEX` checked (columns, expressions, predicate, operator
   class known for the method).
-- Oracle (`pgweave_oracle::schema`, `make oracle`): applied migrations
+- Oracle (`pgzest_oracle::schema`, `make oracle`): applied migrations
   and declarative schema yield two databases identical according to PostgreSQL
   (`format_type`, `pg_get_*def`) — test evolution across four versions;
   `cargo xtask migrate-oracle <project>` on a real project; corpus
@@ -933,96 +933,96 @@ Remaining:
 - Oracle verification: migration applied on PG → introspected
   catalog == declarative schema.
 
-**Exit**: a real evolution of the Mesalia schema produced by `pgweave
+**Exit**: a real evolution of the Mesalia schema produced by `pgzest
 migrate create` and validated by the oracle, including an extension addition.
 
 ### P9 — Procedure observability — ✅ exit reached (2026-11-04)
 
 Ports the mechanisms of kysely-pg-procedures that take the "black box"
 out of a PL/pgSQL run, as directives of the PL/pgSQL macros (`@function`,
-`@procedure`, `@trigger`), instrumented by pgweave from the analysis of
+`@procedure`, `@trigger`), instrumented by pgzest from the analysis of
 the body rather than by hand. Order: (1) isolated temp tables and (3)
-`@snapshot`, then (2) log levels and (5) `pgweave dev` (apply on save), then
+`@snapshot`, then (2) log levels and (5) `pgzest dev` (apply on save), then
 (6) tamper detection and (4) OpenTelemetry — done.
 
 **Isolated temp tables** — `@temp_table name (columns);` at the top of a
 body. A session-scoped temp table is shared by every call in the session:
 a nested or recursive call, or a call per loop iteration, mixes its rows
-with the caller's. Each run therefore gets an id (`_pgweave_run uuid :=
+with the caller's. Each run therefore gets an id (`_pgzest_run uuid :=
 gen_random_uuid()`) and every access is rewritten from the parsed body:
 
 - the table is created `IF NOT EXISTS` under a physical name suffixed with
   a hash of its definition (two routines declaring `work` differently, or
   a definition changed by a deployment while a pooled session keeps the old
-  table, never meet), with a hidden last column `_pgweave_run`;
+  table, never meet), with a hidden last column `_pgzest_run`;
   `PRIMARY KEY` / `UNIQUE` include it (uniqueness per run);
 - a read (`FROM`, `JOIN`, `USING`, subqueries, CTEs, expressions) becomes
-  `(SELECT <declared columns> FROM <physical> WHERE _pgweave_run = <run>)`
+  `(SELECT <declared columns> FROM <physical> WHERE _pgzest_run = <run>)`
   under the written alias, so `*` never shows the hidden column;
-- `UPDATE` / `DELETE` get `AND <alias>._pgweave_run = <run>`;
+- `UPDATE` / `DELETE` get `AND <alias>._pgzest_run = <run>`;
 - `INSERT` fills the hidden column through its default
-  (`current_setting('pgweave.run')`), set by `set_config(…, true)` right
+  (`current_setting('pgzest.run')`), set by `set_config(…, true)` right
   before each statement that inserts (a nested call may have changed it);
 - the run's rows are deleted before each `RETURN` and at the end of the
   body; an error rolls them back with the rest.
 
-Nothing is guessed: an access pgweave cannot rewrite is an error (temp
+Nothing is guessed: an access pgzest cannot rewrite is an error (temp
 table in `TRUNCATE`, DDL, `RETURNING *`, a CTE shadowing it, a `RETURN`
 expression reading it, a position the parser could not give), and dynamic
 SQL in an instrumented body is a warning (not isolated).
 
-**`@snapshot label;`** — in a debug build (`pgweave build --log debug`, later
-`pgweave dev`), copies at that point the run's rows of every isolated temp
+**`@snapshot label;`** — in a debug build (`pgzest build --log debug`, later
+`pgzest dev`), copies at that point the run's rows of every isolated temp
 table and the variables in scope (parameters and declarations) into
-`pgweave_debug.snapshot` / `pgweave_debug.snapshot_rows`; in a normal
+`pgzest_debug.snapshot` / `pgzest_debug.snapshot_rows`; in a normal
 build (analysis, migrations, deployment) it emits nothing. A record not
 yet assigned cannot be read: it is reported as skipped, never guessed.
 Snapshots written in a transaction that fails are rolled back with it.
 
-**Log levels** — `pgweave build --log none|info|step|debug` and
+**Log levels** — `pgzest build --log none|info|step|debug` and
 `--log-target table|notify`, fixed at build time (no code below the
 level): `info` writes one entry per run (routine, start, duration, the
-caller's `pgweave.traceparent`, the `SQLSTATE` of an error the routine
+caller's `pgzest.traceparent`, the `SQLSTATE` of an error the routine
 handles), `step` adds one per INSERT / UPDATE / DELETE / EXECUTE (kind,
 target, source line, row count), `debug` adds the snapshots. Steps are
 appended to a `jsonb[]` variable by `GET DIAGNOSTICS` and a simple
 assignment, which leave `ROW_COUNT` and `FOUND` untouched, and written at
 each exit — with the temp table cleanup, `FOUND` saved and restored around
-it for a `RETURN` that reads it — to `pgweave_log.run` / `.step`
-(unlogged) or as `pg_notify('pgweave_log', json)`. The project level is
-`[log] level` / `target` in `pgweave.toml`: analysis, the LSP, `pgweave
-build` and `pgweave migrate` all expand the routines at it, and the log
+it for a `RETURN` that reads it — to `pgzest_log.run` / `.step`
+(unlogged) or as `pg_notify('pgzest_log', json)`. The project level is
+`[log] level` / `target` in `pgzest.toml`: analysis, the LSP, `pgzest
+build` and `pgzest migrate` all expand the routines at it, and the log
 tables are part of the replayed schema (a declarative project's migrations
 create them). Each generated migration records the level in its header
-(`-- pgweave: postgres=18 log=step`, `log=step:notify`); the replay checks
+(`-- pgzest: postgres=18 log=step`, `log=step:notify`); the replay checks
 it against the instrumentation of the routines the file creates, and that
 the tables they write to exist at that point. A level change regenerates
 every macro routine, with a note in the migration.
 
 **Traces** — each logged run knows the run that caused it (calling
 routine, or the statement that fired a trigger) and its depth:
-`pgweave.span` / `pgweave.depth`, transaction-local settings set in the
+`pgzest.span` / `pgzest.depth`, transaction-local settings set in the
 declarations (before any statement, outside an exception block's
 subtransaction) and restored at each exit; an error leaving the routine
 rolls them back with its subtransaction. A `RETURN <value>` becomes
-`DECLARE _pgweave_result <type> := <value>; BEGIN <exit> RETURN
-_pgweave_result; END;` (result type without modifiers, `record` for a
+`DECLARE _pgzest_result <type> := <value>; BEGIN <exit> RETURN
+_pgzest_result; END;` (result type without modifiers, `record` for a
 trigger): the calls of the value are runs of the routine, and it may read
 `FOUND` or a temp table; a polymorphic result keeps the exit before the
 `RETURN`, with a warning when the value calls something; a variable, a
-field or a constant (`RETURN NEW;`) needs no block. `pgweave.max_depth`
+field or a constant (`RETURN NEW;`) needs no block. `pgzest.max_depth`
 bounds the depth (`54001`, naming the routine). The `notice` target raises
 a start and an end event per run, which reach the client even when the
-transaction fails — only under a sampled `pgweave.traceparent` (W3C flag,
+transaction fails — only under a sampled `pgzest.traceparent` (W3C flag,
 matched by a pattern: absent or malformed reads as not sampled, never an
 error), so that unsampled requests pay ~1 µs per run instead of ~33: a run
 not sampled reads the traceparent, and keeps the depth only for a
-`pgweave.max_depth` set; no run id, clock, parent or span setting. The
+`pgzest.max_depth` set; no run id, clock, parent or span setting. The
 start event names the run (traceparent on the outermost run only), the
 end refers to it by id; steps carry their offset from the start, built
 with `json_build_object` (no jsonb round trip). Not done: steps as
 indexes into a per-routine manifest — sending costs per message (two
-empty notices cost about as much), not per byte; `pgweave-runtime::trace` (feature `trace`) assembles
+empty notices cost about as much), not per byte; `pgzest-runtime::trace` (feature `trace`) assembles
 them into trees, closes the runs a failed statement left open, and
 (feature `opentelemetry`) exports each tree as spans under the caller's
 `traceparent` — the SDK generates span ids, so a tree is exported when its
@@ -1042,22 +1042,22 @@ template, checked when the definition loads: `@trigger … when (…)` used to
 capture the condition and drop it silently. `wrap <slot> -> <text>`
 renders an optional slot only when given.
 
-**`pgweave dev`** — applies the routines (functions, procedures,
+**`pgzest dev`** — applies the routines (functions, procedures,
 triggers) of the schema files to a development database, at the `debug`
 log level by default, then again on each save (files polled every
-300 ms, `pgweave.toml` and macros included). One transaction per file,
+300 ms, `pgzest.toml` and macros included). One transaction per file,
 `CREATE OR REPLACE` ensured; a changed return type or parameter name is
 retried after `DROP ROUTINE`; routines and triggers a file no longer
 declares are dropped when this session created them; database errors are
 mapped back to the source position. Tables stay with migrations.
 
-**`pgweave db check`** — tamper detection, on the database rather than on
+**`pgzest db check`** — tamper detection, on the database rather than on
 migration files: editing a generated migration is expected (the developer
 adapts it, `migrate check` verifies the final state). The migrations the
 database received (`_prisma_migrations`, `__diesel_schema_migrations`,
 else all or `--until`) are replayed in a scratch database on the same
 server (or `--scratch-url`, same major version required), and both are
-described by PostgreSQL (`pgweave_oracle::schema::introspect`, the P7
+described by PostgreSQL (`pgzest_oracle::schema::introspect`, the P7
 oracle's description); the migrations table is left out. Differences are
 grouped by object — extra, missing, changed with a line diff of the
 definitions. A migration recorded but missing from the repository, or
@@ -1077,7 +1077,7 @@ show each step.
   indexed by the exact string (the graphql-codegen "client preset"
   model) or through a language service plugin — choice to be made
   when the phase opens.
-- Resumption or replacement of `npm/pgweave` and the bindings.
+- Resumption or replacement of `npm/pgzest` and the bindings.
 
 **Exit**: the `getPage` example of the target DX typed end to end, without
 cast.
@@ -1093,9 +1093,11 @@ user-facing `docs/*.md` moved there, `docs/` keeps the internal
 documents. `cargo xtask docs` generates the CLI reference (from `--help`)
 and the diagnostics reference (from the documented code constants, every
 sema code moved to `codes.rs`, dead codes removed); `--check` in CI, with
-the site build and its link validation. Name and repository settled:
-`pgweave`, `github.com/Creatiwity/pgweave` (renamed from `pgsql-tools`,
-2026-11-04). Remaining: the packages (publication), the TypeScript guide
+the site build and its link validation. Name and repository settled
+(2026-11-04): `pgzest`, `github.com/Creatiwity/pgzest`. `pgweave` was
+already taken (the `pg_weave` extension, `weavepg.dev`); the zest says the
+project's stance: the SQL stays raw, it is seasoned, not cooked. Visual
+identity to match (citrus palette, zest mark). Remaining: the packages (publication), the TypeScript guide
 with P8.
 
 Makes the project presentable before it is published: what it does is
@@ -1112,7 +1114,7 @@ there, scattered between the README, `docs/` and this plan.
   (measured costs, oracle results), nothing promised that is not done.
 - **Documentation site**: getting started, guides (Rust queries,
   TypeScript queries, macros and fragments, migrations, observability),
-  reference (CLI, `pgweave.toml`, diagnostic codes, macro format),
+  reference (CLI, `pgzest.toml`, diagnostic codes, macro format),
   examples (the demo as a guided tour). `docs/` is its source; the
   generator is chosen when the phase opens (mdBook, Rust-native, or a
   JS one such as Starlight/VitePress if the TypeScript audience
@@ -1161,21 +1163,21 @@ code written in the meantime **migrates mechanically** to the generated code:
    `queries/*.sql` files in the named-query format (P4) and with the
    `$name` syntax (D6); execution via `tokio-postgres` and a thin hand-written
    layer that follows the shape of the future runtime (one function per query,
-   parameter struct, row struct). `pgweave check` (existing) already
+   parameter struct, row struct). `pgzest check` (existing) already
    checks table/column existence in CI.
 2. **The named-query format is therefore frozen in P0**, not in P4 — this is
    the only phase advance requested by Mesalia.
 3. **Prisma remains the owner of migrations** until the end of P2 (import
    reviewed). After that, no more Prisma migrations: new migrations
-   are written in SQL in the repository, checked by `pgweave check`, then
-   generated by `pgweave migrate create` from P7 on.
+   are written in SQL in the repository, checked by `pgzest check`, then
+   generated by `pgzest migrate create` from P7 on.
 4. **When P5 is delivered**: the manual layer is replaced query by
    query with generated code; compilation reports every type or
    nullability gap the manual layer was hiding.
 
 Status as of 2026-11-02: the component can start directly on generated
-code (`pgweave-build`, `pgweave-runtime`, `site/src/content/docs/guides/rust.md` guide), its
-`pgweave.toml` pointing to the existing Prisma migrations; the manual
+code (`pgzest-build`, `pgzest-runtime`, `site/src/content/docs/guides/rust.md` guide), its
+`pgzest.toml` pointing to the existing Prisma migrations; the manual
 layer from step 1 is no longer needed.
 
 ---
@@ -1184,29 +1186,29 @@ layer from step 1 is no longer needed.
 
 ```
 crates/
-  pgweave-ast/          syntactic AST, spans, deterministic IDs
-  pgweave-parser/       PgsqlDialect + PL/pgSQL
-  pgweave-macro/        macros, fragments, source maps
-  pgweave-catalog/      object model, layers, search_path, generated data
-  pgweave-project/      salsa database: files, revisions, memoized queries
-  pgweave-sema/         normalization, resolution, types, nullability → HIR
-  pgweave-checker/      correctness rules on the HIR
-  pgweave-lint/         style / perf / migration-safety rules
-  pgweave-query/        query descriptor, cache
-  pgweave-codegen/      SQL emission, migration diff
-  pgweave-diagnostics/  diagnostics, directives
-  pgweave-lsp/  pgweave-cli/
+  pgzest-ast/          syntactic AST, spans, deterministic IDs
+  pgzest-parser/       PgsqlDialect + PL/pgSQL
+  pgzest-macro/        macros, fragments, source maps
+  pgzest-catalog/      object model, layers, search_path, generated data
+  pgzest-project/      salsa database: files, revisions, memoized queries
+  pgzest-sema/         normalization, resolution, types, nullability → HIR
+  pgzest-checker/      correctness rules on the HIR
+  pgzest-lint/         style / perf / migration-safety rules
+  pgzest-query/        query descriptor, cache
+  pgzest-codegen/      SQL emission, migration diff
+  pgzest-diagnostics/  diagnostics, directives
+  pgzest-lsp/  pgzest-cli/
 rust/
-  pgweave-runtime/      tokio-postgres execution
-  pgweave-macros/       proc-macros
+  pgzest-runtime/      tokio-postgres execution
+  pgzest-macros/       proc-macros
 contributors/         generated packs (D9): catalog + type mappings
   postgres-18/
   citext/  btree_gist/  postgis/
 xtask/                catalog-gen, corpus, bench
 ```
 
-`pgweave-analysis` (pipeline shared by CLI/LSP today) is absorbed by
-`pgweave-project`.
+`pgzest-analysis` (pipeline shared by CLI/LSP today) is absorbed by
+`pgzest-project`.
 
 ---
 

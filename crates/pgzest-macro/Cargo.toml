@@ -1,0 +1,10 @@
+[package]
+name = "pgzest-macro"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-diagnostics = { workspace = true }
+# Nature of a fragment body: expression to parenthesize or not.
+pgzest-parser = { path = "../pgzest-parser" }

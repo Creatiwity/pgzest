@@ -1,8 +1,8 @@
 {
-  "name": "pgweave-site",
+  "name": "pgzest-site",
   "private": true,
   "type": "module",
-  "description": "pgweave documentation site (Astro Starlight). Pages: src/content/docs.",
+  "description": "pgzest documentation site (Astro Starlight). Pages: src/content/docs.",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",

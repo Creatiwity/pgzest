@@ -1,4 +1,4 @@
--- pgweave: postgres=18 extensions=citext@1.8
+-- pgzest: postgres=18 extensions=citext@1.8
 -- Restaurants, dishes, customers and orders.
 
 CREATE EXTENSION IF NOT EXISTS citext;

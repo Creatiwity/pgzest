@@ -1,17 +1,17 @@
 //! The example service against a real PostgreSQL: every generated function
 //! runs, and types and cardinalities hold at run time.
 
-use pgweave_example_rust_service::queries::{self, PageStatus};
+use pgzest_example_rust_service::queries::{self, PageStatus};
 
 #[tokio::test]
-#[ignore = "requires PostgreSQL 18: `make oracle` (PGWEAVE_ORACLE_URL variable)"]
+#[ignore = "requires PostgreSQL 18: `make oracle` (PGZEST_ORACLE_URL variable)"]
 async fn generated_queries_run() {
-    let url = std::env::var("PGWEAVE_ORACLE_URL").expect("PGWEAVE_ORACLE_URL");
+    let url = std::env::var("PGZEST_ORACLE_URL").expect("PGZEST_ORACLE_URL");
     let (admin, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
         .await
         .expect("connection");
     tokio::spawn(conn);
-    let db = format!("pgweave_example_{}", std::process::id());
+    let db = format!("pgzest_example_{}", std::process::id());
     for sql in [
         format!("DROP DATABASE IF EXISTS {db}"),
         format!("CREATE DATABASE {db}"),
@@ -26,12 +26,12 @@ async fn generated_queries_run() {
         .await
         .expect("connection");
     tokio::spawn(conn);
-    // The schema uses fragments: it is applied desugared, as pgweave
-    // analyzes it (what `pgweave build` would write).
+    // The schema uses fragments: it is applied desugared, as pgzest
+    // analyzes it (what `pgzest build` would write).
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let project = pgweave_build::load_project(root).expect("project");
+    let project = pgzest_build::load_project(root).expect("project");
     let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schema");
-    let schema = pgweave_macro::expand_source(&schema, &project.macros).sql;
+    let schema = pgzest_macro::expand_source(&schema, &project.macros).sql;
     client.batch_execute(&schema).await.expect("schema applied");
 
     let author = uuid::Uuid::from_u128(42);
@@ -79,7 +79,7 @@ async fn generated_queries_run() {
     assert_eq!(drafts.len(), 1);
     // Same query as a stream.
     {
-        use pgweave_runtime::futures_util::StreamExt;
+        use pgzest_runtime::futures_util::StreamExt;
         let mut stream = std::pin::pin!(
             queries::pages::pages_by_status_stream(
                 &client,
@@ -112,16 +112,16 @@ async fn generated_queries_run() {
     tx.commit().await.expect("commit");
 
     // Inline queries (`query!`).
-    let title = pgweave_example_rust_service::page_title(&client, inserted.id)
+    let title = pgzest_example_rust_service::page_title(&client, inserted.id)
         .await
         .expect("page_title");
     assert_eq!(title.as_deref(), Some("Hello"));
-    let renamed = pgweave_example_rust_service::rename_by_author(&client, author, "Howdy")
+    let renamed = pgzest_example_rust_service::rename_by_author(&client, author, "Howdy")
         .await
         .expect("rename_by_author");
     assert_eq!(renamed, 1);
 
-    let live = pgweave_example_rust_service::live_pages(&client, "How%")
+    let live = pgzest_example_rust_service::live_pages(&client, "How%")
         .await
         .expect("live_pages");
     assert_eq!(live, ["Howdy"]);
@@ -148,7 +148,7 @@ async fn generated_queries_run() {
     )
     .await
     .expect_err("domain CHECK");
-    assert!(matches!(err, pgweave_runtime::Error::Db { .. }), "{err}");
+    assert!(matches!(err, pgzest_runtime::Error::Db { .. }), "{err}");
 
     // Batch loading: binary and CSV COPY into staging, swap, all inside a
     // transaction.

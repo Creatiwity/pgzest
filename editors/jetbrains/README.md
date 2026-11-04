@@ -1,4 +1,4 @@
-# pgweave JetBrains Plugin
+# pgzest JetBrains Plugin
 
 LSP-based PostgreSQL support for IntelliJ IDEA, DataGrip, and other JetBrains IDEs.
 
@@ -6,7 +6,7 @@ LSP-based PostgreSQL support for IntelliJ IDEA, DataGrip, and other JetBrains ID
 
 - IntelliJ IDEA 2024.1+ (Community or Ultimate)
 - [LSP4IJ plugin](https://plugins.jetbrains.com/plugin/23257-lsp4ij) installed
-- `pgweave-lsp` binary on your PATH (build from source: `cargo build --bin pgweave-lsp --release`)
+- `pgzest-lsp` binary on your PATH (build from source: `cargo build --bin pgzest-lsp --release`)
 
 ## Installation (development)
 
@@ -18,14 +18,14 @@ cd editors/jetbrains
 ## Building
 
 ```bash
-./gradlew buildPlugin  # Produces build/distributions/pgweave-0.1.0.zip
+./gradlew buildPlugin  # Produces build/distributions/pgzest-0.1.0.zip
 ```
 
 ## Configuration
 
-Set `PGWEAVE_LSP_PATH` environment variable to point to the pgweave-lsp binary
+Set `PGZEST_LSP_PATH` environment variable to point to the pgzest-lsp binary
 if it's not on your PATH:
 
 ```bash
-export PGWEAVE_LSP_PATH=/path/to/pgweave-lsp
+export PGZEST_LSP_PATH=/path/to/pgzest-lsp
 ```

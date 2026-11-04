@@ -1,0 +1,16 @@
+[package]
+name = "pgzest-sema"
+version = "0.1.0"
+edition = "2024"
+description = "Semantic analysis for pgzest: PostgreSQL-faithful type system, typed HIR (PLAN.md D4, P3)"
+
+[dependencies]
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-parser = { path = "../pgzest-parser" }
+pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-diagnostics = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tokio-postgres = { workspace = true }
+pgzest-schema = { path = "../pgzest-schema" }

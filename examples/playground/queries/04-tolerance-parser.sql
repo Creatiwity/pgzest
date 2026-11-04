@@ -1,4 +1,4 @@
--- Parser tolerance, set by [parse] in pgweave.toml.
+-- Parser tolerance, set by [parse] in pgzest.toml.
 
 -- Valid SQL but outside the AST's scope → unsupported-statement.
 -- With `unsupported = "ignore"` (default), nothing is reported.

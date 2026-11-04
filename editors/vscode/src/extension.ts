@@ -19,8 +19,8 @@ function resolveServerPath(configured: string, extensionPath: string): string {
   // Walk up from editors/vscode/ to workspace root, try debug then release
   const root = path.resolve(extensionPath, '..', '..');
   for (const candidate of [
-    path.join(root, 'target', 'debug', 'pgweave-lsp'),
-    path.join(root, 'target', 'release', 'pgweave-lsp'),
+    path.join(root, 'target', 'debug', 'pgzest-lsp'),
+    path.join(root, 'target', 'release', 'pgzest-lsp'),
   ]) {
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -28,8 +28,8 @@ function resolveServerPath(configured: string, extensionPath: string): string {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration('pgweave');
-  const configured = config.get<string>('lspPath', 'pgweave-lsp');
+  const config = vscode.workspace.getConfiguration('pgzest');
+  const configured = config.get<string>('lspPath', 'pgzest-lsp');
   const lspPath = resolveServerPath(configured, context.extensionPath);
   const schemaFile = config.get<string>('schemaFile', '');
 
@@ -49,17 +49,17 @@ export function activate(context: vscode.ExtensionContext) {
     ],
     initializationOptions: { schemaFile },
     synchronize: {
-      // Files created or changed outside the editor (`pgweave migrate
+      // Files created or changed outside the editor (`pgzest migrate
       // create`, git…): the server reloads the project.
       fileEvents: vscode.workspace.createFileSystemWatcher(
-        '**/{*.sql,*.pgsql,*.pgmacro,pgweave.toml}',
+        '**/{*.sql,*.pgsql,*.pgmacro,pgzest.toml}',
       ),
     },
   };
 
   client = new LanguageClient(
-    'pgweave',
-    'pgweave Language Server',
+    'pgzest',
+    'pgzest Language Server',
     serverOptions,
     clientOptions,
   );

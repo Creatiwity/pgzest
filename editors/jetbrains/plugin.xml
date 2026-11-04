@@ -1,13 +1,13 @@
 <idea-plugin>
-  <id>com.pgweave.jetbrains</id>
-  <name>pgweave</name>
+  <id>com.pgzest.jetbrains</id>
+  <name>pgzest</name>
   <version>0.1.0</version>
-  <vendor email="pgweave@example.com" url="https://github.com/Creatiwity/pgweave">
-    pgweave
+  <vendor email="pgzest@example.com" url="https://github.com/Creatiwity/pgzest">
+    pgzest
   </vendor>
   <description><![CDATA[
     PostgreSQL SQL + PL/pgSQL language support for JetBrains IDEs.
-    Provides type-checking, linting, hover, and completion via the pgweave-lsp server.
+    Provides type-checking, linting, hover, and completion via the pgzest-lsp server.
     <br/>
     Features:
     <ul>
@@ -24,21 +24,21 @@
 
   <extensions defaultExtensionNs="com.intellij">
     <!-- Language file type -->
-    <fileType name="SQL" implementationClass="com.pgweave.PgsqlFileType"
+    <fileType name="SQL" implementationClass="com.pgzest.PgsqlFileType"
               language="SQL" extensions="sql;pgsql"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
-    <server id="pgweave-lsp"
-            name="pgweave-lsp"
-            factoryClass="com.pgweave.PgsqlLspServerDefinition">
-      <description>PostgreSQL language server (pgweave-lsp)</description>
+    <server id="pgzest-lsp"
+            name="pgzest-lsp"
+            factoryClass="com.pgzest.PgsqlLspServerDefinition">
+      <description>PostgreSQL language server (pgzest-lsp)</description>
     </server>
     <languageMapping language="SQL"
-                     serverId="pgweave-lsp"
+                     serverId="pgzest-lsp"
                      filePattern="*.sql"/>
     <languageMapping language="SQL"
-                     serverId="pgweave-lsp"
+                     serverId="pgzest-lsp"
                      filePattern="*.pgsql"/>
   </extensions>
 </idea-plugin>

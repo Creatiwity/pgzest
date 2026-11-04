@@ -1,0 +1,15 @@
+[package]
+name = "pgzest-checker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-diagnostics = { workspace = true }
+pgzest-schema = { path = "../pgzest-schema" }
+pgzest-parser = { path = "../pgzest-parser" }
+pgzest-sema = { path = "../pgzest-sema" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

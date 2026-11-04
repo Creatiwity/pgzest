@@ -1,0 +1,62 @@
+---
+source: crates/pgzest-query/tests/descriptor.rs
+expression: "serde_json::to_string_pretty(&json).expect(\"json\")"
+---
+{
+  "cardinality": "optional",
+  "columns": [
+    {
+      "name": "id",
+      "nullable": "non_null",
+      "type": {
+        "oid": 20,
+        "pg": "pg_catalog.int8"
+      }
+    },
+    {
+      "name": "slug",
+      "nullable": "non_null",
+      "type": {
+        "modifiers": [
+          "80"
+        ],
+        "oid": 1043,
+        "pg": "pg_catalog.varchar"
+      }
+    },
+    {
+      "name": "status",
+      "nullable": "non_null",
+      "type": {
+        "pg": "public.status"
+      }
+    },
+    {
+      "name": "creation_date",
+      "nullable": "nullable",
+      "type": {
+        "oid": 1184,
+        "pg": "pg_catalog.timestamptz"
+      }
+    }
+  ],
+  "command": "select",
+  "depends_on": [
+    "public.pages",
+    "public.status"
+  ],
+  "fingerprint": "…",
+  "name": "q",
+  "params": [
+    {
+      "name": "id",
+      "nullable": "unknown",
+      "type": {
+        "oid": 20,
+        "pg": "pg_catalog.int8"
+      }
+    }
+  ],
+  "sql": "SELECT id, slug, status, creation_date FROM pages WHERE id = $1",
+  "version": 1
+}

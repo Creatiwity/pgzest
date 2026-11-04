@@ -1,0 +1,19 @@
+[package]
+name = "pgzest-analysis"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-ast = { path = "../pgzest-ast" }
+pgzest-diagnostics = { workspace = true }
+pgzest-macro = { path = "../pgzest-macro" }
+pgzest-parser = { path = "../pgzest-parser" }
+pgzest-query = { path = "../pgzest-query" }
+pgzest-schema = { path = "../pgzest-schema" }
+pgzest-checker = { path = "../pgzest-checker" }
+pgzest-lint = { path = "../pgzest-lint" }
+
+[dev-dependencies]
+pgzest-codegen = { path = "../pgzest-codegen" }
+pgzest-parser = { path = "../pgzest-parser" }
