@@ -55,6 +55,21 @@ pub struct ParseOutcome {
     pub skipped: Vec<SkippedStatement>,
 }
 
+pub use split::SplitStatement;
+
+/// Splits `text` into statements without parsing them: the ranges the
+/// parser itself works on (strings, dollar bodies and comments are never
+/// cut). The second value is the unreadable region ending the text
+/// (unterminated string…), with the tokenizer's message.
+pub fn split_statements(
+    text: &str,
+) -> (
+    Vec<SplitStatement>,
+    Option<(std::ops::Range<usize>, String)>,
+) {
+    split::split_statements(text)
+}
+
 /// Parses `sql` and returns only the understood statements.
 ///
 /// Unparsable or unsupported statements are silently skipped.

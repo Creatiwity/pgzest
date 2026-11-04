@@ -124,6 +124,54 @@ pub(crate) fn split(text: &str) -> Vec<Unit> {
     units
 }
 
+/// A statement of a text, as the parser splits it (see
+/// [`crate::split_statements`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplitStatement {
+    /// From the first significant token to the last, without the `;`.
+    pub range: std::ops::Range<usize>,
+    /// Leading unquoted words, uppercased (`CREATE`, `OR`, `REPLACE`,
+    /// `FUNCTION`, …), up to the first other token.
+    pub keywords: Vec<String>,
+}
+
+/// Statements of `text`, then the unreadable region that ends it, if any
+/// (byte range and tokenizer message).
+pub(crate) fn split_statements(
+    text: &str,
+) -> (
+    Vec<SplitStatement>,
+    Option<(std::ops::Range<usize>, String)>,
+) {
+    let mut out = Vec::new();
+    let mut unreadable = None;
+    for unit in split(text) {
+        match unit {
+            Unit::Statement(s) => {
+                let keywords = s
+                    .tokens
+                    .iter()
+                    .filter(|t| !matches!(t.token, Token::Whitespace(_)))
+                    .map_while(|t| match &t.token {
+                        Token::Word(w) if w.quote_style.is_none() => Some(w.value.to_uppercase()),
+                        _ => None,
+                    })
+                    .collect();
+                out.push(SplitStatement {
+                    range: s.start..s.end,
+                    keywords,
+                });
+            }
+            Unit::Unreadable {
+                start,
+                end,
+                message,
+            } => unreadable = Some((start..end, message)),
+        }
+    }
+    (out, unreadable)
+}
+
 /// Tokenization error: (byte offset, message).
 fn tokenize(text: &str) -> Result<Vec<TokenWithSpan>, (usize, String)> {
     Tokenizer::new(&PgweaveDialect, text)

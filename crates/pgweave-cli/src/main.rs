@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use pgweave_ast::Statement;
 
 mod describe;
+mod dev;
 mod import;
 mod migrate;
 
@@ -164,6 +165,28 @@ enum Command {
         /// Where the log entries go.
         #[arg(long = "log-target", value_enum, default_value = "table")]
         log_target: CliLogTarget,
+    },
+
+    /// Apply the routines of the project's schema files to a development
+    /// database — with run logs and snapshots by default — then again on
+    /// each save.
+    ///
+    /// Functions, procedures and triggers only (`CREATE OR REPLACE`);
+    /// tables go through migrations. A routine a file no longer declares
+    /// is dropped if this session created it.
+    Dev {
+        /// Database URL (default: `DATABASE_URL`)
+        #[arg(long, env = "DATABASE_URL")]
+        url: String,
+        /// What the routines record of their runs (see `pgweave build`)
+        #[arg(long, value_enum, default_value = "debug")]
+        log: CliLogLevel,
+        /// Where the log entries go
+        #[arg(long = "log-target", value_enum, default_value = "table")]
+        log_target: CliLogTarget,
+        /// Apply once and exit instead of watching
+        #[arg(long)]
+        once: bool,
     },
 
     /// Lint a SQL file for style and best-practice violations.
@@ -788,6 +811,19 @@ fn main() {
                 target: log_target.into(),
             },
         ),
+        Command::Dev {
+            url,
+            log,
+            log_target,
+            once,
+        } => dev::run(dev::Options {
+            url,
+            instrumentation: pgweave_macro::Instrumentation {
+                log: log.into(),
+                target: log_target.into(),
+            },
+            once,
+        }),
         Command::Lint { file } => cmd_lint(&file),
         Command::Schema { action } => match action {
             SchemaAction::Import {

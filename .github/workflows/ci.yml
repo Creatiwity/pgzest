@@ -81,8 +81,11 @@ jobs:
       - name: Migrations (generated, applied)
         run: cargo test -p pgweave-oracle --test migrations -- --ignored
 
-      - name: Isolated temp tables and snapshots
+      - name: Isolated temp tables, snapshots and run logs
         run: cargo test -p pgweave-oracle --test instrument -- --ignored
+
+      - name: pgweave dev (routines applied on save)
+        run: cargo test -p pgweave --test dev -- --ignored
 
       - name: Example Rust service (generated queries, executed)
         run: cargo test -p pgweave-example-rust-service -- --ignored

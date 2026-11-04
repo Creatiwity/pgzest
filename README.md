@@ -265,6 +265,25 @@ logged with its `SQLSTATE`, steps rolled back by it included. SQL-language
 routines are not logged. Analysis and migrations always see the routines
 as written.
 
+### `pgweave dev`
+
+```sh
+pgweave dev --url postgres://localhost/myapp_dev   # or DATABASE_URL
+```
+
+Applies the routines of the project's schema files — functions,
+procedures, triggers — to a development database, built at the `debug`
+log level by default (`--log`, `--log-target` as for `pgweave build`), then
+again each time a file is saved: run logs and snapshots are there without
+a separate build. Tables and the rest of the schema go through
+migrations; `pgweave dev` only issues `CREATE OR REPLACE` (added when the
+file omits it). A routine whose return type or parameter names changed is
+dropped and created again (PostgreSQL refuses if something depends on
+it); a routine a file no longer declares is dropped, if this session
+created it. A file with a macro error, or that the database rejects, is
+not applied (one transaction per file), and the error is shown at its
+place in the source. `--once` applies everything and exits.
+
 ### Viewing the expansion in VS Code
 
 Cursor inside a macro, then **⌘⌥E** (`Ctrl+Alt+E` elsewhere) — or the

@@ -132,6 +132,18 @@ pub enum LogLevel {
     Debug,
 }
 
+impl LogLevel {
+    /// The level as `--log` spells it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Info => "info",
+            Self::Step => "step",
+            Self::Debug => "debug",
+        }
+    }
+}
+
 /// Where the log entries go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LogTarget {
@@ -140,6 +152,16 @@ pub enum LogTarget {
     Table,
     /// `pg_notify('pgweave_log', json)`, one notification per entry.
     Notify,
+}
+
+impl LogTarget {
+    /// The target as `--log-target` spells it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Table => "table",
+            Self::Notify => "notify",
+        }
+    }
 }
 
 /// Build options of the instrumentation.

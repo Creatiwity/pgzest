@@ -942,7 +942,7 @@ Ports the mechanisms of kysely-pg-procedures that take the "black box"
 out of a PL/pgSQL run, as directives of the PL/pgSQL macros (`@function`,
 `@procedure`, `@trigger`), instrumented by pgweave from the analysis of
 the body rather than by hand. Order: (1) isolated temp tables and (3)
-`@snapshot`, then (2) log levels and (5) `pgweave dev` (apply on save),
+`@snapshot`, then (2) log levels and (5) `pgweave dev` (apply on save) — done,
 then (6) tamper detection and (4) OpenTelemetry.
 
 **Isolated temp tables** — `@temp_table name (columns);` at the top of a
@@ -992,6 +992,15 @@ it for a `RETURN` that reads it — to `pgweave_log.run` / `.step`
 (unlogged) or as `pg_notify('pgweave_log', json)`. Not yet: a level set
 in `pgweave.toml` for the routines of migrations (their analysis and the
 drift check would then have to see the same instrumentation).
+
+**`pgweave dev`** — applies the routines (functions, procedures,
+triggers) of the schema files to a development database, at the `debug`
+log level by default, then again on each save (files polled every
+300 ms, `pgweave.toml` and macros included). One transaction per file,
+`CREATE OR REPLACE` ensured; a changed return type or parameter name is
+retried after `DROP ROUTINE`; routines and triggers a file no longer
+declares are dropped when this session created them; database errors are
+mapped back to the source position. Tables stay with migrations.
 
 **Exit**: a routine using a temp table, called recursively and from a loop
 on PostgreSQL 18, keeps its rows apart (oracle test), and its snapshots
