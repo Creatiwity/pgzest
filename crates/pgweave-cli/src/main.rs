@@ -69,6 +69,8 @@ enum CliLogTarget {
     Table,
     /// `pg_notify('pgweave_log', …)`.
     Notify,
+    /// `RAISE NOTICE 'pgweave_log'`, sent to the client at once (tracing).
+    Notice,
 }
 
 impl From<CliLogTarget> for pgweave_macro::LogTarget {
@@ -76,6 +78,7 @@ impl From<CliLogTarget> for pgweave_macro::LogTarget {
         match v {
             CliLogTarget::Table => Self::Table,
             CliLogTarget::Notify => Self::Notify,
+            CliLogTarget::Notice => Self::Notice,
         }
     }
 }

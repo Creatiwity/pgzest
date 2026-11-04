@@ -999,6 +999,27 @@ it against the instrumentation of the routines the file creates, and that
 the tables they write to exist at that point. A level change regenerates
 every macro routine, with a note in the migration.
 
+**Traces** — each logged run knows the run that caused it (calling
+routine, or the statement that fired a trigger) and its depth:
+`pgweave.span` / `pgweave.depth`, transaction-local settings set in the
+declarations (before any statement, outside an exception block's
+subtransaction) and restored at each exit; an error leaving the routine
+rolls them back with its subtransaction. A `RETURN <value>` becomes
+`DECLARE _pgweave_result <type> := <value>; BEGIN <exit> RETURN
+_pgweave_result; END;` (result type without modifiers, `record` for a
+trigger): the calls of the value are runs of the routine, and it may read
+`FOUND` or a temp table; a polymorphic result keeps the exit before the
+`RETURN`, with a warning when the value calls something. `pgweave.max_depth`
+bounds the depth (`54001`, naming the routine). The `notice` target raises
+a start and an end event per run, which reach the client even when the
+transaction fails; `pgweave-runtime::trace` (feature `trace`) assembles
+them into trees, closes the runs a failed statement left open, and
+(feature `opentelemetry`) exports each tree as spans under the caller's
+`traceparent` — the SDK generates span ids, so a tree is exported when its
+outermost run ends, parents first. Oracle: routine → trigger → routine
+nested, the parent restored after a handled failure, an endless recursion
+seen through its notices; spans checked in an in-memory exporter.
+
 **`pgweave dev`** — applies the routines (functions, procedures,
 triggers) of the schema files to a development database, at the `debug`
 log level by default, then again on each save (files polled every

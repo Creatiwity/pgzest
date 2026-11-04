@@ -15,6 +15,9 @@
 
 use std::fmt;
 
+#[cfg(feature = "trace")]
+pub mod trace;
+
 pub use futures_util;
 pub use tokio;
 pub use tokio_postgres::types::{self, FromSql, ToSql, Type};

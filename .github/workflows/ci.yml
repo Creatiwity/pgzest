@@ -33,11 +33,17 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Test (runtime tracing feature)
+        run: cargo test -p pgweave-runtime --features opentelemetry
+
       - name: Format
         run: cargo fmt --all --check
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (runtime tracing feature)
+        run: cargo clippy -p pgweave-runtime --all-targets --features opentelemetry -- -D warnings
 
   # Differential oracle (PLAN.md §7): the crates/pgweave-oracle/cases corpus
   # is prepared on a real PostgreSQL 18 and compared with pgweave's analysis.
@@ -81,8 +87,11 @@ jobs:
       - name: Migrations (generated, applied)
         run: cargo test -p pgweave-oracle --test migrations -- --ignored
 
-      - name: Isolated temp tables, snapshots and run logs
+      - name: Isolated temp tables, snapshots, run logs and run trees
         run: cargo test -p pgweave-oracle --test instrument -- --ignored
+
+      - name: Run traces (notices to OpenTelemetry spans)
+        run: cargo test -p pgweave-runtime --features opentelemetry --test trace -- --ignored
 
       - name: pgweave dev (routines applied on save)
         run: cargo test -p pgweave --test dev -- --ignored

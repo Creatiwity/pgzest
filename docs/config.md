@@ -131,7 +131,7 @@ to the named query format. They are never indexed as schema.
 | Key | Values | Default | Purpose |
 |---|---|---|---|
 | `level` | `"none"` \| `"info"` \| `"step"` \| `"debug"` | `"none"` | What the PL/pgSQL macro routines record of their runs (README, "Run logs"). Part of the generated code: analysis, the LSP, `pgweave build` and `pgweave migrate` expand the routines at this level, and the migration header records it (`log=step`). Added on 2026-11-04. |
-| `target` | `"table"` \| `"notify"` | `"table"` | Where the entries go: the unlogged tables `pgweave_log.run` / `.step` (part of the schema when the level is not `none`), or `pg_notify('pgweave_log', …)`. |
+| `target` | `"table"` \| `"notify"` \| `"notice"` | `"table"` | Where the entries go: the unlogged tables `pgweave_log.run` / `.step` (part of the schema when the level is not `none`), `pg_notify('pgweave_log', …)`, or `RAISE NOTICE 'pgweave_log'` at the start and the end of each run (tracing, README "Traces"). |
 
 `pgweave build --log` / `--log-target` override it for one build;
 `pgweave dev` uses `debug` unless `--log` is given.

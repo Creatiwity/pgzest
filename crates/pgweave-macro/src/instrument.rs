@@ -63,6 +63,15 @@ const ROWS_VAR: &str = "_pgweave_rows";
 const STEPS_VAR: &str = "_pgweave_steps";
 /// `FOUND` kept across the exit code, for a `RETURN` that reads it.
 const FOUND_VAR: &str = "_pgweave_found";
+/// Run of the logged routine this one was called from (directly, or by a
+/// statement firing a trigger), and the call depth.
+const PARENT_VAR: &str = "_pgweave_parent";
+const DEPTH_VAR: &str = "_pgweave_depth";
+/// Receives `set_config`, called in assignments: unlike `PERFORM`, they
+/// leave `FOUND` alone.
+const CONFIG_VAR: &str = "_pgweave_config";
+/// Value of a `RETURN`, evaluated before the exit code.
+const RESULT_VAR: &str = "_pgweave_result";
 
 /// Tables written by `@snapshot` in a debug build. Created by
 /// `pgweave build --log debug` before the routines.
@@ -93,6 +102,8 @@ CREATE UNLOGGED TABLE IF NOT EXISTS pgweave_log.run (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     run UUID NOT NULL,
     routine TEXT NOT NULL,
+    parent UUID,
+    depth INT NOT NULL,
     traceparent TEXT,
     started_at TIMESTAMPTZ NOT NULL,
     duration_ms DOUBLE PRECISION NOT NULL,
@@ -110,8 +121,17 @@ CREATE UNLOGGED TABLE IF NOT EXISTS pgweave_log.step (
     executed_at TIMESTAMPTZ NOT NULL
 );
 ";
-/// `pg_notify` channel of the `notify` log target.
+/// `pg_notify` channel of the `notify` log target, and message of the
+/// `notice` one.
 pub const LOG_CHANNEL: &str = "pgweave_log";
+/// Setting holding the run of the logged routine in progress, read as the
+/// parent of the runs it causes (transaction-local).
+pub const SPAN_SETTING: &str = "pgweave.span";
+/// Setting holding the call depth of the logged routines (transaction-local).
+pub const DEPTH_SETTING: &str = "pgweave.depth";
+/// Optional limit of that depth: beyond it, a logged routine raises
+/// `54001` (`statement_too_complex`) instead of running, naming itself.
+pub const MAX_DEPTH_SETTING: &str = "pgweave.max_depth";
 /// Setting read at the start of a logged run: the W3C `traceparent` of the
 /// caller, if it set one (`set_config('pgweave.traceparent', …, true)`).
 pub const TRACEPARENT_SETTING: &str = "pgweave.traceparent";
@@ -159,6 +179,11 @@ pub enum LogTarget {
     Table,
     /// `pg_notify('pgweave_log', json)`, one notification per entry.
     Notify,
+    /// `RAISE NOTICE 'pgweave_log'` with the JSON entry as `DETAIL`: one
+    /// when a run starts, one when it ends, steps included. Sent to the
+    /// client at once, so a run whose error rolls back the transaction is
+    /// still seen starting (`pgweave_runtime::trace`).
+    Notice,
 }
 
 impl LogTarget {
@@ -167,12 +192,13 @@ impl LogTarget {
         match self {
             Self::Table => "table",
             Self::Notify => "notify",
+            Self::Notice => "notice",
         }
     }
 
     /// The target spelled as [`Self::as_str`] does.
     pub fn parse(s: &str) -> Option<Self> {
-        [Self::Table, Self::Notify]
+        [Self::Table, Self::Notify, Self::Notice]
             .into_iter()
             .find(|l| l.as_str() == s)
     }
@@ -221,6 +247,8 @@ pub fn instrumentation_of(definition: &str) -> Option<Instrumentation> {
     };
     let target = if definition.contains(&format!("pg_notify('{LOG_CHANNEL}'")) {
         LogTarget::Notify
+    } else if definition.contains(&format!("RAISE NOTICE '{LOG_CHANNEL}'")) {
+        LogTarget::Notice
     } else {
         LogTarget::Table
     };
@@ -507,6 +535,44 @@ struct Routine {
     /// `(name, captured)`: parameters are always captured.
     params: Vec<String>,
     trigger: bool,
+    /// Type of a variable holding a `RETURN` value, if one can be declared.
+    result: Option<String>,
+}
+
+/// Type of a variable holding what a function returns: the declared type
+/// without modifiers, which PostgreSQL does not keep for a result (a
+/// `varchar(10)` function may return a longer text). `None` when no
+/// variable can hold it: polymorphic type, or no value to return.
+fn result_type(rt: &ReturnType) -> Option<String> {
+    fn bare(dt: &DataType) -> Option<String> {
+        Some(match dt {
+            DataType::Numeric { .. } => "numeric".into(),
+            DataType::Varchar(_) => "varchar".into(),
+            // `char` alone is `char(1)`: `bpchar` has no length.
+            DataType::Char(_) => "bpchar".into(),
+            DataType::Time(_) => "time".into(),
+            DataType::TimeTz(_) => "timetz".into(),
+            DataType::Timestamp(_) => "timestamp".into(),
+            DataType::TimestampTz(_) => "timestamptz".into(),
+            DataType::Array(inner) => format!("{}[]", bare(inner)?),
+            DataType::Modified { name, .. } => bare(&DataType::Custom(name.clone()))?,
+            DataType::Custom(name) => {
+                let last = name.rsplit('.').next().unwrap_or(name).to_ascii_lowercase();
+                if last.trim_matches('"').starts_with("any") {
+                    return None;
+                }
+                name.clone()
+            }
+            other => pgweave_ast::emit::emit_data_type(other),
+        })
+    }
+    match rt {
+        ReturnType::Scalar(dt) => bare(dt),
+        ReturnType::Trigger => Some("record".into()),
+        ReturnType::OutParams | ReturnType::Table(_) | ReturnType::SetOf(_) | ReturnType::Void => {
+            None
+        }
+    }
 }
 
 fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>, out: &mut Out) {
@@ -586,6 +652,7 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
                     .filter_map(|p| p.name.as_ref().map(|n| n.value.clone()))
                     .collect(),
                 trigger: matches!(f.return_type, ReturnType::Trigger),
+                result: result_type(&f.return_type),
             },
             f.body,
         ),
@@ -598,6 +665,7 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
                     .filter_map(|p| p.name.as_ref().map(|n| n.value.clone()))
                     .collect(),
                 trigger: false,
+                result: None,
             },
             p.body,
         ),
@@ -636,6 +704,7 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
     }
 
     let exit = Exit {
+        result: routine.result.clone(),
         cleanup: cleanup_sql(&tables),
         log: logged.then(|| RunLog {
             routine: routine.name.clone(),
@@ -691,6 +760,19 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
         decls.push(format!(
             "{TRACEPARENT_VAR} text := current_setting('{TRACEPARENT_SETTING}', true);"
         ));
+        // Set in the declarations, before any statement and outside the
+        // subtransaction of an exception block: a handler still restores
+        // them, an error leaving the routine rolls them back.
+        decls.push(format!(
+            "{PARENT_VAR} uuid := nullif(current_setting('{SPAN_SETTING}', true), '')::uuid;"
+        ));
+        decls.push(format!(
+            "{DEPTH_VAR} int := set_config('{DEPTH_SETTING}', (coalesce(nullif(current_setting(\
+             '{DEPTH_SETTING}', true), '')::int, 0) + 1)::text, true)::int;"
+        ));
+        decls.push(format!(
+            "{CONFIG_VAR} text := set_config('{SPAN_SETTING}', {RUN_VAR}::text, true);"
+        ));
     }
     if opts.log >= LogLevel::Step {
         decls.push(format!("{ROWS_VAR} bigint;"));
@@ -707,6 +789,13 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
             format!("DECLARE\n{decl}")
         };
         out.edit(begin.range.start..begin.range.start, text, anchor.clone());
+    }
+    if let Some(log) = &exit.log {
+        out.edit(
+            begin.range.end..begin.range.end,
+            log.start_sql(),
+            anchor.clone(),
+        );
     }
     for t in &tables {
         out.edit(
@@ -792,6 +881,8 @@ fn fallback(sql: &str, directives: &[Directive], out: &mut Out) {
 /// then its log. An error that leaves the routine runs none of it, and
 /// rolls back what the run wrote, logs included.
 struct Exit {
+    /// See [`Routine::result`].
+    result: Option<String>,
     cleanup: Vec<String>,
     log: Option<RunLog>,
 }
@@ -827,6 +918,35 @@ impl Exit {
 }
 
 impl RunLog {
+    /// Right after `BEGIN`: the depth guard, and the start event of the
+    /// `notice` target.
+    fn start_sql(&self) -> String {
+        let routine = literal(&self.routine);
+        let mut out = format!(
+            "\n    IF {DEPTH_VAR} > coalesce(nullif(current_setting('{MAX_DEPTH_SETTING}', true), \
+             '')::int, {DEPTH_VAR}) THEN\n        RAISE EXCEPTION 'pgweave: % called at depth %, \
+             beyond {MAX_DEPTH_SETTING}', {routine}, {DEPTH_VAR} USING ERRCODE = '54001';\n    \
+             END IF;"
+        );
+        if self.target == LogTarget::Notice {
+            out.push_str(&format!(
+                "\n    RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = jsonb_build_object('type', \
+                 'start', {})::text;",
+                self.identity()
+            ));
+        }
+        out
+    }
+
+    /// Fields naming the run in an event.
+    fn identity(&self) -> String {
+        format!(
+            "'run', {RUN_VAR}, 'routine', {}, 'parent', {PARENT_VAR}, 'depth', {DEPTH_VAR}, \
+             'traceparent', left({TRACEPARENT_VAR}, 512), 'started_at', {STARTED_VAR}",
+            literal(&self.routine)
+        )
+    }
+
     fn flush(&self, in_handler: bool) -> Vec<String> {
         let routine = literal(&self.routine);
         let error = if in_handler { "SQLSTATE" } else { "NULL::text" };
@@ -852,9 +972,10 @@ impl RunLog {
                     ));
                 }
                 out.push(format!(
-                    "INSERT INTO pgweave_log.run (run, routine, traceparent, started_at, \
-                     duration_ms, steps, error) VALUES ({RUN_VAR}, {routine}, {TRACEPARENT_VAR}, \
-                     {STARTED_VAR}, {duration}, {steps}, {error});"
+                    "INSERT INTO pgweave_log.run (run, routine, parent, depth, traceparent, \
+                     started_at, duration_ms, steps, error) VALUES ({RUN_VAR}, {routine}, \
+                     {PARENT_VAR}, {DEPTH_VAR}, {TRACEPARENT_VAR}, {STARTED_VAR}, {duration}, \
+                     {steps}, {error});"
                 ));
             }
             LogTarget::Notify => {
@@ -868,13 +989,32 @@ impl RunLog {
                     ));
                 }
                 out.push(format!(
-                    "PERFORM pg_notify('{LOG_CHANNEL}', jsonb_build_object('type', 'run', 'run', \
-                     {RUN_VAR}, 'routine', {routine}, 'traceparent', left({TRACEPARENT_VAR}, \
-                     512), 'started_at', {STARTED_VAR}, 'duration_ms', {duration}, 'steps', \
-                     {steps}, 'error', {error})::text);"
+                    "PERFORM pg_notify('{LOG_CHANNEL}', jsonb_build_object('type', 'run', {}, \
+                     'duration_ms', {duration}, 'steps', {steps}, 'error', {error})::text);",
+                    self.identity()
+                ));
+            }
+            LogTarget::Notice => {
+                let steps = if self.steps {
+                    format!("to_jsonb({STEPS_VAR})")
+                } else {
+                    "NULL::jsonb".into()
+                };
+                out.push(format!(
+                    "RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = jsonb_build_object('type', \
+                     'end', {}, 'duration_ms', {duration}, 'steps', {steps}, 'error', \
+                     {error})::text;",
+                    self.identity()
                 ));
             }
         }
+        // The caller's run and depth again, for what it runs next.
+        out.push(format!(
+            "{CONFIG_VAR} := set_config('{SPAN_SETTING}', coalesce({PARENT_VAR}::text, ''), true);"
+        ));
+        out.push(format!(
+            "{CONFIG_VAR} := set_config('{DEPTH_SETTING}', ({DEPTH_VAR} - 1)::text, true);"
+        ));
         out
     }
 }
@@ -916,6 +1056,17 @@ fn indent_at(sql: &str, pos: usize) -> String {
 
 /// Position after the `;` ending a statement whose span ends at `end`
 /// (the span may stop before it).
+/// The text at `range` holds a call (`name(`).
+fn calls(sql: &str, range: &Range<usize>) -> bool {
+    let tokens: Vec<Token> = offset_tokens(sql, range.clone())
+        .into_iter()
+        .filter(significant)
+        .collect();
+    tokens
+        .windows(2)
+        .any(|w| w[0].kind == Kind::Word && &sql[w[1].range.clone()] == "(")
+}
+
 fn after_semicolon(sql: &str, end: usize) -> usize {
     if sql[..end].ends_with(';') {
         return end;
@@ -1234,25 +1385,67 @@ impl Walker<'_> {
                 using.iter().for_each(|e| self.expr(e));
             }
             PlStatementKind::Return(value) => {
+                let before = self.out.edits.len();
                 if let Some(e) = value {
-                    let before = self.out.edits.len();
                     self.expr(e);
-                    if self.out.edits.len() > before {
-                        self.out.error(
-                            range.clone(),
-                            "RETURN reads an isolated temp table, whose rows are deleted on \
-                             return: assign the value to a variable first",
+                }
+                let reads_temp = self.out.edits.len() > before;
+                let keyword = offset_tokens(self.sql, range.clone())
+                    .into_iter()
+                    .find(|t| t.kind == Kind::Word)
+                    .filter(|t| self.sql[t.range.clone()].eq_ignore_ascii_case("return"));
+                let indent = indent_at(self.sql, range.start);
+                match (value, &self.exit.result, keyword) {
+                    _ if self.exit.is_empty() => {}
+                    // The value first — its calls are runs of this one, it
+                    // may read `FOUND` or a temp table — then the exit:
+                    // `DECLARE r t := <value>; BEGIN <exit> RETURN r; END;`.
+                    (Some(_), Some(ty), Some(keyword)) => {
+                        let anchor = range.clone();
+                        self.out.edit(
+                            keyword.range.clone(),
+                            format!("DECLARE {RESULT_VAR} {ty} :="),
+                            anchor.clone(),
+                        );
+                        let inner = format!("{indent}    ");
+                        let exit = self.exit.sql(self.handlers > 0, false, &inner);
+                        let at = after_semicolon(self.sql, range.end);
+                        self.out.edit(
+                            at..at,
+                            format!(
+                                "\n{indent}BEGIN\n{inner}{exit}\n{inner}RETURN {RESULT_VAR};\n\
+                                 {indent}END;"
+                            ),
+                            anchor,
                         );
                     }
-                }
-                if !self.exit.is_empty() {
-                    let indent = indent_at(self.sql, range.start);
-                    let exit = self
-                        .exit
-                        .sql(self.handlers > 0, self.reads_found(&range), &indent);
-                    let text = format!("{exit}\n{indent}");
-                    let anchor = range.clone();
-                    self.out.edit(range.start..range.start, text, anchor);
+                    _ => {
+                        if reads_temp {
+                            self.out.error(
+                                range.clone(),
+                                "RETURN reads an isolated temp table, whose rows are deleted \
+                                 on return: assign the value to a variable first",
+                            );
+                        }
+                        if value.is_some() && self.exit.log.is_some() && calls(self.sql, &range) {
+                            self.out.diags.push((
+                                range.clone(),
+                                Diagnostic::warning(
+                                    NOT_LOGGED,
+                                    "the routines this RETURN calls run after the run is \
+                                     recorded (polymorphic result): they are logged as \
+                                     called by the caller",
+                                )
+                                .with_hint("assign the value to a variable first"),
+                            ));
+                        }
+                        let exit =
+                            self.exit
+                                .sql(self.handlers > 0, self.reads_found(&range), &indent);
+                        let text = format!("{exit}\n{indent}");
+                        let anchor = range.clone();
+                        self.out.edit(range.start..range.start, text, anchor);
+                    }
                 }
             }
             PlStatementKind::ReturnNext(value) => {
@@ -2080,11 +2273,12 @@ mod tests {
             )),
             "{s}"
         );
-        // Cleanup right before the RETURN, none after it.
+        // The value, then the cleanup, then the RETURN; none after it.
         assert!(
             s.contains(&format!(
-                "DELETE FROM pg_temp.{p} WHERE {p}._pgweave_run = _pgweave_run_id;\n    \
-                 RETURN n;\n\nEND;"
+                "DECLARE _pgweave_result INTEGER := n;\n    BEGIN\n        \
+                 DELETE FROM pg_temp.{p} WHERE {p}._pgweave_run = _pgweave_run_id;\n        \
+                 RETURN _pgweave_result;\n    END;\n\nEND;"
             )),
             "{s}"
         );
@@ -2129,11 +2323,6 @@ mod tests {
                 "    INSERT INTO work VALUES (1, 1) RETURNING *;\n    RETURN 1;",
                 "work",
                 "RETURNING *",
-            ),
-            (
-                "    RETURN (SELECT count(*) FROM work);",
-                "RETURN (SELECT count(*) FROM work);",
-                "assign the value",
             ),
             (
                 "    WITH work AS (SELECT 1 AS id) SELECT id INTO n FROM work;\n    RETURN n;",
@@ -2250,10 +2439,10 @@ mod tests {
         );
         // The log is written right before the RETURN.
         let flush = step.find("INSERT INTO pgweave_log.run").expect("flush");
-        assert!(
-            step[flush..].find("RETURN k;") < step[flush..].find("END;"),
-            "{step}"
-        );
+        let ret = step[flush..]
+            .find("RETURN _pgweave_result;")
+            .expect("RETURN");
+        assert!(Some(ret) < step[flush..].find("END;"), "{step}");
 
         let notify = at(LogLevel::Step, LogTarget::Notify);
         assert!(notify.contains("pg_notify('pgweave_log'"), "{notify}");
@@ -2261,16 +2450,66 @@ mod tests {
     }
 
     #[test]
-    fn a_return_reading_found_sees_it_after_the_exit_code() {
+    fn a_return_value_is_evaluated_before_the_exit_code() {
+        // It may read FOUND, a temp table, or call routines: runs of this one.
         let e = logged(
             "@function f(k INT): BOOLEAN {\n    UPDATE t SET a = k;\n    RETURN FOUND;\n}\n",
             LogLevel::Info,
             LogTarget::Table,
         );
-        let save = e.sql.find("_pgweave_found := FOUND;").expect("saved");
-        let restore = e.sql.find("FOUND := _pgweave_found;").expect("restored");
-        let ret = e.sql.find("RETURN FOUND;").unwrap();
-        assert!(save < restore && restore < ret, "{}", e.sql);
+        let value = e
+            .sql
+            .find("DECLARE _pgweave_result BOOLEAN := FOUND;")
+            .expect(&e.sql);
+        let log = e.sql.find("INSERT INTO pgweave_log.run").unwrap();
+        let ret = e.sql.find("RETURN _pgweave_result;").unwrap();
+        assert!(value < log && log < ret, "{}", e.sql);
+        let s = sql("    RETURN (SELECT count(*) FROM work);");
+        let p = physical(&s);
+        let value = s
+            .find("DECLARE _pgweave_result INTEGER := (SELECT count(*) FROM (SELECT")
+            .expect(&s);
+        let cleanup = s.find(&format!("DELETE FROM pg_temp.{p}")).unwrap();
+        assert!(value < cleanup, "{s}");
+        // Modifiers are not part of a result type; a trigger returns a row.
+        let e = logged(
+            "@function f(): VARCHAR(3) {\n    RETURN 'long';\n}\n",
+            LogLevel::Info,
+            LogTarget::Table,
+        );
+        assert!(
+            e.sql.contains("DECLARE _pgweave_result varchar := 'long';"),
+            "{}",
+            e.sql
+        );
+        let e = logged(
+            "@trigger t before insert on x for each row {\n    RETURN NEW;\n}\n",
+            LogLevel::Info,
+            LogTarget::Table,
+        );
+        assert!(
+            e.sql.contains("DECLARE _pgweave_result record := NEW;"),
+            "{}",
+            e.sql
+        );
+    }
+
+    #[test]
+    fn a_polymorphic_result_is_returned_after_the_exit_code() {
+        let e = logged(
+            "@function f(x ANYELEMENT): ANYELEMENT {\n    RETURN g(x);\n}\n",
+            LogLevel::Info,
+            LogTarget::Table,
+        );
+        let log = e.sql.find("INSERT INTO pgweave_log.run").expect(&e.sql);
+        assert!(log < e.sql.find("RETURN g(x);").unwrap(), "{}", e.sql);
+        assert!(
+            e.diagnostics
+                .iter()
+                .any(|d| d.code == super::NOT_LOGGED && d.message.contains("polymorphic")),
+            "{:?}",
+            e.diagnostics
+        );
     }
 
     #[test]

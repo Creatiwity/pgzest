@@ -409,6 +409,205 @@ async fn logged_runs_are_notified() {
     assert_eq!(got[0]["run"], got[2]["run"], "one run");
 }
 
+const TRACED: &str = r#"
+CREATE TABLE orders (id INT PRIMARY KEY, total INT NOT NULL DEFAULT 0);
+CREATE TABLE lines (order_id INT NOT NULL, amount INT NOT NULL);
+INSERT INTO orders VALUES (1), (2);
+
+-- Each line adds to its order's total, through a trigger.
+@trigger sum_lines after insert on lines for each row {
+    UPDATE orders SET total = total + NEW.amount WHERE id = NEW.order_id;
+    RETURN NEW;
+}
+
+-- The calls of a RETURN are runs of this routine.
+@function add_line(o INT, a INT): INT {
+    INSERT INTO lines VALUES (o, a);
+    RETURN total_of(o);
+}
+
+@function total_of(o INT): INT {
+    RETURN (SELECT total FROM orders WHERE id = o);
+}
+
+@function fails(): INT {
+    RETURN 1 / 0;
+}
+
+-- A nested run fails, handled: the next one still has the right parent.
+@function guarded(o INT): INT {
+    DECLARE r INT;
+    BEGIN
+        r := fails();
+    EXCEPTION WHEN division_by_zero THEN
+        r := 0;
+    END;
+    RETURN add_line(o, 5);
+}
+
+-- Never ends by itself.
+@function spin(n INT): INT {
+    RETURN spin(n + 1);
+}
+"#;
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL: make oracle"]
+async fn runs_know_the_run_that_caused_them() {
+    let url = std::env::var(pgweave_oracle::URL_ENV).expect("PGWEAVE_ORACLE_URL");
+    let client = fresh(&url, "pgweave_log_tree").await;
+    let sql = build(TRACED, LogLevel::Step, LogTarget::Table);
+    client
+        .batch_execute(&sql)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+
+    assert_eq!(count(&client, "SELECT guarded(1)::bigint").await, 5);
+    let runs = client
+        .query(
+            "SELECT r.routine, r.depth, p.routine FROM pgweave_log.run r \
+             LEFT JOIN pgweave_log.run p ON p.run = r.parent ORDER BY r.depth, r.routine",
+            &[],
+        )
+        .await
+        .expect("runs");
+    let runs: Vec<(String, i32, Option<String>)> = runs
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .collect();
+    // `fails` left with its error: rolled back with its log.
+    assert_eq!(
+        runs,
+        vec![
+            ("guarded".into(), 1, None),
+            ("add_line".into(), 2, Some("guarded".into())),
+            ("sum_lines_fn".into(), 3, Some("add_line".into())),
+            ("total_of".into(), 3, Some("add_line".into())),
+        ]
+    );
+    // A child runs within its parent.
+    assert_eq!(
+        count(
+            &client,
+            "SELECT count(*) FROM pgweave_log.run c JOIN pgweave_log.run p ON p.run = c.parent \
+             WHERE c.started_at < p.started_at OR c.started_at + c.duration_ms * interval '1 ms' \
+             > p.started_at + p.duration_ms * interval '1 ms' + interval '1 ms'"
+        )
+        .await,
+        0
+    );
+    // Once the outermost run ends, the next statement starts a new tree.
+    let after = client
+        .query_one(
+            "SELECT guarded(2), current_setting('pgweave.depth'), \
+             current_setting('pgweave.span')",
+            &[],
+        )
+        .await
+        .expect("settings");
+    assert_eq!(after.get::<_, String>(1), "0");
+    assert_eq!(after.get::<_, String>(2), "");
+
+    // A run beyond `pgweave.max_depth` fails, naming itself.
+    let err = client
+        .batch_execute("SET pgweave.max_depth = 20; SELECT spin(0)")
+        .await
+        .expect_err("depth limit");
+    let db = err.as_db_error().expect("database error");
+    assert_eq!(db.code().code(), "54001");
+    assert!(
+        db.message().contains("spin called at depth 21"),
+        "{}",
+        db.message()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL: make oracle"]
+async fn noticed_runs_survive_their_failure() {
+    let url = std::env::var(pgweave_oracle::URL_ENV).expect("PGWEAVE_ORACLE_URL");
+    drop(fresh(&url, "pgweave_log_notice").await);
+    let mut config: tokio_postgres::Config = url.parse().expect("URL");
+    config.dbname("pgweave_log_notice");
+    let (client, mut conn) = config.connect(NoTls).await.expect("connection");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Some(Ok(m)) = std::future::poll_fn(|cx| conn.poll_message(cx)).await {
+            if let tokio_postgres::AsyncMessage::Notice(n) = m
+                && n.message() == "pgweave_log"
+            {
+                let _ = tx.send(n.detail().unwrap_or_default().to_string());
+            }
+        }
+    });
+    let sql = build(TRACED, LogLevel::Step, LogTarget::Notice);
+    assert!(!sql.contains("pgweave_log.run"), "no table with notice");
+    client
+        .batch_execute(&sql)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+    let mut next = async || {
+        let detail = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("notice in time")
+            .expect("connection open");
+        serde_json::from_str::<serde_json::Value>(&detail).expect("JSON detail")
+    };
+
+    assert_eq!(count(&client, "SELECT add_line(2, 3)::bigint").await, 3);
+    let mut events = Vec::new();
+    for _ in 0..6 {
+        events.push(next().await);
+    }
+    let seen: Vec<(&str, &str, i64)> = events
+        .iter()
+        .map(|e| {
+            (
+                e["type"].as_str().unwrap(),
+                e["routine"].as_str().unwrap(),
+                e["depth"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            ("start", "add_line", 1),
+            ("start", "sum_lines_fn", 2),
+            ("end", "sum_lines_fn", 2),
+            ("start", "total_of", 2),
+            ("end", "total_of", 2),
+            ("end", "add_line", 1),
+        ]
+    );
+    assert_eq!(events[1]["parent"], events[0]["run"]);
+    assert_eq!(events[0]["parent"], serde_json::Value::Null);
+    let steps = events[5]["steps"].as_array().expect("steps");
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["kind"], "INSERT");
+    assert_eq!(steps[0]["target"], "lines");
+
+    // An endless recursion: the transaction fails, the starts are seen.
+    let err = client
+        .batch_execute("SET pgweave.max_depth = 5; SELECT spin(0)")
+        .await
+        .expect_err("depth limit");
+    assert_eq!(err.as_db_error().expect("db error").code().code(), "54001");
+    let mut chain = Vec::new();
+    for depth in 1..=5 {
+        let e = next().await;
+        assert_eq!(
+            (e["type"].as_str(), e["depth"].as_i64()),
+            (Some("start"), Some(depth))
+        );
+        if let Some(parent) = chain.last() {
+            assert_eq!(&e["parent"], parent);
+        }
+        chain.push(e["run"].clone());
+    }
+    assert!(rx.try_recv().is_err(), "no end: the runs failed");
+}
+
 /// `uuid` read as text: the oracle does not depend on a uuid crate.
 mod uuid_like {
     use tokio_postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};

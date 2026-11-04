@@ -85,6 +85,7 @@ pub enum LogTargetConfig {
     #[default]
     Table,
     Notify,
+    Notice,
 }
 
 impl LogConfig {
@@ -100,6 +101,7 @@ impl LogConfig {
             target: match self.target {
                 LogTargetConfig::Table => LogTarget::Table,
                 LogTargetConfig::Notify => LogTarget::Notify,
+                LogTargetConfig::Notice => LogTarget::Notice,
             },
         }
     }

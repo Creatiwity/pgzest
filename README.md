@@ -245,7 +245,7 @@ records its runs at the project level:
 ```toml
 [log]
 level = "step"     # none (default) | info | step | debug
-target = "table"   # table (default) | notify
+target = "table"   # table (default) | notify | notice
 ```
 
 The level is fixed when the code is generated: below it, no code is
@@ -256,15 +256,18 @@ see the routines at this level; `pgweave build --log <level>
 | Level | Recorded |
 |-------|----------|
 | `none` (default) | nothing |
-| `info` | one entry per run: routine, start, duration, the caller's `pgweave.traceparent` setting, and the `SQLSTATE` when the routine returns from its own exception handler |
+| `info` | one entry per run: routine, start, duration, the run that caused it (calling routine, or the statement that fired a trigger) and the depth, the caller's `pgweave.traceparent` setting, and the `SQLSTATE` when the routine returns from its own exception handler |
 | `step` | plus one entry per `INSERT`, `UPDATE`, `DELETE` or `EXECUTE`: kind, target table, source line, row count |
 | `debug` | plus the `@snapshot` copies |
 
-With `--log-target table` (default), entries go to the unlogged tables
+With the `table` target (default), entries go to the unlogged tables
 `pgweave_log.run` and `pgweave_log.step`, joined on `run`, which also
-identifies the run in `pgweave_debug.snapshot`; the build creates them
-first. With `notify`, each entry is a JSON `pg_notify('pgweave_log', …)`
-(steps, then the run).
+identifies the run in `pgweave_debug.snapshot`; `pgweave_log.run.parent`
+is the run that caused it. With `notify`, each entry is a JSON
+`pg_notify('pgweave_log', …)` (steps, then the run). With `notice`, a run
+raises `RAISE NOTICE 'pgweave_log'` with its JSON in `DETAIL` when it
+starts and when it ends (steps included): notices reach the client at
+once, even when the transaction then fails — the target for tracing.
 
 Steps are kept in a variable and written when the run ends, before each
 `RETURN` and at the end of the body: the recording changes neither
@@ -280,6 +283,38 @@ migration header: `-- pgweave: postgres=18 log=step` (`log=step:notify`
 for the `notify` target). The replay checks the header against the
 routines of the file. Changing the level regenerates every macro routine
 in the next migration, with a note saying why.
+
+### Traces
+
+With `target = "notice"`, `pgweave-runtime` (feature `opentelemetry`)
+turns the runs into spans under the application's span: the routine
+called, the triggers it fired, the routines they called, nested, with
+their timings and their steps as span events. An OTLP exporter brings
+them to Sentry, Jaeger or Tempo.
+
+```rust
+use pgweave_runtime::trace::{self, Tracing};
+
+let tracing = Tracing::new(move |run| trace::otel::export(&tracer, &run, &Context::current()));
+let (client, connection) = config.connect(NoTls).await?;
+tokio::spawn({ let t = tracing.clone(); async move { t.drive(connection, |_| {}).await } });
+
+trace::set_traceparent(&client, &traceparent, true).await?; // in the transaction
+if let Err(e) = client.query("SELECT add_line($1, $2)", &[&order, &amount]).await {
+    tracing.fail_open(&e); // runs the failure left open: error spans
+}
+```
+
+A run that never ends is still traced: set `pgweave.max_depth` (e.g.
+`SET pgweave.max_depth = 50`) and a logged routine called deeper raises
+`54001` naming itself — an endless trigger cascade fails fast, and its
+spans show the chain of calls that led there. `statement_timeout` stops a
+loop that does not recurse the same way: the runs it left open are closed
+as failed.
+
+Notices reach the client when `client_min_messages` is `notice` or below
+(the default). Only the routines of macros (`@function`, `@procedure`,
+`@trigger`) are logged: a plain `CREATE FUNCTION` runs untraced.
 
 ### `pgweave dev`
 
