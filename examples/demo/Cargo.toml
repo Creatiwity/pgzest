@@ -6,7 +6,7 @@ publish = false
 description = "pgweave demo: named SQL queries compiled into typed Rust, run against PostgreSQL"
 
 [dependencies]
-pgweave-runtime = { path = "../../crates/pgweave-runtime" }
+pgweave-runtime = { path = "../../crates/pgweave-runtime", features = ["trace"] }
 pgweave-macros = { path = "../../crates/pgweave-macros" }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, features = ["with-time-0_3", "with-uuid-1"] }

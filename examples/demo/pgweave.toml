@@ -14,6 +14,12 @@ declarative = true
 [queries]
 directory = "queries"
 
+# The macro routines (schema/2-loyalty.sql) record their runs and steps as
+# notices, which src/main.rs turns into a trace.
+[log]
+level = "step"
+target = "notice"
+
 # PostgreSQL enums generated once, in `crate::db` (src/lib.rs): file
 # queries and `sql!` queries refer to them.
 [rust]

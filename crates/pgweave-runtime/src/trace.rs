@@ -14,7 +14,8 @@
 //! outermost run with the runs it caused, nested. [`Tracing::fail_open`]
 //! closes the runs a failed statement left open. With the `opentelemetry`
 //! feature, [`otel::export`] turns a tree into spans under the caller's
-//! span (an OTLP exporter brings them to Sentry, Jaeger, Tempo…).
+//! span, through the `opentelemetry` API only: the tracer provider and its
+//! exporter are the application's.
 //!
 //! ```ignore
 //! let tracing = Tracing::new(|run| otel::export(&tracer, &run, &Context::current()));
@@ -381,12 +382,13 @@ impl Tracing {
     }
 
     /// Drives `connection` as `connection.await` does, handling the
-    /// `pgweave_log` notices; `other` receives the other notices and the
-    /// unreadable ones.
+    /// `pgweave_log` notices; `other` receives every other message — the
+    /// other notices, the `LISTEN` notifications — and, as an error, a
+    /// `pgweave_log` notice that does not read.
     pub async fn drive<S, T>(
         &self,
         connection: Connection<S, T>,
-        mut other: impl FnMut(Result<DbError, String>),
+        mut other: impl FnMut(Result<AsyncMessage, String>),
     ) -> Result<(), tokio_postgres::Error>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -395,13 +397,13 @@ impl Tracing {
         let mut connection = connection;
         let mut messages = futures_util::stream::poll_fn(move |cx| connection.poll_message(cx));
         while let Some(message) = messages.next().await {
-            // Notifications have their own listeners.
-            if let AsyncMessage::Notice(n) = message? {
-                match self.notice(&n) {
+            match message? {
+                AsyncMessage::Notice(n) => match self.notice(&n) {
                     Ok(true) => {}
-                    Ok(false) => other(Ok(n)),
+                    Ok(false) => other(Ok(AsyncMessage::Notice(n))),
                     Err(e) => other(Err(e)),
-                }
+                },
+                message => other(Ok(message)),
             }
         }
         Ok(())

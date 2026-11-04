@@ -115,7 +115,7 @@ queries change together, and `DishCardRow` gains a field.
 
 - In `sandbox/2-explore.sql`, add `o.tip` to a query: it is accepted, the
   unsaved text of the schema is authoritative.
-- `migrations/0003_menu_public.sql`, the latest migration, carries an
+- `migrations/0004_loyalty_traced.sql`, the latest migration, carries an
   information diagnostic: the migrations no longer lead to the schema.
 
 Save, then:
@@ -124,7 +124,7 @@ Save, then:
 ../../target/debug/pgweave migrate create tip
 ```
 
-`migrations/0004_tip.sql` is written (`ALTER TABLE orders ADD COLUMN
+`migrations/0005_tip.sql` is written (`ALTER TABLE orders ADD COLUMN
 tip cents`), with its context header, after verification by replay (a
 column declared in the middle of the table gets a note: PostgreSQL appends
 it at the end); the information diagnostic disappears, and
@@ -135,10 +135,45 @@ table is flagged (writes are blocked while it is built).
 the schema.
 
 PL/pgSQL bodies are checked too. In `schema/2-loyalty.sql`, change
-`NEW.customer_id` to `NEW.client_id`: the trigger is attached to `orders`,
-which has no such field, and the error says so.
+`NEW.customer_id` to `NEW.client_id` in the trigger's body: the trigger is
+attached to `orders`, which has no such field, and the error says so.
 
-### 6. The generated Rust code
+### 6. Tracing the routines
+
+`schema/2-loyalty.sql` writes the loyalty trigger and the function it
+calls with macros (`@trigger`, `@function`): plain SQL routines stay as
+written, macro routines opt in to instrumentation. `pgweave.toml` sets the
+level:
+
+```toml
+[log]
+level = "step"
+target = "notice"
+```
+
+Put the cursor in the `@trigger` and press **⌘⌥E**: each run records its
+start, its caller, its depth and its `UPDATE` (row count, source line),
+and raises them as notices. `migrations/0004_loyalty_traced.sql` was
+generated from it: its header says `log=step:notice`, and the replay
+checks the routines against it. Set `level = "none"` and run `pgweave
+migrate check`: the migrations no longer match — the instrumentation is
+part of the schema, never added behind its back.
+
+`src/main.rs` reads the notices off the connection
+(`pgweave_runtime::trace::Tracing`, feature `trace`) and prints the tree
+of runs the statement serving the order caused:
+
+```
+   orders_award_loyalty_fn — 0.79 ms
+     · UPDATE customers (schema/2-loyalty.sql:16): 1 row(s)
+       └ loyalty_points_of — 0.34 ms
+```
+
+An application hands the trees to OpenTelemetry instead
+(`trace::otel::export`, feature `opentelemetry`), under the span of its
+request, with the exporter it uses.
+
+### 7. The generated Rust code
 
 `src/queries.rs` is a single line: `pgweave_macros::queries!("queries");`.
 The macro describes each query of `queries/` at compile time and generates
@@ -175,7 +210,7 @@ completion. Enums are generated once, in `crate::db`
 `src/lib.rs` also shows `query!`, a one-off query inside an expression,
 checked the same way.
 
-### 7. Running it
+### 8. Running it
 
 ```sh
 make demo-run
@@ -190,7 +225,8 @@ the dishes with `COPY` (CSV), then runs the scenario. It shows:
 - the menu read as a stream;
 - a customer whose `citext` email ignores case;
 - an order inside a transaction;
-- the loyalty trigger crediting points when the order is served.
+- the loyalty trigger crediting points when the order is served, and the
+  trace of its run.
 
 ## Under the hood
 

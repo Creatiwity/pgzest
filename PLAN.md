@@ -1009,16 +1009,28 @@ rolls them back with its subtransaction. A `RETURN <value>` becomes
 _pgweave_result; END;` (result type without modifiers, `record` for a
 trigger): the calls of the value are runs of the routine, and it may read
 `FOUND` or a temp table; a polymorphic result keeps the exit before the
-`RETURN`, with a warning when the value calls something. `pgweave.max_depth`
+`RETURN`, with a warning when the value calls something; a variable, a
+field or a constant (`RETURN NEW;`) needs no block. `pgweave.max_depth`
 bounds the depth (`54001`, naming the routine). The `notice` target raises
 a start and an end event per run, which reach the client even when the
 transaction fails; `pgweave-runtime::trace` (feature `trace`) assembles
 them into trees, closes the runs a failed statement left open, and
 (feature `opentelemetry`) exports each tree as spans under the caller's
 `traceparent` — the SDK generates span ids, so a tree is exported when its
-outermost run ends, parents first. Oracle: routine → trigger → routine
-nested, the parent restored after a handled failure, an endless recursion
-seen through its notices; spans checked in an in-memory exporter.
+outermost run ends, parents first; through the `opentelemetry` API only,
+the provider and exporter being the application's. `Tracing::drive`
+passes every other message (notices, `LISTEN` notifications) to the
+application. Oracle: routine → trigger → routine nested, the parent
+restored after a handled failure, an endless recursion seen through its
+notices; spans checked in an in-memory exporter. Only macro routines are
+instrumented: logging is opted in, and visible in the migration. Cost per
+run (PostgreSQL 18): ~6 µs at `info`, ~12 µs at `step` (`table` or
+`notify`), ~30 µs with `notice`; nothing at `none`.
+
+**Macro slots** — every slot of a macro header is rendered by its
+template, checked when the definition loads: `@trigger … when (…)` used to
+capture the condition and drop it silently. `wrap <slot> -> <text>`
+renders an optional slot only when given.
 
 **`pgweave dev`** — applies the routines (functions, procedures,
 triggers) of the schema files to a development database, at the `debug`

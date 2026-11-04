@@ -284,19 +284,49 @@ for the `notify` target). The replay checks the header against the
 routines of the file. Changing the level regenerates every macro routine
 in the next migration, with a note saying why.
 
+Only macro routines are instrumented: a plain `CREATE FUNCTION` stays as
+written. Logging a routine is opting in, by writing it as a macro, and the
+code that does it is in the migration, for review.
+
+Cost, measured on PostgreSQL 18 (Docker on an Apple M4 Pro) with a
+function that inserts a row, fires a trigger updating another table, and
+returns the result of a second function — three runs per call, 11 µs per
+call without logging:
+
+| Level, target | Per call | Per run |
+|---------------|----------|---------|
+| `none` | +0 µs (no code generated) | 0 |
+| `info`, `table` | +18 µs | ~6 µs |
+| `step`, `table` | +35 µs | ~12 µs |
+| `info`, `notify` | +23 µs | ~8 µs |
+| `step`, `notify` | +36 µs | ~12 µs |
+| `info`, `notice` | +88 µs | ~29 µs |
+| `step`, `notice` | +98 µs | ~33 µs |
+
+A few microseconds per run, to compare with the round trip of a query
+(100 µs to a few ms): negligible for business routines, noticeable for a
+trigger on a bulk load of millions of rows — log it at `none`, or below
+the level it would cost. `notice` costs the most: two messages per run,
+sent to the client.
+
 ### Traces
 
-With `target = "notice"`, `pgweave-runtime` (feature `opentelemetry`)
-turns the runs into spans under the application's span: the routine
-called, the triggers it fired, the routines they called, nested, with
-their timings and their steps as span events. An OTLP exporter brings
-them to Sentry, Jaeger or Tempo.
+With `target = "notice"`, `pgweave-runtime` reads the runs off the
+connection (feature `trace`) and hands each finished tree to the
+application: the routine called, the triggers it fired, the routines they
+called, nested, with their timings and their steps. What to do with it is
+the application's choice. With the feature `opentelemetry`,
+`trace::otel::export` turns a tree into spans under the application's
+span, through the `opentelemetry` API only: the tracer provider, its
+exporter (OTLP or any other) and the backend are the application's.
 
 ```rust
 use pgweave_runtime::trace::{self, Tracing};
 
 let tracing = Tracing::new(move |run| trace::otel::export(&tracer, &run, &Context::current()));
 let (client, connection) = config.connect(NoTls).await?;
+// `drive` replaces `connection.await`; other notices and the LISTEN
+// notifications go to the closure.
 tokio::spawn({ let t = tracing.clone(); async move { t.drive(connection, |_| {}).await } });
 
 trace::set_traceparent(&client, &traceparent, true).await?; // in the transaction
@@ -364,10 +394,13 @@ CREATE TABLE {name} (
 end
 ```
 
-Directives: `macro`, `header`, `default`, `flag`, `option`, `template`…`end`.
-Hole types: `ident`, `word`, `words`, `parens`, `type`, `list`, `keywords`
-— a **closed** set, which keeps the format from drifting into a templating
-language.
+Directives: `macro`, `header`, `default`, `flag`, `option`, `wrap`,
+`template`…`end`. `wrap <hole> -> <text>` renders an optional hole only
+when given (`wrap when -> \nWHEN ({})` in `@trigger`). Hole types: `ident`,
+`word`, `words`, `parens`, `type`, `list`, `keywords` — a **closed** set,
+which keeps the format from drifting into a templating language. A hole
+the template never renders is a definition error: what the user wrote
+would be dropped.
 
 The provided macros are written in this same format
 (`crates/pgweave-macro/src/builtins/`): an extension mechanism that the

@@ -8,9 +8,12 @@
 //! `DATABASE_URL` points to another server (the `pgweave_demo` database is
 //! recreated there).
 
+use std::sync::{Arc, Mutex};
+
 use pgweave_demo::db::{DishKind, OrderStatus};
 use pgweave_demo::{inline, queries};
 use pgweave_runtime::futures_util::StreamExt;
+use pgweave_runtime::trace::{RoutineRun, Tracing};
 
 const DEFAULT_URL: &str = "postgres://postgres:pgweave@localhost:54318/postgres";
 const DB: &str = "pgweave_demo";
@@ -30,10 +33,43 @@ fn euros(cents: i64) -> String {
     format!("€{}.{:02}", cents / 100, cents % 100)
 }
 
+/// A run, its steps, then the runs it caused, one level deeper.
+fn print_run(run: &RoutineRun, depth: usize) {
+    let indent = "    ".repeat(depth);
+    let branch = if depth == 0 { "" } else { "└ " };
+    let ms = run
+        .end
+        .duration_since(run.info.started_at)
+        .unwrap_or_default()
+        .as_secs_f64()
+        * 1000.0;
+    println!("   {indent}{branch}{} — {ms:.2} ms", run.info.routine);
+    for step in &run.steps {
+        println!(
+            "   {indent}  · {} {} (schema/2-loyalty.sql:{}): {} row(s)",
+            step.kind,
+            step.target.as_deref().unwrap_or(""),
+            step.line.unwrap_or_default(),
+            step.row_count
+        );
+    }
+    for child in &run.children {
+        print_run(child, depth + 1);
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
-    let mut client = fresh_database(&url).await?;
+    // The macro routines record their runs as notices (`[log]` in
+    // pgweave.toml): each finished tree of runs lands here. An application
+    // would export them (`trace::otel::export`, feature `opentelemetry`).
+    let runs: Arc<Mutex<Vec<RoutineRun>>> = Arc::default();
+    let tracing = Tracing::new({
+        let runs = runs.clone();
+        move |run| runs.lock().unwrap().push(run)
+    });
+    let mut client = fresh_database(&url, &tracing).await?;
 
     println!("── Restaurants");
     let bistro = queries::restaurants::create_restaurant(
@@ -233,6 +269,11 @@ async fn main() -> Result<()> {
         .ok_or("order not found")?;
         println!("   → {:?} at {}", updated.status, updated.updated_at.time());
     }
+    // Served: the loyalty trigger ran, and the function it calls.
+    println!("   trace of the statement that served it:");
+    for run in runs.lock().unwrap().drain(..) {
+        print_run(&run, 0);
+    }
 
     let summary = queries::orders::order_summary(
         &client,
@@ -335,20 +376,18 @@ async fn main() -> Result<()> {
 
 /// Recreates the `pgweave_demo` database and applies the migrations to it,
 /// like a deployment: the declarative schema is their target, not a script.
-async fn fresh_database(url: &str) -> Result<tokio_postgres::Client> {
-    let connect = |config: tokio_postgres::Config| async move {
-        let (client, conn) = config.connect(tokio_postgres::NoTls).await?;
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                eprintln!("connection: {e}");
-            }
-        });
-        Ok::<_, tokio_postgres::Error>(client)
-    };
+/// The connection's run notices go to `tracing`.
+async fn fresh_database(url: &str, tracing: &Tracing) -> Result<tokio_postgres::Client> {
     let config: tokio_postgres::Config = url.parse()?;
-    let admin = connect(config.clone())
+    let (admin, conn) = config
+        .connect(tokio_postgres::NoTls)
         .await
         .map_err(|e| format!("{e} — is PostgreSQL running? (`make oracle-up`, or DATABASE_URL)"))?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("connection: {e}");
+        }
+    });
     admin
         .batch_execute(&format!("DROP DATABASE IF EXISTS {DB} WITH (FORCE)"))
         .await?;
@@ -357,7 +396,20 @@ async fn fresh_database(url: &str) -> Result<tokio_postgres::Client> {
         .await?;
     let mut config = config;
     config.dbname(DB);
-    let client = connect(config).await?;
+    let (client, conn) = config.connect(tokio_postgres::NoTls).await?;
+    let tracing = tracing.clone();
+    tokio::spawn(async move {
+        let driven = tracing
+            .drive(conn, |message| {
+                if let Err(e) = message {
+                    eprintln!("trace: {e}");
+                }
+            })
+            .await;
+        if let Err(e) = driven {
+            eprintln!("connection: {e}");
+        }
+    });
     for dir in ["migrations"] {
         let mut files: Vec<_> = std::fs::read_dir(format!("{}/{dir}", env!("CARGO_MANIFEST_DIR")))?
             .filter_map(|e| e.ok().map(|e| e.path()))

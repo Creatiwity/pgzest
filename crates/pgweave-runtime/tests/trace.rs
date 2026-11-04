@@ -4,6 +4,7 @@
 
 #![cfg(feature = "opentelemetry")]
 
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use opentelemetry::Context;
@@ -11,7 +12,7 @@ use opentelemetry::trace::{SpanId, Status, TraceId, TracerProvider as _};
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
 use pgweave_macro::{Instrumentation, LogLevel, LogTarget, MacroSet};
 use pgweave_runtime::trace::{self, Tracing};
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{AsyncMessage, Client, NoTls};
 
 const URL_ENV: &str = "PGWEAVE_ORACLE_URL";
 
@@ -55,11 +56,30 @@ async fn database(url: &str, name: &str) -> tokio_postgres::Config {
     config
 }
 
-async fn traced(config: &tokio_postgres::Config, tracing: &Tracing) -> Client {
+/// A client whose `pgweave_log` notices go to `tracing`, and the other
+/// messages to the returned list.
+async fn traced(
+    config: &tokio_postgres::Config,
+    tracing: &Tracing,
+) -> (Client, Arc<Mutex<Vec<String>>>) {
     let (client, connection) = config.connect(NoTls).await.expect("connection");
     let t = tracing.clone();
-    tokio::spawn(async move { t.drive(connection, |_| {}).await });
-    client
+    let others = Arc::new(Mutex::new(Vec::new()));
+    let seen = others.clone();
+    tokio::spawn(async move {
+        t.drive(connection, move |m| {
+            seen.lock().unwrap().push(match m {
+                Ok(AsyncMessage::Notice(n)) => format!("notice {}", n.message()),
+                Ok(AsyncMessage::Notification(n)) => {
+                    format!("notification {} {}", n.channel(), n.payload())
+                }
+                Ok(other) => format!("{other:?}"),
+                Err(e) => format!("error {e}"),
+            })
+        })
+        .await
+    });
+    (client, others)
 }
 
 fn spans(provider: &SdkTracerProvider, exporter: &InMemorySpanExporter) -> Vec<SpanData> {
@@ -87,7 +107,7 @@ async fn runs_become_spans_under_the_callers_span() {
         .build();
     let tracer = provider.tracer("pgweave");
     let tracing = Tracing::new(move |run| trace::otel::export(&tracer, &run, &Context::new()));
-    let client = traced(&config, &tracing).await;
+    let (client, others) = traced(&config, &tracing).await;
 
     let i = Instrumentation {
         log: LogLevel::Step,
@@ -163,4 +183,20 @@ async fn runs_become_spans_under_the_callers_span() {
     assert_eq!(total, 4);
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(spans(&provider, &exporter).len(), 3);
+
+    // The other messages reach the application: notifications included
+    // (sent at commit, after the notice).
+    assert!(others.lock().unwrap().is_empty(), "{others:?}");
+    client
+        .batch_execute(
+            "LISTEN orders_changed; NOTIFY orders_changed, 'order 1'; \
+             DO $$ BEGIN RAISE NOTICE 'plain'; END $$",
+        )
+        .await
+        .expect("listen, notify, notice");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        *others.lock().unwrap(),
+        ["notice plain", "notification orders_changed order 1"]
+    );
 }
