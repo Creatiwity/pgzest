@@ -144,7 +144,7 @@ pub fn expand_source_at(source: &str, base: usize, macros: &MacroSet) -> Expansi
         expanded: x.expanded,
         regions: x.regions,
     };
-    crate::instrument::instrument(expansion, macros.debug())
+    crate::instrument::instrument(expansion, source, base, macros.instrumentation())
 }
 
 /// SQL being generated, and what maps it back to the source.

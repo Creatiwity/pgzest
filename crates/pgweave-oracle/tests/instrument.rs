@@ -2,7 +2,7 @@
 //! routine using a temp table, called recursively and from a loop in one
 //! session, keeps its rows apart; its snapshots show each run.
 
-use pgweave_macro::MacroSet;
+use pgweave_macro::{Instrumentation, LogLevel, LogTarget, MacroSet};
 use tokio_postgres::{Client, NoTls};
 
 const SOURCE: &str = r#"
@@ -81,13 +81,20 @@ async fn fresh(url: &str, name: &str) -> Client {
 }
 
 fn expand(debug: bool) -> String {
-    let exp = pgweave_macro::expand_source(SOURCE, &MacroSet::builtin().with_debug(debug));
-    assert!(exp.diagnostics.is_empty(), "{:?}", exp.diagnostics);
-    if debug {
-        format!("{}\n{}", pgweave_macro::instrument::DEBUG_SETUP, exp.sql)
+    let log = if debug {
+        LogLevel::Debug
     } else {
-        exp.sql
-    }
+        LogLevel::None
+    };
+    build(SOURCE, log, LogTarget::Table)
+}
+
+/// `source` built as `pgweave build --log … --log-target …` does.
+fn build(source: &str, log: LogLevel, target: LogTarget) -> String {
+    let i = Instrumentation { log, target };
+    let exp = pgweave_macro::expand_source(source, &MacroSet::builtin().with_instrumentation(i));
+    assert!(exp.diagnostics.is_empty(), "{:?}", exp.diagnostics);
+    format!("{}\n{}", i.setup_sql(), exp.sql)
 }
 
 async fn count(client: &Client, sql: &str) -> i64 {
@@ -206,6 +213,200 @@ async fn snapshots_show_each_run_in_a_debug_build() {
             assert!(!r.get::<_, bool>(1), "hidden column left out");
         }
     }
+}
+
+const LOGGED: &str = r#"
+CREATE TABLE items (id INT PRIMARY KEY, n INT NOT NULL);
+INSERT INTO items SELECT g, 0 FROM generate_series(1, 5) AS g;
+
+-- Returns the row count the body reads itself, after a logged statement.
+@function touch(k INT): INT {
+    DECLARE c INT;
+    @temp_table picked (id INT);
+    INSERT INTO picked SELECT id FROM items WHERE id <= k;
+    UPDATE items SET n = n + 1 WHERE id IN (SELECT id FROM picked);
+    GET DIAGNOSTICS c = ROW_COUNT;
+    IF k = 0 THEN
+        RETURN c / k;
+    END IF;
+    RETURN c;
+EXCEPTION WHEN division_by_zero THEN
+    RETURN -1;
+}
+
+@function seen(k INT): BOOLEAN {
+    UPDATE items SET n = n WHERE id = k;
+    RETURN FOUND;
+}
+
+@procedure reset() {
+    UPDATE items SET n = 0;
+    DELETE FROM items WHERE id > 100;
+}
+"#;
+
+/// 1-based line of `needle` in [`LOGGED`].
+fn line_of(needle: &str) -> i32 {
+    let at = LOGGED.find(needle).expect(needle);
+    LOGGED[..at].matches('\n').count() as i32 + 1
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL: make oracle"]
+async fn logged_runs_and_steps_land_in_the_log_tables() {
+    let url = std::env::var(pgweave_oracle::URL_ENV).expect("PGWEAVE_ORACLE_URL");
+    let client = fresh(&url, "pgweave_log_table").await;
+    let sql = build(LOGGED, LogLevel::Step, LogTarget::Table);
+    client
+        .batch_execute(&sql)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+
+    // The body reads ROW_COUNT and FOUND after the logged statements.
+    assert_eq!(count(&client, "SELECT touch(3)::bigint").await, 3);
+    let seen: bool = client
+        .query_one("SELECT seen(1)", &[])
+        .await
+        .expect("seen")
+        .get(0);
+    assert!(seen, "FOUND of the UPDATE, kept across the log");
+    let unseen: bool = client
+        .query_one("SELECT seen(99)", &[])
+        .await
+        .expect("seen")
+        .get(0);
+    assert!(!unseen);
+
+    let steps = client
+        .query(
+            "SELECT s.step, s.kind, s.target, s.line, s.row_count FROM pgweave_log.step s \
+             JOIN pgweave_log.run r USING (run) WHERE r.routine = 'touch' ORDER BY s.step",
+            &[],
+        )
+        .await
+        .expect("steps");
+    let steps: Vec<(i32, String, String, i32, i64)> = steps
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4)))
+        .collect();
+    assert_eq!(
+        steps,
+        vec![
+            (
+                1,
+                "INSERT".into(),
+                "picked".into(),
+                line_of("INSERT INTO picked"),
+                3
+            ),
+            (
+                2,
+                "UPDATE".into(),
+                "items".into(),
+                line_of("UPDATE items SET n = n + 1"),
+                3
+            ),
+        ]
+    );
+    let run = client
+        .query_one(
+            "SELECT steps, error, duration_ms >= 0 FROM pgweave_log.run WHERE routine = 'touch'",
+            &[],
+        )
+        .await
+        .expect("run");
+    assert_eq!(run.get::<_, Option<i32>>(0), Some(2));
+    assert_eq!(run.get::<_, Option<String>>(1), None);
+    assert!(run.get::<_, bool>(2));
+
+    // An error handled by the routine: logged with its SQLSTATE.
+    assert_eq!(count(&client, "SELECT touch(0)::bigint").await, -1);
+    assert_eq!(
+        count(
+            &client,
+            "SELECT count(*) FROM pgweave_log.run WHERE routine = 'touch' AND error = '22012'"
+        )
+        .await,
+        1
+    );
+    // A run in a statement that fails is rolled back, its log with it.
+    let before = count(&client, "SELECT count(*) FROM pgweave_log.run").await;
+    assert!(client.batch_execute("SELECT touch(2) / 0").await.is_err());
+    assert_eq!(
+        count(&client, "SELECT count(*) FROM pgweave_log.run").await,
+        before
+    );
+    // A procedure ends without RETURN; the caller's traceparent is kept.
+    let trace = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+    client
+        .batch_execute(&format!(
+            "SELECT set_config('pgweave.traceparent', '{trace}', false); CALL reset()"
+        ))
+        .await
+        .expect("CALL");
+    let reset = client
+        .query_one(
+            "SELECT steps, traceparent FROM pgweave_log.run WHERE routine = 'reset'",
+            &[],
+        )
+        .await
+        .expect("reset logged");
+    assert_eq!(reset.get::<_, Option<i32>>(0), Some(2));
+    assert_eq!(reset.get::<_, Option<String>>(1).as_deref(), Some(trace));
+    // Temp tables are still cleaned up.
+    assert_eq!(leftover_rows(&client).await, 0);
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL: make oracle"]
+async fn logged_runs_are_notified() {
+    let url = std::env::var(pgweave_oracle::URL_ENV).expect("PGWEAVE_ORACLE_URL");
+    drop(fresh(&url, "pgweave_log_notify").await);
+    let mut config: tokio_postgres::Config = url.parse().expect("URL");
+    config.dbname("pgweave_log_notify");
+    let (client, mut conn) = config.connect(NoTls).await.expect("connection");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Some(Ok(m)) = std::future::poll_fn(|cx| conn.poll_message(cx)).await {
+            if let tokio_postgres::AsyncMessage::Notification(n) = m {
+                let _ = tx.send((n.channel().to_string(), n.payload().to_string()));
+            }
+        }
+    });
+    let sql = build(LOGGED, LogLevel::Step, LogTarget::Notify);
+    assert!(!sql.contains("pgweave_log.run"), "no table with notify");
+    client
+        .batch_execute(&sql)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+    client
+        .batch_execute("LISTEN pgweave_log; SELECT touch(2)")
+        .await
+        .expect("touch");
+
+    // Two steps, then the run.
+    let mut got = Vec::new();
+    while got.len() < 3 {
+        let next = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("notification in time")
+            .expect("connection open");
+        assert_eq!(next.0, "pgweave_log");
+        got.push(serde_json::from_str::<serde_json::Value>(&next.1).expect("JSON payload"));
+    }
+    let kinds: Vec<(&str, &str)> = got
+        .iter()
+        .map(|v| (v["type"].as_str().unwrap(), v["routine"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![("step", "touch"), ("step", "touch"), ("run", "touch")]
+    );
+    assert_eq!(got[0]["kind"], "INSERT");
+    assert_eq!(got[0]["row_count"], 2);
+    assert_eq!(got[1]["step"], 2);
+    assert_eq!(got[2]["steps"], 2);
+    assert_eq!(got[0]["run"], got[2]["run"], "one run");
 }
 
 /// `uuid` read as text: the oracle does not depend on a uuid crate.

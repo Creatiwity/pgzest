@@ -1,8 +1,10 @@
 //! Instrumentation of PL/pgSQL macro bodies (PLAN.md, P9): isolated temp
-//! tables (`@temp_table`) and debug snapshots (`@snapshot`).
+//! tables (`@temp_table`), debug snapshots (`@snapshot`) and run logs
+//! (build option, [`Instrumentation`]).
 //!
 //! Runs on the expansion, after the macros are rendered: each body between
-//! `$pgweave_macro$` tags that holds a directive is parsed with its routine,
+//! `$pgweave_macro$` tags that holds a directive (every PL/pgSQL one in a
+//! logged build) is parsed with its routine,
 //! and the accesses to its temp tables are rewritten from the AST, as text
 //! edits whose positions come from the parser. Nothing is guessed: an
 //! access that cannot be rewritten is an error, dynamic SQL a warning.
@@ -51,9 +53,19 @@ pub const RUN_SETTING: &str = "pgweave.run";
 pub const DIRECTIVES: [&str; 2] = ["temp_table", "snapshot"];
 /// Diagnostic code: access to an isolated temp table pgweave cannot see.
 pub const NOT_ISOLATED: &str = "not-isolated";
+/// Diagnostic code: a routine a logged build leaves unlogged.
+pub const NOT_LOGGED: &str = "not-logged";
+
+/// Variables of a logged run.
+const STARTED_VAR: &str = "_pgweave_started_at";
+const TRACEPARENT_VAR: &str = "_pgweave_traceparent";
+const ROWS_VAR: &str = "_pgweave_rows";
+const STEPS_VAR: &str = "_pgweave_steps";
+/// `FOUND` kept across the exit code, for a `RETURN` that reads it.
+const FOUND_VAR: &str = "_pgweave_found";
 
 /// Tables written by `@snapshot` in a debug build. Created by
-/// `pgweave build --debug` before the routines.
+/// `pgweave build --log debug` before the routines.
 pub const DEBUG_SETUP: &str = "\
 CREATE SCHEMA IF NOT EXISTS pgweave_debug;
 CREATE TABLE IF NOT EXISTS pgweave_debug.snapshot (
@@ -73,15 +85,113 @@ CREATE TABLE IF NOT EXISTS pgweave_debug.snapshot_rows (
 );
 ";
 
-/// Instruments the PL/pgSQL bodies of `exp` that hold a directive.
-pub(crate) fn instrument(exp: Expansion, debug: bool) -> Expansion {
-    if !exp.sql.contains("@temp_table") && !exp.sql.contains("@snapshot") {
+/// Tables written by the `table` log target. Unlogged: a log is not worth
+/// WAL, and it does not survive a crash.
+pub const LOG_SETUP: &str = "\
+CREATE SCHEMA IF NOT EXISTS pgweave_log;
+CREATE UNLOGGED TABLE IF NOT EXISTS pgweave_log.run (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    run UUID NOT NULL,
+    routine TEXT NOT NULL,
+    traceparent TEXT,
+    started_at TIMESTAMPTZ NOT NULL,
+    duration_ms DOUBLE PRECISION NOT NULL,
+    steps INT,
+    error TEXT
+);
+CREATE UNLOGGED TABLE IF NOT EXISTS pgweave_log.step (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    run UUID NOT NULL,
+    step INT NOT NULL,
+    kind TEXT NOT NULL,
+    target TEXT,
+    line INT,
+    row_count BIGINT NOT NULL,
+    executed_at TIMESTAMPTZ NOT NULL
+);
+";
+/// `pg_notify` channel of the `notify` log target.
+pub const LOG_CHANNEL: &str = "pgweave_log";
+/// Setting read at the start of a logged run: the W3C `traceparent` of the
+/// caller, if it set one (`set_config('pgweave.traceparent', …, true)`).
+pub const TRACEPARENT_SETTING: &str = "pgweave.traceparent";
+
+/// What a run of a PL/pgSQL macro routine records. Fixed at build time:
+/// a level below emits no code at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum LogLevel {
+    /// Nothing (analysis, migrations, deployment by default).
+    #[default]
+    None,
+    /// One entry per run: routine, start, duration, handled error.
+    Info,
+    /// `Info`, plus one entry per INSERT, UPDATE, DELETE or EXECUTE, with
+    /// its row count.
+    Step,
+    /// `Step`, plus the `@snapshot` copies.
+    Debug,
+}
+
+/// Where the log entries go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogTarget {
+    /// `pgweave_log.run` / `pgweave_log.step` ([`LOG_SETUP`]).
+    #[default]
+    Table,
+    /// `pg_notify('pgweave_log', json)`, one notification per entry.
+    Notify,
+}
+
+/// Build options of the instrumentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Instrumentation {
+    pub log: LogLevel,
+    pub target: LogTarget,
+}
+
+impl Instrumentation {
+    /// SQL creating what the instrumented routines write to, to run before
+    /// them (idempotent). Empty when they write nothing.
+    pub fn setup_sql(&self) -> String {
+        let mut out = String::new();
+        if self.log >= LogLevel::Info && self.target == LogTarget::Table {
+            out.push_str(LOG_SETUP);
+        }
+        if self.log >= LogLevel::Debug {
+            out.push_str(DEBUG_SETUP);
+        }
+        out
+    }
+
+    fn snapshots(&self) -> bool {
+        self.log >= LogLevel::Debug
+    }
+}
+
+/// Instruments the PL/pgSQL bodies of `exp`: those holding a directive,
+/// and every one of them when runs are logged. `source` is the text `exp`
+/// was expanded from, at `base` in its document.
+pub(crate) fn instrument(
+    exp: Expansion,
+    source: &str,
+    base: usize,
+    opts: Instrumentation,
+) -> Expansion {
+    if opts.log == LogLevel::None
+        && !exp.sql.contains("@temp_table")
+        && !exp.sql.contains("@snapshot")
+    {
         return exp;
     }
     let mut out = Out::default();
     let bodies = bodies(&exp.sql);
+    let lines = Lines {
+        exp: &exp,
+        source,
+        base,
+    };
     for body in &bodies {
-        instrument_body(&exp.sql, body, debug, &mut out);
+        instrument_body(&exp.sql, body, opts, &lines, &mut out);
     }
     stray_directives(&exp.sql, &bodies, &mut out);
 
@@ -130,6 +240,23 @@ fn source_span(exp: &Expansion, range: Range<usize>) -> Span {
         .remap(range.start, range.end.max(range.start + 1))
         .unwrap_or((range.start, range.end));
     Span { start, end }
+}
+
+/// Source line of a position of the expansion, for the step log.
+struct Lines<'a> {
+    exp: &'a Expansion,
+    source: &'a str,
+    base: usize,
+}
+
+impl Lines<'_> {
+    /// 1-based line in `source`, or `None` for generated text.
+    fn line(&self, at: usize) -> Option<usize> {
+        let (start, _) = self.exp.map.remap(at, at + 1)?;
+        let offset = start.checked_sub(self.base)?;
+        let before = self.source.get(..offset)?;
+        Some(before.bytes().filter(|b| *b == b'\n').count() + 1)
+    }
 }
 
 #[derive(Default)]
@@ -323,28 +450,45 @@ struct Routine {
     trigger: bool,
 }
 
-fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
+fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>, out: &mut Out) {
     let directives = find_directives(sql, b.body.clone(), out);
-    if directives.is_empty() {
+    let logged = opts.log >= LogLevel::Info;
+    if directives.is_empty() && !logged {
         return;
     }
-    let fail = |out: &mut Out, msg: String, anchor: Range<usize>| {
-        out.error(anchor, msg);
-        fallback(sql, &directives, out);
+    let anchor = match (directives.first(), &b.statement) {
+        (Some(d), _) => d.range.clone(),
+        (None, Some(s)) => s.start..b.body.start,
+        (None, None) => b.body.start..b.body.start,
+    };
+    // With directives, a body pgweave cannot instrument is an error (its
+    // temp tables would not be isolated); logged alone, it runs unlogged.
+    let fail = |out: &mut Out, msg: String| {
+        if directives.is_empty() {
+            out.diags.push((
+                anchor.clone(),
+                Diagnostic::warning(NOT_LOGGED, format!("{msg}: this routine is not logged")),
+            ));
+        } else {
+            out.error(anchor.clone(), format!("{msg}: directives not applied"));
+            fallback(sql, &directives, out);
+        }
     };
     let Some(stmt_range) = b.statement.clone() else {
         return fail(
             out,
-            "the routine around this body could not be delimited: directives not applied".into(),
-            directives[0].range.clone(),
+            "the routine around this body could not be delimited".into(),
         );
     };
     let header = sql[stmt_range.start..b.body.start].to_ascii_lowercase();
     if !header.contains("language plpgsql") {
+        if directives.is_empty() {
+            // Only PL/pgSQL routines are logged (documented).
+            return;
+        }
         return fail(
             out,
             "`@temp_table` and `@snapshot` need a PL/pgSQL body (`language plpgsql`)".into(),
-            directives[0].range.clone(),
         );
     }
 
@@ -369,19 +513,9 @@ fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
                 .first()
                 .map(|s| format!(" ({:?})", s.reason))
                 .unwrap_or_default();
-            return fail(
-                out,
-                format!("routine not analyzed{why}: temp tables not isolated"),
-                directives[0].range.clone(),
-            );
+            return fail(out, format!("routine not analyzed{why}"));
         }
-        Err(e) => {
-            return fail(
-                out,
-                format!("routine not analyzed ({e}): temp tables not isolated"),
-                directives[0].range.clone(),
-            );
-        }
+        Err(e) => return fail(out, format!("routine not analyzed ({e})")),
     };
     let (routine, body) = match parsed {
         Some(Statement::Ddl(DdlStatement::CreateFunction(f))) => (
@@ -408,20 +542,10 @@ fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
             },
             p.body,
         ),
-        _ => {
-            return fail(
-                out,
-                "directives are only applied to a function or a procedure".into(),
-                directives[0].range.clone(),
-            );
-        }
+        _ => return fail(out, "not a function or a procedure".into()),
     };
     let FunctionBody::Parsed(body) = body else {
-        return fail(
-            out,
-            "body not analyzed (see its parse error): temp tables not isolated".into(),
-            directives[0].range.clone(),
-        );
+        return fail(out, "body not analyzed (see its parse error)".into());
     };
 
     // Declared temp tables.
@@ -452,12 +576,22 @@ fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
         return fallback(sql, &directives, out);
     }
 
+    let exit = Exit {
+        cleanup: cleanup_sql(&tables),
+        log: logged.then(|| RunLog {
+            routine: routine.name.clone(),
+            target: opts.target,
+            steps: opts.log >= LogLevel::Step,
+        }),
+    };
     let mut w = Walker {
         sql,
         tables: &tables,
         out: Out::default(),
         inserts: false,
-        cleanup: cleanup_sql(&tables),
+        exit: &exit,
+        handlers: 0,
+        lines,
         scopes: Vec::new(),
     };
     w.block(&body.block);
@@ -466,6 +600,9 @@ fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
         .iter()
         .any(|(_, d)| d.severity == pgweave_diagnostics::Severity::Error)
     {
+        if directives.is_empty() {
+            return fail(out, "a statement of the body has no position".into());
+        }
         // A rewrite is refused: nothing half-isolated is emitted.
         out.diags.extend(w.out.diags);
         return fallback(sql, &directives, out);
@@ -479,20 +616,32 @@ fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
         .iter()
         .find(|t| t.kind == Kind::Word && sql[t.range.clone()].eq_ignore_ascii_case("begin"));
     let Some(begin) = begin else {
-        return fail(
-            out,
-            "no `BEGIN` in the body: directives not applied".into(),
-            directives[0].range.clone(),
-        );
+        return fail(out, "no `BEGIN` in the body".into());
     };
     let has_declare = tokens
         .iter()
         .take_while(|t| t.range.start < begin.range.start)
         .any(|t| t.kind == Kind::Word && sql[t.range.clone()].eq_ignore_ascii_case("declare"));
     let snapshots = directives.iter().any(|d| d.kind == DirectiveKind::Snapshot);
-    let anchor = directives[0].range.clone();
-    if !tables.is_empty() || (debug && snapshots) {
-        let decl = format!("    {RUN_VAR} uuid := gen_random_uuid();\n");
+    let mut decls = Vec::new();
+    if !tables.is_empty() || (opts.snapshots() && snapshots) || logged {
+        decls.push(format!("{RUN_VAR} uuid := gen_random_uuid();"));
+    }
+    if logged {
+        decls.push(format!("{STARTED_VAR} timestamptz := clock_timestamp();"));
+        decls.push(format!(
+            "{TRACEPARENT_VAR} text := current_setting('{TRACEPARENT_SETTING}', true);"
+        ));
+    }
+    if opts.log >= LogLevel::Step {
+        decls.push(format!("{ROWS_VAR} bigint;"));
+        decls.push(format!("{STEPS_VAR} jsonb[] := ARRAY[]::jsonb[];"));
+    }
+    if !exit.is_empty() {
+        decls.push(format!("{FOUND_VAR} boolean;"));
+    }
+    if !decls.is_empty() {
+        let decl: String = decls.iter().map(|d| format!("    {d}\n")).collect();
         let text = if has_declare {
             decl
         } else {
@@ -510,15 +659,18 @@ fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
             t.directive.clone(),
         );
     }
-    if !tables.is_empty() {
-        let cleanup = cleanup_sql(&tables);
-        let mut ends = vec![(body.block.statements.last(), begin.range.end)];
+    // The rewrites of the statements come before the end of the body: a
+    // step recorded after the last statement precedes the exit.
+    out.edits.extend(walked.edits);
+    out.diags.extend(walked.diags);
+    if !exit.is_empty() {
+        let mut ends = vec![(body.block.statements.last(), false)];
         if let Some(ex) = &body.block.exception {
             for h in &ex.handlers {
-                ends.push((h.statements.last(), begin.range.end));
+                ends.push((h.statements.last(), true));
             }
         }
-        for (last, fallback_at) in ends {
+        for (last, in_handler) in ends {
             // After a final RETURN, the end of the list is never reached.
             if last.is_some_and(|s| matches!(s.kind, PlStatementKind::Return(_))) {
                 continue;
@@ -528,19 +680,21 @@ fn instrument_body(sql: &str, b: &Body, debug: bool, out: &mut Out) {
                     after_semicolon(sql, s.span.end as usize),
                     indent_at(sql, s.span.start as usize),
                 ),
-                None => (fallback_at, "    ".to_string()),
+                None => (begin.range.end, "    ".to_string()),
             };
-            out.edit(at..at, format!("\n{indent}{cleanup}"), anchor.clone());
+            out.edit(
+                at..at,
+                format!("\n{indent}{}", exit.sql(in_handler, false, &indent)),
+                anchor.clone(),
+            );
         }
     }
-    out.edits.extend(walked.edits);
-    out.diags.extend(walked.diags);
 
     // Directives.
     for d in &directives {
         let text = match d.kind {
             DirectiveKind::TempTable => String::new(),
-            DirectiveKind::Snapshot if debug => {
+            DirectiveKind::Snapshot if opts.snapshots() => {
                 match snapshot_sql(sql, d, &routine, &body.block, &scopes, &tables) {
                     Ok(s) => s,
                     Err(msg) => {
@@ -574,7 +728,111 @@ fn fallback(sql: &str, directives: &[Directive], out: &mut Out) {
     }
 }
 
-fn cleanup_sql(tables: &[TempTable]) -> String {
+/// Code run when a run ends — before each `RETURN`, at the end of the
+/// body and of its exception handlers: the cleanup of its temp tables,
+/// then its log. An error that leaves the routine runs none of it, and
+/// rolls back what the run wrote, logs included.
+struct Exit {
+    cleanup: Vec<String>,
+    log: Option<RunLog>,
+}
+
+struct RunLog {
+    routine: String,
+    target: LogTarget,
+    steps: bool,
+}
+
+impl Exit {
+    fn is_empty(&self) -> bool {
+        self.cleanup.is_empty() && self.log.is_none()
+    }
+
+    /// The statements, one per line at `indent`. `in_handler`: the run
+    /// ends in an exception handler, whose `SQLSTATE` the log records.
+    /// `keep_found`: the code is followed by a `RETURN` reading `FOUND`.
+    fn sql(&self, in_handler: bool, keep_found: bool, indent: &str) -> String {
+        let mut lines = Vec::new();
+        if keep_found {
+            lines.push(format!("{FOUND_VAR} := FOUND;"));
+        }
+        lines.extend(self.cleanup.iter().cloned());
+        if let Some(log) = &self.log {
+            lines.extend(log.flush(in_handler));
+        }
+        if keep_found {
+            lines.push(format!("FOUND := {FOUND_VAR};"));
+        }
+        lines.join(&format!("\n{indent}"))
+    }
+}
+
+impl RunLog {
+    fn flush(&self, in_handler: bool) -> Vec<String> {
+        let routine = literal(&self.routine);
+        let error = if in_handler { "SQLSTATE" } else { "NULL::text" };
+        let steps = if self.steps {
+            format!("cardinality({STEPS_VAR})")
+        } else {
+            "NULL::int".into()
+        };
+        let duration =
+            format!("1000 * extract(epoch FROM clock_timestamp() - {STARTED_VAR})::float8");
+        let entries = format!("unnest({STEPS_VAR}) WITH ORDINALITY AS _pgweave_s(entry, ord)");
+        let mut out = Vec::new();
+        match self.target {
+            LogTarget::Table => {
+                if self.steps {
+                    out.push(format!(
+                        "INSERT INTO pgweave_log.step (run, step, kind, target, line, row_count, \
+                         executed_at) SELECT {RUN_VAR}, _pgweave_s.ord, \
+                         _pgweave_s.entry->>'kind', _pgweave_s.entry->>'target', \
+                         (_pgweave_s.entry->>'line')::int, \
+                         (_pgweave_s.entry->>'row_count')::bigint, \
+                         (_pgweave_s.entry->>'executed_at')::timestamptz FROM {entries};"
+                    ));
+                }
+                out.push(format!(
+                    "INSERT INTO pgweave_log.run (run, routine, traceparent, started_at, \
+                     duration_ms, steps, error) VALUES ({RUN_VAR}, {routine}, {TRACEPARENT_VAR}, \
+                     {STARTED_VAR}, {duration}, {steps}, {error});"
+                ));
+            }
+            LogTarget::Notify => {
+                // A notification holds at most 8000 bytes: one per entry,
+                // and the caller's setting is bounded.
+                if self.steps {
+                    out.push(format!(
+                        "PERFORM pg_notify('{LOG_CHANNEL}', (_pgweave_s.entry || \
+                         jsonb_build_object('type', 'step', 'run', {RUN_VAR}, 'routine', \
+                         {routine}, 'step', _pgweave_s.ord))::text) FROM {entries};"
+                    ));
+                }
+                out.push(format!(
+                    "PERFORM pg_notify('{LOG_CHANNEL}', jsonb_build_object('type', 'run', 'run', \
+                     {RUN_VAR}, 'routine', {routine}, 'traceparent', left({TRACEPARENT_VAR}, \
+                     512), 'started_at', {STARTED_VAR}, 'duration_ms', {duration}, 'steps', \
+                     {steps}, 'error', {error})::text);"
+                ));
+            }
+        }
+        out
+    }
+}
+
+/// Records the statement that just ran as a step: `GET DIAGNOSTICS` and a
+/// simple assignment, which change neither `ROW_COUNT` nor `FOUND`.
+fn step_sql(kind: &str, target: Option<&str>, line: Option<usize>, indent: &str) -> String {
+    let target = target.map_or("NULL::text".to_string(), literal);
+    let line = line.map_or("NULL::int".to_string(), |l| l.to_string());
+    format!(
+        "GET DIAGNOSTICS {ROWS_VAR} = ROW_COUNT;\n{indent}{STEPS_VAR} := array_append({STEPS_VAR}, \
+         jsonb_build_object('kind', '{kind}', 'target', {target}, 'line', {line}, 'row_count', \
+         {ROWS_VAR}, 'executed_at', clock_timestamp()));"
+    )
+}
+
+fn cleanup_sql(tables: &[TempTable]) -> Vec<String> {
     tables
         .iter()
         .map(|t| {
@@ -583,8 +841,7 @@ fn cleanup_sql(tables: &[TempTable]) -> String {
                 p = t.physical
             )
         })
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect()
 }
 
 /// Whitespace before `pos` on its line, if only whitespace precedes it.
@@ -796,7 +1053,10 @@ struct Walker<'a> {
     out: Out,
     /// The statement being walked inserts into a temp table.
     inserts: bool,
-    cleanup: String,
+    exit: &'a Exit,
+    /// Depth of exception handlers around the statement being walked.
+    handlers: usize,
+    lines: &'a Lines<'a>,
     scopes: Vec<Scope>,
 }
 
@@ -830,9 +1090,11 @@ impl Walker<'_> {
         }
         self.statements(statements);
         if let Some(ex) = exception {
+            self.handlers += 1;
             for h in &ex.handlers {
                 self.statements(&h.statements);
             }
+            self.handlers -= 1;
         }
     }
 
@@ -875,7 +1137,7 @@ impl Walker<'_> {
 
     fn statement(&mut self, s: &PlStatement) {
         let Some(range) = Self::real(s.span) else {
-            if !self.tables.is_empty() {
+            if !self.tables.is_empty() || self.exit.log.is_some() {
                 self.out.error(
                     self.tables[0].directive.clone(),
                     "a statement of the body has no position: temp tables not isolated",
@@ -887,10 +1149,27 @@ impl Walker<'_> {
         let limit = range.end;
         match &s.kind {
             PlStatementKind::Assign { value, .. } => self.expr(value),
-            PlStatementKind::Sql { statement, .. } => self.sql_statement(statement, &range, limit),
+            PlStatementKind::Sql { statement, .. } => {
+                self.sql_statement(statement, &range, limit);
+                let step = match statement {
+                    Statement::Insert(i) => Some(("INSERT", &i.table)),
+                    Statement::Update(u) => Some(("UPDATE", &u.table.name)),
+                    Statement::Delete(d) => Some(("DELETE", &d.table.name)),
+                    _ => None,
+                };
+                if let Some((kind, table)) = step {
+                    let target = pgweave_ast::emit::emit_object_name(table);
+                    self.step(&range, kind, Some(&target));
+                }
+            }
             PlStatementKind::Perform(q) | PlStatementKind::ReturnQuery(q) => self.select(q),
-            PlStatementKind::Execute { sql, using, .. }
-            | PlStatementKind::ReturnQueryExecute { sql, using } => {
+            PlStatementKind::Execute { sql, using, .. } => {
+                self.dynamic(&range);
+                self.expr(sql);
+                using.iter().for_each(|e| self.expr(e));
+                self.step(&range, "EXECUTE", None);
+            }
+            PlStatementKind::ReturnQueryExecute { sql, using } => {
                 self.dynamic(&range);
                 self.expr(sql);
                 using.iter().for_each(|e| self.expr(e));
@@ -907,9 +1186,12 @@ impl Walker<'_> {
                         );
                     }
                 }
-                if !self.tables.is_empty() {
+                if !self.exit.is_empty() {
                     let indent = indent_at(self.sql, range.start);
-                    let text = format!("{}\n{indent}", self.cleanup);
+                    let exit = self
+                        .exit
+                        .sql(self.handlers > 0, self.reads_found(&range), &indent);
+                    let text = format!("{exit}\n{indent}");
                     let anchor = range.clone();
                     self.out.edit(range.start..range.start, text, anchor);
                 }
@@ -1057,6 +1339,27 @@ impl Walker<'_> {
             self.out.edit(range.start..range.start, text, range.clone());
         }
         self.inserts = outer;
+    }
+
+    /// Records the statement at `range` as a step, in a build logging steps.
+    fn step(&mut self, range: &Range<usize>, kind: &str, target: Option<&str>) {
+        if !self.exit.log.as_ref().is_some_and(|l| l.steps) {
+            return;
+        }
+        let at = after_semicolon(self.sql, range.end);
+        let indent = indent_at(self.sql, range.start);
+        let text = format!(
+            "\n{indent}{}",
+            step_sql(kind, target, self.lines.line(range.start), &indent)
+        );
+        self.out.edit(at..at, text, range.clone());
+    }
+
+    /// The statement at `range` names `FOUND`, which the exit code changes.
+    fn reads_found(&self, range: &Range<usize>) -> bool {
+        offset_tokens(self.sql, range.clone()).iter().any(|t| {
+            t.kind == Kind::Word && self.sql[t.range.clone()].eq_ignore_ascii_case("found")
+        })
     }
 
     /// Walks a nested statement list: its inserts are prefixed inside it,
@@ -1622,8 +1925,8 @@ fn snapshot_sql(
     for t in tables {
         out.push_str(&format!(
             "\n{indent}INSERT INTO pgweave_debug.snapshot_rows (run, label, table_name, row_data) \
-             SELECT {RUN_VAR}, {}, {}, to_jsonb(t) - '{RUN_COLUMN}' FROM pg_temp.{} AS t \
-             WHERE t.{RUN_COLUMN} = {RUN_VAR};",
+             SELECT {RUN_VAR}, {}, {}, to_jsonb(_pgweave_t) - '{RUN_COLUMN}' FROM pg_temp.{} \
+             AS _pgweave_t WHERE _pgweave_t.{RUN_COLUMN} = {RUN_VAR};",
             literal(&label),
             literal(&t.name),
             t.physical,
@@ -1634,6 +1937,7 @@ fn snapshot_sql(
 
 #[cfg(test)]
 mod tests {
+    use super::{Instrumentation, LogLevel, LogTarget};
     use crate::{MacroSet, expand_source};
     use pgweave_diagnostics::Severity;
 
@@ -1645,7 +1949,17 @@ mod tests {
     }
 
     fn expand(src: &str, debug: bool) -> crate::Expansion {
-        expand_source(src, &MacroSet::builtin().with_debug(debug))
+        let log = if debug {
+            LogLevel::Debug
+        } else {
+            LogLevel::None
+        };
+        logged(src, log, LogTarget::Table)
+    }
+
+    fn logged(src: &str, log: LogLevel, target: LogTarget) -> crate::Expansion {
+        let i = Instrumentation { log, target };
+        expand_source(src, &MacroSet::builtin().with_instrumentation(i))
     }
 
     fn sql(stmts: &str) -> String {
@@ -1848,6 +2162,66 @@ mod tests {
                 .0
                 .contains("@snapshot label;")
         );
+    }
+
+    #[test]
+    fn logs_follow_the_level_and_the_target() {
+        let src = "@function f(k INT): INT {\n    UPDATE t SET a = 1;\n    RETURN k;\n}\n";
+        let at = |log, target| {
+            let e = logged(src, log, target);
+            assert!(e.diagnostics.is_empty(), "{:?}", e.diagnostics);
+            e.sql
+        };
+        let none = at(LogLevel::None, LogTarget::Table);
+        assert!(!none.contains("_pgweave"), "{none}");
+
+        let info = at(LogLevel::Info, LogTarget::Table);
+        assert!(info.contains("INSERT INTO pgweave_log.run"), "{info}");
+        assert!(!info.contains("GET DIAGNOSTICS"), "no step at info: {info}");
+        assert!(!info.contains("pg_notify"), "{info}");
+
+        let step = at(LogLevel::Step, LogTarget::Table);
+        assert!(
+            step.contains(
+                "    UPDATE t SET a = 1;\n    GET DIAGNOSTICS _pgweave_rows = ROW_COUNT;\n    \
+                 _pgweave_steps := array_append(_pgweave_steps, jsonb_build_object('kind', \
+                 'UPDATE', 'target', 't', 'line', 2,"
+            ),
+            "{step}"
+        );
+        // The log is written right before the RETURN.
+        let flush = step.find("INSERT INTO pgweave_log.run").expect("flush");
+        assert!(
+            step[flush..].find("RETURN k;") < step[flush..].find("END;"),
+            "{step}"
+        );
+
+        let notify = at(LogLevel::Step, LogTarget::Notify);
+        assert!(notify.contains("pg_notify('pgweave_log'"), "{notify}");
+        assert!(!notify.contains("pgweave_log.run"), "{notify}");
+    }
+
+    #[test]
+    fn a_return_reading_found_sees_it_after_the_exit_code() {
+        let e = logged(
+            "@function f(k INT): BOOLEAN {\n    UPDATE t SET a = k;\n    RETURN FOUND;\n}\n",
+            LogLevel::Info,
+            LogTarget::Table,
+        );
+        let save = e.sql.find("_pgweave_found := FOUND;").expect("saved");
+        let restore = e.sql.find("FOUND := _pgweave_found;").expect("restored");
+        let ret = e.sql.find("RETURN FOUND;").unwrap();
+        assert!(save < restore && restore < ret, "{}", e.sql);
+    }
+
+    #[test]
+    fn routines_not_logged_are_left_as_written() {
+        // An SQL-language routine: nothing to log in it.
+        let src = "@function f(k INT): INT language sql {\n    SELECT k;\n}\n";
+        let plain = logged(src, LogLevel::None, LogTarget::Table);
+        let info = logged(src, LogLevel::Step, LogTarget::Table);
+        assert!(info.diagnostics.is_empty(), "{:?}", info.diagnostics);
+        assert_eq!(plain.sql, info.sql);
     }
 
     #[test]

@@ -971,13 +971,27 @@ table in `TRUNCATE`, DDL, `RETURNING *`, a CTE shadowing it, a `RETURN`
 expression reading it, a position the parser could not give), and dynamic
 SQL in an instrumented body is a warning (not isolated).
 
-**`@snapshot label;`** — in a debug build (`pgweave build --debug`, later
+**`@snapshot label;`** — in a debug build (`pgweave build --log debug`, later
 `pgweave dev`), copies at that point the run's rows of every isolated temp
 table and the variables in scope (parameters and declarations) into
 `pgweave_debug.snapshot` / `pgweave_debug.snapshot_rows`; in a normal
 build (analysis, migrations, deployment) it emits nothing. A record not
 yet assigned cannot be read: it is reported as skipped, never guessed.
 Snapshots written in a transaction that fails are rolled back with it.
+
+**Log levels** — `pgweave build --log none|info|step|debug` and
+`--log-target table|notify`, fixed at build time (no code below the
+level): `info` writes one entry per run (routine, start, duration, the
+caller's `pgweave.traceparent`, the `SQLSTATE` of an error the routine
+handles), `step` adds one per INSERT / UPDATE / DELETE / EXECUTE (kind,
+target, source line, row count), `debug` adds the snapshots. Steps are
+appended to a `jsonb[]` variable by `GET DIAGNOSTICS` and a simple
+assignment, which leave `ROW_COUNT` and `FOUND` untouched, and written at
+each exit — with the temp table cleanup, `FOUND` saved and restored around
+it for a `RETURN` that reads it — to `pgweave_log.run` / `.step`
+(unlogged) or as `pg_notify('pgweave_log', json)`. Not yet: a level set
+in `pgweave.toml` for the routines of migrations (their analysis and the
+drift check would then have to see the same instrumentation).
 
 **Exit**: a routine using a temp table, called recursively and from a loop
 on PostgreSQL 18, keeps its rows apart (oracle test), and its snapshots

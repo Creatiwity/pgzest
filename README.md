@@ -224,10 +224,10 @@ In the body of `@function`, `@procedure` or `@trigger` (PL/pgSQL):
   unique per run, and the run's rows are deleted on `RETURN`. The table is
   created under a name derived from its definition, so two routines
   declaring `work` differently never meet.
-- **`@snapshot label;`** — with `pgweave build --debug`, copies at that
-  point the run's rows of each temp table and the variables in scope into
-  `pgweave_debug.snapshot` / `pgweave_debug.snapshot_rows` (created by the
-  debug build). In any other build — analysis, migrations, deployment —
+- **`@snapshot label;`** — with `pgweave build --log debug`, copies at
+  that point the run's rows of each temp table and the variables in scope
+  into `pgweave_debug.snapshot` / `pgweave_debug.snapshot_rows` (created
+  by that build). In any other build — analysis, migrations, deployment —
   it emits nothing.
 
 Nothing is guessed: an access pgweave cannot rewrite is an error
@@ -236,6 +236,34 @@ a CTE of the same name), and dynamic SQL (`EXECUTE`) in such a body is a
 warning, since it is not rewritten. "Show expansion" displays the
 rewritten body. A snapshot taken in a transaction that fails is rolled
 back with it.
+
+### Run logs
+
+`pgweave build --log <level> [--log-target table|notify]` makes every
+PL/pgSQL routine of a macro (`@function`, `@procedure`, `@trigger`) record
+its runs. The level is fixed at build time: below it, no code is emitted.
+
+| `--log` | Recorded |
+|---------|----------|
+| `none` (default) | nothing |
+| `info` | one entry per run: routine, start, duration, the caller's `pgweave.traceparent` setting, and the `SQLSTATE` when the routine returns from its own exception handler |
+| `step` | plus one entry per `INSERT`, `UPDATE`, `DELETE` or `EXECUTE`: kind, target table, source line, row count |
+| `debug` | plus the `@snapshot` copies |
+
+With `--log-target table` (default), entries go to the unlogged tables
+`pgweave_log.run` and `pgweave_log.step`, joined on `run`, which also
+identifies the run in `pgweave_debug.snapshot`; the build creates them
+first. With `notify`, each entry is a JSON `pg_notify('pgweave_log', …)`
+(steps, then the run).
+
+Steps are kept in a variable and written when the run ends, before each
+`RETURN` and at the end of the body: the recording changes neither
+`ROW_COUNT` nor `FOUND` for the body. A run whose error leaves the
+routine is rolled back with its log (as notifications of a failed
+transaction are never sent); an error the routine handles itself is
+logged with its `SQLSTATE`, steps rolled back by it included. SQL-language
+routines are not logged. Analysis and migrations always see the routines
+as written.
 
 ### Viewing the expansion in VS Code
 

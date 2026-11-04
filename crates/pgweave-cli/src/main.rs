@@ -37,6 +37,48 @@ impl From<CliSkipLevel> for pgweave_schema::SkipLevel {
     }
 }
 
+/// clap mirror of `pgweave_macro::LogLevel`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliLogLevel {
+    /// Nothing.
+    None,
+    /// One entry per run: routine, start, duration, handled error.
+    Info,
+    /// Plus one entry per INSERT, UPDATE, DELETE or EXECUTE.
+    Step,
+    /// Plus the `@snapshot` copies.
+    Debug,
+}
+
+impl From<CliLogLevel> for pgweave_macro::LogLevel {
+    fn from(v: CliLogLevel) -> Self {
+        match v {
+            CliLogLevel::None => Self::None,
+            CliLogLevel::Info => Self::Info,
+            CliLogLevel::Step => Self::Step,
+            CliLogLevel::Debug => Self::Debug,
+        }
+    }
+}
+
+/// clap mirror of `pgweave_macro::LogTarget`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliLogTarget {
+    /// `pgweave_log.run` and `pgweave_log.step`.
+    Table,
+    /// `pg_notify('pgweave_log', …)`.
+    Notify,
+}
+
+impl From<CliLogTarget> for pgweave_macro::LogTarget {
+    fn from(v: CliLogTarget) -> Self {
+        match v {
+            CliLogTarget::Table => Self::Table,
+            CliLogTarget::Notify => Self::Notify,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Type-check SQL files, printing diagnostics. Exits 1 if any errors are found.
@@ -114,11 +156,14 @@ enum Command {
         /// Directory to write the generated `.sql` files into
         #[arg(long = "out-dir")]
         out_dir: Option<String>,
-        /// Debug build: `@snapshot` copies the temp tables and variables
-        /// into `pgweave_debug` (whose tables are created first). Never for
-        /// a deployment.
-        #[arg(long)]
-        debug: bool,
+        /// What the PL/pgSQL routines record of their runs. `debug` also
+        /// makes `@snapshot` copy the temp tables and variables into
+        /// `pgweave_debug`. The tables written to are created first.
+        #[arg(long, value_enum, default_value = "none")]
+        log: CliLogLevel,
+        /// Where the log entries go.
+        #[arg(long = "log-target", value_enum, default_value = "table")]
+        log_target: CliLogTarget,
     },
 
     /// Lint a SQL file for style and best-practice violations.
@@ -733,8 +778,16 @@ fn main() {
         Command::Build {
             files,
             out_dir,
-            debug,
-        } => cmd_build(&files, out_dir.as_deref(), debug),
+            log,
+            log_target,
+        } => cmd_build(
+            &files,
+            out_dir.as_deref(),
+            pgweave_macro::Instrumentation {
+                log: log.into(),
+                target: log_target.into(),
+            },
+        ),
         Command::Lint { file } => cmd_lint(&file),
         Command::Schema { action } => match action {
             SchemaAction::Import {
@@ -860,10 +913,15 @@ fn cmd_macros(verbose: bool) -> i32 {
     if errors.is_empty() { 0 } else { 1 }
 }
 
-fn cmd_build(files: &[String], out_dir: Option<&str>, debug: bool) -> i32 {
+fn cmd_build(
+    files: &[String],
+    out_dir: Option<&str>,
+    instrumentation: pgweave_macro::Instrumentation,
+) -> i32 {
     let project = discover_project_or_exit();
     let (set, errors) = load_macros(project.as_ref());
-    let set = set.with_debug(debug);
+    let set = set.with_instrumentation(instrumentation);
+    let setup = instrumentation.setup_sql();
     for e in &errors {
         eprintln!("warning: {e}");
     }
@@ -879,12 +937,8 @@ fn cmd_build(files: &[String], out_dir: Option<&str>, debug: bool) -> i32 {
             }
         };
         let mut expansion = pgweave_macro::expand_source(&src, &set);
-        if debug {
-            expansion.sql = format!(
-                "{}\n{}",
-                pgweave_macro::instrument::DEBUG_SETUP,
-                expansion.sql
-            );
+        if !setup.is_empty() {
+            expansion.sql = format!("{setup}\n{}", expansion.sql);
         }
 
         for d in &expansion.diagnostics {

@@ -19,3 +19,4 @@ tokio-postgres = { workspace = true }
 insta = { workspace = true }
 pgweave-diagnostics = { path = "../pgweave-diagnostics" }
 pgweave-macro = { path = "../pgweave-macro" }
+serde_json = { workspace = true }

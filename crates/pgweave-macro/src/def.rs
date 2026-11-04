@@ -230,8 +230,9 @@ pub struct MacroSet {
     defs: HashMap<String, MacroDef>,
     /// Project fragments (`*.sql` of `[macros] directory`), by name.
     fragments: HashMap<String, crate::fragment::FragmentDef>,
-    /// Debug build: `@snapshot` emits its copy (see [`crate::instrument`]).
-    debug: bool,
+    /// Log level and target of the PL/pgSQL routines (see
+    /// [`crate::instrument`]).
+    instrumentation: crate::instrument::Instrumentation,
 }
 
 impl MacroSet {
@@ -362,15 +363,16 @@ impl MacroSet {
         v
     }
 
-    /// Debug build: `@snapshot` emits its copy instead of nothing. Never for
-    /// analysis, migrations or deployment.
-    pub fn with_debug(mut self, debug: bool) -> Self {
-        self.debug = debug;
+    /// Logged build: the PL/pgSQL routines record their runs, and at the
+    /// debug level `@snapshot` emits its copy instead of nothing. Never for
+    /// analysis or migrations, whose routines stay as written.
+    pub fn with_instrumentation(mut self, i: crate::instrument::Instrumentation) -> Self {
+        self.instrumentation = i;
         self
     }
 
-    pub fn debug(&self) -> bool {
-        self.debug
+    pub fn instrumentation(&self) -> crate::instrument::Instrumentation {
+        self.instrumentation
     }
 
     pub fn get(&self, name: &str) -> Option<&MacroDef> {
