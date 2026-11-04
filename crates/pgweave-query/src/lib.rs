@@ -2,7 +2,7 @@
 //!
 //! - **File format**, frozen in P0: splitting a file into queries, headers,
 //!   `$name` / `$n` parameters, rewriting into positional parameters.
-//!   Specification: `docs/named-queries.md`.
+//!   Specification: `site/src/content/docs/reference/named-queries.md`.
 //! - **Descriptor** (PLAN.md §4, P4): parameter and column types,
 //!   nullability, inferred cardinality, dependencies, fingerprint.
 

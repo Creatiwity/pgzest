@@ -1,0 +1,26 @@
+/* pgweave palette: ink blue ground, a blue thread (SQL) and an amber one
+   (the typed code it becomes). Shared with the README visuals. */
+
+:root {
+  --sl-color-accent-low: #10263c;
+  --sl-color-accent: #5ba4e6;
+  --sl-color-accent-high: #cfe5fa;
+  --pgw-amber: #f2a65a;
+}
+
+/* Dark theme only: the page ground is the ink blue of the visuals. */
+:root[data-theme='dark'] {
+  --sl-color-black: #0e1621;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #d6e8f8;
+  --sl-color-accent: #1f6fb8;
+  --sl-color-accent-high: #0e2f52;
+  --pgw-amber: #b0621c;
+}
+
+/* The second thread, used sparingly: emphasis in the landing page. */
+.pgw-amber {
+  color: var(--pgw-amber);
+}

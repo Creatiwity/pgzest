@@ -217,6 +217,20 @@ playground: build ## Run the CLI on the demo project
 	echo "════ pgweave lint queries/05-lint.sql ════"; \
 	../../$(CLI) lint queries/05-lint.sql || true
 
+# ── Documentation site ──────────────────────────────────────────────────────
+
+.PHONY: docs
+docs: ## Regenerate the site's CLI and diagnostics references from the code
+	$(CARGO) run -q -p xtask -- docs
+
+.PHONY: site
+site: docs ## Build the documentation site (site/dist), checking its links
+	cd site && npm install --no-fund --no-audit && npm run build
+
+.PHONY: site-dev
+site-dev: docs ## Serve the documentation site locally, reloading on edits
+	cd site && npm install --no-fund --no-audit && npm run dev
+
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 
 .PHONY: clean
@@ -226,4 +240,4 @@ clean: ## Remove build artifacts
 
 .PHONY: distclean
 distclean: clean ## clean + remove node_modules
-	rm -rf $(NPM_PKG)/node_modules $(VSCODE)/node_modules
+	rm -rf $(NPM_PKG)/node_modules $(VSCODE)/node_modules site/node_modules site/dist

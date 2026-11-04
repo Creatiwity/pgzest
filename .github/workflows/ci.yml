@@ -45,6 +45,11 @@ jobs:
       - name: Clippy (runtime tracing feature)
         run: cargo clippy -p pgweave-runtime --all-targets --features opentelemetry -- -D warnings
 
+      # The site's CLI and diagnostics references are generated from the
+      # code; a diagnostic code written as a literal escapes them.
+      - name: Generated documentation up to date
+        run: cargo run -p xtask -- docs --check
+
   # Differential oracle (PLAN.md §7): the crates/pgweave-oracle/cases corpus
   # is prepared on a real PostgreSQL 18 and compared with pgweave's analysis.
   # The expected report is the tests/snapshots/oracle__report.snap snapshot:
@@ -135,6 +140,25 @@ jobs:
       - name: Build (VS Code extension)
         run: npx tsc -p ./
         working-directory: editors/vscode
+
+  site:
+    name: Documentation site (build + links)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install
+        run: npm ci --no-fund --no-audit
+        working-directory: site
+
+      # Fails on a broken internal link (starlight-links-validator).
+      - name: Build
+        run: npm run build
+        working-directory: site
 
   wasm:
     name: WASM bindings

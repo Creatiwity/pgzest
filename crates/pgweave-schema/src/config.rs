@@ -1,13 +1,13 @@
 //! Project configuration: `pgweave.toml`, format v1.
 //!
-//! Reference specification: `docs/config.md`. Any change to this file must
+//! Reference specification: `site/src/content/docs/reference/config.md`. Any change to this file must
 //! be reflected there.
 //!
 //! Design rules:
 //! - **Strict**: an unknown key is an error (`deny_unknown_fields`). A typo
 //!   in a key must never turn into a silently ignored setting.
 //! - **Nothing accepted without effect**: a key exists in the format only if
-//!   the tool applies it. Planned changes are described in `docs/config.md`
+//!   the tool applies it. Planned changes are described in `site/src/content/docs/reference/config.md`
 //!   but rejected until they are implemented.
 //! - **Errors surfaced**: an unreadable or invalid file is an error for the
 //!   caller, never a fallback to the default config.
@@ -181,7 +181,7 @@ fn default_migrations_dir() -> String {
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-/// Named query files (format: `docs/named-queries.md`).
+/// Named query files (format: `site/src/content/docs/reference/named-queries.md`).
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct QueriesConfig {

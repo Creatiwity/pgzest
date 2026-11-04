@@ -467,10 +467,10 @@ on an unfinished phase, except where parallelization is explicitly noted.
   (`crates/pgweave-parser/src/ids.rs`), the (file, `NodeId`) pair
   identifies a node.
 - ✅ salsa spike (D3): GO, `docs/decisions/0001-salsa.md`.
-- ✅ Named-query format frozen: `docs/named-queries.md` (header
+- ✅ Named-query format frozen: `site/src/content/docs/reference/named-queries.md` (header
   `-- name: x [:one|:optional|:many|:none]`, `$name`, checked by `check`
   and the LSP).
-- ✅ Project config format frozen: `docs/config.md` (`[postgres] version`
+- ✅ Project config format frozen: `site/src/content/docs/reference/config.md` (`[postgres] version`
   required, single `pgweave.toml` file, strict keys). `search_path`
   and per-directory default schema are described there as P2 evolutions.
 - ✅ Renamed to `pgweave` (`pgweave-*` crates, `pgweave` /
@@ -744,7 +744,7 @@ Done (2026-11-02):
   rebuild in debug (`build.rs` generation and `query!` included),
   code only modified → 1.05 s. At Mesalia scale (220 migrations),
   catalog + description + generation: 0.29 s in debug.
-- Guide: [`docs/rust.md`](docs/rust.md).
+- Guide: [`site/src/content/docs/guides/rust.md`](site/src/content/docs/guides/rust.md).
 
 - `query_file!`: query read from a file of the crate, errors
   positioned in that file.
@@ -811,7 +811,7 @@ Additions (2026-11-03, after exit):
 - One Rust module per query file (`queries/order/book.sql` →
   `queries::order::book`), enums at the root of the tree; qualified
   references `-> order::book::card` (relative path in the generated code);
-  the promise of `docs/named-queries.md` is kept.
+  the promise of `site/src/content/docs/reference/named-queries.md` is kept.
 - `pgweave_macros::queries!("queries")`: the tree of a directory, or the
   queries of a file, generated at the call site (a one-line
   `src/queries.rs`); same generation as `pgweave-build`
@@ -1082,7 +1082,19 @@ show each step.
 **Exit**: the `getPage` example of the target DX typed end to end, without
 cast.
 
-### P10 — Publication: README and documentation site
+### P10 — Publication: README and documentation site — 🚧 in progress
+
+Done (2026-11-04): README redesigned with `beautify-github-readme`
+(README mode, pure static SVG: `assets/readme/hero.svg`, the demo's
+`restaurant_by_slug` threaded to its generated struct, and
+`how-it-works.svg`); Starlight site in `site/` (`make site`, `make
+site-dev`): getting started, how it works, six guides, reference; the
+user-facing `docs/*.md` moved there, `docs/` keeps the internal
+documents. `cargo xtask docs` generates the CLI reference (from `--help`)
+and the diagnostics reference (from the documented code constants, every
+sema code moved to `codes.rs`, dead codes removed); `--check` in CI, with
+the site build and its link validation. Remaining: the final name,
+address and packages (publication), the TypeScript guide with P8.
 
 Makes the project presentable before it is published: what it does is
 there, scattered between the README, `docs/` and this plan.
@@ -1112,6 +1124,13 @@ there, scattered between the README, `docs/` and this plan.
 **Exit**: the README and the site, previewed locally, describe every
 shipped feature with a runnable example, and no feature that is not
 shipped; the site builds in CI without broken links.
+
+Found while checking the claims (to fix, outside P10):
+- A file classified as queries (outside `schema/` and `migrations/`) is
+  checked on the final schema without its own DDL being applied: a trigger
+  function there never meets the `CREATE TRIGGER` of the same file
+  (`trigger-no-context`, body unchecked) — `examples/playground/queries/
+  06-macros.pgsql`. CLI and LSP alike.
 
 ### Possible parallelization
 
@@ -1144,7 +1163,7 @@ code written in the meantime **migrates mechanically** to the generated code:
    nullability gap the manual layer was hiding.
 
 Status as of 2026-11-02: the component can start directly on generated
-code (`pgweave-build`, `pgweave-runtime`, `docs/rust.md` guide), its
+code (`pgweave-build`, `pgweave-runtime`, `site/src/content/docs/guides/rust.md` guide), its
 `pgweave.toml` pointing to the existing Prisma migrations; the manual
 layer from step 1 is no longer needed.
 

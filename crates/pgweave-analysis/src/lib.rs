@@ -86,7 +86,7 @@ fn hint_for(reason: &SkipReason) -> &'static str {
 // ── Named queries ─────────────────────────────────────────────────────────────
 
 /// Format diagnostics of a `[queries] directory` file
-/// (`docs/named-queries.md`). They add to the usual analysis of the file,
+/// (`site/src/content/docs/reference/named-queries.md`). They add to the usual analysis of the file,
 /// which already checks each statement against the schema.
 ///
 /// Shared by the CLI and the LSP: a query file must be judged the same way

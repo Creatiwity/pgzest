@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">pgweave — plain PostgreSQL, checked as PostgreSQL would, woven into typed Rust</title>
+  <desc id="desc">A named SQL query of the demo, restaurant_by_slug, whose columns are threaded to the fields of the Rust struct pgweave generates from it; the nullable opened_on column becomes Option&lt;Date&gt;.</desc>
+
+  <defs>
+    <linearGradient id="thread" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5BA4E6"/>
+      <stop offset="1" stop-color="#F2A65A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="420" rx="24" fill="#0E1621"/>
+
+  <g id="title-block" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="56" y="88" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" letter-spacing="2" fill="#7D8B99">POSTGRESQL TOOLCHAIN · RUST</text>
+    <text x="52" y="176" font-size="88" font-weight="700" fill="#E8EEF5">pgweave</text>
+    <text x="56" y="232" font-size="27" fill="#C9D3DD">Plain PostgreSQL, checked the way</text>
+    <text x="56" y="268" font-size="27" fill="#C9D3DD">PostgreSQL would — then woven</text>
+    <text x="56" y="304" font-size="27" fill="#C9D3DD">into <tspan fill="#F2A65A">typed code</tspan>, migrations and</text>
+    <text x="56" y="340" font-size="27" fill="#C9D3DD">observable routines.</text>
+  </g>
+
+  <g id="project-proof" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20">
+    <!-- Each column, threaded to the field it becomes (drawn first: the
+         cards cover the ends). -->
+    <g fill="none" stroke="url(#thread)" stroke-width="2.5" stroke-linecap="round">
+      <path d="M 744 172 C 744 206, 817 198, 817 232"/>
+      <path d="M 805 172 C 805 206, 937 198, 937 232"/>
+      <path d="M 907 172 C 907 206, 726 198, 726 232"/>
+      <path d="M 1045 172 C 1045 206, 732 198, 732 232"/>
+    </g>
+
+    <!-- The query, as written in queries/restaurants.sql. -->
+    <rect x="624" y="40" width="520" height="132" rx="14" fill="#13202F" stroke="#24364A" stroke-width="1.5"/>
+    <text x="648" y="80" fill="#7D8B99">-- name: restaurant_by_slug</text>
+    <text x="648" y="116" fill="#E8EEF5"><tspan fill="#5BA4E6">SELECT</tspan> id, name, opened_on, created_at</text>
+    <text x="648" y="152" fill="#E8EEF5"><tspan fill="#5BA4E6">FROM</tspan> restaurants <tspan fill="#5BA4E6">WHERE</tspan> slug = $slug</text>
+    <g stroke="#5BA4E6" stroke-width="2.5" stroke-linecap="round">
+      <line x1="732" y1="124" x2="756" y2="124"/>
+      <line x1="780" y1="124" x2="829" y2="124"/>
+      <line x1="853" y1="124" x2="961" y2="124"/>
+      <line x1="985" y1="124" x2="1106" y2="124"/>
+    </g>
+
+    <!-- The row struct pgweave generates from it. -->
+    <rect x="624" y="232" width="520" height="148" rx="14" fill="#13202F" stroke="#3A2E22" stroke-width="1.5"/>
+    <text x="648" y="268" fill="#E8EEF5"><tspan fill="#7D8B99">struct Row {</tspan> id: i64, name: String,</text>
+    <text x="672" y="306" fill="#E8EEF5">opened_on: <tspan fill="#F2A65A">Option&lt;Date&gt;</tspan>,</text>
+    <text x="672" y="344" fill="#E8EEF5">created_at: OffsetDateTime <tspan fill="#7D8B99">}</tspan></text>
+    <g stroke="#F2A65A" stroke-width="2.5" stroke-linecap="round">
+      <line x1="805" y1="276" x2="829" y2="276"/>
+      <line x1="913" y1="276" x2="961" y2="276"/>
+      <line x1="672" y1="314" x2="780" y2="314"/>
+      <line x1="672" y1="352" x2="792" y2="352"/>
+    </g>
+    <text x="1120" y="372" font-size="16" text-anchor="end" fill="#7D8B99">nullable → Option · unique → Option&lt;Row&gt;</text>
+  </g>
+</svg>

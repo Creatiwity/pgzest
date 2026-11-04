@@ -1,4 +1,4 @@
-//! Named-query format (`docs/named-queries.md`).
+//! Named-query format (`site/src/content/docs/reference/named-queries.md`).
 
 use pgweave_query::{Cardinality, Params, QueryFile, parse_query_file};
 

@@ -7,7 +7,7 @@
 //!
 //! Cases live in `cases/<name>/`: a `schema.sql` applied to an empty
 //! database, and a `queries.sql` in the named-query format
-//! (`docs/named-queries.md`).
+//! (`site/src/content/docs/reference/named-queries.md`).
 //!
 //! The produced report is a snapshot (`insta`): it serves as the reference.
 //! An analysis improvement changes it, and reviewing that change shows

@@ -1,18 +1,22 @@
-# Named queries — file format, v1
+---
+title: "Named queries"
+description: "The query file format: headers, parameters, cardinality, variants, fragments."
+---
 
-> Status: **frozen** (P0, 2026-11-01). Changes will be additive.
-> Reference implementation: `crates/pgweave-query`.
+The format is stable: changes are additive. Reference implementation:
+`crates/pgweave-query`.
 
 A named query is a SQL statement, written in a `.sql` file of the
-`[queries] directory` (see [`config.md`](config.md)), preceded by a header
-that gives it a name. It is the unit from which typed calls are generated
-(Rust in P5, TypeScript in P8): one function per query, one parameter
-struct, one row struct.
+`[queries] directory` (see [`pgweave.toml`](../config/)), preceded by a
+header that gives it a name. It is the unit from which typed calls are
+generated: one function per query, one parameter struct, one row struct
+(Rust today, TypeScript next).
 
 `pgweave check` and the editor check the format of these files, each query
 against the schema, and anything that would prevent describing it (untyped
 parameter, contradicted cardinality). `pgweave describe` produces the
-descriptors; their use in Rust is described in [`rust.md`](rust.md).
+descriptors; their use in Rust is described in
+[Typed queries in Rust](../../guides/rust/).
 
 ## Example
 
@@ -48,7 +52,7 @@ query        := header doc* statement
 header       := "-- name:" name cardinality? reference? END_OF_LINE  (at start of line)
 name         := [a-z_][a-z0-9_]*
 cardinality  := ":one" | ":optional" | ":many" | ":none"
-reference    := "->" (module "::")* name     (added in P6, 2026-11-03)
+reference    := "->" (module "::")* name
 doc          := "--" text END_OF_LINE                         (before the statement)
 statement    := a single SQL statement, optional trailing ";"
 ```
@@ -75,24 +79,21 @@ statement    := a single SQL statement, optional trailing ";"
 
 Number of rows returned:
 
-| Marker | Meaning | Generated call (P5, indicative) |
+| Marker | Meaning | Generated call |
 |---|---|---|
 | `:one` | exactly one row | `fetch_one` → `Row` |
 | `:optional` | zero or one row | `fetch_optional` → `Option<Row>` |
 | `:many` | zero, one or more | `fetch_all` / stream → `Vec<Row>` |
 | `:none` | no row (no `RETURNING`) | `execute` → number of affected rows |
 
-The marker is **optional**. From P4 on, cardinality is inferred (equality
-on a unique key → `:optional`, etc. — PLAN.md §4):
+The marker is **optional**: cardinality is inferred (equality on a unique
+key → `:optional`, etc.):
 
 - without a marker, the inference is authoritative;
 - with a marker, it is checked against the inference: it can **tighten** a
   cautious inference (`:one` where the analysis sees `:optional`, when the
   caller knows a row exists) but not contradict it (`:none` on a `SELECT`
   is an error).
-
-Until P4, the marker is read and validated (known value) but not yet
-checked against the inference.
 
 ### Documentation
 
@@ -111,7 +112,7 @@ documentation, carried over into the generated code.
 ## Variant queries
 
 When the plan must depend on which filters are present, or the ordering
-varies, use conditional blocks and choices (added on 2026-11-03):
+varies, use conditional blocks and choices:
 
 ```sql
 -- name: orders_page :many
@@ -220,7 +221,7 @@ Positional parameters: from `$1` to `$n` with no gap.
 
 ### Optional parameter: `$name?`
 
-A `?` attached to the name (added on 2026-11-03) declares that the value
+A `?` attached to the name declares that the value
 may be missing: the parameter is nullable in the descriptor, `Option<T>` in
 Rust, whatever the analysis infers. The query is written for it:
 
@@ -272,38 +273,3 @@ comments, formatting).
 
 They add to the usual diagnostics (`column-not-found`, …) and follow
 `[rules]` and the `-- pgweave-disable…` directives like all the others.
-
-## Writing calling code before P5 (Mesalia path)
-
-As long as Rust generation (P5) does not exist, calling code is written by
-hand. So that switching to generated code is mechanical, it follows the
-shape that will be generated:
-
-- one module per query file, one function per query, with the same name;
-- a parameter struct (fields = named parameters, in order of first
-  appearance) and a row struct (fields = columns, in the order of the
-  `SELECT`/`RETURNING`);
-- the SQL is **read from the query file** (not copied into the Rust code),
-  rewritten as positional with `pgweave_query`, then executed via
-  `tokio-postgres`;
-- the calling function follows the cardinality (`Option<Row>` for
-  `:optional`…).
-
-```rust
-// Target shape; when P5 ships, this module is replaced by the generated
-// code, and the compiler reports any type or nullability mismatch.
-pub mod pages {
-    pub struct PageByIdParams { pub id: i64 }
-    pub struct PageByIdRow { pub id: i64, pub title: String, pub creation_date: Option<time::OffsetDateTime> }
-
-    pub async fn page_by_id(
-        client: &impl tokio_postgres::GenericClient,
-        params: &PageByIdParams,
-    ) -> Result<Option<PageByIdRow>, tokio_postgres::Error> {
-        /* … */
-    }
-}
-```
-
-`pgweave check queries/*.sql` in CI already guarantees that these queries
-follow the format and reference existing tables and columns.

@@ -1,0 +1,99 @@
+---
+title: "pgweave"
+description: "Write plain PostgreSQL. pgweave checks it the way PostgreSQL would, and turns it into typed code, migrations and observable routines."
+template: splash
+hero:
+  tagline: "Write plain PostgreSQL. pgweave checks it the way PostgreSQL would, and turns it into typed Rust, migrations and observable routines — without a database connection."
+  image:
+    file: ../../assets/mark.svg
+  actions:
+    - text: Get started
+      link: getting-started/
+      icon: right-arrow
+    - text: How it works
+      link: how-it-works/
+      variant: secondary
+    - text: GitHub
+      link: https://github.com/Creatiwity/pgsql-tools
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## SQL in, typed code out
+
+```sql
+-- queries/restaurants.sql
+-- name: restaurant_by_slug
+SELECT id, name, opened_on, created_at
+FROM restaurants
+WHERE slug = $slug;
+```
+
+`slug` is `UNIQUE`, `opened_on` is nullable: pgweave reads it from the
+schema, and the query becomes a function returning at most one row.
+
+```rust
+pub struct RestaurantBySlugRow {
+    pub id: i64,
+    pub name: String,
+    pub opened_on: Option<time::Date>,
+    pub created_at: time::OffsetDateTime,
+}
+
+pub async fn restaurant_by_slug<C: GenericClient + ?Sized>(
+    client: &C,
+    params: RestaurantBySlugParams<'_>,
+) -> Result<Option<RestaurantBySlugRow>, pgweave_runtime::Error>;
+```
+
+A mistake in the SQL fails `cargo build`, at its line in the `.sql` file.
+
+## Checked against PostgreSQL itself
+
+pgweave rebuilds the catalog by replaying your schema or migrations, then
+types every query as PostgreSQL would. An oracle runs the same queries on
+a real PostgreSQL 18 and compares:
+
+- **243** queries: **749/751** columns and **146/146** parameters typed
+  exactly as PostgreSQL prepares them;
+- **19,032/19,032** function and operator resolutions identical;
+- two real projects' migrations (1,740 and 294 statements) fully parsed,
+  and replayed into catalogs identical to the databases they build — DDL
+  run through dynamic SQL aside, which the replay reports instead of
+  guessing.
+
+## What it does
+
+<CardGrid>
+  <Card title="Typed queries in Rust" icon="seti:rust">
+    Named queries in `.sql` files or `sql!` in code, compiled into
+    functions over `tokio-postgres` — as fast as hand-written code
+    (145.0 vs 145.7 µs per query).
+  </Card>
+  <Card title="Analysis as PostgreSQL would" icon="approve-check">
+    Types, overloads, nullability, `NOT NULL` through joins, PL/pgSQL
+    bodies and triggers per table — and what is not analyzed is said, never
+    guessed.
+  </Card>
+  <Card title="Fragments and macros" icon="puzzle">
+    A column list or an expression written once and inserted with `@name`;
+    `@function`, `@trigger` without the boilerplate, expanded to plain SQL.
+  </Card>
+  <Card title="Declarative schema, generated migrations" icon="list-format">
+    Edit the schema, `pgweave migrate create` writes the migration and
+    verifies it by replay. Prisma and Diesel layouts read as is.
+  </Card>
+  <Card title="Observable routines" icon="magnifier">
+    Run logs, isolated temp tables, snapshots, OpenTelemetry traces of the
+    triggers a statement fired, a depth limit for endless cascades, and
+    `db check` for hand changes in production.
+  </Card>
+  <Card title="In the editor" icon="pencil">
+    VS Code: errors as you type, hover with types and query descriptors,
+    completion, macro expansion — in `.sql` files and inside Rust strings.
+  </Card>
+</CardGrid>
+
+<LinkCard title="Try the demo" description="A small ordering application: schema, migrations, queries, Rust, traces." href="getting-started/" />

@@ -1,9 +1,12 @@
-# pgweave WASM Plugin SDK
+---
+title: "WASM plugins"
+description: "Writing a pgweave plugin compiled to WebAssembly."
+---
 
 ## Overview
 
 WASM plugins let you add custom lint rules to pgweave without modifying the core.
-A WASM plugin is compiled to `.wasm` and declared in `pgweave.toml` (see `docs/config.md`).
+A WASM plugin is compiled to `.wasm` and declared in `pgweave.toml` (see [pgweave.toml](../config/)).
 
 ## Required Exports
 

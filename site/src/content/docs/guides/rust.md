@@ -1,8 +1,11 @@
-# Typed queries in Rust
+---
+title: "Typed queries in Rust"
+description: "Named queries and inline SQL compiled into typed Rust over tokio-postgres."
+---
 
-> Status: **usable** (P5 in progress, 2026-11-02). Full example:
-> [`examples/rust-service`](../examples/rust-service), tested against
-> PostgreSQL 18 in CI.
+Full example:
+[`examples/rust-service`](https://github.com/Creatiwity/pgsql-tools/tree/main/examples/rust-service),
+run against PostgreSQL 18 in CI.
 
 A project's SQL queries become typed Rust functions, at compile time and
 **without a database connection**. Types come from the catalog that
@@ -161,7 +164,7 @@ compiling; `pgweave describe` alone prints the JSON descriptors.
 
 ## Named queries
 
-File format: [`named-queries.md`](named-queries.md).
+File format: [named queries](../../reference/named-queries/).
 
 ```sql
 -- name: page_by_id
@@ -206,7 +209,7 @@ on a query that returns rows is an error).
 
 ### Nullability
 
-Never assumed (PLAN.md D5):
+Never assumed:
 
 - **column**: `T` only if its non-nullability is established (`NOT NULL`
   preserved through joins, `count(*)`, literal…), otherwise `Option<T>`;

@@ -3,6 +3,7 @@
 mod catalog_compare;
 mod catalog_gen;
 mod corpus;
+mod docs;
 mod migrate_oracle;
 mod probes;
 
@@ -77,6 +78,14 @@ enum Command {
         #[arg(long)]
         details: bool,
     },
+    /// Generates the reference pages of the documentation site from the
+    /// code: CLI (`--help`) and diagnostics (documented code constants).
+    Docs {
+        /// Fails if a page is stale or a code is not a documented constant
+        /// (CI).
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -101,6 +110,7 @@ fn main() -> ExitCode {
             pg_url,
             details,
         } => migrate_oracle::run(&project, pg_url, details),
+        Command::Docs { check } => docs::run(check),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

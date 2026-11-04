@@ -233,6 +233,6 @@ the dishes with `COPY` (CSV), then runs the scenario. It shows:
 
 ## Under the hood
 
-- Rust integration guide: [`docs/rust.md`](../../docs/rust.md).
-- Named query format: [`docs/named-queries.md`](../../docs/named-queries.md).
+- Rust integration guide: [`site/src/content/docs/guides/rust.md`](../../site/src/content/docs/guides/rust.md).
+- Named query format: [`site/src/content/docs/reference/named-queries.md`](../../site/src/content/docs/reference/named-queries.md).
 - What is checked, and how (PostgreSQL oracle): [`PLAN.md`](../../PLAN.md).

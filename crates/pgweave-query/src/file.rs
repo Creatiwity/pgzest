@@ -1,4 +1,4 @@
-//! Named-query file format (`docs/named-queries.md`).
+//! Named-query file format (`site/src/content/docs/reference/named-queries.md`).
 //!
 //! Splitting relies on the sqlparser tokenizer, not on a line scan: a
 //! `-- name:` inside a string or a `$$…$$` body is not a header, and a
