@@ -1126,9 +1126,8 @@ there, scattered between the README, `docs/` and this plan.
   aggregates only. Two isolated names: a table name used as a quoted
   identifier example (in the tree until 2026-11-04, replaced by
   `"OrderLine"`; still in older commits) and an enum type name in the
-  message of `e0e4420`. Both are already on the private remote: rewrite
-  the history (`git filter-repo --replace-text/--replace-message`) or
-  publish a fresh history — the owner's decision. Publishing itself — site,
+  message of `e0e4420`. The owner judged them harmless (2026-11-04): the
+  history is published as is. Publishing itself — site,
   packages, pushes — only with explicit approval.
 
 **Exit**: the README and the site, previewed locally, describe every
