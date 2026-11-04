@@ -1082,11 +1082,44 @@ show each step.
 **Exit**: the `getPage` example of the target DX typed end to end, without
 cast.
 
+### P10 — Publication: README and documentation site
+
+Makes the project presentable before it is published: what it does is
+there, scattered between the README, `docs/` and this plan.
+
+- **README** redesigned with the
+  [`beautify-github-readme`](https://github.com/oil-oil/beautify-github-readme)
+  skill (Claude Code): reading order built around the key features and
+  their proof — typed queries (Rust, then TypeScript), analysis as
+  PostgreSQL would do it (oracle), fragments and macros, declarative
+  schema and migrations, routine observability (run logs, traces,
+  `max_depth`, `db check`), editor. SVG hero and diagrams, Markdown for
+  commands. Local preview first; every claim checked against the code
+  (measured costs, oracle results), nothing promised that is not done.
+- **Documentation site**: getting started, guides (Rust queries,
+  TypeScript queries, macros and fragments, migrations, observability),
+  reference (CLI, `pgweave.toml`, diagnostic codes, macro format),
+  examples (the demo as a guided tour). `docs/` is its source; the
+  generator is chosen when the phase opens (mdBook, Rust-native, or a
+  JS one such as Starlight/VitePress if the TypeScript audience
+  prevails). Built and link-checked in CI, the CLI and config reference
+  generated from the code (`--help`, the config structs) so it cannot
+  drift.
+- Before publishing: final name and repository, license, package names
+  (crates.io, npm), versioning and changelog. Publishing itself — site,
+  packages, pushes — only with explicit approval.
+
+**Exit**: the README and the site, previewed locally, describe every
+shipped feature with a runnable example, and no feature that is not
+shipped; the site builds in CI without broken links.
+
 ### Possible parallelization
 
 - P1 (parser) and the P2 catalog generator are independent.
 - P6 can start as soon as P4 is done.
 - P7 can start as soon as P3 is done (the diff does not depend on the descriptor).
+- P10 can start before P8 ends: the Rust side is documented first, the
+  TypeScript guide is added with P8.
 
 ### Mesalia trajectory (transition without shortcuts)
 
