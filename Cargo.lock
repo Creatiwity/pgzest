@@ -1149,6 +1149,7 @@ dependencies = [
  "pgweave-diagnostics",
  "pgweave-lint",
  "pgweave-macro",
+ "pgweave-oracle",
  "pgweave-parser",
  "pgweave-plugin",
  "pgweave-plugin-wasm",
@@ -1157,6 +1158,7 @@ dependencies = [
  "pgweave-sema",
  "serde",
  "serde_json",
+ "similar",
  "tokio",
  "tokio-postgres",
 ]

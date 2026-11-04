@@ -105,7 +105,8 @@ const INTROSPECTION: &[&str] = &[
        AND NOT EXISTS (SELECT 1 FROM pg_depend x WHERE x.objid = d.objoid AND x.classid = d.classoid AND x.deptype = 'e')",
 ];
 
-/// Normalized description of a database's objects.
+/// Normalized description of a database's objects: one line per compared
+/// property, starting with its kind (`routine`, `trigger`, `column`…).
 pub async fn introspect(client: &Client) -> Result<BTreeSet<String>, String> {
     let mut out = BTreeSet::new();
     for q in INTROSPECTION {
@@ -163,7 +164,9 @@ impl Scratch {
     }
 }
 
-async fn applied(
+/// Objects of an empty database (created on `admin_url`'s server, dropped
+/// after use) once `scripts` (each `(name, SQL)`) are applied in order.
+pub async fn applied(
     admin_url: &str,
     label: &str,
     scripts: &[(String, String)],

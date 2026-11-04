@@ -936,14 +936,14 @@ Remaining:
 **Exit**: a real evolution of the Mesalia schema produced by `pgweave
 migrate create` and validated by the oracle, including an extension addition.
 
-### P9 — Procedure observability — 🚧 in progress (scheduled before P8)
+### P9 — Procedure observability — ✅ exit reached (2026-11-04)
 
 Ports the mechanisms of kysely-pg-procedures that take the "black box"
 out of a PL/pgSQL run, as directives of the PL/pgSQL macros (`@function`,
 `@procedure`, `@trigger`), instrumented by pgweave from the analysis of
 the body rather than by hand. Order: (1) isolated temp tables and (3)
-`@snapshot`, then (2) log levels and (5) `pgweave dev` (apply on save) — done,
-then (6) tamper detection and (4) OpenTelemetry.
+`@snapshot`, then (2) log levels and (5) `pgweave dev` (apply on save), then
+(6) tamper detection and (4) OpenTelemetry — done.
 
 **Isolated temp tables** — `@temp_table name (columns);` at the top of a
 body. A session-scoped temp table is shared by every call in the session:
@@ -1050,6 +1050,19 @@ log level by default, then again on each save (files polled every
 retried after `DROP ROUTINE`; routines and triggers a file no longer
 declares are dropped when this session created them; database errors are
 mapped back to the source position. Tables stay with migrations.
+
+**`pgweave db check`** — tamper detection, on the database rather than on
+migration files: editing a generated migration is expected (the developer
+adapts it, `migrate check` verifies the final state). The migrations the
+database received (`_prisma_migrations`, `__diesel_schema_migrations`,
+else all or `--until`) are replayed in a scratch database on the same
+server (or `--scratch-url`, same major version required), and both are
+described by PostgreSQL (`pgweave_oracle::schema::introspect`, the P7
+oracle's description); the migrations table is left out. Differences are
+grouped by object — extra, missing, changed with a line diff of the
+definitions. A migration recorded but missing from the repository, or
+started and never finished, is an error. Oracle test: a hotfixed routine,
+an added index and a dropped trigger found; pending migrations left out.
 
 **Exit**: a routine using a temp table, called recursively and from a loop
 on PostgreSQL 18, keeps its rows apart (oracle test), and its snapshots

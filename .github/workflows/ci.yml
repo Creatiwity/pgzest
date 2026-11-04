@@ -96,6 +96,9 @@ jobs:
       - name: pgweave dev (routines applied on save)
         run: cargo test -p pgweave --test dev -- --ignored
 
+      - name: pgweave db check (hand changes found)
+        run: cargo test -p pgweave --test db_check -- --ignored
+
       - name: Example Rust service (generated queries, executed)
         run: cargo test -p pgweave-example-rust-service -- --ignored
 

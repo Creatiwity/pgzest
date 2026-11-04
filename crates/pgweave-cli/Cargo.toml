@@ -22,6 +22,9 @@ pgweave-codegen = { path = "../pgweave-codegen" }
 pgweave-lint = { path = "../pgweave-lint" }
 pgweave-plugin = { path = "../pgweave-plugin" }
 pgweave-plugin-wasm = { path = "../pgweave-plugin-wasm" }
+pgweave-oracle = { path = "../pgweave-oracle" }
+similar = "2"
+
 serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }

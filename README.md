@@ -380,6 +380,38 @@ created it. A file with a macro error, or that the database rejects, is
 not applied (one transaction per file), and the error is shown at its
 place in the source. `--once` applies everything and exits.
 
+### `pgweave db check`
+
+```sh
+pgweave db check --url postgres://…/myapp   # or DATABASE_URL
+```
+
+Compares a database with what its migrations produce, and reports what
+was changed in it by hand: a routine hotfixed in production, an index
+added, a trigger dropped. Exits 1 when it differs:
+
+```
+error: the database differs from its 5 migration(s), 3 object(s):
+  extra    index orders_note_idx on public.orders: only in the database
+  changed  routine order_total(bigint):
+        …
+      - AS $function$ SELECT coalesce(sum(quantity * unit_price), 0)::bigint …
+      + AS $function$ SELECT coalesce(sum(quantity * unit_price), 0)::bigint * 2 …
+  missing  trigger orders_touch on public.orders: in the migrations, not in the database
+```
+
+The migrations the database received are those its migration tool
+recorded (`_prisma_migrations`, `__diesel_schema_migrations`; the others
+are reported as not applied yet, and a recorded one the repository lacks
+is an error), all of them otherwise, or up to `--until <name>`. They are
+replayed in an empty database created on the same server and dropped
+after (the `CREATEDB` privilege; `--scratch-url` replays them on another
+server of the same PostgreSQL version), and both databases are described
+by PostgreSQL itself (`pg_get_functiondef`, `pg_get_triggerdef`,
+`format_type`…): what differs is what PostgreSQL sees differ, no pgweave
+model in between. Not compared: column order, and the names of `NOT NULL`
+constraints.
+
 ### Viewing the expansion in VS Code
 
 Cursor inside a macro, then **⌘⌥E** (`Ctrl+Alt+E` elsewhere) — or the

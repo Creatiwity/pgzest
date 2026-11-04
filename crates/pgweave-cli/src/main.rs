@@ -5,6 +5,7 @@ use std::process;
 use clap::{Parser, Subcommand};
 use pgweave_ast::Statement;
 
+mod db;
 mod describe;
 mod dev;
 mod import;
@@ -194,6 +195,12 @@ enum Command {
         once: bool,
     },
 
+    /// Database subcommands
+    Db {
+        #[command(subcommand)]
+        action: DbAction,
+    },
+
     /// Lint a SQL file for style and best-practice violations.
     Lint {
         /// SQL file to lint
@@ -226,6 +233,31 @@ enum Command {
         /// TypeScript output file (default: stdout)
         #[arg(long)]
         output: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum DbAction {
+    /// Compare a database with what its migrations produce: what was
+    /// changed in it by hand (a routine, an index, a trigger…). Exits 1 if
+    /// it differs.
+    ///
+    /// The migrations it received (`_prisma_migrations`,
+    /// `__diesel_schema_migrations`, or all of them) are replayed in an
+    /// empty database created on the server, then dropped; both are
+    /// described by PostgreSQL itself.
+    Check {
+        /// Database URL (default: `DATABASE_URL`)
+        #[arg(long, env = "DATABASE_URL")]
+        url: String,
+        /// Server the migrations are replayed on, same PostgreSQL version
+        /// (default: the database's; needs the CREATEDB privilege)
+        #[arg(long = "scratch-url")]
+        scratch_url: Option<String>,
+        /// Last migration the database received, for a database without
+        /// migrations table
+        #[arg(long)]
+        until: Option<String>,
     },
 }
 
@@ -828,6 +860,17 @@ fn main() {
             },
             once,
         }),
+        Command::Db { action } => match action {
+            DbAction::Check {
+                url,
+                scratch_url,
+                until,
+            } => db::check(db::Options {
+                url,
+                scratch_url,
+                until,
+            }),
+        },
         Command::Lint { file } => cmd_lint(&file),
         Command::Schema { action } => match action {
             SchemaAction::Import {
