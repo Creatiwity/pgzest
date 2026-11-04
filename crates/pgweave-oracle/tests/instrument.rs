@@ -563,6 +563,31 @@ async fn noticed_runs_survive_their_failure() {
         client.batch_execute("SELECT 1").await.expect("round trip");
         assert!(rx.try_recv().is_err(), "unsampled: {traceparent:?}");
     }
+    // Not sampled, no limit: the depth is not even kept.
+    let depth: Option<String> = client
+        .query_one("SELECT current_setting('pgweave.depth', true)", &[])
+        .await
+        .expect("depth")
+        .get(0);
+    assert!(depth.as_ref().is_none_or(|d| d.is_empty()), "{depth:?}");
+    // Not sampled, with a limit: an endless recursion still stops there.
+    let err = client
+        .batch_execute("SET pgweave.max_depth = 4; SELECT spin(0)")
+        .await
+        .expect_err("depth limit");
+    let db = err.as_db_error().expect("db error");
+    assert_eq!(
+        (db.code().code(), db.message()),
+        (
+            "54001",
+            "pgweave: spin called at depth 5, beyond pgweave.max_depth"
+        )
+    );
+    client
+        .batch_execute("RESET pgweave.max_depth; SELECT 1")
+        .await
+        .expect("reset");
+    assert!(rx.try_recv().is_err(), "unsampled recursion: no notice");
     client
         .batch_execute(
             "SET pgweave.traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'",
@@ -583,13 +608,21 @@ async fn noticed_runs_survive_their_failure() {
     for _ in 0..6 {
         events.push(next().await);
     }
+    // An end event names only its run: the start said the rest.
+    let start_of = |run: &serde_json::Value| {
+        events
+            .iter()
+            .find(|e| e["type"] == "start" && &e["run"] == run)
+            .expect("start before end")
+    };
     let seen: Vec<(&str, &str, i64)> = events
         .iter()
         .map(|e| {
+            let s = start_of(&e["run"]);
             (
                 e["type"].as_str().unwrap(),
-                e["routine"].as_str().unwrap(),
-                e["depth"].as_i64().unwrap(),
+                s["routine"].as_str().unwrap(),
+                s["depth"].as_i64().unwrap(),
             )
         })
         .collect();
@@ -606,6 +639,13 @@ async fn noticed_runs_survive_their_failure() {
     );
     assert_eq!(events[1]["parent"], events[0]["run"]);
     assert_eq!(events[0]["parent"], serde_json::Value::Null);
+    // The traceparent on the outermost run only; the end refers to the start.
+    assert_eq!(
+        events[0]["traceparent"],
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+    );
+    assert_eq!(events[1]["traceparent"], serde_json::Value::Null);
+    assert_eq!(events[5].as_object().unwrap().len(), 5, "{}", events[5]);
     let steps = events[5]["steps"].as_array().expect("steps");
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0]["kind"], "INSERT");

@@ -3,9 +3,10 @@
 //! Routines built with `[log] target = "notice"`, called under a sampled
 //! `pgweave.traceparent` ([`set_traceparent`]), raise a notice
 //! `pgweave_log` when a run starts and when it ends, its JSON in `DETAIL`:
-//! the routine, its run, the run that caused it (calling routine, or the
-//! statement that fired a trigger), its depth, the caller's
-//! `pgweave.traceparent`, and at the end its duration and steps. Notices
+//! at the start the routine, its run, the run that caused it (calling
+//! routine, or the statement that fired a trigger), its depth and, on the
+//! outermost run, the caller's `pgweave.traceparent`; at the end the run,
+//! its duration and steps. Notices
 //! reach the client at once, even when the transaction then fails: a run
 //! that never ends — an endless trigger cascade stopped by
 //! `pgweave.max_depth` or `statement_timeout` — is still seen starting.
@@ -106,8 +107,10 @@ fn hex<const N: usize>(s: &str) -> Option<[u8; N]> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Start(RunInfo),
+    /// Refers to the run its start event named.
     End {
-        run: RunInfo,
+        /// Run id.
+        run: String,
         duration: Duration,
         steps: Vec<Step>,
         /// `SQLSTATE` of an error the routine handled itself.
@@ -115,7 +118,7 @@ pub enum Event {
     },
 }
 
-/// What names a run, in each of its events.
+/// What names a run, in its start event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunInfo {
     /// Run id (uuid, as text).
@@ -125,7 +128,8 @@ pub struct RunInfo {
     pub parent: Option<String>,
     /// 1 for a run no logged routine caused.
     pub depth: u32,
-    /// The caller's `pgweave.traceparent`, as set.
+    /// The caller's `pgweave.traceparent`, as set: on the outermost run
+    /// only (the others hang from it).
     pub traceparent: Option<String>,
     pub started_at: SystemTime,
 }
@@ -138,7 +142,8 @@ pub struct Step {
     /// Line in the source file of the routine.
     pub line: Option<u32>,
     pub row_count: i64,
-    pub executed_at: SystemTime,
+    /// Since the start of the run.
+    pub offset: Duration,
 }
 
 impl Event {
@@ -165,24 +170,23 @@ impl Event {
         let required = |key: &str| -> Result<String, String> {
             text(key)?.ok_or_else(|| format!("pgweave_log detail: no `{key}`"))
         };
-        let depth = v["depth"]
-            .as_u64()
-            .and_then(|d| u32::try_from(d).ok())
-            .ok_or("pgweave_log detail: no `depth`")?;
-        let info = RunInfo {
-            run: required("run")?,
-            routine: required("routine")?,
-            parent: text("parent")?,
-            depth,
-            traceparent: text("traceparent")?,
-            started_at: timestamp(&required("started_at")?)?,
-        };
         match v["type"].as_str() {
-            Some("start") => Ok(Event::Start(info)),
+            Some("start") => {
+                let depth = v["depth"]
+                    .as_u64()
+                    .and_then(|d| u32::try_from(d).ok())
+                    .ok_or("pgweave_log detail: no `depth`")?;
+                Ok(Event::Start(RunInfo {
+                    run: required("run")?,
+                    routine: required("routine")?,
+                    parent: text("parent")?,
+                    depth,
+                    traceparent: text("traceparent")?,
+                    started_at: timestamp(&required("started_at")?)?,
+                }))
+            }
             Some("end") => {
-                let ms = v["duration_ms"]
-                    .as_f64()
-                    .filter(|ms| ms.is_finite() && *ms >= 0.0)
+                let ms = milliseconds(&v, "duration_ms")
                     .ok_or("pgweave_log detail: no `duration_ms`")?;
                 let steps = match &v["steps"] {
                     serde_json::Value::Null => Vec::new(),
@@ -192,8 +196,8 @@ impl Event {
                     other => return Err(format!("pgweave_log detail: `steps` is {other}")),
                 };
                 Ok(Event::End {
-                    run: info,
-                    duration: Duration::from_secs_f64(ms / 1000.0),
+                    run: required("run")?,
+                    duration: ms,
                     steps,
                     handled_error: text("error")?,
                 })
@@ -214,12 +218,16 @@ fn step(v: &serde_json::Value) -> Result<Step, String> {
         row_count: v["row_count"]
             .as_i64()
             .ok_or("pgweave_log step: no `row_count`")?,
-        executed_at: timestamp(
-            v["executed_at"]
-                .as_str()
-                .ok_or("pgweave_log step: no `executed_at`")?,
-        )?,
+        offset: milliseconds(v, "offset_ms").ok_or("pgweave_log step: no `offset_ms`")?,
     })
+}
+
+/// A non-negative number of milliseconds at `key`.
+fn milliseconds(v: &serde_json::Value, key: &str) -> Option<Duration> {
+    v[key]
+        .as_f64()
+        .filter(|ms| ms.is_finite() && *ms >= 0.0)
+        .map(|ms| Duration::from_secs_f64(ms / 1000.0))
 }
 
 /// A `timestamptz` as JSON renders it (ISO 8601 with offset).
@@ -249,9 +257,8 @@ pub enum Outcome {
     Failed(String),
 }
 
-#[derive(Default)]
 struct Node {
-    info: Option<RunInfo>,
+    info: RunInfo,
     end: Option<(SystemTime, Vec<Step>, Option<String>)>,
     children: Vec<String>,
 }
@@ -265,42 +272,52 @@ pub struct Collector {
 }
 
 impl Collector {
-    /// Adds an event; returns the tree it completes, if any.
-    pub fn push(&mut self, event: Event) -> Option<RoutineRun> {
-        let (info, end) = match event {
-            Event::Start(info) => (info, None),
+    /// Adds an event; returns the tree it completes, if any. The end of a
+    /// run whose start was not seen is an error.
+    pub fn push(&mut self, event: Event) -> Result<Option<RoutineRun>, String> {
+        let id = match event {
+            Event::Start(info) => {
+                let id = info.run.clone();
+                if self.nodes.contains_key(&id) {
+                    return Err(format!("pgweave_log: run {id} started twice"));
+                }
+                // Attached to its parent when that one is open on this
+                // connection; otherwise, the root of its own tree.
+                match info.parent.as_ref().filter(|p| self.nodes.contains_key(*p)) {
+                    Some(parent) => self
+                        .nodes
+                        .get_mut(parent)
+                        .expect("checked")
+                        .children
+                        .push(id.clone()),
+                    None => self.roots.push(id.clone()),
+                }
+                self.nodes.insert(
+                    id.clone(),
+                    Node {
+                        info,
+                        end: None,
+                        children: Vec::new(),
+                    },
+                );
+                id
+            }
             Event::End {
                 run,
                 duration,
                 steps,
                 handled_error,
             } => {
-                let end = run.started_at + duration;
-                (run, Some((end, steps, handled_error)))
+                let node = self
+                    .nodes
+                    .get_mut(&run)
+                    .ok_or_else(|| format!("pgweave_log: end of run {run}, never started"))?;
+                node.end = Some((node.info.started_at + duration, steps, handled_error));
+                run
             }
         };
-        let id = info.run.clone();
-        let known = self.nodes.contains_key(&id);
-        if !known {
-            // Attached to its parent when that one is open on this
-            // connection; otherwise, the root of its own tree.
-            match info.parent.as_ref().filter(|p| self.nodes.contains_key(*p)) {
-                Some(parent) => self
-                    .nodes
-                    .get_mut(parent)
-                    .expect("checked")
-                    .children
-                    .push(id.clone()),
-                None => self.roots.push(id.clone()),
-            }
-        }
-        let node = self.nodes.entry(id.clone()).or_default();
-        node.info = Some(info);
-        if end.is_some() {
-            node.end = end;
-        }
         let root = self.roots.contains(&id);
-        (root && self.nodes[&id].end.is_some()).then(|| self.take(&id, None))
+        Ok((root && self.nodes[&id].end.is_some()).then(|| self.take(&id, None)))
     }
 
     /// Closes every open tree as failed with `message` at `at`: runs left
@@ -316,7 +333,7 @@ impl Collector {
     fn take(&mut self, id: &str, failed: Option<(&str, SystemTime)>) -> RoutineRun {
         self.roots.retain(|r| r != id);
         let node = self.nodes.remove(id).expect("known run");
-        let info = node.info.expect("a run is added with its info");
+        let info = node.info;
         let children: Vec<RoutineRun> =
             node.children.iter().map(|c| self.take(c, failed)).collect();
         let (end, steps, outcome) = match (node.end, failed) {
@@ -361,7 +378,7 @@ impl Tracing {
         let Some(event) = Event::from_notice(notice) else {
             return Ok(false);
         };
-        let finished = self.lock().push(event?);
+        let finished = self.lock().push(event?)?;
         if let Some(run) = finished {
             (self.sink)(run);
         }
@@ -483,7 +500,7 @@ pub mod otel {
             if let Some(l) = s.line {
                 attrs.push(KeyValue::new("pgweave.step.line", i64::from(l)));
             }
-            span.add_event_with_timestamp(s.kind.clone(), s.executed_at, attrs);
+            span.add_event_with_timestamp(s.kind.clone(), run.info.started_at + s.offset, attrs);
         }
         if let Outcome::Failed(message) = &run.outcome {
             span.set_status(Status::error(message.clone()));
@@ -511,37 +528,39 @@ mod tests {
         )
     }
 
-    fn end(run: &str, routine: &str, parent: Option<&str>, depth: u32, ms: f64) -> String {
-        let parent = parent.map_or("null".to_string(), |p| format!("\"{p}\""));
+    fn end(run: &str, ms: f64) -> String {
         format!(
-            r#"{{"type":"end","run":"{run}","routine":"{routine}","parent":{parent},"depth":{depth},"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01","started_at":"2026-11-04T10:00:00.000100+01:00","duration_ms":{ms},"steps":[{{"kind":"INSERT","target":"lines","line":12,"row_count":1,"executed_at":"2026-11-04T09:00:00.0002+00:00"}}],"error":null}}"#
+            r#"{{"type":"end","run":"{run}","duration_ms":{ms},"steps":[{{"kind":"INSERT","target":"lines","line":12,"row_count":1,"offset_ms":0.1}}],"error":null}}"#
         )
     }
 
     #[test]
     fn events_read_from_the_detail() {
+        let Event::Start(info) = event(&start("r1", "add_line", None, 1)) else {
+            panic!("start");
+        };
+        assert_eq!(info.routine, "add_line");
         let Event::End {
             run,
             duration,
             steps,
             handled_error,
-        } = event(&end("r1", "add_line", None, 1, 2.5))
+        } = event(&end("r1", 2.5))
         else {
             panic!("end");
         };
-        assert_eq!(run.routine, "add_line");
+        assert_eq!(run, "r1");
         assert_eq!(duration, Duration::from_micros(2500));
         assert_eq!(handled_error, None);
         assert_eq!(steps[0].line, Some(12));
-        assert_eq!(
-            steps[0].executed_at.duration_since(run.started_at).unwrap(),
-            Duration::from_micros(100)
-        );
+        assert_eq!(steps[0].offset, Duration::from_micros(100));
         for bad in [
             "{}",
             r#"{"type":"start"}"#,
             &start("r", "f", None, 1).replace("10:00:00", "10h"),
             &start("r", "f", None, 1).replace("start", "begin"),
+            &end("r", -1.0),
+            &end("r", 1.0).replace("offset_ms", "at"),
         ] {
             assert!(Event::from_json(bad).is_err(), "{bad}");
         }
@@ -550,17 +569,13 @@ mod tests {
     #[test]
     fn a_tree_is_finished_with_its_outermost_run() {
         let mut c = Collector::default();
-        assert_eq!(c.push(event(&start("a", "add_line", None, 1))), None);
-        assert_eq!(c.push(event(&start("b", "sum_fn", Some("a"), 2))), None);
-        assert_eq!(c.push(event(&end("b", "sum_fn", Some("a"), 2, 1.0))), None);
-        assert_eq!(c.push(event(&start("c", "total_of", Some("a"), 2))), None);
-        assert_eq!(
-            c.push(event(&end("c", "total_of", Some("a"), 2, 1.0))),
-            None
-        );
-        let tree = c
-            .push(event(&end("a", "add_line", None, 1, 3.0)))
-            .expect("finished");
+        let mut push = |json: String| c.push(event(&json)).expect(&json);
+        assert_eq!(push(start("a", "add_line", None, 1)), None);
+        assert_eq!(push(start("b", "sum_fn", Some("a"), 2)), None);
+        assert_eq!(push(end("b", 1.0)), None);
+        assert_eq!(push(start("c", "total_of", Some("a"), 2)), None);
+        assert_eq!(push(end("c", 1.0)), None);
+        let tree = push(end("a", 3.0)).expect("finished");
         let names: Vec<&str> = tree
             .children
             .iter()
@@ -568,14 +583,22 @@ mod tests {
             .collect();
         assert_eq!(names, ["sum_fn", "total_of"]);
         assert_eq!(tree.outcome, Outcome::Ok);
+        assert_eq!(
+            tree.end.duration_since(tree.info.started_at).unwrap(),
+            Duration::from_millis(3)
+        );
         assert!(c.nodes.is_empty() && c.roots.is_empty());
+        // An end without its start, a start seen twice: errors.
+        assert!(c.push(event(&end("z", 1.0))).is_err());
+        c.push(event(&start("y", "f", None, 1))).unwrap();
+        assert!(c.push(event(&start("y", "f", None, 1))).is_err());
     }
 
     #[test]
     fn runs_left_open_are_failed() {
         let mut c = Collector::default();
-        c.push(event(&start("a", "spin", None, 1)));
-        c.push(event(&start("b", "spin", Some("a"), 2)));
+        c.push(event(&start("a", "spin", None, 1))).unwrap();
+        c.push(event(&start("b", "spin", Some("a"), 2))).unwrap();
         let at = SystemTime::now();
         let trees = c.fail_open("stack depth", at);
         assert_eq!(trees.len(), 1);

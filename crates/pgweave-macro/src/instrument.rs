@@ -73,6 +73,8 @@ const FOUND_VAR: &str = "_pgweave_found";
 /// statement firing a trigger), and the call depth.
 const PARENT_VAR: &str = "_pgweave_parent";
 const DEPTH_VAR: &str = "_pgweave_depth";
+/// `pgweave.max_depth`, read once per run.
+const MAX_DEPTH_VAR: &str = "_pgweave_max_depth";
 /// Receives `set_config`, called in assignments: unlike `PERFORM`, they
 /// leave `FOUND` alone.
 const CONFIG_VAR: &str = "_pgweave_config";
@@ -246,7 +248,7 @@ pub fn instrumentation_of(definition: &str) -> Option<Instrumentation> {
     }
     let log = if definition.contains("INSERT INTO pgweave_debug.snapshot ") {
         LogLevel::Debug
-    } else if definition.contains(&format!("{STEPS_VAR} jsonb[]")) {
+    } else if definition.contains(&format!("{STEPS_VAR} json")) {
         LogLevel::Step
     } else {
         LogLevel::Info
@@ -758,36 +760,74 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
         .any(|t| t.kind == Kind::Word && sql[t.range.clone()].eq_ignore_ascii_case("declare"));
     let snapshots = directives.iter().any(|d| d.kind == DirectiveKind::Snapshot);
     let mut decls = Vec::new();
-    if !tables.is_empty() || (opts.snapshots() && snapshots) || logged {
-        decls.push(format!("{RUN_VAR} uuid := gen_random_uuid();"));
-    }
+    // With the `notice` target, a run not sampled records nothing: it reads
+    // the caller's traceparent, and keeps the depth only for a
+    // `pgweave.max_depth` set. The other targets record every run.
+    let notice = logged && opts.target == LogTarget::Notice;
+    let if_sampled = |e: String| {
+        if notice {
+            format!("CASE WHEN {SAMPLED_VAR} THEN {e} END")
+        } else {
+            e
+        }
+    };
     if logged {
-        decls.push(format!("{STARTED_VAR} timestamptz := clock_timestamp();"));
         decls.push(format!(
             "{TRACEPARENT_VAR} text := current_setting('{TRACEPARENT_SETTING}', true);"
         ));
-        // Set in the declarations, before any statement and outside the
-        // subtransaction of an exception block: a handler still restores
-        // them, an error leaving the routine rolls them back.
-        decls.push(format!(
-            "{PARENT_VAR} uuid := nullif(current_setting('{SPAN_SETTING}', true), '')::uuid;"
-        ));
-        decls.push(format!(
-            "{DEPTH_VAR} int := set_config('{DEPTH_SETTING}', (coalesce(nullif(current_setting(\
-             '{DEPTH_SETTING}', true), '')::int, 0) + 1)::text, true)::int;"
-        ));
-        decls.push(format!(
-            "{CONFIG_VAR} text := set_config('{SPAN_SETTING}', {RUN_VAR}::text, true);"
-        ));
-        if opts.target == LogTarget::Notice {
+        if notice {
             decls.push(format!(
                 "{SAMPLED_VAR} boolean := coalesce({TRACEPARENT_VAR} ~ '{SAMPLED_PATTERN}', false);"
             ));
         }
     }
+    if !tables.is_empty() || (opts.snapshots() && snapshots) {
+        decls.push(format!("{RUN_VAR} uuid := gen_random_uuid();"));
+    } else if logged {
+        decls.push(format!(
+            "{RUN_VAR} uuid := {};",
+            if_sampled("gen_random_uuid()".into())
+        ));
+    }
+    if logged {
+        decls.push(format!(
+            "{STARTED_VAR} timestamptz := {};",
+            if_sampled("clock_timestamp()".into())
+        ));
+        // Set in the declarations, before any statement and outside the
+        // subtransaction of an exception block: a handler still restores
+        // them, an error leaving the routine rolls them back.
+        decls.push(format!(
+            "{PARENT_VAR} uuid := {};",
+            if_sampled(format!(
+                "nullif(current_setting('{SPAN_SETTING}', true), '')::uuid"
+            ))
+        ));
+        decls.push(format!(
+            "{MAX_DEPTH_VAR} int := nullif(current_setting('{MAX_DEPTH_SETTING}', true), '')::int;"
+        ));
+        let depth = format!(
+            "set_config('{DEPTH_SETTING}', (coalesce(nullif(current_setting('{DEPTH_SETTING}', \
+             true), '')::int, 0) + 1)::text, true)::int"
+        );
+        let depth = if notice {
+            format!("CASE WHEN {SAMPLED_VAR} OR {MAX_DEPTH_VAR} IS NOT NULL THEN {depth} END")
+        } else {
+            depth
+        };
+        decls.push(format!("{DEPTH_VAR} int := {depth};"));
+        decls.push(format!(
+            "{CONFIG_VAR} text := {};",
+            if_sampled(format!(
+                "set_config('{SPAN_SETTING}', {RUN_VAR}::text, true)"
+            ))
+        ));
+    }
     if opts.log >= LogLevel::Step {
         decls.push(format!("{ROWS_VAR} bigint;"));
-        decls.push(format!("{STEPS_VAR} jsonb[] := ARRAY[]::jsonb[];"));
+        // `notice` sends them as JSON text: no jsonb on the way.
+        let ty = if notice { "json" } else { "jsonb" };
+        decls.push(format!("{STEPS_VAR} {ty}[] := ARRAY[]::{ty}[];"));
     }
     if !exit.is_empty() {
         decls.push(format!("{FOUND_VAR} boolean;"));
@@ -934,16 +974,19 @@ impl RunLog {
     fn start_sql(&self) -> String {
         let routine = literal(&self.routine);
         let mut out = format!(
-            "\n    IF {DEPTH_VAR} > coalesce(nullif(current_setting('{MAX_DEPTH_SETTING}', true), \
-             '')::int, {DEPTH_VAR}) THEN\n        RAISE EXCEPTION 'pgweave: % called at depth %, \
-             beyond {MAX_DEPTH_SETTING}', {routine}, {DEPTH_VAR} USING ERRCODE = '54001';\n    \
-             END IF;"
+            "\n    IF {DEPTH_VAR} > {MAX_DEPTH_VAR} THEN\n        RAISE EXCEPTION 'pgweave: % called \
+             at depth %, beyond {MAX_DEPTH_SETTING}', {routine}, {DEPTH_VAR} USING ERRCODE = \
+             '54001';\n    END IF;"
         );
         if self.target == LogTarget::Notice {
+            // The traceparent on the outermost run only: the others hang
+            // from it by `parent`.
             out.push_str(&format!(
                 "\n    IF {SAMPLED_VAR} THEN\n        RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = \
-                 jsonb_build_object('type', 'start', {})::text;\n    END IF;",
-                self.identity()
+                 json_build_object('type', 'start', 'run', {RUN_VAR}, 'routine', {routine}, \
+                 'parent', {PARENT_VAR}, 'depth', {DEPTH_VAR}, 'traceparent', CASE WHEN \
+                 {PARENT_VAR} IS NULL THEN left({TRACEPARENT_VAR}, 512) END, 'started_at', \
+                 {STARTED_VAR})::text;\n    END IF;"
             ));
         }
         out
@@ -1006,17 +1049,24 @@ impl RunLog {
                 ));
             }
             LogTarget::Notice => {
+                // The start event named the run: the end only refers to it.
                 let steps = if self.steps {
-                    format!("to_jsonb({STEPS_VAR})")
+                    format!("array_to_json({STEPS_VAR})")
                 } else {
-                    "NULL::jsonb".into()
+                    "NULL::json".into()
                 };
                 out.push(format!(
                     "IF {SAMPLED_VAR} THEN RAISE NOTICE '{LOG_CHANNEL}' USING DETAIL = \
-                     jsonb_build_object('type', 'end', {}, 'duration_ms', {duration}, 'steps', \
-                     {steps}, 'error', {error})::text; END IF;",
-                    self.identity()
+                     json_build_object('type', 'end', 'run', {RUN_VAR}, 'duration_ms', \
+                     {duration}, 'steps', {steps}, 'error', {error})::text; {CONFIG_VAR} := \
+                     set_config('{SPAN_SETTING}', coalesce({PARENT_VAR}::text, ''), true); \
+                     END IF;"
                 ));
+                out.push(format!(
+                    "IF {DEPTH_VAR} IS NOT NULL THEN {CONFIG_VAR} := set_config('{DEPTH_SETTING}', \
+                     ({DEPTH_VAR} - 1)::text, true); END IF;"
+                ));
+                return out;
             }
         }
         // The caller's run and depth again, for what it runs next.
@@ -1043,15 +1093,20 @@ fn step_sql(
 ) -> String {
     let target = target.map_or("NULL::text".to_string(), literal);
     let line = line.map_or("NULL::int".to_string(), |l| l.to_string());
-    let append = format!(
-        "{STEPS_VAR} := array_append({STEPS_VAR}, jsonb_build_object('kind', '{kind}', \
-         'target', {target}, 'line', {line}, 'row_count', {ROWS_VAR}, 'executed_at', \
-         clock_timestamp()));"
-    );
     let append = if sampled_only {
-        format!("IF {SAMPLED_VAR} THEN {append} END IF;")
+        // Its time as an offset from the start of the run, in ms.
+        format!(
+            "IF {SAMPLED_VAR} THEN {STEPS_VAR} := array_append({STEPS_VAR}, json_build_object(\
+             'kind', '{kind}', 'target', {target}, 'line', {line}, 'row_count', {ROWS_VAR}, \
+             'offset_ms', 1000 * extract(epoch FROM clock_timestamp() - {STARTED_VAR})::float8)); \
+             END IF;"
+        )
     } else {
-        append
+        format!(
+            "{STEPS_VAR} := array_append({STEPS_VAR}, jsonb_build_object('kind', '{kind}', \
+             'target', {target}, 'line', {line}, 'row_count', {ROWS_VAR}, 'executed_at', \
+             clock_timestamp()));"
+        )
     };
     format!("GET DIAGNOSTICS {ROWS_VAR} = ROW_COUNT;\n{indent}{append}")
 }

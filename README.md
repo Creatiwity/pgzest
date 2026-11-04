@@ -266,7 +266,8 @@ identifies the run in `pgweave_debug.snapshot`; `pgweave_log.run.parent`
 is the run that caused it. With `notify`, each entry is a JSON
 `pg_notify('pgweave_log', …)` (steps, then the run). With `notice`, a run
 raises `RAISE NOTICE 'pgweave_log'` with its JSON in `DETAIL` when it
-starts and when it ends (steps included): notices reach the client at
+starts (routine, parent, depth, the traceparent on the outermost run) and
+when it ends (its run id, duration, steps, error): notices reach the client at
 once, even when the transaction then fails — the target for tracing. Only
 the runs of a sampled trace raise them: the caller's `pgweave.traceparent`
 is a W3C `traceparent` whose `sampled` flag is set. Without one, or when
@@ -305,18 +306,21 @@ call without logging:
 | `step`, `table` | +35 µs | ~12 µs |
 | `info`, `notify` | +23 µs | ~8 µs |
 | `step`, `notify` | +36 µs | ~12 µs |
-| `info` or `step`, `notice`, trace not sampled | +9 µs | ~3 µs |
-| `info`, `notice`, sampled trace | +110 µs | ~37 µs |
-| `step`, `notice`, sampled trace | +120 µs | ~40 µs |
+| `info`, `notice`, trace not sampled | +3 µs | ~1 µs |
+| `step`, `notice`, trace not sampled | +4 µs | ~1.4 µs |
+| `info`, `notice`, sampled trace | +98 µs | ~33 µs |
+| `step`, `notice`, sampled trace | +105 µs | ~35 µs |
 
 A few microseconds per run, to compare with the round trip of a query
 (100 µs to a few ms): negligible for business routines, noticeable for a
 trigger on a bulk load of millions of rows — log it at `none`, or below
 the level it would cost. A sampled run with `notice` costs the most: of
-its ~37 µs, building the two JSON events takes ~8 µs and sending them to
-the client ~25 µs (measured with `client_min_messages = warning`, which
-builds them without sending). Sampling bounds it: only the requests the
-application traces pay it.
+its ~33 µs, building the two JSON events takes ~9 µs and sending them to
+the client ~23 µs (measured with `client_min_messages = warning`, which
+builds them without sending) — the cost of a message more than of its
+size: two empty notices cost about as much. Sampling bounds it: only the
+requests the application traces pay it; a run not sampled reads the
+traceparent and keeps the depth only when `pgweave.max_depth` is set.
 
 ### Traces
 

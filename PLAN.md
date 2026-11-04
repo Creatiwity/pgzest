@@ -1015,7 +1015,14 @@ bounds the depth (`54001`, naming the routine). The `notice` target raises
 a start and an end event per run, which reach the client even when the
 transaction fails — only under a sampled `pgweave.traceparent` (W3C flag,
 matched by a pattern: absent or malformed reads as not sampled, never an
-error), so that unsampled requests pay ~3 µs per run instead of ~37; `pgweave-runtime::trace` (feature `trace`) assembles
+error), so that unsampled requests pay ~1 µs per run instead of ~33: a run
+not sampled reads the traceparent, and keeps the depth only for a
+`pgweave.max_depth` set; no run id, clock, parent or span setting. The
+start event names the run (traceparent on the outermost run only), the
+end refers to it by id; steps carry their offset from the start, built
+with `json_build_object` (no jsonb round trip). Not done: steps as
+indexes into a per-routine manifest — sending costs per message (two
+empty notices cost about as much), not per byte; `pgweave-runtime::trace` (feature `trace`) assembles
 them into trees, closes the runs a failed statement left open, and
 (feature `opentelemetry`) exports each tree as spans under the caller's
 `traceparent` — the SDK generates span ids, so a tree is exported when its
@@ -1027,7 +1034,7 @@ restored after a handled failure, an endless recursion seen through its
 notices; spans checked in an in-memory exporter. Only macro routines are
 instrumented: logging is opted in, and visible in the migration. Cost per
 run (PostgreSQL 18): ~6 µs at `info`, ~12 µs at `step` (`table` or
-`notify`), ~37 µs with `notice` when sampled (~25 µs of it sending), ~3 µs
+`notify`), ~33 µs with `notice` when sampled (~23 µs of it sending), ~1 µs
 when not; nothing at `none`.
 
 **Macro slots** — every slot of a macro header is rendered by its
