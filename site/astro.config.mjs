@@ -20,7 +20,7 @@ export default defineConfig({
       logo: { src: './src/assets/mark.svg' },
       favicon: '/favicon.svg',
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/Creatiwity/pgsql-tools' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/Creatiwity/pgweave' },
       ],
       customCss: ['./src/styles/theme.css'],
       plugins: [starlightLinksValidator({ errorOnRelativeLinks: false })],

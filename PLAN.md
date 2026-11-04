@@ -1093,8 +1093,10 @@ user-facing `docs/*.md` moved there, `docs/` keeps the internal
 documents. `cargo xtask docs` generates the CLI reference (from `--help`)
 and the diagnostics reference (from the documented code constants, every
 sema code moved to `codes.rs`, dead codes removed); `--check` in CI, with
-the site build and its link validation. Remaining: the final name,
-address and packages (publication), the TypeScript guide with P8.
+the site build and its link validation. Name and repository settled:
+`pgweave`, `github.com/Creatiwity/pgweave` (renamed from `pgsql-tools`,
+2026-11-04). Remaining: the packages (publication), the TypeScript guide
+with P8.
 
 Makes the project presentable before it is published: what it does is
 there, scattered between the README, `docs/` and this plan.
@@ -1117,8 +1119,8 @@ there, scattered between the README, `docs/` and this plan.
   prevails). Built and link-checked in CI, the CLI and config reference
   generated from the code (`--help`, the config structs) so it cannot
   drift.
-- Before publishing: final name and repository, license, package names
-  (crates.io, npm), versioning and changelog.
+- Before publishing: package names (crates.io, npm), license,
+  versioning and changelog (name and repository settled above).
 - Before publishing, the history: no private corpus structure may be
   public. Audit of 2026-11-04 (every blob of every commit, every commit
   message, against the identifiers of the Mesalia migrations): no

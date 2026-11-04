@@ -13,7 +13,7 @@ Prerequisites: [Rust](https://rustup.rs) (the version is pinned by
 Docker for PostgreSQL 18.
 
 ```sh
-git clone https://github.com/Creatiwity/pgsql-tools pgweave
+git clone https://github.com/Creatiwity/pgweave
 cd pgweave
 make bootstrap   # Rust and npm dependencies, checks the tooling
 make demo        # VS Code on examples/demo, with the pgweave extension

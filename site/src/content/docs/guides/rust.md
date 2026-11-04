@@ -4,7 +4,7 @@ description: "Named queries and inline SQL compiled into typed Rust over tokio-p
 ---
 
 Full example:
-[`examples/rust-service`](https://github.com/Creatiwity/pgsql-tools/tree/main/examples/rust-service),
+[`examples/rust-service`](https://github.com/Creatiwity/pgweave/tree/main/examples/rust-service),
 run against PostgreSQL 18 in CI.
 
 A project's SQL queries become typed Rust functions, at compile time and

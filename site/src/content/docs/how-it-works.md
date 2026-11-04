@@ -67,4 +67,4 @@ PostgreSQL dialect wrapper, plus a PL/pgSQL parser of its own; the
 semantic analysis, catalog, descriptors, code generation, migrations and
 language server are separate crates sharing one AST. The design
 decisions and the phase plan are in
-[`PLAN.md`](https://github.com/Creatiwity/pgsql-tools/blob/main/PLAN.md).
+[`PLAN.md`](https://github.com/Creatiwity/pgweave/blob/main/PLAN.md).
