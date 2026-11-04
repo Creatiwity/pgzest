@@ -382,6 +382,11 @@ fn parse_invocation<'a>(
     for (slot, value) in &def.defaults {
         caps.entry(slot.clone()).or_insert_with(|| value.clone());
     }
+    for (slot, text) in &def.wraps {
+        if let Some(value) = caps.get_mut(slot) {
+            *value = text.replace("{}", value);
+        }
+    }
 
     let body = brace + 1..end - 1;
     let declares = find_declares(source, &body);
@@ -654,6 +659,22 @@ mod tests {
         assert!(sql.contains("before update ON users"));
         assert!(sql.contains("FOR EACH row"));
         assert!(sql.contains("EXECUTE FUNCTION touch_fn()"));
+        assert!(!sql.contains("WHEN"), "got:\n{sql}");
+    }
+
+    #[test]
+    fn trigger_condition_and_columns_are_kept() {
+        let sql = sql_of(
+            "@trigger award after update of status on orders for each row \
+             when (NEW.status IS DISTINCT FROM OLD.status) {\n RETURN NULL;\n}",
+        );
+        assert!(
+            sql.contains(
+                "after update of status ON orders\nFOR EACH row\n\
+                 WHEN (NEW.status IS DISTINCT FROM OLD.status)\nEXECUTE FUNCTION award_fn()"
+            ),
+            "got:\n{sql}"
+        );
     }
 
     #[test]

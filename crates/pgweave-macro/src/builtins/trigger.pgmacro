@@ -15,6 +15,7 @@
 
 macro trigger
 header {name:ident} {timing:word} {events:words} on {tables:list} for each {each:word}[ when ({when:parens})]
+wrap when -> \nWHEN ({})
 
 template
 CREATE OR REPLACE FUNCTION {name}_fn()
@@ -28,6 +29,6 @@ $pgweave_macro$;
 
 CREATE TRIGGER {name}
 {timing} {events} ON {tables}
-FOR EACH {each}
+FOR EACH {each}{when}
 EXECUTE FUNCTION {name}_fn();
 end

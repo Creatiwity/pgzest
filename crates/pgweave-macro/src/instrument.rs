@@ -1054,8 +1054,6 @@ fn indent_at(sql: &str, pos: usize) -> String {
     }
 }
 
-/// Position after the `;` ending a statement whose span ends at `end`
-/// (the span may stop before it).
 /// The text at `range` holds a call (`name(`).
 fn calls(sql: &str, range: &Range<usize>) -> bool {
     let tokens: Vec<Token> = offset_tokens(sql, range.clone())
@@ -1067,6 +1065,43 @@ fn calls(sql: &str, range: &Range<usize>) -> bool {
         .any(|w| w[0].kind == Kind::Word && &sql[w[1].range.clone()] == "(")
 }
 
+/// The `RETURN` at `range` returns a variable, a field or a constant
+/// (`NEW`, `NULL`, `v.total`, `0`): evaluating it before or after the exit
+/// code gives the same value, and nothing runs. Not `FOUND`, which the exit
+/// code changes.
+fn plain_value(sql: &str, range: &Range<usize>) -> bool {
+    let tokens: Vec<Token> = offset_tokens(sql, range.clone())
+        .into_iter()
+        .filter(significant)
+        .collect();
+    let mut value = tokens.get(1..).unwrap_or_default();
+    if let Some((last, rest)) = value.split_last()
+        && &sql[last.range.clone()] == ";"
+    {
+        value = rest;
+    }
+    match value {
+        [t] => {
+            matches!(
+                t.kind,
+                Kind::Word | Kind::QuotedIdent | Kind::Number | Kind::String | Kind::Param
+            ) && !sql[t.range.clone()].eq_ignore_ascii_case("found")
+        }
+        [_, ..] => {
+            value.iter().enumerate().all(|(i, t)| {
+                if i % 2 == 0 {
+                    matches!(t.kind, Kind::Word | Kind::QuotedIdent)
+                } else {
+                    &sql[t.range.clone()] == "."
+                }
+            }) && value.len() % 2 == 1
+        }
+        [] => false,
+    }
+}
+
+/// Position after the `;` ending a statement whose span ends at `end`
+/// (the span may stop before it).
 fn after_semicolon(sql: &str, end: usize) -> usize {
     if sql[..end].ends_with(';') {
         return end;
@@ -1400,7 +1435,9 @@ impl Walker<'_> {
                     // The value first — its calls are runs of this one, it
                     // may read `FOUND` or a temp table — then the exit:
                     // `DECLARE r t := <value>; BEGIN <exit> RETURN r; END;`.
-                    (Some(_), Some(ty), Some(keyword)) => {
+                    // A variable or a constant (`RETURN NEW;`) needs no
+                    // such block.
+                    (Some(_), Some(ty), Some(keyword)) if !plain_value(self.sql, &range) => {
                         let anchor = range.clone();
                         self.out.edit(
                             keyword.range.clone(),
@@ -2273,12 +2310,11 @@ mod tests {
             )),
             "{s}"
         );
-        // The value, then the cleanup, then the RETURN; none after it.
+        // The cleanup, then the RETURN of a variable; none after it.
         assert!(
             s.contains(&format!(
-                "DECLARE _pgweave_result INTEGER := n;\n    BEGIN\n        \
-                 DELETE FROM pg_temp.{p} WHERE {p}._pgweave_run = _pgweave_run_id;\n        \
-                 RETURN _pgweave_result;\n    END;\n\nEND;"
+                "DELETE FROM pg_temp.{p} WHERE {p}._pgweave_run = _pgweave_run_id;\n    \
+                 RETURN n;\n\nEND;"
             )),
             "{s}"
         );
@@ -2439,9 +2475,7 @@ mod tests {
         );
         // The log is written right before the RETURN.
         let flush = step.find("INSERT INTO pgweave_log.run").expect("flush");
-        let ret = step[flush..]
-            .find("RETURN _pgweave_result;")
-            .expect("RETURN");
+        let ret = step[flush..].find("RETURN ").expect("RETURN");
         assert!(Some(ret) < step[flush..].find("END;"), "{step}");
 
         let notify = at(LogLevel::Step, LogTarget::Notify);
@@ -2473,25 +2507,44 @@ mod tests {
         assert!(value < cleanup, "{s}");
         // Modifiers are not part of a result type; a trigger returns a row.
         let e = logged(
-            "@function f(): VARCHAR(3) {\n    RETURN 'long';\n}\n",
+            "@function f(): VARCHAR(3) {\n    RETURN 'long' || 'er';\n}\n",
             LogLevel::Info,
             LogTarget::Table,
         );
         assert!(
-            e.sql.contains("DECLARE _pgweave_result varchar := 'long';"),
+            e.sql
+                .contains("DECLARE _pgweave_result varchar := 'long' || 'er';"),
             "{}",
             e.sql
         );
         let e = logged(
-            "@trigger t before insert on x for each row {\n    RETURN NEW;\n}\n",
+            "@trigger t before insert on x for each row {\n    RETURN f(NEW);\n}\n",
             LogLevel::Info,
             LogTarget::Table,
         );
         assert!(
-            e.sql.contains("DECLARE _pgweave_result record := NEW;"),
+            e.sql.contains("DECLARE _pgweave_result record := f(NEW);"),
             "{}",
             e.sql
         );
+        // A variable, a field or a constant: returned after the exit code,
+        // no block.
+        for value in ["NEW", "NULL", "NEW.a", "0", "'x'"] {
+            let e = logged(
+                &format!(
+                    "@trigger t before insert on x for each row {{\n    RETURN {value};\n}}\n"
+                ),
+                LogLevel::Info,
+                LogTarget::Table,
+            );
+            assert!(!e.sql.contains("_pgweave_result"), "{}", e.sql);
+            let log = e.sql.find("INSERT INTO pgweave_log.run").expect(&e.sql);
+            assert!(
+                log < e.sql.find(&format!("RETURN {value};")).unwrap(),
+                "{}",
+                e.sql
+            );
+        }
     }
 
     #[test]

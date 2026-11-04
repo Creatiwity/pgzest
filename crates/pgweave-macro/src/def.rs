@@ -1,6 +1,6 @@
 //! Declarative definition of a macro, and loading from a file.
 //!
-//! Deliberately minimal format — five directives, a closed set of slot kinds.
+//! Deliberately minimal format — six directives, a closed set of slot kinds.
 //! Enough to express `@function` and `@trigger`, hence enough for most SQL
 //! boilerplate, without becoming a template language.
 //!
@@ -29,11 +29,16 @@
 //! - `header <pattern>` — what follows `@name` up to the opening brace. Slots
 //!   `{name:kind}`, optional groups between `[ ]`, the rest is literal.
 //! - `default <slot> = <text>` — value when the slot is absent.
+//! - `wrap <slot> -> <text with {}>` — rendering of an optional slot when
+//!   present (`{}` receives its value, `\n` is a line break); absent, it
+//!   renders nothing: `wrap when -> \nWHEN ({})`.
 //! - `flag <word> -> <text>` — presence keyword, rendered in `{options}`.
 //! - `option <word> = <default> -> <text with {}>` — valued keyword, rendered
 //!   in `{options}`; `{}` receives the value.
 //! - `template` … `end` — the template. `{slot}` interpolates, `{body}` inserts
-//!   the body, `{options}` the rendered flags and options.
+//!   the body, `{options}` the rendered flags and options. Every slot of the
+//!   header appears there: a captured slot never rendered would drop what
+//!   the user wrote.
 //!
 //! Available slot kinds: see [`SlotKind`].
 
@@ -64,6 +69,8 @@ pub struct MacroDef {
     pub name: String,
     pub header: HeaderPattern,
     pub defaults: HashMap<String, String>,
+    /// Rendering of optional slots when present, `{}` receiving the value.
+    pub wraps: HashMap<String, String>,
     pub flags: Vec<Flag>,
     pub options: Vec<Opt>,
     pub template: String,
@@ -77,6 +84,7 @@ impl MacroDef {
         let mut name = None;
         let mut header = None;
         let mut defaults = HashMap::new();
+        let mut wraps = HashMap::new();
         let mut flags = Vec::new();
         let mut options = Vec::new();
         let mut template: Option<String> = None;
@@ -98,6 +106,11 @@ impl MacroDef {
                     .split_once('=')
                     .ok_or_else(|| err("`default` expects `<slot> = <text>`"))?;
                 defaults.insert(k.trim().to_string(), v.trim().to_string());
+            } else if let Some(rest) = line.strip_prefix("wrap ") {
+                let (k, v) = rest
+                    .split_once("->")
+                    .ok_or_else(|| err("`wrap` expects `<slot> -> <text with {}>`"))?;
+                wraps.insert(k.trim().to_string(), v.trim().replace("\\n", "\n"));
             } else if let Some(rest) = line.strip_prefix("flag ") {
                 let (kw, emits) = rest
                     .split_once("->")
@@ -139,16 +152,47 @@ impl MacroDef {
             }
         }
 
-        Ok(Self {
+        let def = Self {
             name: name.ok_or_else(|| format!("{origin}: missing `macro <name>` directive"))?,
             header: header.ok_or_else(|| format!("{origin}: missing `header` directive"))?,
             defaults,
+            wraps,
             flags,
             options,
             template: template
                 .ok_or_else(|| format!("{origin}: missing `template` … `end` block"))?,
             origin: origin.to_string(),
-        })
+        };
+        def.check_slots()?;
+        Ok(def)
+    }
+
+    /// Every slot of the header is rendered by the template (the keywords
+    /// through `{options}`), and every `wrap` names a slot.
+    fn check_slots(&self) -> Result<(), String> {
+        let slots = self.header.slots();
+        for (slot, kind) in &slots {
+            let placeholder = if *kind == SlotKind::Keywords {
+                "{options}".to_string()
+            } else {
+                format!("{{{slot}}}")
+            };
+            if !self.template.contains(&placeholder) {
+                return Err(format!(
+                    "{}: slot `{slot}` is captured by the header but the template never renders it (`{placeholder}`)",
+                    self.origin
+                ));
+            }
+        }
+        for slot in self.wraps.keys() {
+            if !slots.iter().any(|(s, _)| s == slot) {
+                return Err(format!(
+                    "{}: `wrap {slot}`: the header has no slot `{slot}`",
+                    self.origin
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Is the `body` slot expected, i.e. does the macro have a block?
@@ -479,6 +523,22 @@ end
     }
 
     #[test]
+    fn a_slot_the_template_never_renders_is_refused() {
+        let e = MacroDef::parse(
+            "macro x\nheader {a:ident}[ when ({w:parens})]\ntemplate\n{a}\nend\n",
+            "t",
+        )
+        .unwrap_err();
+        assert!(e.contains("slot `w`"), "got: {e}");
+        let e = MacroDef::parse(
+            "macro x\nheader {a:ident}\nwrap b -> B {}\ntemplate\n{a}\nend\n",
+            "t",
+        )
+        .unwrap_err();
+        assert!(e.contains("no slot `b`"), "got: {e}");
+    }
+
+    #[test]
     fn flags_and_options_render() {
         let def = MacroDef::parse(
             "\
@@ -487,7 +547,7 @@ header {name:ident}
 option language = plpgsql -> LANGUAGE {}
 flag immutable -> IMMUTABLE
 template
-{options}
+{name} {options}
 end
 ",
             "t",
@@ -506,7 +566,7 @@ end
     #[test]
     fn unknown_keyword_is_rejected_with_the_list() {
         let def = MacroDef::parse(
-            "macro f\nheader {n:ident}\nflag immutable -> IMMUTABLE\ntemplate\nx\nend\n",
+            "macro f\nheader {n:ident}\nflag immutable -> IMMUTABLE\ntemplate\n{n}\nend\n",
             "t",
         )
         .unwrap();
@@ -518,7 +578,7 @@ end
     #[test]
     fn option_without_value_is_rejected() {
         let def = MacroDef::parse(
-            "macro f\nheader {n:ident}\noption language -> LANGUAGE {}\ntemplate\nx\nend\n",
+            "macro f\nheader {n:ident}\noption language -> LANGUAGE {}\ntemplate\n{n}\nend\n",
             "t",
         )
         .unwrap();
@@ -533,7 +593,7 @@ end
     fn user_macro_replaces_bundled_macro() {
         let mut set = MacroSet::builtin();
         let custom = MacroDef::parse(
-            "macro function\nheader {n:ident}\ntemplate\n-- replaced\nend\n",
+            "macro function\nheader {n:ident}\ntemplate\n-- replaced {n}\nend\n",
             "mine.pgmacro",
         )
         .unwrap();
