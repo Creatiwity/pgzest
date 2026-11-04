@@ -223,9 +223,11 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
             return Err(errors.join("\n"));
         }
     }
+    let macros = macros.with_instrumentation(config.log.instrumentation());
 
     let mut builder = ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .with_instrumentation(macros.instrumentation())
         .declarative(config.schema.declarative);
     for chunk in SchemaSource::chunks(&config.to_source(&root)) {
         if !files.contains(&chunk.origin.path) {

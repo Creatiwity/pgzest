@@ -989,9 +989,15 @@ appended to a `jsonb[]` variable by `GET DIAGNOSTICS` and a simple
 assignment, which leave `ROW_COUNT` and `FOUND` untouched, and written at
 each exit — with the temp table cleanup, `FOUND` saved and restored around
 it for a `RETURN` that reads it — to `pgweave_log.run` / `.step`
-(unlogged) or as `pg_notify('pgweave_log', json)`. Not yet: a level set
-in `pgweave.toml` for the routines of migrations (their analysis and the
-drift check would then have to see the same instrumentation).
+(unlogged) or as `pg_notify('pgweave_log', json)`. The project level is
+`[log] level` / `target` in `pgweave.toml`: analysis, the LSP, `pgweave
+build` and `pgweave migrate` all expand the routines at it, and the log
+tables are part of the replayed schema (a declarative project's migrations
+create them). Each generated migration records the level in its header
+(`-- pgweave: postgres=18 log=step`, `log=step:notify`); the replay checks
+it against the instrumentation of the routines the file creates, and that
+the tables they write to exist at that point. A level change regenerates
+every macro routine, with a note in the migration.
 
 **`pgweave dev`** — applies the routines (functions, procedures,
 triggers) of the schema files to a development database, at the `debug`

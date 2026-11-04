@@ -2,17 +2,21 @@
 //! migration was generated and checked.
 //!
 //! ```sql
-//! -- pgweave: postgres=18 extensions=btree_gist@1.7,citext@1.6
+//! -- pgweave: postgres=18 extensions=btree_gist@1.7,citext@1.6 log=step
 //! ```
 //!
 //! It goes among the leading lines of the file (comments and blank lines),
 //! before the first statement. `postgres` is required, `extensions` optional;
-//! each extension carries its version. Any other form is an error: a misread
+//! each extension carries its version. `log` is the run log level the
+//! routines of the migration were generated at (`[log]` of `pgweave.toml`),
+//! `log=step:notify` for the `notify` target; absent, they are not logged. Any other form is an error: a misread
 //! header would analyze the migration against a context other than the
 //! announced one.
 
 use std::fmt;
 use std::ops::Range;
+
+use pgweave_macro::{Instrumentation, LogLevel, LogTarget};
 
 /// Prefix of a header line. Distinct from directives (`-- pgweave-disable…`),
 /// which have no `:`.
@@ -24,6 +28,8 @@ pub struct MigrationHeader {
     pub postgres: u32,
     /// Active extensions, in written order.
     pub extensions: Vec<ExtensionRef>,
+    /// Run log level of the generated routines.
+    pub log: Instrumentation,
     /// Position of the line in the file (bytes, without the line break).
     pub span: Range<usize>,
 }
@@ -72,10 +78,11 @@ impl MigrationHeader {
                 }));
             }
             match parse_fields(&trimmed[PREFIX.len()..]) {
-                Ok((postgres, extensions)) => {
+                Ok((postgres, extensions, log)) => {
                     found = Some(MigrationHeader {
                         postgres,
                         extensions,
+                        log,
                         span,
                     })
                 }
@@ -86,9 +93,12 @@ impl MigrationHeader {
     }
 }
 
-fn parse_fields(fields: &str) -> Result<(u32, Vec<ExtensionRef>), String> {
+type Fields = (u32, Vec<ExtensionRef>, Instrumentation);
+
+fn parse_fields(fields: &str) -> Result<Fields, String> {
     let mut postgres = None;
     let mut extensions: Option<Vec<ExtensionRef>> = None;
+    let mut log = None;
     for field in fields.split_whitespace() {
         let Some((key, value)) = field.split_once('=') else {
             return Err(format!("field `{field}`: expected `key=value`"));
@@ -108,11 +118,41 @@ fn parse_fields(fields: &str) -> Result<(u32, Vec<ExtensionRef>), String> {
                 }
                 extensions = Some(parse_extensions(value)?);
             }
+            "log" => {
+                if log.is_some() {
+                    return Err("duplicate `log`".into());
+                }
+                log = Some(parse_log(value)?);
+            }
             other => return Err(format!("unknown field `{other}`")),
         }
     }
     let postgres = postgres.ok_or("missing `postgres` field")?;
-    Ok((postgres, extensions.unwrap_or_default()))
+    Ok((
+        postgres,
+        extensions.unwrap_or_default(),
+        log.unwrap_or_default(),
+    ))
+}
+
+fn parse_log(value: &str) -> Result<Instrumentation, String> {
+    let expected = || {
+        format!(
+            "`log={value}`: expected `info`, `step` or `debug`, then optionally `:table` or `:notify`"
+        )
+    };
+    let (level, target) = match value.split_once(':') {
+        Some((l, t)) => (l, Some(t)),
+        None => (value, None),
+    };
+    let log = LogLevel::parse(level)
+        .filter(|l| *l != LogLevel::None)
+        .ok_or_else(expected)?;
+    let target = match target {
+        Some(t) => LogTarget::parse(t).ok_or_else(expected)?,
+        None => LogTarget::Table,
+    };
+    Ok(Instrumentation { log, target })
 }
 
 fn parse_extensions(value: &str) -> Result<Vec<ExtensionRef>, String> {
@@ -148,6 +188,23 @@ impl fmt::Display for MigrationHeader {
                 .map(|e| format!("{}@{}", e.name, e.version))
                 .collect();
             write!(f, " extensions={}", list.join(","))?;
+        }
+        write!(f, "{}", LogField(self.log))
+    }
+}
+
+/// ` log=…` of a header, empty when routines are not logged.
+pub struct LogField(pub Instrumentation);
+
+impl fmt::Display for LogField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Instrumentation { log, target } = self.0;
+        if log == LogLevel::None {
+            return Ok(());
+        }
+        write!(f, " log={}", log.as_str())?;
+        if target != LogTarget::Table {
+            write!(f, ":{}", target.as_str())?;
         }
         Ok(())
     }
@@ -199,6 +256,29 @@ mod tests {
             "-- pgweave: postgres=18 extensions=btree_gist@1.7,citext@1.6"
         );
         assert_eq!(ok(&h.to_string()).extensions.len(), 2);
+    }
+
+    #[test]
+    fn log_level() {
+        let h = ok("-- pgweave: postgres=18 log=step");
+        assert_eq!(h.log.log, LogLevel::Step);
+        assert_eq!(h.log.target, LogTarget::Table);
+        assert_eq!(h.to_string(), "-- pgweave: postgres=18 log=step");
+        let h = ok("-- pgweave: log=debug:notify postgres=18");
+        assert_eq!(h.log.target, LogTarget::Notify);
+        assert_eq!(h.to_string(), "-- pgweave: postgres=18 log=debug:notify");
+        assert_eq!(ok("-- pgweave: postgres=18").log.log, LogLevel::None);
+        for bad in [
+            "log=none",
+            "log=trace",
+            "log=step:file",
+            "log=step log=info",
+        ] {
+            assert!(
+                err(&format!("-- pgweave: postgres=18 {bad}")).contains("log"),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

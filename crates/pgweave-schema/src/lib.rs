@@ -7,7 +7,7 @@ pub mod source;
 
 pub use config::{MacrosConfig, ParseConfig, ProjectConfig, SkipLevel};
 pub use lint::check_ddl_role;
-pub use migration_header::{ExtensionRef, HeaderError, MigrationHeader};
+pub use migration_header::{ExtensionRef, HeaderError, LogField, MigrationHeader};
 pub use provider::{
     ColumnInfo, CompositeSchemaProvider, FunctionSignature, IntrospectionJsonProvider,
     RlsAwareSchemaProvider, SchemaProvider, TableSchema, object_name_to_string, qualify_str,

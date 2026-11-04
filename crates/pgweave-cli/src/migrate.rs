@@ -29,6 +29,7 @@ fn build(chunks: &[SqlChunk], macros: &pgweave_macro::MacroSet) -> ProjectCatalo
     let mut b = ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
         .with_checker(Some(pgweave_sema::check::SemaChecker::shared()))
+        .with_instrumentation(macros.instrumentation())
         .declarative(true)
         .keep_sources(true);
     for chunk in chunks {
@@ -104,7 +105,52 @@ fn history_and_target(l: &Loaded) -> Migration {
         .history
         .as_ref()
         .expect("declarative project: replayed history");
-    diff(history, &l.project.catalog)
+    let mut m = diff(history, &l.project.catalog);
+    if !m.is_empty()
+        && let Some(n) = log_change(l)
+    {
+        m.notes.push(n);
+    }
+    m
+}
+
+/// The `[log]` level differs from the one of the last migration header:
+/// the routines are generated again at the new one.
+fn log_change(l: &Loaded) -> Option<String> {
+    let last = l
+        .chunks
+        .iter()
+        .filter_map(|c| match c.role {
+            FileRole::Migration { sequence } => Some((sequence, c)),
+            _ => None,
+        })
+        .max_by_key(|(s, _)| *s)?
+        .1;
+    let Some(Ok(header)) = pgweave_schema::MigrationHeader::find(&last.sql) else {
+        return None;
+    };
+    let now = l.macros.instrumentation();
+    if header.log == now {
+        return None;
+    }
+    let shown = |i| {
+        let f = pgweave_schema::LogField(i).to_string();
+        if f.is_empty() {
+            "log=none".to_string()
+        } else {
+            f.trim().to_string()
+        }
+    };
+    Some(format!(
+        "run log level changed ({} in {}, {} in {}): the instrumented routines are created again at the new level",
+        shown(header.log),
+        last.origin
+            .path
+            .file_name()
+            .map_or_else(String::new, |f| f.to_string_lossy().into_owned()),
+        shown(now),
+        pgweave_schema::ProjectConfig::FILENAME,
+    ))
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -255,7 +301,8 @@ pub fn create(name: &str, dry_run: bool) -> i32 {
         return 0;
     }
 
-    let header = pgweave_catalog::dump::header(&l.project.catalog, l.config.postgres.version);
+    let log = l.macros.instrumentation();
+    let header = pgweave_catalog::dump::header(&l.project.catalog, l.config.postgres.version, log);
     let sql = render(&m, &header, name);
     let dir = l.root.join(&l.config.migrations.directory);
     let path = migration_path(&dir, &l.chunks, name);
@@ -429,8 +476,11 @@ pub fn diff_files(old: &str, new: &str) -> i32 {
         println!("-- no change");
         return 0;
     }
-    let header =
-        pgweave_catalog::dump::header(&after.catalog, pgweave_catalog::project::DEFAULT_POSTGRES);
+    let header = pgweave_catalog::dump::header(
+        &after.catalog,
+        pgweave_catalog::project::DEFAULT_POSTGRES,
+        Default::default(),
+    );
     print!("{}", render(&m, &header, "diff"));
     print_unsupported(&m);
     if m.unsupported.is_empty() { 0 } else { 1 }

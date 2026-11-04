@@ -35,7 +35,7 @@ mod lex;
 pub use def::{MacroDef, MacroSet};
 pub use expand::{Expansion, expand_source, expand_source_at};
 pub use fragment::{FragmentDef, fragment_file_diagnostics, parse_fragment_file};
-pub use instrument::{Instrumentation, LogLevel, LogTarget};
+pub use instrument::{Instrumentation, LogLevel, LogTarget, instrumentation_of};
 /// Re-export: the position mapping lives in `pgweave-ast`, next to `Span`, so
 /// that the parser can use it without depending on this crate.
 pub use pgweave_ast::SourceMap;

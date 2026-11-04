@@ -50,6 +50,59 @@ pub struct ProjectConfig {
     pub plugins: PluginsConfig,
     #[serde(default)]
     pub rust: RustConfig,
+    #[serde(default)]
+    pub log: LogConfig,
+}
+
+// ── Run logs ──────────────────────────────────────────────────────────────────
+
+/// Run logs of the PL/pgSQL macro routines (PLAN.md, P9). The level is part
+/// of the generated code: analysis, migrations and `pgweave build` all see
+/// the routines instrumented at this level, and each generated migration
+/// records it in its header (`log=…`).
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct LogConfig {
+    #[serde(default)]
+    pub level: LogLevelConfig,
+    #[serde(default)]
+    pub target: LogTargetConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevelConfig {
+    #[default]
+    None,
+    Info,
+    Step,
+    Debug,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LogTargetConfig {
+    #[default]
+    Table,
+    Notify,
+}
+
+impl LogConfig {
+    pub fn instrumentation(&self) -> pgweave_macro::Instrumentation {
+        use pgweave_macro::{LogLevel, LogTarget};
+        pgweave_macro::Instrumentation {
+            log: match self.level {
+                LogLevelConfig::None => LogLevel::None,
+                LogLevelConfig::Info => LogLevel::Info,
+                LogLevelConfig::Step => LogLevel::Step,
+                LogLevelConfig::Debug => LogLevel::Debug,
+            },
+            target: match self.target {
+                LogTargetConfig::Table => LogTarget::Table,
+                LogTargetConfig::Notify => LogTarget::Notify,
+            },
+        }
+    }
 }
 
 // ── Rust ──────────────────────────────────────────────────────────────────────
@@ -534,6 +587,26 @@ mod tests {
                 ProjectConfig::parse(content).is_err(),
                 "should have been rejected:\n{content}"
             );
+        }
+    }
+
+    #[test]
+    fn log_level_and_target() {
+        let c = ProjectConfig::parse("[postgres]\nversion = 18\n").unwrap();
+        assert_eq!(
+            c.log.instrumentation(),
+            pgweave_macro::Instrumentation::default()
+        );
+        let c = ProjectConfig::parse(
+            "[postgres]\nversion = 18\n[log]\nlevel = \"step\"\ntarget = \"notify\"\n",
+        )
+        .unwrap();
+        let i = c.log.instrumentation();
+        assert_eq!(i.log, pgweave_macro::LogLevel::Step);
+        assert_eq!(i.target, pgweave_macro::LogTarget::Notify);
+        for bad in ["level = \"trace\"", "target = \"file\"", "levle = \"info\""] {
+            let content = format!("[postgres]\nversion = 18\n[log]\n{bad}\n");
+            assert!(ProjectConfig::parse(&content).is_err(), "{bad}");
         }
     }
 

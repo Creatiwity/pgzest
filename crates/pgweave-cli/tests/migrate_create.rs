@@ -97,3 +97,77 @@ fn change_left_to_write_keeps_check_failing() {
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("public.k"), "{out}");
 }
+
+#[test]
+fn the_log_level_is_generated_and_recorded_in_the_header() {
+    let routine = "@function bump(k INT): INT {\n    UPDATE t SET n = n + 1 WHERE id <= k;\n    RETURN k;\n}\n";
+    let root = scaffold(
+        "log",
+        &[
+            (
+                "pgweave.toml",
+                &format!("{CONFIG}[log]\nlevel = \"step\"\n"),
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE t (id INT PRIMARY KEY, n INT);\n",
+            ),
+            ("schema/bump.sql", routine),
+        ],
+    );
+    let (code, out) = migrate(&root, &["create", "init"]);
+    assert_eq!(code, 0, "{out}");
+    let sql = fs::read_to_string(root.join("migrations/0001_init.sql")).unwrap();
+    assert!(
+        sql.starts_with("-- pgweave: postgres=18 log=step\n"),
+        "{sql}"
+    );
+    // The tables the routine writes to come with it.
+    for expected in [
+        "CREATE SCHEMA pgweave_log",
+        "CREATE UNLOGGED TABLE pgweave_log.run",
+        "_pgweave_steps jsonb[]",
+    ] {
+        assert!(sql.contains(expected), "{expected}\n{sql}");
+    }
+    let (code, out) = migrate(&root, &["check"]);
+    assert_eq!(code, 0, "{out}");
+
+    // Another level: the routine is generated again, the header says so.
+    fs::write(
+        root.join("pgweave.toml"),
+        format!("{CONFIG}[log]\nlevel = \"info\"\n"),
+    )
+    .unwrap();
+    let (code, out) = migrate(&root, &["check"]);
+    assert_eq!(code, 1, "{out}");
+    let (code, out) = migrate(&root, &["create", "info"]);
+    assert_eq!(code, 0, "{out}");
+    let sql = fs::read_to_string(root.join("migrations/0002_info.sql")).unwrap();
+    assert!(
+        sql.starts_with("-- pgweave: postgres=18 log=info\n"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("run log level changed (log=step in 0001_init.sql, log=info"),
+        "{sql}"
+    );
+    assert!(sql.contains("bump"), "{sql}");
+    assert!(!sql.contains("_pgweave_steps"), "{sql}");
+    let (code, out) = migrate(&root, &["check"]);
+    assert_eq!(code, 0, "{out}");
+
+    // A header that does not match its routines is an error.
+    fs::write(
+        root.join("migrations/0002_info.sql"),
+        sql.replace("log=info", "log=debug"),
+    )
+    .unwrap();
+    let (code, out) = migrate(&root, &["check"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("routine bump is generated with `log=info`, the header declares `log=debug`"),
+        "{out}"
+    );
+    let _ = fs::remove_dir_all(&root);
+}

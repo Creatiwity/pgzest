@@ -142,6 +142,13 @@ impl LogLevel {
             Self::Debug => "debug",
         }
     }
+
+    /// The level spelled as [`Self::as_str`] does.
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::None, Self::Info, Self::Step, Self::Debug]
+            .into_iter()
+            .find(|l| l.as_str() == s)
+    }
 }
 
 /// Where the log entries go.
@@ -161,6 +168,13 @@ impl LogTarget {
             Self::Table => "table",
             Self::Notify => "notify",
         }
+    }
+
+    /// The target spelled as [`Self::as_str`] does.
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Table, Self::Notify]
+            .into_iter()
+            .find(|l| l.as_str() == s)
     }
 }
 
@@ -188,6 +202,29 @@ impl Instrumentation {
     fn snapshots(&self) -> bool {
         self.log >= LogLevel::Debug
     }
+}
+
+/// Run log level a routine definition was generated at, read from the code
+/// the instrumentation emits; `None` when it holds none (not a generated
+/// routine, or one generated unlogged). A `debug` routine without
+/// `@snapshot` reads as `step`: the two emit the same code.
+pub fn instrumentation_of(definition: &str) -> Option<Instrumentation> {
+    if !definition.contains(&format!("{STARTED_VAR} timestamptz")) {
+        return None;
+    }
+    let log = if definition.contains("INSERT INTO pgweave_debug.snapshot ") {
+        LogLevel::Debug
+    } else if definition.contains(&format!("{STEPS_VAR} jsonb[]")) {
+        LogLevel::Step
+    } else {
+        LogLevel::Info
+    };
+    let target = if definition.contains(&format!("pg_notify('{LOG_CHANNEL}'")) {
+        LogTarget::Notify
+    } else {
+        LogTarget::Table
+    };
+    Some(Instrumentation { log, target })
 }
 
 /// Instruments the PL/pgSQL bodies of `exp`: those holding a directive,

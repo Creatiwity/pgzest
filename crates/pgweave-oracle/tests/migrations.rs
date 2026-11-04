@@ -102,7 +102,7 @@ fn generate(case: &str, versions: &[String]) -> Vec<String> {
         );
         let sql = format!(
             "{}\n{}\n",
-            pgweave_catalog::dump::header(&p.catalog, 18),
+            pgweave_catalog::dump::header(&p.catalog, 18, Default::default()),
             m.to_sql()
         );
         history.push(sql);

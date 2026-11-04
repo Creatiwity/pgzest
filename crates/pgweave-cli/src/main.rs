@@ -157,14 +157,16 @@ enum Command {
         /// Directory to write the generated `.sql` files into
         #[arg(long = "out-dir")]
         out_dir: Option<String>,
-        /// What the PL/pgSQL routines record of their runs. `debug` also
-        /// makes `@snapshot` copy the temp tables and variables into
-        /// `pgweave_debug`. The tables written to are created first.
-        #[arg(long, value_enum, default_value = "none")]
-        log: CliLogLevel,
-        /// Where the log entries go.
-        #[arg(long = "log-target", value_enum, default_value = "table")]
-        log_target: CliLogTarget,
+        /// What the PL/pgSQL routines record of their runs (default: `[log]`
+        /// of pgweave.toml, else `none`). `debug` also makes `@snapshot`
+        /// copy the temp tables and variables into `pgweave_debug`. The
+        /// tables written to are created first.
+        #[arg(long, value_enum)]
+        log: Option<CliLogLevel>,
+        /// Where the log entries go (default: `[log]` of pgweave.toml, else
+        /// `table`).
+        #[arg(long = "log-target", value_enum)]
+        log_target: Option<CliLogTarget>,
     },
 
     /// Apply the routines of the project's schema files to a development
@@ -442,6 +444,7 @@ fn cmd_check(
     let mut builder = pgweave_catalog::project::ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
         .with_checker(Some(pgweave_sema::check::SemaChecker::shared()))
+        .with_instrumentation(macros.instrumentation())
         .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative));
     let mut replayed: std::collections::HashSet<std::path::PathBuf> =
         std::collections::HashSet::new();
@@ -806,10 +809,8 @@ fn main() {
         } => cmd_build(
             &files,
             out_dir.as_deref(),
-            pgweave_macro::Instrumentation {
-                log: log.into(),
-                target: log_target.into(),
-            },
+            log.map(Into::into),
+            log_target.map(Into::into),
         ),
         Command::Dev {
             url,
@@ -854,7 +855,8 @@ fn main() {
 
 // ── Macros ────────────────────────────────────────────────────────────────────
 
-/// The project's macro set: the shipped ones, plus those of `[macros] directory`.
+/// The project's macro set: the shipped ones, plus those of `[macros] directory`,
+/// instrumented at the `[log]` level.
 ///
 /// Definition errors are reported but do not block: the other macros remain
 /// usable.
@@ -869,6 +871,7 @@ fn load_macros(
         if dir.is_dir() {
             errors = set.load_dir(&dir);
         }
+        set = set.with_instrumentation(config.log.instrumentation());
     }
     (set, errors)
 }
@@ -952,10 +955,16 @@ fn cmd_macros(verbose: bool) -> i32 {
 fn cmd_build(
     files: &[String],
     out_dir: Option<&str>,
-    instrumentation: pgweave_macro::Instrumentation,
+    log: Option<pgweave_macro::LogLevel>,
+    target: Option<pgweave_macro::LogTarget>,
 ) -> i32 {
     let project = discover_project_or_exit();
     let (set, errors) = load_macros(project.as_ref());
+    let configured = set.instrumentation();
+    let instrumentation = pgweave_macro::Instrumentation {
+        log: log.unwrap_or(configured.log),
+        target: target.unwrap_or(configured.target),
+    };
     let set = set.with_instrumentation(instrumentation);
     let setup = instrumentation.setup_sql();
     for e in &errors {

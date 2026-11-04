@@ -40,6 +40,7 @@ pub fn run(o: Options) -> i32 {
     // Catalog: `--schema` schemas, then the project, replayed in order.
     let mut builder = ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
+        .with_instrumentation(macros.instrumentation())
         .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative));
     for path in o.schemas {
         let sql = match std::fs::read_to_string(path) {

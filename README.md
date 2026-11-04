@@ -239,12 +239,22 @@ back with it.
 
 ### Run logs
 
-`pgweave build --log <level> [--log-target table|notify]` makes every
-PL/pgSQL routine of a macro (`@function`, `@procedure`, `@trigger`) record
-its runs. The level is fixed at build time: below it, no code is emitted.
+Every PL/pgSQL routine of a macro (`@function`, `@procedure`, `@trigger`)
+records its runs at the project level:
 
-| `--log` | Recorded |
-|---------|----------|
+```toml
+[log]
+level = "step"     # none (default) | info | step | debug
+target = "table"   # table (default) | notify
+```
+
+The level is fixed when the code is generated: below it, no code is
+emitted. Analysis, the editor, `pgweave build` and `pgweave migrate` all
+see the routines at this level; `pgweave build --log <level>
+[--log-target …]` overrides it for one build.
+
+| Level | Recorded |
+|-------|----------|
 | `none` (default) | nothing |
 | `info` | one entry per run: routine, start, duration, the caller's `pgweave.traceparent` setting, and the `SQLSTATE` when the routine returns from its own exception handler |
 | `step` | plus one entry per `INSERT`, `UPDATE`, `DELETE` or `EXECUTE`: kind, target table, source line, row count |
@@ -262,8 +272,14 @@ Steps are kept in a variable and written when the run ends, before each
 routine is rolled back with its log (as notifications of a failed
 transaction are never sent); an error the routine handles itself is
 logged with its `SQLSTATE`, steps rolled back by it included. SQL-language
-routines are not logged. Analysis and migrations always see the routines
-as written.
+routines are not logged.
+
+In a declarative project, `pgweave migrate create` generates the log
+tables with the first logged routines, and records the level in the
+migration header: `-- pgweave: postgres=18 log=step` (`log=step:notify`
+for the `notify` target). The replay checks the header against the
+routines of the file. Changing the level regenerates every macro routine
+in the next migration, with a note saying why.
 
 ### `pgweave dev`
 

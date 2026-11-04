@@ -284,7 +284,7 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
     // Assembly.
     let mut schemas: BTreeMap<String, String> = BTreeMap::new();
     let mut baseline = String::new();
-    baseline.push_str(&header(cat, postgres));
+    baseline.push_str(&header(cat, postgres, Default::default()));
     baseline.push_str("\n-- Baseline migration: state rebuilt by `pgweave schema import`.\n");
 
     let mut phases: Vec<_> = out.phases.into_iter().collect();
@@ -308,9 +308,10 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
     Dump { schemas, baseline }
 }
 
-/// Context header of a migration (D9): PostgreSQL version and active
-/// extensions in the `cat` state, without a trailing newline.
-pub fn header(cat: &Catalog, postgres: u32) -> String {
+/// Context header of a migration (D9): PostgreSQL version, active
+/// extensions in the `cat` state, and the run log level its routines were
+/// generated at, without a trailing newline.
+pub fn header(cat: &Catalog, postgres: u32, log: pgweave_macro::Instrumentation) -> String {
     let mut exts: Vec<String> = cat
         .extensions
         .values()
@@ -321,6 +322,7 @@ pub fn header(cat: &Catalog, postgres: u32) -> String {
     if !exts.is_empty() {
         let _ = write!(out, " extensions={}", exts.join(","));
     }
+    let _ = write!(out, "{}", pgweave_schema::LogField(log));
     out
 }
 

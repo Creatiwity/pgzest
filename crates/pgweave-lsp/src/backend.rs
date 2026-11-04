@@ -156,7 +156,10 @@ impl PgsqlBackend {
             // Invalid config: already reported by `rebuild_resolver` /
             // `initialize`. No fallback directory is guessed.
             let dir = match ProjectConfig::load(&root.join(ProjectConfig::FILENAME)) {
-                Ok(cfg) => Some(root.join(&cfg.macros.directory)),
+                Ok(cfg) => {
+                    set = set.with_instrumentation(cfg.log.instrumentation());
+                    Some(root.join(&cfg.macros.directory))
+                }
                 Err(_) => None,
             };
             if let Some(dir) = dir.filter(|d| d.is_dir()) {

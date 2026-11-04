@@ -172,6 +172,28 @@ impl ProjectBuilder {
         self
     }
 
+    /// Routines instrumented by `instrumentation` write to the tables of its
+    /// setup ([`pgweave_macro::Instrumentation::setup_sql`]): they are part
+    /// of the schema, replayed first. In declarative mode they are therefore
+    /// part of the target state, and the migrations must create them.
+    pub fn with_instrumentation(mut self, instrumentation: pgweave_macro::Instrumentation) -> Self {
+        let setup = instrumentation.setup_sql();
+        if setup.is_empty() {
+            return self;
+        }
+        let outcome = pgweave_parser::parse_at_with_outcome(&setup, 0)
+            .expect("the instrumentation setup is valid SQL");
+        let mut diags = Vec::new();
+        for s in &outcome.statements {
+            self.replay.apply(s, &mut diags);
+        }
+        debug_assert!(
+            outcome.skipped.is_empty() && diags.is_empty(),
+            "instrumentation setup replayed cleanly: {diags:?}"
+        );
+        self
+    }
+
     /// Statements are checked by `checker` (see [`StatementChecker`]).
     pub fn with_checker(mut self, checker: Option<std::sync::Arc<dyn StatementChecker>>) -> Self {
         self.checker = checker;
@@ -253,7 +275,7 @@ impl ProjectBuilder {
             }
         }
         if is_migration {
-            check_header(sql, &replay.catalog, &mut diags);
+            check_header(sql, &outcome.statements, &replay.catalog, &mut diags);
         }
         self.diagnostics
             .extend(diags.into_iter().map(|d| (path.to_path_buf(), d)));
@@ -474,8 +496,9 @@ pub fn routine_in_force(cat: &Catalog, stmt: &Statement) -> bool {
         .any(|r| r.definition.as_deref() == Some(definition.as_str()))
 }
 
-/// Checks a migration header against the state replayed after it (D9).
-fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
+/// Checks a migration header against the state replayed after it (D9), and
+/// its log level against the routines it creates.
+fn check_header(sql: &str, stmts: &[Statement], cat: &Catalog, out: &mut Vec<Diagnostic>) {
     let Some(Ok(h)) = pgweave_schema::MigrationHeader::find(sql) else {
         return;
     };
@@ -516,6 +539,75 @@ fn check_header(sql: &str, cat: &Catalog, out: &mut Vec<Diagnostic>) {
             out.push(Diagnostic::warning(
                 codes::MIGRATION_HEADER_MISMATCH,
                 format!("extension {name} is active but missing from the header"),
+            ));
+        }
+    }
+
+    // Log level: the routines of the file were generated at it, and what
+    // they write to exists at this point of the migrations.
+    use pgweave_macro::{LogLevel, LogTarget};
+    let declared = pgweave_schema::LogField(h.log).to_string();
+    let declared = declared.trim();
+    let declared = if declared.is_empty() {
+        "none"
+    } else {
+        declared
+    };
+    for s in stmts {
+        let (name, span) = match s {
+            Statement::Ddl(pgweave_ast::DdlStatement::CreateFunction(f)) => (&f.name, f.span),
+            Statement::Ddl(pgweave_ast::DdlStatement::CreateProcedure(p)) => (&p.name, p.span),
+            _ => continue,
+        };
+        let Some(text) = sql.get(span.start as usize..span.end as usize) else {
+            continue;
+        };
+        let found = pgweave_macro::instrumentation_of(text);
+        let matches = match found {
+            None => true,
+            // `debug` without `@snapshot` emits the `step` code.
+            Some(i) => {
+                i.target == h.log.target
+                    && (i.log == h.log.log
+                        || (i.log == LogLevel::Step && h.log.log == LogLevel::Debug))
+            }
+        };
+        if !matches {
+            let found = pgweave_schema::LogField(found.unwrap_or_default()).to_string();
+            out.push(
+                Diagnostic::error(
+                    codes::MIGRATION_HEADER_MISMATCH,
+                    format!(
+                        "routine {} is generated with `{}`, the header declares `{declared}`",
+                        pgweave_ast::emit::emit_object_name(name),
+                        found.trim(),
+                    ),
+                )
+                .with_span(pgweave_diagnostics::Span {
+                    start: span.start as usize,
+                    end: span.end as usize,
+                }),
+            );
+        }
+    }
+    let mut needed = Vec::new();
+    if h.log.log >= LogLevel::Info && h.log.target == LogTarget::Table {
+        needed.extend(["pgweave_log.run", "pgweave_log.step"]);
+    }
+    if h.log.log >= LogLevel::Debug {
+        needed.extend(["pgweave_debug.snapshot", "pgweave_debug.snapshot_rows"]);
+    }
+    for table in needed {
+        let (schema, name) = table.split_once('.').expect("qualified");
+        if !cat
+            .relations
+            .contains_key(&crate::model::QName::new(schema, name))
+        {
+            out.push(Diagnostic::error(
+                codes::MIGRATION_HEADER_MISMATCH,
+                format!(
+                    "the header declares `{declared}`, whose routines write to {table}, not created at this point of the migrations"
+                ),
             ));
         }
     }

@@ -139,6 +139,7 @@ pub fn project_replay(db: &dyn Db, project: Project) -> Arc<ProjectCatalog> {
     let mut builder = ProjectBuilder::new()
         .with_typer(Some(pgweave_sema::ViewTyper::shared()))
         .with_checker(Some(pgweave_sema::check::SemaChecker::shared()))
+        .with_instrumentation(project.macros(db).instrumentation())
         .declarative(*project.declarative(db));
     for &file in project.files(db) {
         if !defines_schema(file.role(db)) {

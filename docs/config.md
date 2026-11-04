@@ -40,6 +40,9 @@ directory = "queries"              # named queries (docs/named-queries.md)
 [macros]
 directory = "macros"               # project *.pgmacro
 
+[log]
+level = "info"                     # run logs of the macro routines
+
 [parse]
 unparsable = "warn"
 unsupported = "warn"
@@ -122,6 +125,16 @@ to the named query format. They are never indexed as schema.
 | Key | Type | Default | Purpose |
 |---|---|---|---|
 | `types` | Rust path | absent | Module where `#[pgweave_macros::types] mod … {}` generates the project's enums (`"crate::db"`). When present, query code refers to it; required as soon as a `sql!` query uses an enum. Added on 2026-11-03. |
+
+### `[log]`
+
+| Key | Values | Default | Purpose |
+|---|---|---|---|
+| `level` | `"none"` \| `"info"` \| `"step"` \| `"debug"` | `"none"` | What the PL/pgSQL macro routines record of their runs (README, "Run logs"). Part of the generated code: analysis, the LSP, `pgweave build` and `pgweave migrate` expand the routines at this level, and the migration header records it (`log=step`). Added on 2026-11-04. |
+| `target` | `"table"` \| `"notify"` | `"table"` | Where the entries go: the unlogged tables `pgweave_log.run` / `.step` (part of the schema when the level is not `none`), or `pg_notify('pgweave_log', …)`. |
+
+`pgweave build --log` / `--log-target` override it for one build;
+`pgweave dev` uses `debug` unless `--log` is given.
 
 ### `[parse]`
 
