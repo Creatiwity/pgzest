@@ -111,7 +111,7 @@ generation, the migrations and the editor all read.
 
 ## Try it
 
-Prerequisites: [Rust](https://rustup.rs), Node.js 18 or later (the VS Code
+Prerequisites: [Rust](https://rustup.rs), Node.js 24 or later (the VS Code
 extension), Docker (PostgreSQL 18).
 
 ```sh
@@ -145,7 +145,7 @@ pgzest works on real projects' schemas and is tested against PostgreSQL
 ```sh
 make ci          # what CI checks: build, tests, clippy, fmt, typecheck
 make oracle      # the analysis against PostgreSQL 18 (Docker)
-make site-dev    # the documentation site, locally (Node.js 22.23 or later)
+make site-dev    # the documentation site, locally (Node.js 24 or later)
 ```
 
 The documentation lives in [`site/`](./site) (Astro Starlight); its CLI

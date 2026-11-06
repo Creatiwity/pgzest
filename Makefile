@@ -54,7 +54,7 @@ release: ## Build all Rust crates (release)
 	$(CARGO) build --workspace --release
 
 .PHONY: ts
-ts: ## Build the pgzest npm package -> dist/
+ts: ## Build the pgzest npm package -> dist/ (frozen until P8, out of CI)
 	cd $(NPM_PKG) && npx tsc
 
 .PHONY: vscode
@@ -71,14 +71,14 @@ all: build ts vscode ## Build Rust + TypeScript + extension
 # ── Tests & quality ─────────────────────────────────────────────────────────
 
 .PHONY: test
-test: test-rust test-ts ## Run all tests
+test: test-rust ## Run all tests (the frozen npm package: make test-ts)
 
 .PHONY: test-rust
 test-rust: ## Rust tests
 	$(CARGO) test --workspace
 
 .PHONY: test-ts
-test-ts: ts ## TypeScript tests of the npm package
+test-ts: ts ## TypeScript tests of the npm package (frozen until P8, out of CI)
 	cd $(NPM_PKG) && node --test "dist/**/*.test.js"
 
 .PHONY: clippy
@@ -94,8 +94,7 @@ fmt-check: ## Check formatting without modifying
 	$(CARGO) fmt --all --check
 
 .PHONY: typecheck
-typecheck: ## Typecheck TypeScript without emitting
-	cd $(NPM_PKG) && npx tsc --noEmit
+typecheck: ## Typecheck the VS Code extension without emitting
 	cd $(VSCODE) && npx tsc -p ./ --noEmit
 
 .PHONY: ci

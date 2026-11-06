@@ -9,7 +9,7 @@ repository.
 ## Try the demo
 
 Prerequisites: [Rust](https://rustup.rs) (the version is pinned by
-`rust-toolchain.toml`), Node.js 18 or later for the VS Code extension, and
+`rust-toolchain.toml`), Node.js 24 or later for the VS Code extension, and
 Docker for PostgreSQL 18.
 
 ```sh
