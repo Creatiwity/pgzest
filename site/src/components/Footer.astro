@@ -1,0 +1,40 @@
+---
+// Starlight's footer, followed by who makes pgzest and the legal links.
+import Default from '@astrojs/starlight/components/Footer.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<Default><slot /></Default>
+
+<div class="pgz-credits">
+  <p>
+    pgzest is made by <a href="https://creatiwity.net">Creatiwity</a>, free and
+    open source under the MIT or Apache-2.0 license.
+  </p>
+  <p>
+    <a href="https://github.com/Creatiwity/pgzest">GitHub</a>
+    <span aria-hidden="true">·</span>
+    <a href={`${base}/legal/`}>Legal notice</a>
+  </p>
+</div>
+
+<style>
+  .pgz-credits {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+    text-align: center;
+  }
+  .pgz-credits p {
+    margin: 0.25rem 0;
+  }
+  .pgz-credits a {
+    color: var(--sl-color-gray-2);
+  }
+  .pgz-credits a:hover {
+    color: var(--pgz-zest);
+  }
+</style>

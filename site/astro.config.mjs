@@ -23,6 +23,7 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/Creatiwity/pgzest' },
       ],
       customCss: ['./src/styles/theme.css'],
+      components: { Footer: './src/components/Footer.astro' },
       plugins: [starlightLinksValidator({ errorOnRelativeLinks: false })],
       sidebar: [
         { label: 'Start here', items: ['getting-started', 'how-it-works'] },
@@ -30,7 +31,7 @@ export default defineConfig({
           label: 'Guides',
           items: [
             'guides/checking',
-                        'guides/fragments-and-macros',
+            'guides/fragments-and-macros',
             'guides/migrations',
             'guides/observability',
             'guides/editor',

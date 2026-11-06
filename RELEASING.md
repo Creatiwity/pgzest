@@ -12,6 +12,7 @@ Open VSX. Those three publishing jobs wait for an approval in the
 | Crates (`pgzest`, `pgzest-runtime`, `pgzest-build`, `pgzest-macros` and the crates they depend on) | crates.io |
 | `pgzest` binary: macOS arm64, Linux x64 and arm64 (glibc ≥ 2.35), Windows x64 | GitHub release (archives + SHA-256) |
 | VS Code extension, one package per platform with the binary inside | GitHub release, VS Code Marketplace, Open VSX |
+| Documentation site ([`site.yml`](.github/workflows/site.yml), also runnable by hand) | GitHub Pages: https://creatiwity.github.io/pgzest/ |
 
 ## Commit messages
 
@@ -109,6 +110,13 @@ The extension's identifier is `<publisher>.pgzest`; the publisher is
    [namespace claim](https://github.com/EclipseFdn/open-vsx.org/issues/new/choose)
    issue template.
 4. Repository secret `OVSX_PAT`.
+
+### GitHub Pages
+
+*Settings → Pages → Build and deployment → Source*: **GitHub Actions**.
+The `Site` workflow deploys on a release tag, or by hand from the
+Actions tab. The legal notice (`site/src/content/docs/legal.md`) names
+GitHub as the host: update it if the site moves.
 
 ### The `release` environment
 
