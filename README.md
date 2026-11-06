@@ -109,6 +109,21 @@ parameters, columns, types, nullability, number of rows — that the Rust
 generation, the migrations and the editor all read.
 → [how it works](./site/src/content/docs/how-it-works.md)
 
+## Install
+
+```sh
+cargo install pgzest --locked   # the CLI, language server included (`pgzest lsp`)
+```
+
+Prebuilt binaries (macOS arm64, Linux x64/arm64, Windows x64) are on the
+[releases](https://github.com/Creatiwity/pgzest/releases) page. The
+**pgzest** extension is on the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=creatiwity.pgzest)
+and [Open VSX](https://open-vsx.org/extension/creatiwity/pgzest), its
+binary included. For Rust code: `pgzest-runtime` and `pgzest-macros` (or
+`pgzest-build`) from crates.io —
+[typed queries in Rust](./site/src/content/docs/languages/rust.md).
+
 ## Try it
 
 Prerequisites: [Rust](https://rustup.rs), Node.js 24 or later (the VS Code
@@ -129,10 +144,9 @@ To start a project of your own:
 ## Status
 
 pgzest works on real projects' schemas and is tested against PostgreSQL
-18 in CI, but it is not released yet:
+18 in CI. 0.1.0 is its first release ([changelog](./CHANGELOG.md)):
 
-- not published to crates.io or npm, nor the extension to the VS Code
-  marketplace: build from this repository;
+- before 1.0, a minor version may break;
 - PostgreSQL 18 only; the extensions covered are listed in
   [versions and extensions](./site/src/content/docs/reference/postgres-and-extensions.md);
 - Rust only for now — TypeScript is the next phase, .NET considered
@@ -154,7 +168,16 @@ make site-dev    # the documentation site, locally (Node.js 24 or later)
 The documentation lives in [`site/`](./site) (Astro Starlight); its CLI
 and diagnostics references are generated from the code
 (`cargo xtask docs`). Code, comments and documentation are in English.
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org):
+the changelog is generated from them ([releasing](./RELEASING.md)).
 
 ## License
 
-[MIT](./LICENSE)
+pgzest is made by [Creatiwity](https://creatiwity.net). It is licensed
+under either of [Apache License, Version 2.0](./LICENSE-APACHE) or
+[MIT license](./LICENSE-MIT), at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in pgzest by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms or
+conditions.

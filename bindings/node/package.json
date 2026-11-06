@@ -18,5 +18,5 @@
     "index.d.ts",
     "*.node"
   ],
-  "license": "MIT"
+  "license": "MIT OR Apache-2.0"
 }

@@ -1,17 +1,21 @@
 [package]
 name = "pgzest-oracle"
-version = "0.1.0"
-edition = "2024"
-description = "Differential oracle: checks pgzest's analysis against a real PostgreSQL"
-publish = false
+description = "pgzest internals: differential oracle against a real PostgreSQL, live schema introspection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-catalog = { path = "../pgzest-catalog" }
-pgzest-ast = { path = "../pgzest-ast" }
-pgzest-parser = { path = "../pgzest-parser" }
-pgzest-query = { path = "../pgzest-query" }
-pgzest-schema = { path = "../pgzest-schema" }
-pgzest-sema = { path = "../pgzest-sema" }
+pgzest-catalog = { workspace = true }
+pgzest-ast = { workspace = true }
+pgzest-parser = { workspace = true }
+pgzest-query = { workspace = true }
+pgzest-schema = { workspace = true }
+pgzest-sema = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
 

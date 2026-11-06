@@ -3,8 +3,25 @@ title: "Getting started"
 description: "Try the demo, then set up a project of your own."
 ---
 
-pgzest is not published to crates.io or npm yet: you build it from the
-repository.
+## Install
+
+The `pgzest` command line — the language server included:
+
+```sh
+cargo install pgzest --locked
+```
+
+or a prebuilt binary (macOS arm64, Linux x64 and arm64, Windows x64)
+from the [GitHub releases](https://github.com/Creatiwity/pgzest/releases).
+
+The editor: the **pgzest** extension, from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=creatiwity.pgzest)
+or [Open VSX](https://open-vsx.org/extension/creatiwity/pgzest) (VSCodium,
+Cursor…). It ships its own `pgzest` on those platforms — see
+[Editor](../guides/editor/).
+
+For Rust code, the crates come from crates.io: see
+[Typed queries in Rust](../languages/rust/).
 
 ## Try the demo
 
@@ -56,7 +73,6 @@ directory = "prisma/migrations"
 Check the project:
 
 ```sh
-cargo build --release -p pgzest        # the CLI, in target/release/pgzest
 pgzest check schema/*.sql queries/*.sql
 ```
 
@@ -67,4 +83,4 @@ Every option: [`pgzest.toml`](../reference/config/).
 - Generate Rust from the queries: [Typed queries in Rust](../languages/rust/).
 - Move the schema to declarative files and generate migrations:
   [Schema and migrations](../guides/migrations/).
-- Install the editor support: [Editor](../guides/editor/).
+- Use it in the editor: [Editor](../guides/editor/).

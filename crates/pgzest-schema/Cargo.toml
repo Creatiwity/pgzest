@@ -1,12 +1,18 @@
 [package]
 name = "pgzest-schema"
-version = "0.1.0"
-edition = "2024"
+description = "pgzest internals: pgzest.toml, project files and migration headers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-ast    = { path = "../pgzest-ast" }
+pgzest-ast = { workspace = true }
 pgzest-diagnostics = { workspace = true }
-pgzest-expand = { path = "../pgzest-expand" }
+pgzest-expand = { workspace = true }
 serde        = { workspace = true, features = ["derive"] }
 serde_json   = { workspace = true }
 toml         = { workspace = true }

@@ -1,10 +1,16 @@
 [package]
 name = "pgzest-expand"
-version = "0.1.0"
-edition = "2024"
+description = "pgzest internals: SQL macros and fragments, desugared into standard SQL"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-ast = { path = "../pgzest-ast" }
+pgzest-ast = { workspace = true }
 pgzest-diagnostics = { workspace = true }
 # Nature of a fragment body: expression to parenthesize or not.
-pgzest-parser = { path = "../pgzest-parser" }
+pgzest-parser = { workspace = true }

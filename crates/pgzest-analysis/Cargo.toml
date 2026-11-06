@@ -1,18 +1,24 @@
 [package]
 name = "pgzest-analysis"
-version = "0.1.0"
-edition = "2024"
+description = "pgzest internals: the analysis pipeline and the incremental project database"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-catalog = { path = "../pgzest-catalog" }
-pgzest-ast = { path = "../pgzest-ast" }
+pgzest-catalog = { workspace = true }
+pgzest-ast = { workspace = true }
 pgzest-diagnostics = { workspace = true }
-pgzest-expand = { path = "../pgzest-expand" }
-pgzest-parser = { path = "../pgzest-parser" }
-pgzest-query = { path = "../pgzest-query" }
-pgzest-schema = { path = "../pgzest-schema" }
-pgzest-sema = { path = "../pgzest-sema" }
-pgzest-lint = { path = "../pgzest-lint" }
+pgzest-expand = { workspace = true }
+pgzest-parser = { workspace = true }
+pgzest-query = { workspace = true }
+pgzest-schema = { workspace = true }
+pgzest-sema = { workspace = true }
+pgzest-lint = { workspace = true }
 serde_json = { workspace = true }
 # Pinned (decision 0001): version bumps are deliberate and isolated.
 salsa = "=0.28.5"

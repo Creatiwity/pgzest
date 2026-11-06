@@ -1,14 +1,20 @@
 [package]
 name = "pgzest-codegen"
-version = "0.1.0"
-edition = "2024"
+description = "pgzest internals: Rust code generation from query descriptors"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-catalog = { path = "../pgzest-catalog" }
-pgzest-ast = { path = "../pgzest-ast" }
-pgzest-parser = { path = "../pgzest-parser" }
-pgzest-sema = { path = "../pgzest-sema" }
-pgzest-query = { path = "../pgzest-query" }
+pgzest-catalog = { workspace = true }
+pgzest-ast = { workspace = true }
+pgzest-parser = { workspace = true }
+pgzest-sema = { workspace = true }
+pgzest-query = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

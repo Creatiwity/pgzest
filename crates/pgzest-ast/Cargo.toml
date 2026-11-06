@@ -1,7 +1,13 @@
 [package]
 name = "pgzest-ast"
-version = "0.1.0"
-edition = "2024"
+description = "pgzest internals: PostgreSQL syntax tree, spans and SQL emission"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
 serde = { workspace = true }

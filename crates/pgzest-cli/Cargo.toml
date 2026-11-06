@@ -1,26 +1,35 @@
 [package]
 name = "pgzest"
-version = "0.1.0"
-edition = "2024"
+description = "Raw PostgreSQL, with zest: SQL checked the way PostgreSQL would, without a database. CLI and language server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "../../README.md"
+keywords = ["postgresql", "sql", "plpgsql", "lsp", "type-checker"]
+categories = ["command-line-utilities", "database", "development-tools"]
 
 [[bin]]
 name = "pgzest"
 path = "src/main.rs"
 
 [dependencies]
-pgzest-catalog = { path = "../pgzest-catalog" }
-pgzest-sema = { path = "../pgzest-sema" }
-pgzest-analysis = { path = "../pgzest-analysis" }
-pgzest-ast = { path = "../pgzest-ast" }
-pgzest-expand = { path = "../pgzest-expand" }
+pgzest-catalog = { workspace = true }
+pgzest-sema = { workspace = true }
+pgzest-analysis = { workspace = true }
+pgzest-ast = { workspace = true }
+pgzest-expand = { workspace = true }
 pgzest-diagnostics = { workspace = true }
-pgzest-schema = { path = "../pgzest-schema" }
-pgzest-parser = { path = "../pgzest-parser" }
-pgzest-query = { path = "../pgzest-query" }
-pgzest-codegen = { path = "../pgzest-codegen" }
-pgzest-lint = { path = "../pgzest-lint" }
-pgzest-plugin = { path = "../pgzest-plugin" }
-pgzest-oracle = { path = "../pgzest-oracle" }
+pgzest-schema = { workspace = true }
+pgzest-parser = { workspace = true }
+pgzest-query = { workspace = true }
+pgzest-codegen = { workspace = true }
+pgzest-lint = { workspace = true }
+pgzest-plugin = { workspace = true }
+pgzest-oracle = { workspace = true }
 similar = "3"
 
 serde = { workspace = true }

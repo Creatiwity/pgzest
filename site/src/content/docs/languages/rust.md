@@ -40,8 +40,8 @@ directory = "queries"
 ```toml
 # Cargo.toml
 [dependencies]
-pgzest-runtime = { path = "…/crates/pgzest-runtime" }
-pgzest-macros  = { path = "…/crates/pgzest-macros" }   # queries!, query!
+pgzest-runtime = "0.1"
+pgzest-macros  = "0.1"   # queries!, query!
 tokio-postgres  = { version = "0.7", features = ["with-time-0_3", "with-uuid-1"] }
 time = "0.3"      # dates (or chrono, see below)
 uuid = "1"        # if the schema has uuids
@@ -133,7 +133,7 @@ Macro-free variant, from `build.rs` (the whole `[queries] directory`,
 including files added to it, tracked by Cargo):
 
 ```rust
-// build.rs  ([build-dependencies] pgzest-build)
+// build.rs  ([build-dependencies] pgzest-build = "0.1")
 fn main() {
     pgzest_build::Builder::new()
         .generate()

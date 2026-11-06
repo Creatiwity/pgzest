@@ -2,6 +2,8 @@
 name = "pgzest-node"
 version = "0.1.0"
 edition = "2024"
+# Frozen until P8 (PLAN.md): not published.
+publish = false
 
 [lib]
 crate-type = ["cdylib"]

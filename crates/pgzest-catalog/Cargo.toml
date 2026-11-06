@@ -1,16 +1,21 @@
 [package]
 name = "pgzest-catalog"
-version = "0.1.0"
-edition = "2024"
-description = "pgzest's PostgreSQL catalog: model, generated packs, DDL application"
+description = "pgzest internals: model of the PostgreSQL catalog, generated packs, DDL replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-ast = { path = "../pgzest-ast" }
+pgzest-ast = { workspace = true }
 pgzest-diagnostics = { workspace = true }
 # Transitional bridge to `SchemaProvider` (`compat` module), removed at the end of P2.
-pgzest-schema = { path = "../pgzest-schema" }
-pgzest-expand = { path = "../pgzest-expand" }
-pgzest-parser = { path = "../pgzest-parser" }
+pgzest-schema = { workspace = true }
+pgzest-expand = { workspace = true }
+pgzest-parser = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -1,8 +1,16 @@
 [package]
 name = "pgzest-runtime"
-version = "0.1.0"
-edition = "2024"
-description = "Execution of pgzest-generated queries on tokio-postgres (PLAN.md D8)"
+description = "Runs pgzest-generated PostgreSQL queries on tokio-postgres"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["postgresql", "sql", "tokio-postgres", "database"]
+categories = ["database", "asynchronous"]
 
 [dependencies]
 tokio-postgres = { workspace = true }
@@ -17,6 +25,9 @@ opentelemetry = { version = "0.33", default-features = false, features = ["trace
 [features]
 trace = ["dep:serde_json", "dep:chrono"]
 opentelemetry = ["trace", "dep:opentelemetry"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dev-dependencies]
 pgzest-expand = { path = "../pgzest-expand" }

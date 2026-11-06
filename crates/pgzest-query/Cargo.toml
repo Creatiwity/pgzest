@@ -1,16 +1,21 @@
 [package]
 name = "pgzest-query"
-version = "0.1.0"
-edition = "2024"
-description = "Named queries: file format, positional rewriting, query descriptor"
+description = "pgzest internals: named queries and the query descriptor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-ast = { path = "../pgzest-ast" }
-pgzest-catalog = { path = "../pgzest-catalog" }
+pgzest-ast = { workspace = true }
+pgzest-catalog = { workspace = true }
 pgzest-diagnostics = { workspace = true }
-pgzest-expand = { path = "../pgzest-expand" }
-pgzest-parser = { path = "../pgzest-parser" }
-pgzest-sema = { path = "../pgzest-sema" }
+pgzest-expand = { workspace = true }
+pgzest-parser = { workspace = true }
+pgzest-sema = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.11"

@@ -107,6 +107,23 @@ jobs:
       - name: Example Rust service (generated queries, executed)
         run: cargo test -p pgzest-example-rust-service -- --ignored
 
+  # What `cargo publish` would upload, built from the packaged sources
+  # alone: a file outside a crate or a missing version fails here, not
+  # on release day.
+  package:
+    name: Crates package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Package and verify
+        run: cargo publish --workspace --dry-run --locked
+
   # The npm package (npm/pgzest) is frozen until P8, which rebuilds it on
   # top of the query descriptor (PLAN.md): it is not checked here.
   vscode:
@@ -123,8 +140,12 @@ jobs:
         run: npm ci --no-fund --no-audit
         working-directory: editors/vscode
 
-      - name: Build
-        run: npx tsc -p ./
+      - name: Typecheck and bundle
+        run: npm run compile
+        working-directory: editors/vscode
+
+      - name: Package
+        run: npx vsce package --out pgzest.vsix
         working-directory: editors/vscode
 
   site:

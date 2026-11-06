@@ -1,0 +1,197 @@
+name: Release
+
+# Runs on a version tag only (`vX.Y.Z`, pushed by a maintainer after the
+# release commit, see RELEASING.md). Builds the `pgzest` binary and the
+# platform-specific VS Code extensions, creates the GitHub release, then
+# publishes to crates.io, the VS Code Marketplace and Open VSX. The three
+# publishing jobs run in the `release` environment: its protection rules
+# (required reviewers) are the last approval before anything is public.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  # The tag, the crates, the extension and the changelog must agree before
+  # anything is built.
+  check:
+    name: Versions and changelog
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: version
+        name: Check versions
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          crates=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          extension=$(node -p "require('./editors/vscode/package.json').version")
+          echo "tag $version, crates $crates, extension $extension"
+          if [ "$crates" != "$version" ] || [ "$extension" != "$version" ]; then
+            echo "::error::the tag, Cargo.toml ([workspace.package]) and editors/vscode/package.json must carry the same version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check the changelog
+        run: |
+          grep -q "^## \[${{ steps.version.outputs.version }}\]" CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no section for ${{ steps.version.outputs.version }} (git cliff, see RELEASING.md)"; exit 1; }
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Linux on the oldest supported runner: the binary links against
+          # its glibc (2.35), so it also runs on older distributions.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, vscode: linux-x64, archive: tar.gz }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, vscode: linux-arm64, archive: tar.gz }
+          - { target: aarch64-apple-darwin, os: macos-latest, vscode: darwin-arm64, archive: tar.gz }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, vscode: win32-x64, archive: zip }
+    steps:
+      - uses: actions/checkout@v7
+
+      # rust-toolchain.toml drives the installed version.
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - name: Build
+        run: cargo build --release --locked -p pgzest --target ${{ matrix.target }}
+
+      - name: Archive
+        shell: bash
+        run: |
+          name="pgzest-${{ needs.check.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          exe=pgzest; [ "${{ runner.os }}" = Windows ] && exe=pgzest.exe
+          cp "target/${{ matrix.target }}/release/$exe" README.md LICENSE-MIT LICENSE-APACHE CHANGELOG.md "dist/$name/"
+          cd dist
+          if [ "${{ matrix.archive }}" = zip ]; then
+            7z a -bd "$name.zip" "$name" >/dev/null
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+          rm -rf "$name"
+          # One checksum file per archive: the release gathers them.
+          for f in *; do
+            if command -v sha256sum >/dev/null; then sha256sum "$f"; else shasum -a 256 "$f"; fi > "$f.sha256"
+          done
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # The extension of this platform, with the binary in server/.
+      - name: VS Code extension
+        shell: bash
+        working-directory: editors/vscode
+        run: |
+          npm ci --no-fund --no-audit
+          mkdir -p server
+          exe=pgzest; [ "${{ runner.os }}" = Windows ] && exe=pgzest.exe
+          cp "../../target/${{ matrix.target }}/release/$exe" server/
+          npx vsce package --target ${{ matrix.vscode }} \
+            --out "../../dist/pgzest-${{ needs.check.outputs.version }}-${{ matrix.vscode }}.vsix"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  github:
+    name: GitHub release
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      # The notes are this version's section of CHANGELOG.md.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ needs.check.outputs.version }}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --title "pgzest $version" --notes-file notes.md --verify-tag
+
+  crates-io:
+    name: Publish to crates.io
+    needs: [check, github]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: rustup toolchain install
+
+      # Every publishable crate of the workspace, in dependency order.
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --workspace --locked
+
+  vscode:
+    name: Publish to the VS Code Marketplace and Open VSX
+    needs: [check, github]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Install the publishing tools
+        working-directory: editors/vscode
+        run: npm ci --no-fund --no-audit
+
+      - name: VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        working-directory: editors/vscode
+        run: |
+          for vsix in ../../dist/*.vsix; do
+            npx vsce publish --packagePath "$vsix"
+          done
+
+      - name: Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        working-directory: editors/vscode
+        run: |
+          for vsix in ../../dist/*.vsix; do
+            npx ovsx publish "$vsix"
+          done

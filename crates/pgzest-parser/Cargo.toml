@@ -1,10 +1,16 @@
 [package]
 name = "pgzest-parser"
-version = "0.1.0"
-edition = "2024"
+description = "pgzest internals: PostgreSQL and PL/pgSQL parser, on top of sqlparser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 
 [dependencies]
-pgzest-ast = { path = "../pgzest-ast" }
+pgzest-ast = { workspace = true }
 sqlparser = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }

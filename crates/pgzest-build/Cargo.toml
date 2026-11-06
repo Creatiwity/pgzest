@@ -1,14 +1,22 @@
 [package]
 name = "pgzest-build"
-version = "0.1.0"
-edition = "2024"
-description = "Named query generation for build.rs (PLAN.md §5, P5)"
+description = "Typed Rust from named PostgreSQL queries, generated in build.rs, checked without a database"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["postgresql", "sql", "codegen", "typed", "build"]
+categories = ["database", "development-tools::build-utils"]
 
 [dependencies]
-pgzest-catalog = { path = "../pgzest-catalog" }
-pgzest-codegen = { path = "../pgzest-codegen" }
+pgzest-catalog = { workspace = true }
+pgzest-codegen = { workspace = true }
 pgzest-diagnostics = { workspace = true }
-pgzest-expand = { path = "../pgzest-expand" }
-pgzest-query = { path = "../pgzest-query" }
-pgzest-schema = { path = "../pgzest-schema" }
-pgzest-sema = { path = "../pgzest-sema" }
+pgzest-expand = { workspace = true }
+pgzest-query = { workspace = true }
+pgzest-schema = { workspace = true }
+pgzest-sema = { workspace = true }
