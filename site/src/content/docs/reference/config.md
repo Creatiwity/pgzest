@@ -178,4 +178,5 @@ form is settled when they are implemented.
 - `[schema] namespaces` — default PostgreSQL schema for a schema
   directory, e.g. `{ "schema/auth" = "auth" }`.
 - Extensions are **not** configured here: they are inferred from the
-  `CREATE EXTENSION` statements in the schema and migrations.
+  `CREATE EXTENSION` statements in the schema and migrations (see
+  [Versions and extensions](../postgres-and-extensions/)).

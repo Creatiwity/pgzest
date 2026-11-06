@@ -1149,6 +1149,14 @@ Found while checking the claims (to fix, outside P10):
   function there never meets the `CREATE TRIGGER` of the same file
   (`trigger-no-context`, body unchecked) — `examples/playground/queries/
   06-macros.pgsql`. CLI and LSP alike.
+- Parenthesized joins (`t JOIN (u JOIN v ON …) ON …`, `FROM (t JOIN u
+  ON …) AS x`) and, since sqlparser 0.63, right-deep joins (`t JOIN u
+  JOIN v ON … ON …`): parsed, but `TableFactor::NestedJoin` is not
+  converted (`unsupported-statement`). Found 2026-11-06.
+- `ORDER BY … USING <op>`: parsed since sqlparser 0.63, not modeled.
+- The `[plugins] builtin postgis` plugin is a hand-written list of
+  PostGIS signatures fed to plugin rules only: redundant with the
+  generated `postgis@3.6.4` pack that the analysis uses, and against D9.
 
 ### Possible parallelization
 

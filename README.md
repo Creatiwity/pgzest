@@ -133,11 +133,13 @@ pgzest works on real projects' schemas and is tested against PostgreSQL
 
 - not published to crates.io or npm, nor the extension to the VS Code
   marketplace: build from this repository;
-- PostgreSQL 18 only;
+- PostgreSQL 18 only; the extensions covered are listed in
+  [versions and extensions](./site/src/content/docs/reference/postgres-and-extensions.md);
 - Rust only for now — TypeScript is the next phase, .NET considered
   after ([languages](./site/src/content/docs/languages/index.md));
 - known gaps are listed, not hidden: a `ROWS FROM (…)` the parser does not
-  read yet, DDL in a file classified as queries not applied
+  read yet, parenthesized joins not analyzed, DDL in a file classified as
+  queries not applied
   ([`PLAN.md`](./PLAN.md), the steering document, has the phases and the
   open items).
 

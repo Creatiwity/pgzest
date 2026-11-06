@@ -42,6 +42,7 @@ export default defineConfig({
           items: [
             'reference/cli',
             'reference/config',
+            'reference/postgres-and-extensions',
             'reference/named-queries',
             'reference/diagnostics',
             'reference/macro-format',
