@@ -96,12 +96,17 @@ the same case everywhere.
 
 ### Open VSX (VSCodium, Cursor, Windsurf, Gitpod…)
 
+Open VSX publishes through **trusted publishing**: the workflow exchanges
+its OIDC token for a five-minute publishing token, no secret to store.
+Its registration requires an already published version, so the very
+first release uses a token once.
+
 1. Sign in at [open-vsx.org](https://open-vsx.org) with GitHub, and sign
    the Eclipse Foundation publisher agreement it asks for (an Eclipse
    account linked to the GitHub one).
 2. [Settings → Access Tokens](https://open-vsx.org/user-settings/tokens):
-   generate a token.
-3. Create the namespace once, matching the publisher:
+   generate a token, and create the namespace once, matching the
+   publisher:
 
    ```sh
    npx ovsx create-namespace Creatiwity -p <token>
@@ -110,7 +115,16 @@ the same case everywhere.
    then claim its ownership (verified namespace) through the
    [namespace claim](https://github.com/EclipseFdn/open-vsx.org/issues/new/choose)
    issue template.
-4. Repository secret `OVSX_PAT`.
+3. For the first release only: the token as the `OVSX_PAT` secret of the
+   `release` environment.
+4. Once 0.1.0 is on Open VSX:
+   [Settings → Trusted Publishers](https://open-vsx.org/user-settings/trusted-publishers),
+   namespace `Creatiwity`, repository `Creatiwity/pgzest`, workflow
+   `release.yml`, environment `release`. Then **delete the `OVSX_PAT`
+   secret** (when present, it takes precedence over OIDC) and revoke the
+   token: later releases publish without it.
+
+Trusted publishing requires a public repository.
 
 ### GitHub Pages
 

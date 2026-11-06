@@ -161,6 +161,11 @@ jobs:
     needs: [check, github]
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      contents: read
+      # Open VSX trusted publishing: the run's OIDC token is exchanged
+      # for a short-lived publishing token.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
 
@@ -187,11 +192,21 @@ jobs:
             npx vsce publish --packagePath "$vsix"
           done
 
+      # Trusted publishing (OIDC, no stored token) once registered on
+      # Open VSX. Its registration needs a published version, so the first
+      # release uses an OVSX_PAT secret; delete the secret afterwards: when
+      # present, it takes precedence over OIDC.
       - name: Open VSX
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         working-directory: editors/vscode
         run: |
+          if [ -n "$OVSX_PAT" ]; then
+            mode=()
+          else
+            unset OVSX_PAT
+            mode=(--trusted-publishing)
+          fi
           for vsix in ../../dist/*.vsix; do
-            npx ovsx publish "$vsix"
+            npx ovsx publish "${mode[@]}" "$vsix"
           done
