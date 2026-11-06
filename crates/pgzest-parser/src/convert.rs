@@ -119,13 +119,15 @@ pub fn convert_statement(stmt: sp::Statement) -> Result<Statement, ParseError> {
         ))),
         sp::Statement::CreateSchema {
             schema_name,
+            or_replace,
             if_not_exists,
             options,
             default_collate_spec,
             clone,
             with,
         } => {
-            if options.is_some()
+            if or_replace
+                || options.is_some()
                 || default_collate_spec.is_some()
                 || clone.is_some()
                 || with.is_some()
@@ -1035,12 +1037,24 @@ fn convert_join_constraint(c: sp::JoinConstraint) -> Result<JoinConstraint, Pars
 }
 
 fn convert_order_by_expr(o: sp::OrderByExpr) -> Result<OrderByExpr, ParseError> {
-    // In 0.62, asc/nulls_first live inside OrderByOptions
     Ok(OrderByExpr {
         expr: convert_expr(o.expr)?,
-        asc: o.options.asc,
+        asc: sort_ascending(o.options.sort)?,
         nulls_first: o.options.nulls_first,
     })
+}
+
+/// `ASC` / `DESC` of an `ORDER BY` item or an index column. `USING op`
+/// orders by an operator, which the analysis does not model.
+fn sort_ascending(sort: Option<sp::OrderBySort>) -> Result<Option<bool>, ParseError> {
+    match sort {
+        None => Ok(None),
+        Some(sp::OrderBySort::Asc) => Ok(Some(true)),
+        Some(sp::OrderBySort::Desc) => Ok(Some(false)),
+        Some(sp::OrderBySort::Using(_)) => Err(ParseError::Unsupported(
+            "ORDER BY … USING operator".to_string(),
+        )),
+    }
 }
 
 // ── Expression conversion ─────────────────────────────────────────────────────
@@ -1275,7 +1289,7 @@ fn convert_expr_kind(expr: sp::Expr) -> Result<ExprKind, ParseError> {
             let pattern_expr = convert_expr(*pattern)?;
             let mut args = vec![pattern_expr];
             if let Some(e) = escape_char {
-                args.push(Expr::bare(convert_value(e.value)?));
+                args.push(convert_expr(*e)?);
             }
             Ok(ExprKind::BinaryOp {
                 left: Box::new(convert_expr(*expr)?),
@@ -1559,14 +1573,14 @@ fn grouping_sets(
 fn escaped_pattern(
     escape_fn: &str,
     pattern: sp::Expr,
-    escape: Option<sp::ValueWithSpan>,
+    escape: Option<Box<sp::Expr>>,
 ) -> Result<Expr, ParseError> {
     let pattern = convert_expr(pattern)?;
     match escape {
         None => Ok(pattern),
         Some(e) => Ok(Expr::bare(system_call(
             escape_fn,
-            vec![pattern, Expr::bare(convert_value(e.value)?)],
+            vec![pattern, convert_expr(*e)?],
         )?)),
     }
 }
@@ -2533,7 +2547,7 @@ fn convert_create_index(ci: sp::CreateIndex) -> Result<CreateIndex, ParseError> 
             Ok(IndexColumn {
                 element,
                 opclass: ic.operator_class.map(convert_object_name),
-                descending: ic.column.options.asc == Some(false),
+                descending: sort_ascending(ic.column.options.sort)? == Some(false),
                 nulls_first: ic.column.options.nulls_first,
             })
         })
@@ -2910,8 +2924,10 @@ pub(crate) fn convert_data_type(dt: sp::DataType) -> Result<DataType, ParseError
                 sp::ArrayElemTypeDef::None => {
                     return Ok(DataType::Custom("array".to_string()));
                 }
+                // `INT ARRAY[4]` is the standard spelling of `INT[4]`.
                 sp::ArrayElemTypeDef::AngleBracket(inner)
                 | sp::ArrayElemTypeDef::SquareBracket(inner, _)
+                | sp::ArrayElemTypeDef::Qualified(inner, _)
                 | sp::ArrayElemTypeDef::Parenthesis(inner) => *inner,
             };
             Ok(DataType::Array(Box::new(convert_data_type(inner)?)))

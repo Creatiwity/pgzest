@@ -37,7 +37,7 @@ const PG: PostgreSqlDialect = PostgreSqlDialect {};
 /// (120 in sqlparser), below brackets (130), `::` and `.`.
 const UMINUS_PREC: u8 = 125;
 
-/// Methods overridden by `PostgreSqlDialect` in sqlparser 0.62, all
+/// Methods overridden by `PostgreSqlDialect` in sqlparser 0.63, all
 /// delegated below. Kept up to date by the `dialect_parity` test.
 pub const DELEGATED: &[&str] = &[
     "identifier_quote_style",
@@ -78,6 +78,12 @@ pub const DELEGATED: &[&str] = &[
     "supports_comma_separated_trim",
     "supports_xml_expressions",
     "supports_comment_optimizer_hint",
+    "is_table_alias",
+    "supports_aliased_function_args",
+    "supports_alter_user_as_alter_role",
+    "supports_exclude_constraint",
+    "supports_left_associative_joins_without_parens",
+    "supports_order_by_using_operator",
 ];
 
 impl Dialect for PgzestDialect {
@@ -340,5 +346,23 @@ impl Dialect for PgzestDialect {
     }
     fn supports_comment_optimizer_hint(&self) -> bool {
         PG.supports_comment_optimizer_hint()
+    }
+    fn is_table_alias(&self, kw: &Keyword, parser: &mut Parser) -> bool {
+        PG.is_table_alias(kw, parser)
+    }
+    fn supports_aliased_function_args(&self) -> bool {
+        PG.supports_aliased_function_args()
+    }
+    fn supports_alter_user_as_alter_role(&self) -> bool {
+        PG.supports_alter_user_as_alter_role()
+    }
+    fn supports_exclude_constraint(&self) -> bool {
+        PG.supports_exclude_constraint()
+    }
+    fn supports_left_associative_joins_without_parens(&self) -> bool {
+        PG.supports_left_associative_joins_without_parens()
+    }
+    fn supports_order_by_using_operator(&self) -> bool {
+        PG.supports_order_by_using_operator()
     }
 }

@@ -1,8 +1,8 @@
 # Corpus `siren` — analysis rate
 
-> Generated on 2026-11-03 by `cargo xtask corpus siren` (pgzest `d49e938`).
-> Files selected: Diesel: `*/up.sql`, sorted by timestamped directory.
-> Aggregates only: no identifier from the corpus appears here.
+> Generated on 2026-11-06 by `cargo xtask corpus siren` (pgzest `3b3ade6`).
+> Files kept: Diesel: `*/up.sql`, sorted by timestamped directory.
+> Aggregates only: no corpus identifier appears here.
 
 ## Reading
 
@@ -12,7 +12,7 @@
 | Unreadable files | 0 |
 | Statements | 294 |
 | Analyzed (in the AST) | 294 (100 %) |
-| Skipped: unreadable by sqlparser | 0 |
+| Skipped: unreadable for sqlparser | 0 |
 | Skipped: not modeled | 0 |
 | Functions and procedures | 10 |
 | PL/pgSQL bodies analyzed | 5 |
@@ -21,7 +21,7 @@
 
 ## `check` diagnostics
 
-Each migration is checked against the catalog replayed up to it (inclusive), including the `postgres@18` catalog and extensions. Since the migrations have been applied in production, an error is presumably a false positive.
+Each migration is checked against the catalog replayed up to it (inclusive), `postgres@18` catalog and extensions included. Since the migrations were applied in production, an error is presumably a false positive.
 
 Files with at least one error: 0/21. Statements missing from the index: 0.
 
@@ -31,7 +31,7 @@ Files with at least one error: 0/21. Statements missing from the index: 0.
 
 ## Replay on PostgreSQL
 
-PostgreSQL 18: 21/21 migrations applied on a fresh database.
+PostgreSQL 18: 21/21 migrations applied to an empty database.
 
 ## Catalog rebuilt by pgzest
 
@@ -48,7 +48,7 @@ Comparison with the real catalog (project objects, excluding extension members; 
 | columns | 232 | 232 | 0 | 0 | 0 | 0 |
 | constraints | 12 | 12 | 0 | 0 | 0 | 0 |
 | extensions | 5 | 5 | 0 | 0 | 0 | 0 |
-| indexes | 45 | 45 | 0 | 0 | 0 | 0 |
+| index | 45 | 45 | 0 | 0 | 0 | 0 |
 | policies | 0 | 0 | 0 | 0 | 0 | 0 |
 | relations | 12 | 12 | 0 | 0 | 0 | 0 |
 | routines | 8 | 8 | 0 | 0 | 0 | 0 |
@@ -59,14 +59,14 @@ Comparison with the real catalog (project objects, excluding extension members; 
 
 ## Import (declarative schema)
 
-The rebuilt catalog, exported as SQL (`pgzest_catalog::dump`) and applied to a fresh database, compared with the real catalog of the migrations:
+The rebuilt catalog, exported as SQL (`pgzest_catalog::dump`) and applied to an empty database, compared with the real catalog of the migrations:
 
 | Objects | Real | Identical | Different | Missing | Extra |
 |---|--:|--:|--:|--:|--:|
 | columns | 232 | 232 | 0 | 0 | 0 |
 | constraints | 12 | 12 | 0 | 0 | 0 |
 | extensions | 5 | 5 | 0 | 0 | 0 |
-| indexes | 45 | 45 | 0 | 0 | 0 |
+| index | 45 | 45 | 0 | 0 | 0 |
 | policies | 0 | 0 | 0 | 0 | 0 |
 | relations | 12 | 12 | 0 | 0 | 0 |
 | routines | 8 | 8 | 0 | 0 | 0 |
@@ -75,11 +75,11 @@ The rebuilt catalog, exported as SQL (`pgzest_catalog::dump`) and applied to a f
 | triggers | 2 | 0 | 0 | 2 | 0 |
 | types | 12 | 12 | 0 | 0 | 0 |
 
-Text-exact, according to PostgreSQL (`format_type`, `pg_get_*def`: defaults, indexes, views, routine bodies; P7 migration oracle, NOT NULL constraint names excepted), 386 description line(s) compared: 2 only in the migrations, 0 only in the import.
+Down to the text, according to PostgreSQL (`format_type`, `pg_get_*def`: defaults, indexes, views, routine bodies; P7 migration oracle, except NOT NULL constraint names), 386 description line(s) compared: 2 only in migrations, 0 only in import.
 
 ## Generated queries (oracle)
 
-Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations' database and described by `pgzest-sema` (parameter types, column names and types; a refusal on both sides counts as agreement). Queries from the bodies of current routines are prepared with their variables as typed parameters (`PREPARE`), the way PL/pgSQL executes them; only column types are compared:
+Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations' database and described by `pgzest-sema` (parameter types, column names and types; a refusal on both sides counts as agreement). Queries of the current routine bodies are prepared with their variables as typed parameters (`PREPARE`), as PL/pgSQL runs them; only column types are compared:
 
 | Probe | Total | Identical |
 |---|--:|--:|
@@ -88,12 +88,12 @@ Probes drawn from the rebuilt catalog, prepared by PostgreSQL on the migrations'
 | WHERE column = $1 | 232 | 232 |
 | routine body query | 10 | 10 |
 
-Body queries not probed (not analyzed by pgzest, or variable without a position in the AST): 0.
+Unprobed body queries (not analyzed by pgzest, or variable without a position in the AST): 0.
 
 ## Time (indicative, machine-dependent)
 
 | Step | Duration |
 |---|--:|
-| Parse all files | 29 ms |
-| Check all files | 100 ms |
-| Replay on the catalog (`pgzest-catalog`) | 40 ms |
+| Parse of all files | 21 ms |
+| Check of all files | 100 ms |
+| Replay on the catalog (`pgzest-catalog`) | 39 ms |

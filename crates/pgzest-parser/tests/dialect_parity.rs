@@ -6,7 +6,7 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 /// sqlparser version for which the `DELEGATED` list was established.
-const AUDITED_SQLPARSER_VERSION: &str = "0.62.0";
+const AUDITED_SQLPARSER_VERSION: &str = "0.63.0";
 
 #[test]
 fn the_sqlparser_version_is_the_audited_one() {
