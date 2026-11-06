@@ -58,10 +58,12 @@ convention do not appear in it.
    changelog agree, builds, and creates the GitHub release. Approve the
    `release` environment in the workflow run to publish.
 
-A failed publishing job can be re-run from the workflow; `cargo publish`
-refuses a version already on crates.io, so after a partial crates.io
-publication, publish the remaining crates by hand (`cargo publish -p …`)
-in dependency order.
+A failed publishing job can be re-run from the workflow. crates.io
+publishing is resumable: `.github/scripts/publish-crates.sh` skips the
+versions already published and waits out rate limits (new crates: a
+burst of 5, then one every 10 minutes — the first release takes about two
+hours). To complete a release whose run is over, run the **Publish
+crates** workflow by hand with the tag.
 
 ## One-time setup
 

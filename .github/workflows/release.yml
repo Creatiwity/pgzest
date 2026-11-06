@@ -144,17 +144,20 @@ jobs:
     needs: [check, github]
     runs-on: ubuntu-latest
     environment: release
+    # New crates are rate limited (one every 10 minutes after a burst of 5).
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust
         run: rustup toolchain install
 
-      # Every publishable crate of the workspace, in dependency order.
+      # Every publishable crate, in dependency order; can be run again
+      # after a partial publication (Publish crates workflow).
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --workspace --locked
+        run: .github/scripts/publish-crates.sh
 
   vscode:
     name: Publish to the VS Code Marketplace and Open VSX

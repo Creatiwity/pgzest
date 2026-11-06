@@ -1,0 +1,42 @@
+name: Publish crates
+
+# Completes the crates.io publication of a release after a partial
+# failure (rate limit, network): the crates of the tag that are not on
+# crates.io yet are published, in dependency order. The script comes
+# from main, the crates from the tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (vX.Y.Z)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.tag }} to crates.io
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ci
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          path: src
+
+      - name: Install Rust
+        working-directory: src
+        run: rustup toolchain install
+
+      - name: Publish
+        working-directory: src
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: ../ci/.github/scripts/publish-crates.sh
