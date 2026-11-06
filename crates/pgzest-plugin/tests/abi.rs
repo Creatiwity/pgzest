@@ -3,7 +3,7 @@
 //! diagnostics read back from linear memory.
 
 use pgzest_diagnostics::Severity;
-use pgzest_plugin_wasm::WasmPlugin;
+use pgzest_plugin::WasmPlugin;
 use pgzest_schema::provider::CompositeSchemaProvider;
 
 /// Answers `pgzest_check_table` with one diagnostic whose message says

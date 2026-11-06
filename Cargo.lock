@@ -1155,22 +1155,22 @@ dependencies = [
  "pgzest-analysis",
  "pgzest-ast",
  "pgzest-catalog",
- "pgzest-checker",
  "pgzest-codegen",
  "pgzest-diagnostics",
+ "pgzest-expand",
  "pgzest-lint",
- "pgzest-macro",
  "pgzest-oracle",
  "pgzest-parser",
  "pgzest-plugin",
- "pgzest-plugin-wasm",
  "pgzest-query",
  "pgzest-schema",
  "pgzest-sema",
+ "serde",
  "serde_json",
  "similar 3.2.1",
  "tokio",
  "tokio-postgres",
+ "tower-lsp",
 ]
 
 [[package]]
@@ -1179,14 +1179,16 @@ version = "0.1.0"
 dependencies = [
  "pgzest-ast",
  "pgzest-catalog",
- "pgzest-checker",
  "pgzest-codegen",
  "pgzest-diagnostics",
+ "pgzest-expand",
  "pgzest-lint",
- "pgzest-macro",
  "pgzest-parser",
  "pgzest-query",
  "pgzest-schema",
+ "pgzest-sema",
+ "salsa",
+ "serde_json",
 ]
 
 [[package]]
@@ -1203,7 +1205,7 @@ dependencies = [
  "pgzest-catalog",
  "pgzest-codegen",
  "pgzest-diagnostics",
- "pgzest-macro",
+ "pgzest-expand",
  "pgzest-query",
  "pgzest-schema",
  "pgzest-sema",
@@ -1215,23 +1217,10 @@ version = "0.1.0"
 dependencies = [
  "pgzest-ast",
  "pgzest-diagnostics",
- "pgzest-macro",
+ "pgzest-expand",
  "pgzest-parser",
  "pgzest-schema",
  "serde",
- "serde_json",
-]
-
-[[package]]
-name = "pgzest-checker"
-version = "0.1.0"
-dependencies = [
- "pgzest-ast",
- "pgzest-catalog",
- "pgzest-diagnostics",
- "pgzest-parser",
- "pgzest-schema",
- "pgzest-sema",
  "serde_json",
 ]
 
@@ -1271,13 +1260,22 @@ name = "pgzest-example-rust-service"
 version = "0.1.0"
 dependencies = [
  "pgzest-build",
- "pgzest-macro",
+ "pgzest-expand",
  "pgzest-macros",
  "pgzest-runtime",
  "time",
  "tokio",
  "tokio-postgres",
  "uuid",
+]
+
+[[package]]
+name = "pgzest-expand"
+version = "0.1.0"
+dependencies = [
+ "pgzest-ast",
+ "pgzest-diagnostics",
+ "pgzest-parser",
 ]
 
 [[package]]
@@ -1288,37 +1286,6 @@ dependencies = [
  "pgzest-diagnostics",
  "pgzest-parser",
  "serde",
-]
-
-[[package]]
-name = "pgzest-lsp"
-version = "0.1.0"
-dependencies = [
- "pgzest-analysis",
- "pgzest-ast",
- "pgzest-catalog",
- "pgzest-checker",
- "pgzest-diagnostics",
- "pgzest-lint",
- "pgzest-macro",
- "pgzest-plugin-wasm",
- "pgzest-project",
- "pgzest-query",
- "pgzest-schema",
- "pgzest-sema",
- "serde",
- "serde_json",
- "tokio",
- "tower-lsp",
-]
-
-[[package]]
-name = "pgzest-macro"
-version = "0.1.0"
-dependencies = [
- "pgzest-ast",
- "pgzest-diagnostics",
- "pgzest-parser",
 ]
 
 [[package]]
@@ -1341,8 +1308,8 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "pgzest-analysis",
  "pgzest-catalog",
- "pgzest-checker",
  "pgzest-codegen",
  "pgzest-diagnostics",
  "pgzest-lint",
@@ -1360,7 +1327,7 @@ dependencies = [
  "pgzest-ast",
  "pgzest-catalog",
  "pgzest-diagnostics",
- "pgzest-macro",
+ "pgzest-expand",
  "pgzest-parser",
  "pgzest-query",
  "pgzest-schema",
@@ -1374,8 +1341,8 @@ dependencies = [
 name = "pgzest-parser"
 version = "0.1.0"
 dependencies = [
+ "pgzest-analysis",
  "pgzest-ast",
- "pgzest-checker",
  "serde",
  "serde_json",
  "sqlparser",
@@ -1386,19 +1353,8 @@ dependencies = [
 name = "pgzest-plugin"
 version = "0.1.0"
 dependencies = [
+ "pgzest-analysis",
  "pgzest-ast",
- "pgzest-checker",
- "pgzest-diagnostics",
- "pgzest-schema",
- "serde_json",
-]
-
-[[package]]
-name = "pgzest-plugin-wasm"
-version = "0.1.0"
-dependencies = [
- "pgzest-ast",
- "pgzest-checker",
  "pgzest-diagnostics",
  "pgzest-schema",
  "serde",
@@ -1409,21 +1365,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgzest-project"
-version = "0.1.0"
-dependencies = [
- "pgzest-ast",
- "pgzest-catalog",
- "pgzest-checker",
- "pgzest-diagnostics",
- "pgzest-macro",
- "pgzest-parser",
- "pgzest-schema",
- "pgzest-sema",
- "salsa",
-]
-
-[[package]]
 name = "pgzest-query"
 version = "0.1.0"
 dependencies = [
@@ -1431,7 +1372,7 @@ dependencies = [
  "pgzest-ast",
  "pgzest-catalog",
  "pgzest-diagnostics",
- "pgzest-macro",
+ "pgzest-expand",
  "pgzest-parser",
  "pgzest-sema",
  "serde",
@@ -1449,7 +1390,7 @@ dependencies = [
  "futures-util",
  "opentelemetry",
  "opentelemetry_sdk",
- "pgzest-macro",
+ "pgzest-expand",
  "serde_json",
  "tokio",
  "tokio-postgres",
@@ -1461,7 +1402,7 @@ version = "0.1.0"
 dependencies = [
  "pgzest-ast",
  "pgzest-diagnostics",
- "pgzest-macro",
+ "pgzest-expand",
  "serde",
  "serde_json",
  "toml",
@@ -1484,8 +1425,8 @@ dependencies = [
 name = "pgzest-wasm"
 version = "0.1.0"
 dependencies = [
+ "pgzest-analysis",
  "pgzest-catalog",
- "pgzest-checker",
  "pgzest-codegen",
  "pgzest-diagnostics",
  "pgzest-lint",

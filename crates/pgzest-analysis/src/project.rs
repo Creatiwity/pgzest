@@ -29,7 +29,7 @@ use pgzest_ast::Statement;
 use pgzest_catalog::ProjectCatalog;
 use pgzest_catalog::project::{ProjectBuilder, parse_source};
 use pgzest_diagnostics::Diagnostic;
-use pgzest_macro::MacroSet;
+use pgzest_expand::MacroSet;
 use pgzest_parser::{ParseError, ParseOutcome};
 use pgzest_schema::{FileRole, SqlChunk};
 use salsa::Setter;
@@ -198,10 +198,7 @@ pub fn check_file(db: &dyn Db, project: Project, file: SourceFile) -> FileDiagno
     }
     let state = project_catalog(db, project);
     let stmts = parse_file(db, project, file).statements();
-    FileDiagnostics(Arc::new(pgzest_checker::check_statements(
-        stmts,
-        state.0.as_ref(),
-    )))
+    FileDiagnostics(Arc::new(crate::check_statements(stmts, state.0.as_ref())))
 }
 
 // ── Workspace ─────────────────────────────────────────────────────────────────

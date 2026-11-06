@@ -201,7 +201,7 @@ pub struct Project {
     pub config: ProjectConfig,
     pub catalog: pgzest_catalog::ProjectCatalog,
     /// Project macros and fragments (`[macros] directory`).
-    pub macros: pgzest_macro::MacroSet,
+    pub macros: pgzest_expand::MacroSet,
     pub files: Vec<PathBuf>,
 }
 
@@ -214,7 +214,7 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
         .ok_or_else(|| format!("no {} above {}", ProjectConfig::FILENAME, start.display()))?;
     let mut files = vec![root.join(ProjectConfig::FILENAME)];
 
-    let mut macros = pgzest_macro::MacroSet::builtin();
+    let mut macros = pgzest_expand::MacroSet::builtin();
     let macro_dir = root.join(&config.macros.directory);
     if macro_dir.is_dir() {
         files.push(macro_dir.clone());

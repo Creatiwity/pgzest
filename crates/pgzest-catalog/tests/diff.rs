@@ -273,7 +273,7 @@ fn serial_column_added() {
 fn declarative(migration: &str, schema: &str) -> ProjectCatalog {
     use pgzest_catalog::project::{ProjectBuilder, parse_source};
     use pgzest_schema::FileRole;
-    let macros = pgzest_macro::MacroSet::builtin();
+    let macros = pgzest_expand::MacroSet::builtin();
     let mut b = ProjectBuilder::new().declarative(true);
     let m = parse_source(migration, 0, &macros);
     b.add_file(
@@ -329,7 +329,7 @@ fn function_body_kept_as_written() {
     use pgzest_schema::FileRole;
     let written = "CREATE FUNCTION f(x INT) RETURNS INT LANGUAGE sql\n\
                    AS $$ SELECT x -- kept comment\n $$";
-    let macros = pgzest_macro::MacroSet::builtin();
+    let macros = pgzest_expand::MacroSet::builtin();
     let mut b = ProjectBuilder::new().keep_sources(true);
     let parsed = parse_source(written, 0, &macros);
     b.add_file(

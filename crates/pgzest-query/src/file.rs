@@ -250,11 +250,11 @@ pub fn parse_query_file(source: &str) -> QueryFile {
 
 /// Like [`parse_query_file`], with the fragments of `macros` inserted into
 /// each query (P6). Diagnostics stay positioned in the file.
-pub fn parse_query_file_with(source: &str, macros: &pgzest_macro::MacroSet) -> QueryFile {
+pub fn parse_query_file_with(source: &str, macros: &pgzest_expand::MacroSet) -> QueryFile {
     parse_query_file_impl(source, Some(macros))
 }
 
-fn parse_query_file_impl(source: &str, macros: Option<&pgzest_macro::MacroSet>) -> QueryFile {
+fn parse_query_file_impl(source: &str, macros: Option<&pgzest_expand::MacroSet>) -> QueryFile {
     let mut diagnostics = Vec::new();
     let index = LineIndex::new(source);
 
@@ -320,7 +320,7 @@ fn parse_query_file_impl(source: &str, macros: Option<&pgzest_macro::MacroSet>) 
 
 struct FileParser<'a> {
     source: &'a str,
-    macros: Option<&'a pgzest_macro::MacroSet>,
+    macros: Option<&'a pgzest_expand::MacroSet>,
     diagnostics: Vec<Diagnostic>,
     queries: Vec<NamedQuery>,
     current: Option<Builder>,
@@ -531,7 +531,7 @@ impl FileParser<'_> {
         let expansion = self
             .macros
             .filter(|_| sql.contains('@'))
-            .map(|m| pgzest_macro::expand_source_at(&sql, body.start, m))
+            .map(|m| pgzest_expand::expand_source_at(&sql, body.start, m))
             .filter(|e| !e.is_passthrough() || !e.diagnostics.is_empty());
         let (expanded, placeholders) = match expansion {
             None => (None, b.placeholders),

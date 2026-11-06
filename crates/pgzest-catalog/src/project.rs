@@ -7,7 +7,7 @@
 //!
 //! [`ProjectBuilder`] carries the file-by-file replay: the CLI feeds it by
 //! parsing fragments ([`ProjectCatalog::from_chunks_with_macros`]), the
-//! incremental database (`pgzest-project`) with its memoized parses. Both
+//! incremental database (`pgzest-analysis::project`) with its memoized parses. Both
 //! therefore follow exactly the same rules.
 
 use std::path::{Path, PathBuf};
@@ -57,9 +57,9 @@ fn base() -> Replay {
 pub fn parse_source(
     sql: &str,
     offset: usize,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
 ) -> Result<ParseOutcome, ParseError> {
-    let expansion = pgzest_macro::expand_source(sql, macros);
+    let expansion = pgzest_expand::expand_source(sql, macros);
     if expansion.is_passthrough() {
         pgzest_parser::parse_at_with_outcome(sql, offset)
     } else {
@@ -173,10 +173,10 @@ impl ProjectBuilder {
     }
 
     /// Routines instrumented by `instrumentation` write to the tables of its
-    /// setup ([`pgzest_macro::Instrumentation::setup_sql`]): they are part
+    /// setup ([`pgzest_expand::Instrumentation::setup_sql`]): they are part
     /// of the schema, replayed first. In declarative mode they are therefore
     /// part of the target state, and the migrations must create them.
-    pub fn with_instrumentation(mut self, instrumentation: pgzest_macro::Instrumentation) -> Self {
+    pub fn with_instrumentation(mut self, instrumentation: pgzest_expand::Instrumentation) -> Self {
         let setup = instrumentation.setup_sql();
         if setup.is_empty() {
             return self;
@@ -446,13 +446,13 @@ impl ProjectCatalog {
     }
 
     pub fn from_chunks(chunks: &[SqlChunk]) -> Self {
-        Self::from_chunks_with_macros(chunks, &pgzest_macro::MacroSet::builtin())
+        Self::from_chunks_with_macros(chunks, &pgzest_expand::MacroSet::builtin())
     }
 
     /// Replay of the project fragments, in the order the source gives them
     /// (schema files, then migrations by sequence). Macros are desugared
     /// first: a table declared by a macro exists.
-    pub fn from_chunks_with_macros(chunks: &[SqlChunk], macros: &pgzest_macro::MacroSet) -> Self {
+    pub fn from_chunks_with_macros(chunks: &[SqlChunk], macros: &pgzest_expand::MacroSet) -> Self {
         Self::from_chunks_typed(chunks, macros, None)
     }
 
@@ -460,7 +460,7 @@ impl ProjectCatalog {
     /// `typer`.
     pub fn from_chunks_typed(
         chunks: &[SqlChunk],
-        macros: &pgzest_macro::MacroSet,
+        macros: &pgzest_expand::MacroSet,
         typer: Option<std::sync::Arc<dyn QueryTyper>>,
     ) -> Self {
         Self::from_chunks_checked(chunks, macros, typer, None)
@@ -470,7 +470,7 @@ impl ProjectCatalog {
     /// `checker` (diagnostics attached to their file).
     pub fn from_chunks_checked(
         chunks: &[SqlChunk],
-        macros: &pgzest_macro::MacroSet,
+        macros: &pgzest_expand::MacroSet,
         typer: Option<std::sync::Arc<dyn QueryTyper>>,
         checker: Option<std::sync::Arc<dyn StatementChecker>>,
     ) -> Self {
@@ -545,7 +545,7 @@ fn check_header(sql: &str, stmts: &[Statement], cat: &Catalog, out: &mut Vec<Dia
 
     // Log level: the routines of the file were generated at it, and what
     // they write to exists at this point of the migrations.
-    use pgzest_macro::{LogLevel, LogTarget};
+    use pgzest_expand::{LogLevel, LogTarget};
     let declared = pgzest_schema::LogField(h.log).to_string();
     let declared = declared.trim();
     let declared = if declared.is_empty() {
@@ -562,7 +562,7 @@ fn check_header(sql: &str, stmts: &[Statement], cat: &Catalog, out: &mut Vec<Dia
         let Some(text) = sql.get(span.start as usize..span.end as usize) else {
             continue;
         };
-        let found = pgzest_macro::instrumentation_of(text);
+        let found = pgzest_expand::instrumentation_of(text);
         let matches = match found {
             None => true,
             // `debug` without `@snapshot` emits the `step` code.

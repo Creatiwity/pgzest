@@ -7,7 +7,7 @@
 use pgzest_analysis::{AnalysisOptions, analyze_source_with_macros, prepare_source};
 use pgzest_catalog::ProjectCatalog;
 use pgzest_diagnostics::{Diagnostic, codes};
-use pgzest_macro::MacroSet;
+use pgzest_expand::MacroSet;
 
 /// Analyzes `src`, schema derived from the desugared SQL (otherwise a table
 /// created by a macro would not exist).
@@ -125,7 +125,7 @@ fn a_correct_macro_produces_no_diagnostic() {
 fn a_macro_error_points_to_the_invocation() {
     let src = "@machin f() {\n  NULL;\n}\n";
     let diags = analyze(src);
-    let d = find(&diags, pgzest_macro::expand::MACRO_ERROR);
+    let d = find(&diags, pgzest_expand::expand::MACRO_ERROR);
     assert_eq!(line_of(src, d), Some(1));
     assert!(d.message.contains("unknown macro"));
 }

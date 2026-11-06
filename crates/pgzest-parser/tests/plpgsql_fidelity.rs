@@ -108,7 +108,7 @@ fn a_missing_column_in_a_composite_condition_is_detected() {
     );
     let full =
         format!("{sql}CREATE TRIGGER tg BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION fn();\n");
-    let diags = pgzest_checker::check_sql_self_contained(&full);
+    let diags = pgzest_analysis::check_sql_self_contained(&full);
     assert!(
         diags.iter().any(|d| d.message.contains("bogus_column")),
         "the faulty column must be reported, got: {diags:?}"

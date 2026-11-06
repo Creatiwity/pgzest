@@ -1,6 +1,6 @@
 //! Diagnostics target the faulty expression, not the start of the statement.
 
-use pgzest_checker::check_sql_self_contained;
+use pgzest_analysis::check_sql_self_contained;
 use pgzest_diagnostics::{Diagnostic, codes};
 
 /// 1-based (line, column) of a diagnostic, as the CLI displays them.

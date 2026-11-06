@@ -12,30 +12,39 @@ import { registerExpandMacro } from './expand';
 
 let client: LanguageClient | undefined;
 
-function resolveServerPath(configured: string, extensionPath: string): string {
-  if (path.isAbsolute(configured) && fs.existsSync(configured)) {
+/**
+ * The `pgzest` binary that runs the language server, in this order: the
+ * `pgzest.server.path` setting, the binary shipped in a platform package
+ * (`server/`), a build of this repository (extension in development, from
+ * `editors/vscode/`), then `pgzest` on the PATH.
+ */
+function resolveServer(configured: string, extensionPath: string): string {
+  if (configured !== '') {
     return configured;
   }
-  // Walk up from editors/vscode/ to workspace root, try debug then release
+  const exe = process.platform === 'win32' ? 'pgzest.exe' : 'pgzest';
   const root = path.resolve(extensionPath, '..', '..');
   for (const candidate of [
-    path.join(root, 'target', 'debug', 'pgzest-lsp'),
-    path.join(root, 'target', 'release', 'pgzest-lsp'),
+    path.join(extensionPath, 'server', exe),
+    path.join(root, 'target', 'debug', exe),
+    path.join(root, 'target', 'release', exe),
   ]) {
     if (fs.existsSync(candidate)) return candidate;
   }
-  return configured;
+  return exe;
 }
 
 export function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration('pgzest');
-  const configured = config.get<string>('lspPath', 'pgzest-lsp');
-  const lspPath = resolveServerPath(configured, context.extensionPath);
+  const server = resolveServer(
+    config.get<string>('server.path', ''),
+    context.extensionPath,
+  );
   const schemaFile = config.get<string>('schemaFile', '');
 
   const serverOptions: ServerOptions = {
-    command: lspPath,
-    args: [],
+    command: server,
+    args: ['lsp'],
     transport: TransportKind.stdio,
   };
 

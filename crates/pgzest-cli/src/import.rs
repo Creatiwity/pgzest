@@ -84,7 +84,7 @@ pub fn run(
         });
     }
 
-    let macros = pgzest_macro::MacroSet::builtin();
+    let macros = pgzest_expand::MacroSet::builtin();
     let mut builder = pgzest_catalog::project::ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .keep_sources(true);

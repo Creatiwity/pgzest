@@ -9,6 +9,7 @@ mod db;
 mod describe;
 mod dev;
 mod import;
+mod lsp;
 mod migrate;
 
 #[derive(Parser)]
@@ -39,7 +40,7 @@ impl From<CliSkipLevel> for pgzest_schema::SkipLevel {
     }
 }
 
-/// clap mirror of `pgzest_macro::LogLevel`.
+/// clap mirror of `pgzest_expand::LogLevel`.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum CliLogLevel {
     /// Nothing.
@@ -52,7 +53,7 @@ enum CliLogLevel {
     Debug,
 }
 
-impl From<CliLogLevel> for pgzest_macro::LogLevel {
+impl From<CliLogLevel> for pgzest_expand::LogLevel {
     fn from(v: CliLogLevel) -> Self {
         match v {
             CliLogLevel::None => Self::None,
@@ -63,7 +64,7 @@ impl From<CliLogLevel> for pgzest_macro::LogLevel {
     }
 }
 
-/// clap mirror of `pgzest_macro::LogTarget`.
+/// clap mirror of `pgzest_expand::LogTarget`.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum CliLogTarget {
     /// `pgzest_log.run` and `pgzest_log.step`.
@@ -74,7 +75,7 @@ enum CliLogTarget {
     Notice,
 }
 
-impl From<CliLogTarget> for pgzest_macro::LogTarget {
+impl From<CliLogTarget> for pgzest_expand::LogTarget {
     fn from(v: CliLogTarget) -> Self {
         match v {
             CliLogTarget::Table => Self::Table,
@@ -224,6 +225,9 @@ enum Command {
         /// SQL file to emit
         file: String,
     },
+
+    /// Run the language server over stdio (what editors start).
+    Lsp,
 }
 
 #[derive(Subcommand)]
@@ -528,7 +532,7 @@ fn cmd_check(
     let mut composite = pgzest_schema::provider::CompositeSchemaProvider::new();
     composite.add(Box::new(SharedCatalog(catalog.clone())));
 
-    let mut checker = pgzest_checker::Checker::default();
+    let mut checker = pgzest_analysis::Checker::default();
     for rule in registry.collect_rules(&builtin_plugins) {
         checker.add_rule(rule);
     }
@@ -538,9 +542,9 @@ fn cmd_check(
         .map(|(root, c)| c.plugins.wasm.iter().map(|p| root.join(p)).collect())
         .unwrap_or_default();
     for wasm_path in &wasm_paths {
-        match pgzest_plugin_wasm::WasmPlugin::from_file(wasm_path) {
+        match pgzest_plugin::WasmPlugin::from_file(wasm_path) {
             Ok(plugin) => {
-                let rule = pgzest_plugin_wasm::WasmCheckRule::new(std::sync::Arc::new(plugin));
+                let rule = pgzest_plugin::WasmCheckRule::new(std::sync::Arc::new(plugin));
                 checker.add_rule(Box::new(rule));
             }
             Err(e) => {
@@ -588,7 +592,7 @@ fn cmd_check(
         // file carries its replay diagnostics.
         let this_file = canonical(Path::new(file));
         if is_query_file(file) {
-            diagnostics.extend(pgzest_checker::check_statements(stmts, &catalog));
+            diagnostics.extend(pgzest_analysis::check_statements(stmts, &catalog));
             let located = project
                 .as_ref()
                 .and_then(|(root, cfg)| cfg.query_module(Path::new(file), root));
@@ -816,7 +820,7 @@ fn main() {
             once,
         } => dev::run(dev::Options {
             url,
-            instrumentation: pgzest_macro::Instrumentation {
+            instrumentation: pgzest_expand::Instrumentation {
                 log: log.into(),
                 target: log_target.into(),
             },
@@ -855,6 +859,7 @@ fn main() {
             MigrateAction::Check => migrate::check(),
         },
         Command::Emit { file } => cmd_emit(&file),
+        Command::Lsp => lsp::run(),
     };
 
     process::exit(exit_code);
@@ -869,8 +874,8 @@ fn main() {
 /// usable.
 fn load_macros(
     project: Option<&(std::path::PathBuf, pgzest_schema::ProjectConfig)>,
-) -> (pgzest_macro::MacroSet, Vec<String>) {
-    let mut set = pgzest_macro::MacroSet::builtin();
+) -> (pgzest_expand::MacroSet, Vec<String>) {
+    let mut set = pgzest_expand::MacroSet::builtin();
     let mut errors = Vec::new();
 
     if let Some((root, config)) = project {
@@ -962,13 +967,13 @@ fn cmd_macros(verbose: bool) -> i32 {
 fn cmd_build(
     files: &[String],
     out_dir: Option<&str>,
-    log: Option<pgzest_macro::LogLevel>,
-    target: Option<pgzest_macro::LogTarget>,
+    log: Option<pgzest_expand::LogLevel>,
+    target: Option<pgzest_expand::LogTarget>,
 ) -> i32 {
     let project = discover_project_or_exit();
     let (set, errors) = load_macros(project.as_ref());
     let configured = set.instrumentation();
-    let instrumentation = pgzest_macro::Instrumentation {
+    let instrumentation = pgzest_expand::Instrumentation {
         log: log.unwrap_or(configured.log),
         target: target.unwrap_or(configured.target),
     };
@@ -988,7 +993,7 @@ fn cmd_build(
                 continue;
             }
         };
-        let mut expansion = pgzest_macro::expand_source(&src, &set);
+        let mut expansion = pgzest_expand::expand_source(&src, &set);
         if !setup.is_empty() {
             expansion.sql = format!("{setup}\n{}", expansion.sql);
         }

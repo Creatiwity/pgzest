@@ -2,7 +2,7 @@
 //! routine using a temp table, called recursively and from a loop in one
 //! session, keeps its rows apart; its snapshots show each run.
 
-use pgzest_macro::{Instrumentation, LogLevel, LogTarget, MacroSet};
+use pgzest_expand::{Instrumentation, LogLevel, LogTarget, MacroSet};
 use tokio_postgres::{Client, NoTls};
 
 const SOURCE: &str = r#"
@@ -92,7 +92,7 @@ fn expand(debug: bool) -> String {
 /// `source` built as `pgzest build --log … --log-target …` does.
 fn build(source: &str, log: LogLevel, target: LogTarget) -> String {
     let i = Instrumentation { log, target };
-    let exp = pgzest_macro::expand_source(source, &MacroSet::builtin().with_instrumentation(i));
+    let exp = pgzest_expand::expand_source(source, &MacroSet::builtin().with_instrumentation(i));
     assert!(exp.diagnostics.is_empty(), "{:?}", exp.diagnostics);
     format!("{}\n{}", i.setup_sql(), exp.sql)
 }

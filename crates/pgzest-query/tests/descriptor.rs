@@ -274,9 +274,9 @@ fn unique_index_and_quoted_names() {
 
 // ── Fragments and row references (P6) ────────────────────────────────────────
 
-fn fragments(defs: &str) -> pgzest_macro::MacroSet {
-    let mut set = pgzest_macro::MacroSet::builtin();
-    let (defs, errors) = pgzest_macro::parse_fragment_file(defs, "f.sql");
+fn fragments(defs: &str) -> pgzest_expand::MacroSet {
+    let mut set = pgzest_expand::MacroSet::builtin();
+    let (defs, errors) = pgzest_expand::parse_fragment_file(defs, "f.sql");
     assert!(errors.is_empty(), "{errors:?}");
     for d in defs {
         set.insert_fragment(d).unwrap();

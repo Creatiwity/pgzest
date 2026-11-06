@@ -25,6 +25,7 @@ Commands:
   migrate   Migration subcommands
   schema    Schema subcommands
   emit      Parse and re-emit the SQL AST (normalization round-trip)
+  lsp       Run the language server over stdio (what editors start)
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -376,6 +377,17 @@ Usage: pgzest emit <FILE>
 
 Arguments:
   <FILE>  SQL file to emit
+
+Options:
+  -h, --help  Print help
+```
+
+## `pgzest lsp`
+
+```text
+Run the language server over stdio (what editors start)
+
+Usage: pgzest lsp
 
 Options:
   -h, --help  Print help

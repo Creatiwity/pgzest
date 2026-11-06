@@ -6,7 +6,7 @@ description: "The project configuration: every section and key."
 The format is stable: changes are additive. A key may be added; none
 changes meaning or disappears without a transition documented here.
 
-The file lives at the project root. `pgzest` (CLI) and `pgzest-lsp` find
+The file lives at the project root. The CLI and the language server (`pgzest lsp`) find
 it by walking up from the current directory or the opened folder. It is
 **the only** source of configuration: the CLI and the editor read the same
 file, with the same rules.

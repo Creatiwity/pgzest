@@ -1,7 +1,7 @@
 use crate::wasm_plugin::WasmPlugin;
+use pgzest_analysis::rule::{CheckRule, RuleCtx};
 use pgzest_ast::ddl::CreateTable;
 use pgzest_ast::stmt::SelectStmt;
-use pgzest_checker::rule::{CheckRule, RuleCtx};
 use std::sync::Arc;
 
 /// Adapts a WasmPlugin as a CheckRule for use in the Checker walker.

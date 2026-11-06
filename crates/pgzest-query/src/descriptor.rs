@@ -388,7 +388,7 @@ pub fn describe_sql(
     name: &str,
     sql: &str,
 ) -> Result<Descriptor, Vec<Diagnostic>> {
-    describe_sql_with(catalog, name, sql, &pgzest_macro::MacroSet::default())
+    describe_sql_with(catalog, name, sql, &pgzest_expand::MacroSet::default())
 }
 
 /// Like [`describe_sql`], with the fragments of `macros` inserted.
@@ -396,7 +396,7 @@ pub fn describe_sql_with(
     catalog: &ProjectCatalog,
     name: &str,
     sql: &str,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
 ) -> Result<Descriptor, Vec<Diagnostic>> {
     let header = format!("-- name: {name}\n");
     let file = crate::parse_query_file_with(&format!("{header}{sql}"), macros);

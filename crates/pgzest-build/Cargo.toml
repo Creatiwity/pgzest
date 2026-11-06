@@ -8,7 +8,7 @@ description = "Named query generation for build.rs (PLAN.md §5, P5)"
 pgzest-catalog = { path = "../pgzest-catalog" }
 pgzest-codegen = { path = "../pgzest-codegen" }
 pgzest-diagnostics = { workspace = true }
-pgzest-macro = { path = "../pgzest-macro" }
+pgzest-expand = { path = "../pgzest-expand" }
 pgzest-query = { path = "../pgzest-query" }
 pgzest-schema = { path = "../pgzest-schema" }
 pgzest-sema = { path = "../pgzest-sema" }

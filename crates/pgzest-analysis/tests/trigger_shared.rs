@@ -9,7 +9,7 @@
 //! depend on the table is emitted only once; a diagnostic specific to a
 //! table names it.
 
-use pgzest_checker::check_sql_self_contained;
+use pgzest_analysis::check_sql_self_contained;
 use pgzest_diagnostics::{Diagnostic, Severity, codes};
 
 fn shared_trigger(body: &str) -> Vec<Diagnostic> {

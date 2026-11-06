@@ -8,7 +8,7 @@ description = "Named queries: file format, positional rewriting, query descripto
 pgzest-ast = { path = "../pgzest-ast" }
 pgzest-catalog = { path = "../pgzest-catalog" }
 pgzest-diagnostics = { workspace = true }
-pgzest-macro = { path = "../pgzest-macro" }
+pgzest-expand = { path = "../pgzest-expand" }
 pgzest-parser = { path = "../pgzest-parser" }
 pgzest-sema = { path = "../pgzest-sema" }
 serde = { workspace = true }

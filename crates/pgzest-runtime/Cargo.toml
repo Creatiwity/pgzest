@@ -19,5 +19,5 @@ trace = ["dep:serde_json", "dep:chrono"]
 opentelemetry = ["trace", "dep:opentelemetry"]
 
 [dev-dependencies]
-pgzest-macro = { path = "../pgzest-macro" }
+pgzest-expand = { path = "../pgzest-expand" }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }

@@ -1,4 +1,9 @@
+# Only the bundle (out/extension.js), the grammars, the icon, the README,
+# the CHANGELOG, the LICENSE and, in a platform package, server/ ship.
 .vscode/**
 node_modules/**
 src/**
+out/**
+!out/extension.js
 tsconfig.json
+*.vsix

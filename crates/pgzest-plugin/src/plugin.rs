@@ -1,4 +1,4 @@
-use pgzest_checker::rule::CheckRule;
+use pgzest_analysis::rule::CheckRule;
 use serde_json::Value;
 
 /// A plugin contributes check rules. It never contributes schema: the

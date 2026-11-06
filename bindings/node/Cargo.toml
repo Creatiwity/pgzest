@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 pgzest-catalog = { path = "../../crates/pgzest-catalog" }
 pgzest-parser = { path = "../../crates/pgzest-parser" }
-pgzest-checker = { path = "../../crates/pgzest-checker" }
+pgzest-analysis = { path = "../../crates/pgzest-analysis" }
 pgzest-diagnostics = { workspace = true }
 pgzest-schema = { path = "../../crates/pgzest-schema" }
 pgzest-lint = { path = "../../crates/pgzest-lint" }

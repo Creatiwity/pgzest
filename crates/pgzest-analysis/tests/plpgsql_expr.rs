@@ -9,7 +9,7 @@
 //! (`TG_OP`), or a row variable (`NEW`). Every unrecognized case becomes a
 //! false positive on correct code, so each one has its test.
 
-use pgzest_checker::check_sql_self_contained;
+use pgzest_analysis::check_sql_self_contained;
 use pgzest_diagnostics::{Diagnostic, codes};
 
 fn diags(body: &str) -> Vec<Diagnostic> {

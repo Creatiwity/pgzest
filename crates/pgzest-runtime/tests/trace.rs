@@ -10,7 +10,7 @@ use std::time::Duration;
 use opentelemetry::Context;
 use opentelemetry::trace::{SpanId, Status, TraceId, TracerProvider as _};
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
-use pgzest_macro::{Instrumentation, LogLevel, LogTarget, MacroSet};
+use pgzest_expand::{Instrumentation, LogLevel, LogTarget, MacroSet};
 use pgzest_runtime::trace::{self, Tracing};
 use tokio_postgres::{AsyncMessage, Client, NoTls};
 
@@ -113,7 +113,7 @@ async fn runs_become_spans_under_the_callers_span() {
         log: LogLevel::Step,
         target: LogTarget::Notice,
     };
-    let exp = pgzest_macro::expand_source(SOURCE, &MacroSet::builtin().with_instrumentation(i));
+    let exp = pgzest_expand::expand_source(SOURCE, &MacroSet::builtin().with_instrumentation(i));
     assert!(exp.diagnostics.is_empty(), "{:?}", exp.diagnostics);
     client.batch_execute(&exp.sql).await.expect("schema");
 

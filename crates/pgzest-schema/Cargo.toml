@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 pgzest-ast    = { path = "../pgzest-ast" }
 pgzest-diagnostics = { workspace = true }
-pgzest-macro = { path = "../pgzest-macro" }
+pgzest-expand = { path = "../pgzest-expand" }
 serde        = { workspace = true, features = ["derive"] }
 serde_json   = { workspace = true }
 toml         = { workspace = true }

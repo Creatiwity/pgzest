@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use pgzest_project::{Database, Project, SourceFile, Workspace, check_file};
+use pgzest_analysis::project::{Database, Project, SourceFile, Workspace, check_file};
 use pgzest_schema::{FileRole, SourceOrigin, SqlChunk};
 use salsa::Setter;
 
@@ -41,7 +41,7 @@ fn fixture() -> Fixture {
     let project = Project::new(
         &db,
         vec![schema, q1, q2],
-        Arc::new(pgzest_macro::MacroSet::builtin()),
+        Arc::new(pgzest_expand::MacroSet::builtin()),
         false,
     );
     Fixture {
@@ -112,7 +112,7 @@ fn changing_macros_rereads_every_file() {
 
     f.project
         .set_macros(&mut f.db)
-        .to(Arc::new(pgzest_macro::MacroSet::builtin()));
+        .to(Arc::new(pgzest_expand::MacroSet::builtin()));
     check_all(&f);
     let executed = f.db.take_executions();
     for file in ["schema.sql", "q1.sql", "q2.sql"] {
@@ -145,7 +145,7 @@ fn workspace_follows_editor_text() {
                 FileRole::Migration { sequence: 1 },
             ),
         ],
-        Arc::new(pgzest_macro::MacroSet::builtin()),
+        Arc::new(pgzest_expand::MacroSet::builtin()),
     );
     let has_b = |ws: &Workspace| {
         ws.catalog()

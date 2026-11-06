@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use pgzest_analysis::project::Workspace;
 use pgzest_catalog::ProjectCatalog;
 use pgzest_diagnostics::{Diagnostic, Severity};
 use pgzest_lint::config::LintConfig;
-use pgzest_plugin_wasm::{WasmCheckRule, WasmPlugin};
-use pgzest_project::Workspace;
+use pgzest_plugin::{WasmCheckRule, WasmPlugin};
 use pgzest_schema::provider::SchemaProvider;
 use pgzest_schema::{FileRole, ProjectConfig, check_ddl_role};
 use tokio::sync::Mutex;
@@ -15,9 +15,9 @@ use tower_lsp::{Client, LanguageServer, jsonrpc::Result};
 
 use pgzest_ast::emit::emit_data_type;
 
-use crate::completion::{analyze_cursor, build_completions};
-use crate::line_index::LineIndex;
-use crate::semantic;
+use super::completion::{analyze_cursor, build_completions};
+use super::line_index::LineIndex;
+use super::semantic;
 
 // ── Custom request: macro expansion ───────────────────────────────────────────
 
@@ -64,7 +64,7 @@ pub struct PgsqlBackend {
     ///
     /// Rebuilt with the resolver: a modified `.pgmacro` must take effect
     /// without restarting the server.
-    macros: Mutex<Arc<pgzest_macro::MacroSet>>,
+    macros: Mutex<Arc<pgzest_expand::MacroSet>>,
 }
 
 impl PgsqlBackend {
@@ -74,13 +74,13 @@ impl PgsqlBackend {
             documents: Mutex::new(HashMap::new()),
             workspace: Mutex::new(Workspace::new(
                 &[],
-                Arc::new(pgzest_macro::MacroSet::builtin()),
+                Arc::new(pgzest_expand::MacroSet::builtin()),
             )),
             project_root: Mutex::new(None),
             config: Mutex::new(None),
             legacy_schema_path: Mutex::new(None),
             wasm_plugins: Mutex::new(Vec::new()),
-            macros: Mutex::new(Arc::new(pgzest_macro::MacroSet::builtin())),
+            macros: Mutex::new(Arc::new(pgzest_expand::MacroSet::builtin())),
         }
     }
 
@@ -99,7 +99,7 @@ impl PgsqlBackend {
         };
 
         let macros = self.macros().await;
-        let full = pgzest_macro::expand_source(&text, &macros);
+        let full = pgzest_expand::expand_source(&text, &macros);
 
         if full.is_passthrough() {
             return Ok(ExpandMacroResult {
@@ -145,13 +145,13 @@ impl PgsqlBackend {
     }
 
     /// Current macro set (Arc clone, cheap).
-    async fn macros(&self) -> Arc<pgzest_macro::MacroSet> {
+    async fn macros(&self) -> Arc<pgzest_expand::MacroSet> {
         self.macros.lock().await.clone()
     }
 
     /// Reloads the project's macros on top of the shipped ones.
     async fn rebuild_macros(&self) {
-        let mut set = pgzest_macro::MacroSet::builtin();
+        let mut set = pgzest_expand::MacroSet::builtin();
         if let Some(root) = self.project_root.lock().await.clone() {
             // Invalid config: already reported by `rebuild_resolver` /
             // `initialize`. No fallback directory is guessed.
@@ -177,7 +177,7 @@ impl PgsqlBackend {
                 });
                 for e in errors {
                     self.client
-                        .log_message(MessageType::WARNING, format!("pgzest-lsp: {e}"))
+                        .log_message(MessageType::WARNING, format!("pgzest: {e}"))
                         .await;
                 }
             }
@@ -193,7 +193,7 @@ impl PgsqlBackend {
         &self,
         file: &Path,
         catalog: &ProjectCatalog,
-        macros: &pgzest_macro::MacroSet,
+        macros: &pgzest_expand::MacroSet,
     ) -> (Vec<String>, Vec<pgzest_query::QueryModule>) {
         let (Some(root), Some(config)) = (
             self.project_root.lock().await.clone(),
@@ -318,8 +318,8 @@ impl PgsqlBackend {
     }
 
     /// Rules of the loaded WASM plugins.
-    async fn make_checker(&self) -> pgzest_checker::Checker {
-        let mut checker = pgzest_checker::Checker::default();
+    async fn make_checker(&self) -> pgzest_analysis::Checker {
+        let mut checker = pgzest_analysis::Checker::default();
         for plugin in self.wasm_plugins.lock().await.iter() {
             checker.add_rule(Box::new(WasmCheckRule::new(plugin.clone())));
         }
@@ -349,7 +349,7 @@ impl PgsqlBackend {
             let diags = if self.in_project().await {
                 let resolver = self.resolver().await;
                 let macros = self.macros().await;
-                crate::rust_embed::find(text)
+                super::rust_embed::find(text)
                     .iter()
                     .flat_map(|e| embedded_diagnostics(e, resolver.as_ref(), &macros))
                     .collect()
@@ -363,7 +363,7 @@ impl PgsqlBackend {
         // Fragment file: only its format; each fragment is checked where it
         // is inserted.
         if role == FileRole::Fragments {
-            let diags = pgzest_macro::fragment_file_diagnostics(text);
+            let diags = pgzest_expand::fragment_file_diagnostics(text);
             self.publish(uri, &diags, &line_index).await;
             return;
         }
@@ -440,7 +440,7 @@ impl PgsqlBackend {
         };
         match (&role, &path) {
             (FileRole::Query, _) => {
-                diags.extend(pgzest_checker::check_statements(&stmts, &resolver));
+                diags.extend(pgzest_analysis::check_statements(&stmts, &resolver));
                 let (here, others) = match &path {
                     Some(p) => self.query_tree(p, &resolver, &macros).await,
                     None => (Vec::new(), Vec::new()),
@@ -452,7 +452,7 @@ impl PgsqlBackend {
             (_, Some(p)) if in_project => {
                 diags.extend(self.workspace.lock().await.replay_diagnostics(p));
             }
-            _ => diags.extend(pgzest_checker::check_script(&stmts)),
+            _ => diags.extend(pgzest_analysis::check_script(&stmts)),
         }
         diags.extend(self.check_stmts(&stmts, resolver.as_ref()).await);
 
@@ -529,7 +529,7 @@ impl PgsqlBackend {
             },
             severity: Some(severity),
             code: Some(NumberOrString::String(d.code.to_string())),
-            source: Some("pgzest-lsp".to_string()),
+            source: Some("pgzest".to_string()),
             // The hint follows the message, like PostgreSQL's HINT.
             message: match &d.hint {
                 Some(h) => format!("{}\n{h}", d.message),
@@ -595,7 +595,7 @@ impl LanguageServer for PgsqlBackend {
                             .log_message(
                                 MessageType::INFO,
                                 format!(
-                                    "pgzest-lsp: loaded wasm plugin '{}' from {}",
+                                    "pgzest: loaded wasm plugin '{}' from {}",
                                     p.name(),
                                     abs.display()
                                 ),
@@ -608,7 +608,7 @@ impl LanguageServer for PgsqlBackend {
                             .log_message(
                                 MessageType::WARNING,
                                 format!(
-                                    "pgzest-lsp: failed to load wasm plugin '{}': {e}",
+                                    "pgzest: failed to load wasm plugin '{}': {e}",
                                     abs.display()
                                 ),
                             )
@@ -622,7 +622,7 @@ impl LanguageServer for PgsqlBackend {
                 .log_message(
                     MessageType::INFO,
                     format!(
-                        "pgzest-lsp: loaded schema from {}",
+                        "pgzest: loaded schema from {}",
                         project_root.join(ProjectConfig::FILENAME).display()
                     ),
                 )
@@ -642,7 +642,7 @@ impl LanguageServer for PgsqlBackend {
                     self.client
                         .log_message(
                             MessageType::WARNING,
-                            format!("pgzest-lsp: could not load schema at {path}: {e}"),
+                            format!("pgzest: could not load schema at {path}: {e}"),
                         )
                         .await;
                 }
@@ -663,7 +663,7 @@ impl LanguageServer for PgsqlBackend {
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
-                name: "pgzest-lsp".to_string(),
+                name: "pgzest".to_string(),
                 version: Some("0.1.0".to_string()),
             }),
         })
@@ -671,7 +671,7 @@ impl LanguageServer for PgsqlBackend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "pgzest-lsp started")
+            .log_message(MessageType::INFO, "pgzest language server started")
             .await;
     }
 
@@ -933,7 +933,7 @@ impl LanguageServer for PgsqlBackend {
             if !self.in_project().await {
                 return Ok(None);
             }
-            let found = crate::rust_embed::find(&text)
+            let found = super::rust_embed::find(&text)
                 .into_iter()
                 .find_map(|e| e.to_sql(cursor_offset).map(|at| (e, at)));
             return Ok(found.map(|(e, at)| {
@@ -1052,7 +1052,7 @@ fn hover_param(
     text: &str,
     offset: usize,
     catalog: &ProjectCatalog,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
 ) -> Option<String> {
     use pgzest_query::descriptor::NullabilityDesc;
     let name = param_at(text, offset)?;
@@ -1093,7 +1093,7 @@ fn is_rust(uri: &str) -> bool {
 }
 
 /// Named query header equivalent to a query written in Rust.
-fn embedded_header(e: &crate::rust_embed::Embedded) -> String {
+fn embedded_header(e: &super::rust_embed::Embedded) -> String {
     let name = e.name.as_ref().map_or("query", |(n, _)| n.as_str());
     match &e.cardinality {
         Some(c) => format!("-- name: {name} :{c}\n"),
@@ -1105,9 +1105,9 @@ fn embedded_header(e: &crate::rust_embed::Embedded) -> String {
 /// fragments, analysis and what prevents describing it, as for a named
 /// query.
 fn embedded_diagnostics(
-    e: &crate::rust_embed::Embedded,
+    e: &super::rust_embed::Embedded,
     catalog: &ProjectCatalog,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
 ) -> Vec<Diagnostic> {
     let header = embedded_header(e);
     let text = format!("{header}{}", e.sql);
@@ -1146,9 +1146,9 @@ fn hover_rust(
     text: &str,
     offset: usize,
     catalog: &ProjectCatalog,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
 ) -> Option<String> {
-    let found = crate::rust_embed::find(text);
+    let found = super::rust_embed::find(text);
     if let Some(e) = found
         .iter()
         .find(|e| e.name.as_ref().is_some_and(|(_, r)| r.contains(&offset)))
@@ -1183,7 +1183,7 @@ fn hover_rust(
 /// inserts here.
 fn hover_fragment(
     prepared: &pgzest_analysis::PreparedSource,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
     offset: usize,
 ) -> Option<String> {
     let (region, inserted) = prepared.region_at(offset)?;
@@ -1211,7 +1211,7 @@ fn hover_named_query(
     text: &str,
     offset: usize,
     catalog: &ProjectCatalog,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
 ) -> Option<String> {
     let file = pgzest_query::parse_query_file_with(text, macros);
     let q = file.queries.iter().find(|q| {

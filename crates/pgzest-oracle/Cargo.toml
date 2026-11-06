@@ -18,5 +18,5 @@ tokio-postgres = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 pgzest-diagnostics = { path = "../pgzest-diagnostics" }
-pgzest-macro = { path = "../pgzest-macro" }
+pgzest-expand = { path = "../pgzest-expand" }
 serde_json = { workspace = true }

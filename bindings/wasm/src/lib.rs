@@ -36,7 +36,7 @@ impl CheckResult {
 #[wasm_bindgen]
 pub fn check(sql: &str, schema_sql: &str) -> CheckResult {
     let schema = ProjectCatalog::from_sql(schema_sql).unwrap_or_else(|_| ProjectCatalog::empty());
-    let diags = pgzest_checker::check_sql(sql, &schema);
+    let diags = pgzest_analysis::check_sql(sql, &schema);
     CheckResult { inner: diags }
 }
 

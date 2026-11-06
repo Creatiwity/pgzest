@@ -1,5 +1,5 @@
 use crate::plugin::Plugin;
-use pgzest_checker::rule::CheckRule;
+use pgzest_analysis::rule::CheckRule;
 use std::collections::HashMap;
 
 /// Central registry of available plugins.

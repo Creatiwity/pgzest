@@ -5,6 +5,8 @@
 node_modules/
 npm/pgzest/dist/
 editors/vscode/out/
+editors/vscode/server/
+editors/vscode/*.vsix
 
 # WASM
 bindings/wasm/pkg/

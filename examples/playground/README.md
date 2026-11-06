@@ -5,11 +5,11 @@ Demo project. Opened automatically by **F5** from `editors/vscode/`.
 ## Running
 
 ```bash
-make lsp                 # builds the LSP server (target/debug/pgzest-lsp)
+make lsp                 # builds pgzest, whose `lsp` subcommand is the server
 code editors/vscode      # then F5 → "Run Extension (playground)"
 ```
 
-The extension finds `target/debug/pgzest-lsp` on its own. An
+The extension finds `target/debug/pgzest` on its own. An
 "Extension Development Host" window opens on this folder.
 
 From the CLI, in this folder:

@@ -31,7 +31,7 @@ async fn generated_queries_run() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let project = pgzest_build::load_project(root).expect("project");
     let schema = std::fs::read_to_string(root.join("schema/schema.sql")).expect("schema");
-    let schema = pgzest_macro::expand_source(&schema, &project.macros).sql;
+    let schema = pgzest_expand::expand_source(&schema, &project.macros).sql;
     client.batch_execute(&schema).await.expect("schema applied");
 
     let author = uuid::Uuid::from_u128(42);

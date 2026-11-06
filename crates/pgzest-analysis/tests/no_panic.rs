@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use pgzest_analysis::{AnalysisOptions, analyze_source_self_contained, analyze_source_with_macros};
 use pgzest_catalog::ProjectCatalog;
 use pgzest_codegen::emit::emit_statement;
-use pgzest_macro::MacroSet;
+use pgzest_expand::MacroSet;
 
 /// Variants per file, for each family (truncation, mutation).
 /// `PGZEST_FUZZ_PER_FILE` raises it for a thorough local pass.

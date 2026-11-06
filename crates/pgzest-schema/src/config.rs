@@ -89,9 +89,9 @@ pub enum LogTargetConfig {
 }
 
 impl LogConfig {
-    pub fn instrumentation(&self) -> pgzest_macro::Instrumentation {
-        use pgzest_macro::{LogLevel, LogTarget};
-        pgzest_macro::Instrumentation {
+    pub fn instrumentation(&self) -> pgzest_expand::Instrumentation {
+        use pgzest_expand::{LogLevel, LogTarget};
+        pgzest_expand::Instrumentation {
             log: match self.level {
                 LogLevelConfig::None => LogLevel::None,
                 LogLevelConfig::Info => LogLevel::Info,
@@ -597,15 +597,15 @@ mod tests {
         let c = ProjectConfig::parse("[postgres]\nversion = 18\n").unwrap();
         assert_eq!(
             c.log.instrumentation(),
-            pgzest_macro::Instrumentation::default()
+            pgzest_expand::Instrumentation::default()
         );
         let c = ProjectConfig::parse(
             "[postgres]\nversion = 18\n[log]\nlevel = \"step\"\ntarget = \"notify\"\n",
         )
         .unwrap();
         let i = c.log.instrumentation();
-        assert_eq!(i.log, pgzest_macro::LogLevel::Step);
-        assert_eq!(i.target, pgzest_macro::LogTarget::Notify);
+        assert_eq!(i.log, pgzest_expand::LogLevel::Step);
+        assert_eq!(i.target, pgzest_expand::LogTarget::Notify);
         for bad in ["level = \"trace\"", "target = \"file\"", "levle = \"info\""] {
             let content = format!("[postgres]\nversion = 18\n[log]\n{bad}\n");
             assert!(ProjectConfig::parse(&content).is_err(), "{bad}");
@@ -624,8 +624,7 @@ mod tests {
         let overrides = c.rule_overrides();
         assert_eq!(overrides["L001"], "off");
         assert_eq!(overrides["column-not-found"], "warning");
-        assert_eq!(
-c.builtin_plugins()["rls-enforcer"]["option"], "value");
+        assert_eq!(c.builtin_plugins()["rls-enforcer"]["option"], "value");
         assert_eq!(c.plugins.wasm, vec!["plugins/a.wasm"]);
     }
 

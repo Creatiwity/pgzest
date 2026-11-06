@@ -313,7 +313,7 @@ The schema (namespace) is part of every object's identity, everywhere:
 | PL/pgSQL parser (lexer + parser) | Keep, extend | Remaining cases from `SPECS-schema-plpgsql.md` §6 |
 | Parser textual rewrites | **Remove** | Replaced by D1 |
 | `pgzest-diagnostics`, `pgzest-disable…` directives | Keep | |
-| `pgzest-macro`, source maps, `build`/expansion | Keep, extend | Expression fragments (§P6) |
+| `pgzest-expand`, source maps, `build`/expansion | Keep, extend | Expression fragments (§P6) |
 | `SchemaProvider`/`SchemaResolver`/`SchemaIndex` | **Rework** → `pgzest-catalog` | D2, D3 |
 | `pgzest-semantic` + the checker's `TypeContext` | **Merge** → `pgzest-sema` | D4 |
 | Hand-written `builtins.rs` | **Remove** | Generated (D9, principle 1) |
@@ -1154,9 +1154,9 @@ Found while checking the claims (to fix, outside P10):
   JOIN v ON … ON …`): parsed, but `TableFactor::NestedJoin` is not
   converted (`unsupported-statement`). Found 2026-11-06.
 - `ORDER BY … USING <op>`: parsed since sqlparser 0.63, not modeled.
-- The `[plugins] builtin postgis` plugin is a hand-written list of
-  PostGIS signatures fed to plugin rules only: redundant with the
-  generated `postgis@3.6.4` pack that the analysis uses, and against D9.
+- ~~The `[plugins] builtin postgis` plugin is a hand-written list of
+  PostGIS signatures~~: removed with the `prisma` plugin (2026-11-06,
+  before publication); plugins contribute rules only, never schema.
 
 ### Possible parallelization
 
@@ -1195,33 +1195,40 @@ layer from step 1 is no longer needed.
 
 ---
 
-## 9. Target crate organization
+## 9. Crate organization
+
+Settled before the first publication (2026-11-06): the legacy code is
+removed (`ts_types`, the hand-written plugins), the small crates are
+merged, and `pgzest-macro` is renamed so it is not confused with the
+`pgzest-macros` proc-macros.
 
 ```
 crates/
-  pgzest-ast/          syntactic AST, spans, deterministic IDs
-  pgzest-parser/       PgsqlDialect + PL/pgSQL
-  pgzest-macro/        macros, fragments, source maps
-  pgzest-catalog/      object model, layers, search_path, generated data
-  pgzest-project/      salsa database: files, revisions, memoized queries
+  pgzest-diagnostics/  diagnostics, codes, directives (no internal dependency)
+  pgzest-ast/          syntactic AST, spans, SQL emission
+  pgzest-parser/       PgzestDialect + PL/pgSQL
+  pgzest-expand/       macros, fragments, source maps, instrumentation
+  pgzest-schema/       pgzest.toml, file roles, sources, migration headers
+  pgzest-catalog/      object model, generated packs (D9), DDL replay
   pgzest-sema/         normalization, resolution, types, nullability → HIR
-  pgzest-checker/      correctness rules on the HIR
+  pgzest-query/        named queries, query descriptor
+  pgzest-codegen/      Rust generation, SQL injection
   pgzest-lint/         style / perf / migration-safety rules
-  pgzest-query/        query descriptor, cache
-  pgzest-codegen/      SQL emission, migration diff
-  pgzest-diagnostics/  diagnostics, directives
-  pgzest-lsp/  pgzest-cli/
-rust/
-  pgzest-runtime/      tokio-postgres execution
-  pgzest-macros/       proc-macros
-contributors/         generated packs (D9): catalog + type mappings
-  postgres-18/
-  citext/  btree_gist/  postgis/
-xtask/                catalog-gen, corpus, bench
+  pgzest-analysis/     checking + plugin rules, the salsa project database,
+                       the pipeline shared by the CLI and the LSP
+  pgzest-plugin/       builtin and WASM plugins
+  pgzest-oracle/       differential oracle; live-schema introspection (db check)
+  pgzest-cli/          the `pgzest` binary, language server included (`pgzest lsp`)
+  pgzest-runtime/      tokio-postgres execution of generated queries
+  pgzest-build/        named queries compiled from build.rs
+  pgzest-macros/       `sql!` / `query!` proc-macros
+packs: crates/pgzest-catalog/packs/ (generated, D9)
+xtask/                 catalog-gen, corpus, docs, migrate-oracle
 ```
 
-`pgzest-analysis` (pipeline shared by CLI/LSP today) is absorbed by
-`pgzest-project`.
+Users depend on `pgzest-runtime`, `pgzest-build` and `pgzest-macros`, and
+install `pgzest`; the other crates are published as their dependencies,
+without a stability guarantee of their own.
 
 ---
 

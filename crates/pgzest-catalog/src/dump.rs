@@ -311,7 +311,7 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
 /// Context header of a migration (D9): PostgreSQL version, active
 /// extensions in the `cat` state, and the run log level its routines were
 /// generated at, without a trailing newline.
-pub fn header(cat: &Catalog, postgres: u32, log: pgzest_macro::Instrumentation) -> String {
+pub fn header(cat: &Catalog, postgres: u32, log: pgzest_expand::Instrumentation) -> String {
     let mut exts: Vec<String> = cat
         .extensions
         .values()

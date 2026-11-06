@@ -16,7 +16,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use pgzest_macro::{Instrumentation, LogLevel, LogTarget};
+use pgzest_expand::{Instrumentation, LogLevel, LogTarget};
 
 /// Prefix of a header line. Distinct from directives (`-- pgzest-disable…`),
 /// which have no `:`.

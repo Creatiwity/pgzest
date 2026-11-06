@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use pgzest_diagnostics::Severity;
-use pgzest_macro::{Instrumentation, MacroSet};
+use pgzest_expand::{Instrumentation, MacroSet};
 use pgzest_schema::source::SchemaSource;
 use pgzest_schema::{FileRole, ProjectConfig};
 use tokio_postgres::error::{ErrorPosition, SqlState};
@@ -287,7 +287,7 @@ async fn apply_file(
     macros: &MacroSet,
     before: &Created,
 ) -> Option<Created> {
-    let exp = pgzest_macro::expand_source(text, macros);
+    let exp = pgzest_expand::expand_source(text, macros);
     let mut errors = false;
     for d in &exp.diagnostics {
         let sev = match d.severity {
@@ -506,7 +506,7 @@ async fn drop_stale(
 }
 
 /// Position in the source of a position of the expansion.
-fn source_offset(exp: &pgzest_macro::Expansion, at: usize) -> Option<usize> {
+fn source_offset(exp: &pgzest_expand::Expansion, at: usize) -> Option<usize> {
     exp.map.remap(at, at + 1).map(|(s, _)| s)
 }
 
@@ -514,7 +514,7 @@ fn source_offset(exp: &pgzest_macro::Expansion, at: usize) -> Option<usize> {
 fn report(
     shown: &str,
     text: &str,
-    exp: &pgzest_macro::Expansion,
+    exp: &pgzest_expand::Expansion,
     item: Option<&Item>,
     e: &tokio_postgres::Error,
 ) {

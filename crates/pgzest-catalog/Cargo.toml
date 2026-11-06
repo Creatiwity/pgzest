@@ -9,7 +9,7 @@ pgzest-ast = { path = "../pgzest-ast" }
 pgzest-diagnostics = { workspace = true }
 # Transitional bridge to `SchemaProvider` (`compat` module), removed at the end of P2.
 pgzest-schema = { path = "../pgzest-schema" }
-pgzest-macro = { path = "../pgzest-macro" }
+pgzest-expand = { path = "../pgzest-expand" }
 pgzest-parser = { path = "../pgzest-parser" }
 serde = { workspace = true }
 serde_json = { workspace = true }

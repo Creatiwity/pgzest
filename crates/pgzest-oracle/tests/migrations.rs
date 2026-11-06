@@ -47,7 +47,7 @@ fn cases() -> Vec<(String, Vec<String>)> {
 
 /// Declarative replay: `history` as migrations, `schema` as target.
 fn project(history: &[String], schema: &str) -> ProjectCatalog {
-    let macros = pgzest_macro::MacroSet::builtin();
+    let macros = pgzest_expand::MacroSet::builtin();
     let mut b = ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_checker(Some(pgzest_sema::check::SemaChecker::shared()))

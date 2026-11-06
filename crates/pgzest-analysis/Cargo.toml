@@ -7,12 +7,15 @@ edition = "2024"
 pgzest-catalog = { path = "../pgzest-catalog" }
 pgzest-ast = { path = "../pgzest-ast" }
 pgzest-diagnostics = { workspace = true }
-pgzest-macro = { path = "../pgzest-macro" }
+pgzest-expand = { path = "../pgzest-expand" }
 pgzest-parser = { path = "../pgzest-parser" }
 pgzest-query = { path = "../pgzest-query" }
 pgzest-schema = { path = "../pgzest-schema" }
-pgzest-checker = { path = "../pgzest-checker" }
+pgzest-sema = { path = "../pgzest-sema" }
 pgzest-lint = { path = "../pgzest-lint" }
+serde_json = { workspace = true }
+# Pinned (decision 0001): version bumps are deliberate and isolated.
+salsa = "=0.28.5"
 
 [dev-dependencies]
 pgzest-codegen = { path = "../pgzest-codegen" }

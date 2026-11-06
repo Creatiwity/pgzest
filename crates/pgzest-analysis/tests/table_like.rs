@@ -2,9 +2,9 @@
 //! position; an unknown source does not produce a half-built table.
 //! `ANALYZE` / `VACUUM` check their tables and columns.
 
+use pgzest_analysis::check_sql_self_contained;
 use pgzest_ast::Statement;
 use pgzest_catalog::ProjectCatalog;
-use pgzest_checker::check_sql_self_contained;
 use pgzest_diagnostics::{Diagnostic, codes};
 use pgzest_schema::provider::SchemaProvider;
 

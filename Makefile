@@ -58,8 +58,8 @@ ts: ## Build the pgzest npm package -> dist/ (frozen until P8, out of CI)
 	cd $(NPM_PKG) && npx tsc
 
 .PHONY: vscode
-vscode: ## Build the VS Code extension -> out/
-	cd $(VSCODE) && npx tsc -p ./
+vscode: ## Build the VS Code extension -> out/ (typecheck + bundle)
+	cd $(VSCODE) && $(NPM) run compile
 
 .PHONY: wasm
 wasm: ## Build the WASM bindings (requires wasm-pack)
@@ -95,7 +95,7 @@ fmt-check: ## Check formatting without modifying
 
 .PHONY: typecheck
 typecheck: ## Typecheck the VS Code extension without emitting
-	cd $(VSCODE) && npx tsc -p ./ --noEmit
+	cd $(VSCODE) && $(NPM) run typecheck
 
 .PHONY: ci
 ci: build test fmt-check clippy typecheck ## Exactly what CI checks
@@ -168,7 +168,7 @@ demo-cli: build ## Run the CLI on examples/ — shows the tool in action
 
 .PHONY: demo
 demo: ## Open the demo (examples/demo) in VS Code, pgzest extension in development mode
-	$(CARGO) build -p pgzest-lsp -p pgzest
+	$(CARGO) build -p pgzest
 	$(MAKE) vscode
 	code --extensionDevelopmentPath=$(CURDIR)/$(VSCODE) $(CURDIR)/examples/demo
 	@echo
@@ -179,10 +179,10 @@ demo-run: oracle-up ## Run the demo's Rust scenario on PostgreSQL 18 (Docker)
 	$(CARGO) run -p pgzest-demo
 
 .PHONY: lsp
-lsp: ## Build the LSP server and recall how to launch it in VS Code
-	$(CARGO) build -p pgzest-lsp
+lsp: ## Build pgzest (its `lsp` subcommand is the language server) and recall how to launch it in VS Code
+	$(CARGO) build -p pgzest
 	@echo
-	@echo "LSP binary: ./target/debug/pgzest-lsp"
+	@echo "Language server: ./target/debug/pgzest lsp"
 	@echo "To try it:  make vscode-dev"
 
 .PHONY: vscode-dev
@@ -232,7 +232,7 @@ site-dev: docs ## Serve the documentation site locally, reloading on edits
 .PHONY: clean
 clean: ## Remove build artifacts
 	$(CARGO) clean
-	rm -rf $(NPM_PKG)/dist $(VSCODE)/out bindings/wasm/pkg
+	rm -rf $(NPM_PKG)/dist $(VSCODE)/out $(VSCODE)/server $(VSCODE)/*.vsix bindings/wasm/pkg
 
 .PHONY: distclean
 distclean: clean ## clean + remove node_modules

@@ -21,11 +21,11 @@ struct Loaded {
     root: PathBuf,
     config: ProjectConfig,
     chunks: Vec<SqlChunk>,
-    macros: pgzest_macro::MacroSet,
+    macros: pgzest_expand::MacroSet,
     project: ProjectCatalog,
 }
 
-fn build(chunks: &[SqlChunk], macros: &pgzest_macro::MacroSet) -> ProjectCatalog {
+fn build(chunks: &[SqlChunk], macros: &pgzest_expand::MacroSet) -> ProjectCatalog {
     let mut b = ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_checker(Some(pgzest_sema::check::SemaChecker::shared()))
@@ -447,7 +447,7 @@ fn replay_path(path: &str) -> Result<ProjectCatalog, String> {
     let mut b = ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .keep_sources(true);
-    let macros = pgzest_macro::MacroSet::builtin();
+    let macros = pgzest_expand::MacroSet::builtin();
     for f in &files {
         let sql = std::fs::read_to_string(f).map_err(|e| format!("{}: {e}", f.display()))?;
         let parsed = parse_source(&sql, 0, &macros);

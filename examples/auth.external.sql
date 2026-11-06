@@ -10,7 +10,7 @@
 --   auth.users, PostGIS types, etc. without a live database connection.
 --
 --   With the CLI:
---     pgzest-lsp --schema path/to/schema/ your_queries.sql
+--     pgzest check --schema examples/auth.external.sql your_queries.sql
 
 -- ── PostGIS ───────────────────────────────────────────────────────────────────
 

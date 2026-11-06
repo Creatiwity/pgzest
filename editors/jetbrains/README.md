@@ -6,7 +6,7 @@ LSP-based PostgreSQL support for IntelliJ IDEA, DataGrip, and other JetBrains ID
 
 - IntelliJ IDEA 2024.1+ (Community or Ultimate)
 - [LSP4IJ plugin](https://plugins.jetbrains.com/plugin/23257-lsp4ij) installed
-- `pgzest-lsp` binary on your PATH (build from source: `cargo build --bin pgzest-lsp --release`)
+- the `pgzest` binary on your PATH (`cargo install pgzest`); the plugin runs `pgzest lsp`
 
 ## Installation (development)
 
@@ -23,9 +23,9 @@ cd editors/jetbrains
 
 ## Configuration
 
-Set `PGZEST_LSP_PATH` environment variable to point to the pgzest-lsp binary
+Set the `PGZEST_PATH` environment variable to point to the `pgzest` binary
 if it's not on your PATH:
 
 ```bash
-export PGZEST_LSP_PATH=/path/to/pgzest-lsp
+export PGZEST_PATH=/path/to/pgzest
 ```

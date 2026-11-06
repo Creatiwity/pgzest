@@ -17,6 +17,6 @@ pgzest-build = { path = "../../crates/pgzest-build" }
 
 [dev-dependencies]
 pgzest-build = { path = "../../crates/pgzest-build" }
-pgzest-macro = { path = "../../crates/pgzest-macro" }
+pgzest-expand = { path = "../../crates/pgzest-expand" }
 pgzest-runtime = { path = "../../crates/pgzest-runtime" }
 tokio = { workspace = true }

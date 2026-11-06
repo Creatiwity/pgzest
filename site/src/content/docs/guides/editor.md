@@ -3,7 +3,7 @@ title: "Editor"
 description: "The VS Code extension — diagnostics as you type, hover, completion and macro expansion, in SQL files and inside Rust strings."
 ---
 
-The `pgzest-lsp` language server and its VS Code extension give the same
+The pgzest language server (`pgzest lsp`) and its VS Code extension give the same
 answers as `pgzest check`, as you type, from the same project model —
 the unsaved text of an open file taking precedence over the disk.
 
@@ -26,21 +26,29 @@ the unsaved text of an open file taking precedence over the disk.
 
 ## Installing
 
-The extension is not on the marketplace yet. From a clone of the
-repository:
+Install **pgzest** (publisher Creatiwity) from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=creatiwity.pgzest),
+or from [Open VSX](https://open-vsx.org/extension/creatiwity/pgzest) for
+VSCodium, Cursor and the other editors that use it.
 
-```sh
-make demo          # try it on the demo, in development mode
-make vscode-dev    # build the server and the extension, then F5 in editors/vscode
-```
-
-The extension finds `pgzest-lsp` in the repository's `target/` in
-development; elsewhere, set its path.
+On macOS (Apple silicon), Linux (x64, arm64) and Windows (x64), the
+extension ships the `pgzest` binary that runs the server: nothing else to
+install. Elsewhere, install the CLI (`cargo install pgzest --locked`) and
+keep it on the `PATH`, or set `pgzest.server.path`. The server is
+`pgzest lsp`, over stdio: any LSP client can start it.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `pgzest.lspPath` | `pgzest-lsp` | path to the `pgzest-lsp` binary |
+| `pgzest.server.path` | `""` | the `pgzest` binary to run; empty: the shipped one, otherwise `pgzest` on the `PATH` |
 | `pgzest.schemaFile` | `""` | a schema file for files outside a pgzest project |
+
+From a clone of the repository, the extension runs in development mode
+with the `pgzest` built in `target/`:
+
+```sh
+make demo          # try it on the demo
+make vscode-dev    # build pgzest and the extension, then F5 in editors/vscode
+```
 
 With rust-analyzer, the extension turns off rust-analyzer's semantic
 highlighting of strings, which would cover the SQL highlighting.

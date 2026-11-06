@@ -3,7 +3,7 @@
 //! This is the test that matters: a desugaring that produces SQL the tool
 //! itself rejects is useless.
 
-use pgzest_macro::{MacroSet, expand_source};
+use pgzest_expand::{MacroSet, expand_source};
 
 fn expand(src: &str) -> String {
     let e = expand_source(src, &MacroSet::builtin());

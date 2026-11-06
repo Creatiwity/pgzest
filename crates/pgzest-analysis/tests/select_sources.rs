@@ -1,7 +1,7 @@
 //! Resolution of the sources of a SELECT: CTEs, derived tables, functions,
 //! LATERAL, correlated subqueries, set operations.
 
-use pgzest_checker::check_sql_self_contained;
+use pgzest_analysis::check_sql_self_contained;
 use pgzest_diagnostics::{Diagnostic, codes};
 
 const SCHEMA: &str = "CREATE TABLE authors (id UUID PRIMARY KEY, name TEXT);\n\

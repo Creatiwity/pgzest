@@ -11,7 +11,7 @@ pub struct JsDiagnostic {
 pub fn check(sql: String, schema_sql: String) -> Vec<JsDiagnostic> {
     let schema = pgzest_catalog::ProjectCatalog::from_sql(&schema_sql)
         .unwrap_or_else(|_| pgzest_catalog::ProjectCatalog::empty());
-    let diagnostics = pgzest_checker::check_sql(&sql, &schema);
+    let diagnostics = pgzest_analysis::check_sql(&sql, &schema);
     diagnostics
         .into_iter()
         .map(|d| JsDiagnostic {

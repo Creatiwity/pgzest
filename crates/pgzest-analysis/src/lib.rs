@@ -1,9 +1,22 @@
-//! Orchestration facade: parse → check → lint.
+//! The analysis pipeline shared by the CLI and the language server:
+//! parse → check → lint.
 //!
-//! This crate exists to uphold the layering rule: `pgzest-checker` (and the
-//! semantic analysis it carries) and `pgzest-lint` are independent passes
-//! that do not know about each other. Anything that chains several of them
-//! lives here, above them.
+//! - [`check`]: statement checking — the semantic analysis of
+//!   `pgzest-sema`, plus the rules contributed by plugins ([`rule::CheckRule`],
+//!   run by [`Checker`]), which see the schema through `SchemaProvider`;
+//! - [`project`]: the incremental project database (salsa) the language
+//!   server runs on;
+//! - the functions at the root chain the passes. Checking and `pgzest-lint`
+//!   are independent passes that do not know about each other: anything
+//!   that chains them lives here, above them.
+
+pub mod check;
+pub mod checker;
+pub mod project;
+pub mod rule;
+
+pub use check::{check_script, check_sql, check_sql_self_contained, check_statements};
+pub use checker::Checker;
 
 use pgzest_catalog::ProjectCatalog;
 use pgzest_diagnostics::{Diagnostic, Severity, Span, Suppressions, codes};
@@ -94,7 +107,7 @@ fn hint_for(reason: &SkipReason) -> &'static str {
 pub fn query_file_diagnostics(
     path: &std::path::Path,
     sql: &str,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
 ) -> Vec<Diagnostic> {
     let is_sql = path
         .extension()
@@ -116,7 +129,7 @@ pub fn query_file_diagnostics(
     pgzest_query::parse_query_file_with(sql, macros)
         .diagnostics
         .into_iter()
-        .filter(|d| d.code != pgzest_macro::expand::MACRO_ERROR)
+        .filter(|d| d.code != pgzest_expand::expand::MACRO_ERROR)
         .collect()
 }
 
@@ -131,7 +144,7 @@ pub fn query_file_diagnostics(
 pub fn query_descriptor_diagnostics(
     sql: &str,
     catalog: &ProjectCatalog,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
     here: &[String],
     others: &[pgzest_query::QueryModule],
 ) -> Vec<Diagnostic> {
@@ -181,7 +194,7 @@ pub fn query_descriptor_diagnostics(
 pub fn query_modules(
     dir: &std::path::Path,
     catalog: &ProjectCatalog,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
     read: &dyn Fn(&std::path::Path) -> Option<String>,
 ) -> Vec<pgzest_query::QueryModule> {
     let mut files = Vec::new();
@@ -292,8 +305,8 @@ pub fn analyze_source(
 /// as it is applied.
 fn checks(stmts: &[pgzest_ast::Statement], catalog: Option<&ProjectCatalog>) -> Vec<Diagnostic> {
     match catalog {
-        Some(c) => pgzest_checker::check_statements(stmts, c),
-        None => pgzest_checker::check_script(stmts),
+        Some(c) => crate::check_statements(stmts, c),
+        None => crate::check_script(stmts),
     }
 }
 
@@ -356,7 +369,7 @@ pub fn analyze_source_self_contained(sql: &str, opts: &AnalysisOptions) -> Analy
 /// Check diagnostics of `sql` against `schema`.
 pub fn analyze_sql(sql: &str, schema: &ProjectCatalog) -> Vec<Diagnostic> {
     match pgzest_parser::parse(sql) {
-        Ok(stmts) => pgzest_checker::check_statements(&stmts, schema),
+        Ok(stmts) => crate::check_statements(&stmts, schema),
         Err(e) => vec![Diagnostic::error(
             codes::PARSE_ERROR,
             format!("parse error: {e}"),
@@ -369,7 +382,7 @@ pub fn analyze_sql(sql: &str, schema: &ProjectCatalog) -> Vec<Diagnostic> {
 ///
 /// Mode used to check a self-contained file, without an external schema.
 pub fn analyze_sql_self_contained(sql: &str) -> Vec<Diagnostic> {
-    pgzest_checker::check_sql_self_contained(sql)
+    crate::check_sql_self_contained(sql)
 }
 
 #[cfg(test)]
@@ -581,7 +594,7 @@ pub struct PreparedSource {
     /// Desugaring diagnostics, already positioned in the source.
     pub diagnostics: Vec<Diagnostic>,
     /// Desugared invocations (macros and fragments), in file order.
-    pub regions: Vec<pgzest_macro::expand::ExpandedRegion>,
+    pub regions: Vec<pgzest_expand::expand::ExpandedRegion>,
 }
 
 impl PreparedSource {
@@ -590,7 +603,7 @@ impl PreparedSource {
     pub fn region_at(
         &self,
         offset: usize,
-    ) -> Option<(&pgzest_macro::expand::ExpandedRegion, &str)> {
+    ) -> Option<(&pgzest_expand::expand::ExpandedRegion, &str)> {
         let r = self.regions.iter().find(|r| r.source.contains(&offset))?;
         Some((r, self.sql.get(r.generated.clone())?))
     }
@@ -633,8 +646,8 @@ pub fn is_macro_source(path: &std::path::Path) -> bool {
 /// without macros is copied verbatim, so the check is free and no file
 /// escapes processing because of its name. [`is_macro_source`] decides which
 /// files to *present* as macro sources, not whether to desugar.
-pub fn prepare_source(source: &str, macros: &pgzest_macro::MacroSet) -> PreparedSource {
-    let expansion = pgzest_macro::expand_source(source, macros);
+pub fn prepare_source(source: &str, macros: &pgzest_expand::MacroSet) -> PreparedSource {
+    let expansion = pgzest_expand::expand_source(source, macros);
 
     if expansion.is_passthrough() {
         return PreparedSource {
@@ -655,7 +668,7 @@ pub fn prepare_source(source: &str, macros: &pgzest_macro::MacroSet) -> Prepared
 
 /// Like [`prepare_source`], for a named query file: the `$name?` markers
 /// (optional parameters) are blanked after inserting the fragments.
-pub fn prepare_query_source(source: &str, macros: &pgzest_macro::MacroSet) -> PreparedSource {
+pub fn prepare_query_source(source: &str, macros: &pgzest_expand::MacroSet) -> PreparedSource {
     let mut prepared = prepare_source(source, macros);
     prepared.sql = pgzest_query::blank_optional_markers(&prepared.sql);
     prepared
@@ -667,7 +680,7 @@ pub fn prepare_query_source(source: &str, macros: &pgzest_macro::MacroSet) -> Pr
 /// corrected afterwards: see [`PreparedSource::parse`].
 pub fn analyze_source_with_macros(
     source: &str,
-    macros: &pgzest_macro::MacroSet,
+    macros: &pgzest_expand::MacroSet,
     schema: &ProjectCatalog,
     opts: &AnalysisOptions,
 ) -> AnalysisResult {
@@ -693,10 +706,7 @@ pub fn analyze_source_with_macros(
 
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
     diagnostics.extend(header_diagnostic(source));
-    diagnostics.extend(pgzest_checker::check_statements(
-        &outcome.statements,
-        schema,
-    ));
+    diagnostics.extend(crate::check_statements(&outcome.statements, schema));
     // Macro diagnostics are already in the source frame.
     diagnostics.extend(prepared.diagnostics.clone());
     suppressions.apply(&mut diagnostics);

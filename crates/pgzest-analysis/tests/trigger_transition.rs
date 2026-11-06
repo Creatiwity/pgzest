@@ -5,7 +5,7 @@
 //! `removed` were reported as nonexistent tables. They are tables
 //! with the columns of the trigger's table, visible only from the body.
 
-use pgzest_checker::check_sql_self_contained;
+use pgzest_analysis::check_sql_self_contained;
 use pgzest_diagnostics::{Diagnostic, codes};
 
 fn transition_trigger(body: &str) -> Vec<Diagnostic> {

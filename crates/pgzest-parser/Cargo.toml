@@ -11,4 +11,4 @@ serde = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
-pgzest-checker = { path = "../pgzest-checker" }
+pgzest-analysis = { path = "../pgzest-analysis" }

@@ -1,5 +1,5 @@
+use pgzest_analysis::{check_sql, check_sql_self_contained};
 use pgzest_catalog::ProjectCatalog;
-use pgzest_checker::{check_sql, check_sql_self_contained};
 use pgzest_diagnostics::codes;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ fn builtin_functions_no_warning() {
         CREATE TABLE metrics (value NUMERIC NOT NULL);
         SELECT COUNT(*), ROUND(AVG(value), 2), NULLIF(MAX(value), 0) FROM metrics;
     ";
-    let diags = pgzest_checker::check_sql_self_contained(sql);
+    let diags = pgzest_analysis::check_sql_self_contained(sql);
     let w001: Vec<_> = diags
         .iter()
         .filter(|d| d.code == codes::FUNCTION_NOT_FOUND)

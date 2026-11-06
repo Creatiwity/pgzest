@@ -2,7 +2,7 @@
 //! the rest of the query. They used to be dropped during conversion — a
 //! nonexistent column in a `PARTITION BY` passed.
 
-use pgzest_checker::check_sql_self_contained;
+use pgzest_analysis::check_sql_self_contained;
 use pgzest_diagnostics::{Diagnostic, codes};
 
 const SCHEMA: &str = "CREATE TABLE t (a INT, b TEXT, c INT);\n";

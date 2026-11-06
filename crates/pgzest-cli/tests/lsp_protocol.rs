@@ -9,7 +9,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-const BIN: &str = env!("CARGO_BIN_EXE_pgzest-lsp");
+const BIN: &str = env!("CARGO_BIN_EXE_pgzest");
 
 /// Maximum wait for a message. Generous: CI runs tests in parallel and the
 /// server may be slow to start. It is only a guard against a hang, not a
@@ -28,11 +28,12 @@ struct Lsp {
 impl Lsp {
     fn spawn() -> Self {
         let mut child = Command::new(BIN)
+            .arg("lsp")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("the pgzest-lsp binary must start");
+            .expect("`pgzest lsp` must start");
         let stdin = child.stdin.take().expect("stdin");
         let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
         let (tx, messages) = std::sync::mpsc::channel();

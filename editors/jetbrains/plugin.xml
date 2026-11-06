@@ -2,20 +2,14 @@
   <id>com.pgzest.jetbrains</id>
   <name>pgzest</name>
   <version>0.1.0</version>
-  <vendor email="pgzest@example.com" url="https://github.com/Creatiwity/pgzest">
-    pgzest
+  <vendor email="hello@creatiwity.net" url="https://creatiwity.net">
+    Creatiwity
   </vendor>
   <description><![CDATA[
     PostgreSQL SQL + PL/pgSQL language support for JetBrains IDEs.
-    Provides type-checking, linting, hover, and completion via the pgzest-lsp server.
-    <br/>
-    Features:
-    <ul>
-      <li>Real-time type-checking (E001, E003...)</li>
-      <li>Lint rules (L001-L009)</li>
-      <li>Hover: shows column types</li>
-      <li>Completion: columns from schema</li>
-    </ul>
+    Diagnostics, hover and completion from the pgzest language server
+    (<code>pgzest lsp</code>): SQL checked the way PostgreSQL would, without a
+    database.
   ]]></description>
   <depends>com.intellij.modules.platform</depends>
   <depends>com.intellij.modules.lang</depends>
@@ -29,16 +23,16 @@
   </extensions>
 
   <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
-    <server id="pgzest-lsp"
-            name="pgzest-lsp"
+    <server id="pgzest"
+            name="pgzest"
             factoryClass="com.pgzest.PgsqlLspServerDefinition">
-      <description>PostgreSQL language server (pgzest-lsp)</description>
+      <description>PostgreSQL language server (pgzest lsp)</description>
     </server>
     <languageMapping language="SQL"
-                     serverId="pgzest-lsp"
+                     serverId="pgzest"
                      filePattern="*.sql"/>
     <languageMapping language="SQL"
-                     serverId="pgzest-lsp"
+                     serverId="pgzest"
                      filePattern="*.pgsql"/>
   </extensions>
 </idea-plugin>

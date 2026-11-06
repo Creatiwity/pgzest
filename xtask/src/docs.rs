@@ -251,8 +251,8 @@ fn diagnostics_reference(root: &Path) -> Result<String, String> {
         out.push_str(&format!("\n## {title}\n\n{}", table(&codes)));
     }
     let macros: Vec<Code> = [
-        "crates/pgzest-macro/src/expand.rs",
-        "crates/pgzest-macro/src/instrument.rs",
+        "crates/pgzest-expand/src/expand.rs",
+        "crates/pgzest-expand/src/instrument.rs",
     ]
     .iter()
     .map(|f| constants(&root.join(f)))
