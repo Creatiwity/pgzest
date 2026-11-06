@@ -33,8 +33,10 @@ What the analysis cannot establish is reported (`not-analyzed`,
 
 ## 3. Everything else reads the descriptor
 
-- **Rust**: `queries!`, `sql!`, `query!` or `build.rs` turn descriptors
-  into functions, parameter and row structs, enums — at compile time.
+- **Languages**: in Rust, `queries!`, `sql!`, `query!` or `build.rs`
+  turn descriptors into functions, parameter and row structs, enums — at
+  compile time. TypeScript is next; any language can read them as JSON
+  (`pgzest describe`). See [Languages](../languages/).
 - **Migrations**: two catalogs — the migrations' and the declarative
   schema's — are compared object by object, and the difference is written
   as a migration, verified by replaying it.

@@ -30,13 +30,13 @@ export default defineConfig({
           label: 'Guides',
           items: [
             'guides/checking',
-            'guides/rust',
-            'guides/fragments-and-macros',
+                        'guides/fragments-and-macros',
             'guides/migrations',
             'guides/observability',
             'guides/editor',
           ],
         },
+        { label: 'Languages', items: ['languages', 'languages/rust', 'languages/typescript'] },
         {
           label: 'Reference',
           items: [

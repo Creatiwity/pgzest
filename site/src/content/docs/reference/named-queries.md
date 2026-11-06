@@ -16,7 +16,7 @@ generated: one function per query, one parameter struct, one row struct
 against the schema, and anything that would prevent describing it (untyped
 parameter, contradicted cardinality). `pgzest describe` produces the
 descriptors; their use in Rust is described in
-[Typed queries in Rust](../../guides/rust/).
+[Typed queries in Rust](../../languages/rust/).
 
 ## Example
 

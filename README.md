@@ -64,7 +64,7 @@ What pgzest cannot establish, it says (`not-analyzed`,
 code or `query!` inline become functions over `tokio-postgres`, with
 parameter and row structs, generated enums, `Option` exactly where a value
 can be null, and a return type that follows the number of rows.
-`COPY … FROM STDIN` included. → [guide](./site/src/content/docs/guides/rust.md)
+`COPY … FROM STDIN` included. → [guide](./site/src/content/docs/languages/rust.md)
 
 **Analysis as PostgreSQL would.** Overloads, implicit casts, nullability
 through joins, `DEFAULT` and generated columns, PL/pgSQL bodies, and each
@@ -134,7 +134,8 @@ pgzest works on real projects' schemas and is tested against PostgreSQL
 - not published to crates.io or npm, nor the extension to the VS Code
   marketplace: build from this repository;
 - PostgreSQL 18 only;
-- Rust only for now — TypeScript is the next phase;
+- Rust only for now — TypeScript is the next phase, .NET considered
+  after ([languages](./site/src/content/docs/languages/index.md));
 - known gaps are listed, not hidden: a `ROWS FROM (…)` the parser does not
   read yet, DDL in a file classified as queries not applied
   ([`PLAN.md`](./PLAN.md), the steering document, has the phases and the

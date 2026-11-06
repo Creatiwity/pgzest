@@ -64,7 +64,7 @@ Every option: [`pgzest.toml`](../reference/config/).
 
 ## Next
 
-- Generate Rust from the queries: [Typed queries in Rust](../guides/rust/).
+- Generate Rust from the queries: [Typed queries in Rust](../languages/rust/).
 - Move the schema to declarative files and generate migrations:
   [Schema and migrations](../guides/migrations/).
 - Install the editor support: [Editor](../guides/editor/).

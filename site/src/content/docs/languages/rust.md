@@ -1,6 +1,8 @@
 ---
 title: "Typed queries in Rust"
 description: "Named queries and inline SQL compiled into typed Rust over tokio-postgres."
+sidebar:
+  label: "Rust"
 ---
 
 Full example:

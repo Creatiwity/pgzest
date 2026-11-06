@@ -744,7 +744,7 @@ Done (2026-11-02):
   rebuild in debug (`build.rs` generation and `query!` included),
   code only modified → 1.05 s. At Mesalia scale (220 migrations),
   catalog + description + generation: 0.29 s in debug.
-- Guide: [`site/src/content/docs/guides/rust.md`](site/src/content/docs/guides/rust.md).
+- Guide: [`site/src/content/docs/languages/rust.md`](site/src/content/docs/languages/rust.md).
 
 - `query_file!`: query read from a file of the crate, errors
   positioned in that file.
@@ -1082,6 +1082,11 @@ show each step.
 **Exit**: the `getPage` example of the target DX typed end to end, without
 cast.
 
+After TypeScript, **.NET** (Npgsql) is considered, not committed: a
+generator over the same descriptor. The site presents languages as such
+(`site/src/content/docs/languages/`: shared SQL side, per-language
+generated code and runtime).
+
 ### P10 — Publication: README and documentation site — 🚧 in progress
 
 Done (2026-11-04): README redesigned with `beautify-github-readme`
@@ -1176,7 +1181,7 @@ code written in the meantime **migrates mechanically** to the generated code:
    nullability gap the manual layer was hiding.
 
 Status as of 2026-11-02: the component can start directly on generated
-code (`pgzest-build`, `pgzest-runtime`, `site/src/content/docs/guides/rust.md` guide), its
+code (`pgzest-build`, `pgzest-runtime`, `site/src/content/docs/languages/rust.md` guide), its
 `pgzest.toml` pointing to the existing Prisma migrations; the manual
 layer from step 1 is no longer needed.
 

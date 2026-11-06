@@ -67,10 +67,10 @@ a real PostgreSQL 18 and compares:
 ## What it does
 
 <CardGrid>
-  <Card title="Typed queries in Rust" icon="seti:rust">
-    Named queries in `.sql` files or `sql!` in code, compiled into
-    functions over `tokio-postgres` — as fast as hand-written code
-    (145.0 vs 145.7 µs per query).
+  <Card title="Typed queries, per language" icon="seti:rust">
+    Rust today: named queries in `.sql` files or `sql!` in code, compiled
+    into functions over `tokio-postgres` — as fast as hand-written code
+    (145.0 vs 145.7 µs per query). TypeScript next.
   </Card>
   <Card title="Analysis as PostgreSQL would" icon="approve-check">
     Types, overloads, nullability, `NOT NULL` through joins, PL/pgSQL
@@ -95,5 +95,7 @@ a real PostgreSQL 18 and compares:
     completion, macro expansion — in `.sql` files and inside Rust strings.
   </Card>
 </CardGrid>
+
+<LinkCard title="Languages" description="One analysis, a generator per language: Rust available, TypeScript next, .NET considered." href="languages/" />
 
 <LinkCard title="Try the demo" description="A small ordering application: schema, migrations, queries, Rust, traces." href="getting-started/" />
