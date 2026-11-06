@@ -45,6 +45,6 @@ tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = "0.7.18"
 insta = "1.49.0"
-wasmi = "1"
+wasmi = "2"
 clap = { version = "4", features = ["derive", "env"] }
 chrono = { version = "0.4", features = ["clock"], default-features = false }

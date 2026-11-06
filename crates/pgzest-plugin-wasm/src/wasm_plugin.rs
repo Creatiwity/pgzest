@@ -36,10 +36,10 @@ impl WasmPlugin {
     fn extract_name(wasm_bytes: &[u8]) -> Option<String> {
         let engine = Engine::default();
         let module = Module::new(&engine, wasm_bytes).ok()?;
-        let mut store: Store<()> = Store::new(&engine, ());
-        let linker: Linker<()> = Linker::new(&engine);
-        // Try to instantiate with empty linker (may fail if imports needed)
-        // wasmi 1.x combines instantiate + start into one call
+        let mut store = Store::new(&engine, HostState);
+        // The host imports are defined: a module that imports them would
+        // not instantiate otherwise.
+        let linker = host_linker(&engine).ok()?;
         let instance = linker.instantiate_and_start(&mut store, &module).ok()?;
         let name_fn = instance
             .get_typed_func::<(), i32>(&store, "pgzest_plugin_name")
@@ -102,38 +102,8 @@ impl WasmPlugin {
         let engine = Engine::default();
         let module = Module::new(&engine, &self.wasm_bytes[..])?;
 
-        // Host state
-        struct HostState;
-        let mut store: Store<HostState> = Store::new(&engine, HostState);
-        let mut linker: Linker<HostState> = Linker::new(&engine);
-
-        // Define host imports
-        linker
-            .func_wrap(
-                "env",
-                "pgzest_log",
-                |caller: wasmi::Caller<'_, HostState>, ptr: i32, len: i32| {
-                    if let Some(mem) = caller.get_export("memory").and_then(|e| e.into_memory()) {
-                        let data = mem.data(caller.as_context());
-                        let start = ptr as usize;
-                        let end = (start + len as usize).min(data.len());
-                        if let Ok(msg) = std::str::from_utf8(&data[start..end]) {
-                            eprintln!("[wasm plugin] {}", msg);
-                        }
-                    }
-                },
-            )
-            .map_err(wasmi::Error::from)?;
-
-        // Stub for pgzest_get_table — returns 0 (null) for now
-        linker
-            .func_wrap(
-                "env",
-                "pgzest_get_table",
-                |_: wasmi::Caller<'_, HostState>, _ptr: i32, _len: i32| -> i32 { 0 },
-            )
-            .map_err(wasmi::Error::from)?;
-
+        let mut store = Store::new(&engine, HostState);
+        let linker = host_linker(&engine)?;
         let instance = linker.instantiate_and_start(&mut store, &module)?;
 
         // Get alloc and the check function
@@ -185,6 +155,35 @@ impl WasmPlugin {
     pub fn wasm_path(&self) -> &Path {
         &self.wasm_path
     }
+}
+
+/// Host state of a plugin instance.
+struct HostState;
+
+/// The imports the host provides to every plugin (see `abi.rs`).
+fn host_linker(engine: &Engine) -> Result<Linker<HostState>, wasmi::Error> {
+    let mut linker = Linker::new(engine);
+    linker.func_wrap(
+        "env",
+        "pgzest_log",
+        |caller: wasmi::Caller<'_, HostState>, ptr: i32, len: i32| {
+            if let Some(mem) = caller.get_export("memory").and_then(|e| e.into_memory()) {
+                let data = mem.data(caller.as_context());
+                let start = ptr as usize;
+                let end = (start + len as usize).min(data.len());
+                if let Ok(msg) = std::str::from_utf8(&data[start..end]) {
+                    eprintln!("[wasm plugin] {}", msg);
+                }
+            }
+        },
+    )?;
+    // Stub for pgzest_get_table — returns 0 (null) for now
+    linker.func_wrap(
+        "env",
+        "pgzest_get_table",
+        |_: wasmi::Caller<'_, HostState>, _ptr: i32, _len: i32| -> i32 { 0 },
+    )?;
+    Ok(linker)
 }
 
 #[derive(Debug, thiserror::Error)]

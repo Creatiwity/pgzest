@@ -23,7 +23,7 @@ pgzest-lint = { path = "../pgzest-lint" }
 pgzest-plugin = { path = "../pgzest-plugin" }
 pgzest-plugin-wasm = { path = "../pgzest-plugin-wasm" }
 pgzest-oracle = { path = "../pgzest-oracle" }
-similar = "2"
+similar = "3"
 
 serde = { workspace = true }
 serde_json = { workspace = true }
