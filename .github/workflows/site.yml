@@ -1,7 +1,7 @@
 name: Site
 
 # Publishes the documentation site to GitHub Pages
-# (https://creatiwity.github.io/pgzest/). Never on a plain push: by hand
+# (https://pgzest.creatiwity.net, custom domain set in Settings → Pages). Never on a plain push: by hand
 # (Actions → Site → Run workflow) or with a release tag, so the site
 # describes what is released. Requires Settings → Pages → Source: GitHub
 # Actions.

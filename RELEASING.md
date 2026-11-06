@@ -12,7 +12,7 @@ Open VSX. Those three publishing jobs wait for an approval in the
 | Crates (`pgzest`, `pgzest-runtime`, `pgzest-build`, `pgzest-macros` and the crates they depend on) | crates.io |
 | `pgzest` binary: macOS arm64, Linux x64 and arm64 (glibc ≥ 2.35), Windows x64 | GitHub release (archives + SHA-256) |
 | VS Code extension, one package per platform with the binary inside | GitHub release, VS Code Marketplace, Open VSX |
-| Documentation site ([`site.yml`](.github/workflows/site.yml), also runnable by hand) | GitHub Pages: https://creatiwity.github.io/pgzest/ |
+| Documentation site ([`site.yml`](.github/workflows/site.yml), also runnable by hand) | GitHub Pages: https://pgzest.creatiwity.net |
 
 ## Commit messages
 

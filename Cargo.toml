@@ -31,7 +31,7 @@ edition = "2024"
 rust-version = "1.99"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Creatiwity/pgzest"
-homepage = "https://github.com/Creatiwity/pgzest"
+homepage = "https://pgzest.creatiwity.net"
 authors = ["Creatiwity <hello@creatiwity.net>"]
 
 [workspace.dependencies]

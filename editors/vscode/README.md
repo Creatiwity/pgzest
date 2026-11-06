@@ -38,7 +38,7 @@ or set `pgzest.server.path`.
 
 ## Learn more
 
-- [Getting started](https://github.com/Creatiwity/pgzest/blob/main/site/src/content/docs/getting-started.md)
+- [Documentation](https://pgzest.creatiwity.net) — [getting started](https://pgzest.creatiwity.net/getting-started/)
 - [Changelog](https://github.com/Creatiwity/pgzest/blob/main/CHANGELOG.md)
 - [Issues](https://github.com/Creatiwity/pgzest/issues)
 

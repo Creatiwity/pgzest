@@ -109,6 +109,8 @@ parameters, columns, types, nullability, number of rows — that the Rust
 generation, the migrations and the editor all read.
 → [how it works](./site/src/content/docs/how-it-works.md)
 
+Documentation: **[pgzest.creatiwity.net](https://pgzest.creatiwity.net)**.
+
 ## Install
 
 ```sh
