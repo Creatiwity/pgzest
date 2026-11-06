@@ -4,6 +4,8 @@ PostgreSQL language toolchain in Rust. **PLAN.md is the steering document** (pri
 
 **Language rule: everything in the repo is in English** — code, comments, docs, messages, tests and commit messages.
 
+**Commit messages follow Conventional Commits** (`feat:`, `fix:`, `refactor:`, `docs:`, `chore:`…, optional scope, `!` for a breaking change): CHANGELOG.md is generated from them by git-cliff (RELEASING.md).
+
 ## Stack
 
 - **Language**: Rust (workspace with several crates)
