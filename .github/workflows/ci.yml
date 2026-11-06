@@ -189,10 +189,3 @@ jobs:
 
       - name: lint runs without crashing
         run: ./target/debug/pgzest lint examples/schema.sql
-
-      - name: codegen produces a TS interface
-        run: |
-          out=$(./target/debug/pgzest codegen --input examples/schema.sql)
-          echo "$out"
-          echo "$out" | grep -q "export interface" \
-            || { echo "::error::codegen produced no interface"; exit 1; }

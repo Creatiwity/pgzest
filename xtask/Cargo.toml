@@ -9,7 +9,6 @@ publish = false
 pgzest-ast = { path = "../crates/pgzest-ast" }
 pgzest-catalog = { path = "../crates/pgzest-catalog" }
 pgzest-sema = { path = "../crates/pgzest-sema" }
-pgzest-checker = { path = "../crates/pgzest-checker" }
 pgzest-diagnostics = { workspace = true }
 pgzest-oracle = { path = "../crates/pgzest-oracle" }
 pgzest-parser = { path = "../crates/pgzest-parser" }

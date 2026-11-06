@@ -15,7 +15,6 @@ interface NativeAddon {
   check(sql: string, schemaSql: string): Array<{ severity: string; code: string; message: string }>
   lint(sql: string): Array<{ severity: string; code: string; message: string }>
   migrateDiff(oldSql: string, newSql: string): string
-  generateTypes(sql: string, schemaSql: string): string
 }
 
 export class NodeBackend implements CheckerBackend {
@@ -52,9 +51,5 @@ export class NodeBackend implements CheckerBackend {
 
   migrateDiff(oldSql: string, newSql: string): string {
     return this.addon.migrateDiff(oldSql, newSql)
-  }
-
-  generateTypes(sql: string, schemaSql: string): string {
-    return this.addon.generateTypes(sql, schemaSql)
   }
 }

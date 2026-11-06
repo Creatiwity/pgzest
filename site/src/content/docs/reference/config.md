@@ -54,7 +54,7 @@ unsupported = "warn"
 "column-not-found" = "error"
 
 [plugins]
-builtin = { postgis = {} }
+builtin = { rls-enforcer = {} }
 wasm = ["plugins/my_rules.wasm"]
 ```
 
@@ -166,7 +166,7 @@ Comment directives (`-- pgzest-disable-next-line <code>`) apply after
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
-| `builtin` | table `name = { options }` | `{}` | Provided plugins to enable. Available: `postgis`, `prisma`, `rls-enforcer`. An unknown name is an error. |
+| `builtin` | table `name = { options }` | `{}` | Provided plugins to enable. Available: `rls-enforcer`. An unknown name is an error. |
 | `wasm` | list of paths | `[]` | WASM plugins, relative to the config file. A plugin that fails to load is an error. |
 
 ## Planned changes (rejected until implemented)

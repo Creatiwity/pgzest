@@ -1167,7 +1167,6 @@ dependencies = [
  "pgzest-query",
  "pgzest-schema",
  "pgzest-sema",
- "serde",
  "serde_json",
  "similar 3.2.1",
  "tokio",
@@ -1233,9 +1232,7 @@ dependencies = [
  "pgzest-parser",
  "pgzest-schema",
  "pgzest-sema",
- "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -1244,14 +1241,10 @@ version = "0.1.0"
 dependencies = [
  "pgzest-ast",
  "pgzest-catalog",
- "pgzest-diagnostics",
  "pgzest-parser",
  "pgzest-query",
- "pgzest-schema",
  "pgzest-sema",
- "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -1295,7 +1288,6 @@ dependencies = [
  "pgzest-diagnostics",
  "pgzest-parser",
  "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -1309,7 +1301,6 @@ dependencies = [
  "pgzest-diagnostics",
  "pgzest-lint",
  "pgzest-macro",
- "pgzest-parser",
  "pgzest-plugin-wasm",
  "pgzest-project",
  "pgzest-query",
@@ -1399,9 +1390,7 @@ dependencies = [
  "pgzest-checker",
  "pgzest-diagnostics",
  "pgzest-schema",
- "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -1411,7 +1400,6 @@ dependencies = [
  "pgzest-ast",
  "pgzest-checker",
  "pgzest-diagnostics",
- "pgzest-plugin",
  "pgzest-schema",
  "serde",
  "serde_json",
@@ -1474,7 +1462,6 @@ dependencies = [
  "pgzest-ast",
  "pgzest-diagnostics",
  "pgzest-macro",
- "pgzest-parser",
  "serde",
  "serde_json",
  "toml",
@@ -2832,7 +2819,6 @@ dependencies = [
  "clap",
  "pgzest-ast",
  "pgzest-catalog",
- "pgzest-checker",
  "pgzest-diagnostics",
  "pgzest-oracle",
  "pgzest-parser",

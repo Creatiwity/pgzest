@@ -74,18 +74,6 @@ pub fn parse_and_emit(sql: String) -> String {
     }
 }
 
-/// Generate TypeScript type declarations from SQL.
-/// If schema_sql is non-empty, it's prepended to sql for enriched analysis.
-#[napi]
-pub fn generate_types(sql: String, schema_sql: String) -> String {
-    let combined = if schema_sql.is_empty() {
-        sql
-    } else {
-        format!("{}\n\n{}", schema_sql, sql)
-    };
-    pgzest_codegen::generate_ts_types_from_sql(&combined)
-}
-
 /// Parse SQL and return AST as a JSON string.
 #[napi]
 pub fn parse_to_json(sql: String) -> String {

@@ -10,6 +10,4 @@ pgzest-diagnostics = { workspace = true }
 pgzest-schema = { path = "../pgzest-schema" }
 pgzest-parser = { path = "../pgzest-parser" }
 pgzest-sema = { path = "../pgzest-sema" }
-thiserror = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }

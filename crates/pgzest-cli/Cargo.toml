@@ -25,7 +25,6 @@ pgzest-plugin-wasm = { path = "../pgzest-plugin-wasm" }
 pgzest-oracle = { path = "../pgzest-oracle" }
 similar = "3"
 
-serde = { workspace = true }
 serde_json = { workspace = true }
 clap = { workspace = true }
 chrono = { workspace = true }

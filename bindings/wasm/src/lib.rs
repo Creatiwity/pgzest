@@ -81,20 +81,6 @@ pub fn parse_and_emit(sql: &str) -> String {
     }
 }
 
-/// Generate TypeScript type declarations from a SQL file.
-/// Returns a string of TypeScript interface definitions.
-#[wasm_bindgen]
-pub fn generate_types(sql: &str, schema_sql: &str) -> String {
-    // If schema_sql is provided and non-empty, use it to enrich the analysis
-    let combined = if schema_sql.is_empty() {
-        sql.to_string()
-    } else {
-        // Prepend schema DDL so the codegen knows about table columns
-        format!("{}\n\n{}", schema_sql, sql)
-    };
-    pgzest_codegen::generate_ts_types_from_sql(&combined)
-}
-
 /// Parse a SQL file and return its AST as JSON.
 /// Useful for debugging or building custom tools on top of the parser.
 #[wasm_bindgen]

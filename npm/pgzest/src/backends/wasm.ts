@@ -18,7 +18,6 @@ export interface WasmModule {
   check(sql: string, schemaSql: string): { diagnostics_json(): string; has_errors(): boolean; error_count(): number; warning_count(): number }
   lint(sql: string): string
   migrate_diff(oldSql: string, newSql: string): string
-  generate_types(sql: string, schemaSql: string): string
 }
 
 export class WasmBackend implements CheckerBackend {
@@ -54,9 +53,5 @@ export class WasmBackend implements CheckerBackend {
 
   migrateDiff(oldSql: string, newSql: string): string {
     return this.wasm.migrate_diff(oldSql, newSql)
-  }
-
-  generateTypes(sql: string, schemaSql: string): string {
-    return this.wasm.generate_types(sql, schemaSql)
   }
 }

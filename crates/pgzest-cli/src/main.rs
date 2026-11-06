@@ -224,16 +224,6 @@ enum Command {
         /// SQL file to emit
         file: String,
     },
-
-    /// Generate TypeScript interfaces from SQL functions and named queries.
-    Codegen {
-        /// SQL input file
-        #[arg(long)]
-        input: String,
-        /// TypeScript output file (default: stdout)
-        #[arg(long)]
-        output: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -537,9 +527,6 @@ fn cmd_check(
     let has_external_schema = !schemas.is_empty();
     let mut composite = pgzest_schema::provider::CompositeSchemaProvider::new();
     composite.add(Box::new(SharedCatalog(catalog.clone())));
-    for provider in registry.collect_schema_providers(&builtin_plugins) {
-        composite.add(provider);
-    }
 
     let mut checker = pgzest_checker::Checker::default();
     for rule in registry.collect_rules(&builtin_plugins) {
@@ -776,31 +763,6 @@ fn cmd_emit(file: &str) -> i32 {
     0
 }
 
-fn cmd_codegen(input: &str, output: Option<&str>) -> i32 {
-    let sql = match read_file(input) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return 1;
-        }
-    };
-
-    let ts = pgzest_codegen::generate_ts_types_from_sql(&sql);
-
-    match output {
-        Some(path) => {
-            if let Err(e) = std::fs::write(path, &ts) {
-                eprintln!("error: cannot write '{}': {}", path, e);
-                return 1;
-            }
-            eprintln!("written: {}", path);
-        }
-        None => print!("{}", ts),
-    }
-
-    0
-}
-
 fn main() {
     let cli = Cli::parse();
 
@@ -893,7 +855,6 @@ fn main() {
             MigrateAction::Check => migrate::check(),
         },
         Command::Emit { file } => cmd_emit(&file),
-        Command::Codegen { input, output } => cmd_codegen(&input, output.as_deref()),
     };
 
     process::exit(exit_code);

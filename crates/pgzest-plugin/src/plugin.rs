@@ -1,19 +1,12 @@
 use pgzest_checker::rule::CheckRule;
-use pgzest_schema::provider::SchemaProvider;
 use serde_json::Value;
 
-/// A plugin bundles optional schema contribution + lint rules + codegen hooks.
-/// Implement only the methods relevant to your plugin.
+/// A plugin contributes check rules. It never contributes schema: the
+/// catalog comes from the project's SQL and the generated packs only
+/// (PLAN.md D2, D9).
 pub trait Plugin: Send + Sync {
-    /// Unique plugin identifier (e.g. "prisma", "rls-enforcer").
+    /// Unique plugin identifier (e.g. "rls-enforcer").
     fn name(&self) -> &'static str;
-
-    /// Provide an additional SchemaProvider to merge with the base schema.
-    /// Return None if this plugin doesn't contribute schema data.
-    fn schema_provider(&self, options: &Value) -> Option<Box<dyn SchemaProvider>> {
-        let _ = options;
-        None
-    }
 
     /// Lint rules contributed by this plugin.
     fn rules(&self, options: &Value) -> Vec<Box<dyn CheckRule>> {

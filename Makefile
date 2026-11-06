@@ -161,9 +161,6 @@ demo-cli: build ## Run the CLI on examples/ — shows the tool in action
 	@echo "════ pgzest lint examples/schema.sql ════"
 	@$(CLI) lint $(EXAMPLES)/schema.sql || true
 	@echo
-	@echo "════ pgzest codegen --input examples/schema.sql ════"
-	@$(CLI) codegen --input $(EXAMPLES)/schema.sql || true
-	@echo
 	@echo "════ pgzest emit examples/test.sql ════"
 	@$(CLI) emit $(EXAMPLES)/test.sql || true
 	@echo

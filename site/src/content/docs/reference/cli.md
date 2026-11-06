@@ -25,7 +25,6 @@ Commands:
   migrate   Migration subcommands
   schema    Schema subcommands
   emit      Parse and re-emit the SQL AST (normalization round-trip)
-  codegen   Generate TypeScript interfaces from SQL functions and named queries
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -380,17 +379,4 @@ Arguments:
 
 Options:
   -h, --help  Print help
-```
-
-## `pgzest codegen`
-
-```text
-Generate TypeScript interfaces from SQL functions and named queries
-
-Usage: pgzest codegen [OPTIONS] --input <INPUT>
-
-Options:
-      --input <INPUT>    SQL input file
-      --output <OUTPUT>  TypeScript output file (default: stdout)
-  -h, --help             Print help
 ```

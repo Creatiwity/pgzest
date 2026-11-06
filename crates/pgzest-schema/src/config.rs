@@ -617,7 +617,7 @@ mod tests {
         let c = ProjectConfig::parse(
             "[postgres]\nversion = 18\n\
              [rules]\nL001 = \"off\"\n\"column-not-found\" = \"warn\"\n\
-             [plugins]\nbuiltin = { prisma = { schema = \"prisma/schema.prisma\" } }\n\
+             [plugins]\nbuiltin = { rls-enforcer = { option = \"value\" } }\n\
              wasm = [\"plugins/a.wasm\"]\n",
         )
         .unwrap();
@@ -625,9 +625,7 @@ mod tests {
         assert_eq!(overrides["L001"], "off");
         assert_eq!(overrides["column-not-found"], "warning");
         assert_eq!(
-            c.builtin_plugins()["prisma"]["schema"],
-            "prisma/schema.prisma"
-        );
+c.builtin_plugins()["rls-enforcer"]["option"], "value");
         assert_eq!(c.plugins.wasm, vec!["plugins/a.wasm"]);
     }
 

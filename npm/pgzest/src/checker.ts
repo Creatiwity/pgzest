@@ -8,7 +8,6 @@ export interface CheckerBackend {
   check(sql: string, schemaSql: string): CheckResult
   lint(sql: string): Diagnostic[]
   migrateDiff(oldSql: string, newSql: string): string
-  generateTypes?(sql: string, schemaSql: string): string
 }
 
 // Stub that throws until a backend is registered
