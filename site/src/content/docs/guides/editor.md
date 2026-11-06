@@ -27,8 +27,8 @@ the unsaved text of an open file taking precedence over the disk.
 ## Installing
 
 Install **pgzest** (publisher Creatiwity) from the
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=creatiwity.pgzest),
-or from [Open VSX](https://open-vsx.org/extension/creatiwity/pgzest) for
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Creatiwity.pgzest),
+or from [Open VSX](https://open-vsx.org/extension/Creatiwity/pgzest) for
 VSCodium, Cursor and the other editors that use it.
 
 On macOS (Apple silicon), Linux (x64, arm64) and Windows (x64), the

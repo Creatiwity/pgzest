@@ -118,8 +118,8 @@ cargo install pgzest --locked   # the CLI, language server included (`pgzest lsp
 Prebuilt binaries (macOS arm64, Linux x64/arm64, Windows x64) are on the
 [releases](https://github.com/Creatiwity/pgzest/releases) page. The
 **pgzest** extension is on the
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=creatiwity.pgzest)
-and [Open VSX](https://open-vsx.org/extension/creatiwity/pgzest), its
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Creatiwity.pgzest)
+and [Open VSX](https://open-vsx.org/extension/Creatiwity/pgzest), its
 binary included. For Rust code: `pgzest-runtime` and `pgzest-macros` (or
 `pgzest-build`) from crates.io —
 [typed queries in Rust](./site/src/content/docs/languages/rust.md).

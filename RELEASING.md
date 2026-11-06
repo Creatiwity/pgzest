@@ -78,15 +78,16 @@ After the first publication, add co-owners if needed
 
 ### VS Code Marketplace
 
-The extension's identifier is `<publisher>.pgzest`; the publisher is
-`creatiwity` (`publisher` in `editors/vscode/package.json`).
+The extension's identifier is `Creatiwity.pgzest`: the publisher ID is
+`Creatiwity` (`publisher` in `editors/vscode/package.json`), written with
+the same case everywhere.
 
 1. Sign in to [Azure DevOps](https://dev.azure.com) with the Microsoft
    account that will own the publisher (create an organization if asked:
    it is only used for the token).
 2. Create the publisher on the
    [Marketplace management page](https://marketplace.visualstudio.com/manage/createpublisher):
-   ID `creatiwity`, name Creatiwity.
+   ID `Creatiwity` (created 2026-11-06).
 3. In Azure DevOps, *User settings → Personal access tokens → New
    token*: organization **All accessible organizations**, scope
    **Marketplace → Manage**, the longest expiry allowed (one year; note
@@ -103,7 +104,7 @@ The extension's identifier is `<publisher>.pgzest`; the publisher is
 3. Create the namespace once, matching the publisher:
 
    ```sh
-   npx ovsx create-namespace creatiwity -p <token>
+   npx ovsx create-namespace Creatiwity -p <token>
    ```
 
    then claim its ownership (verified namespace) through the

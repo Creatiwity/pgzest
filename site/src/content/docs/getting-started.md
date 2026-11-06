@@ -15,8 +15,8 @@ or a prebuilt binary (macOS arm64, Linux x64 and arm64, Windows x64)
 from the [GitHub releases](https://github.com/Creatiwity/pgzest/releases).
 
 The editor: the **pgzest** extension, from the
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=creatiwity.pgzest)
-or [Open VSX](https://open-vsx.org/extension/creatiwity/pgzest) (VSCodium,
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Creatiwity.pgzest)
+or [Open VSX](https://open-vsx.org/extension/Creatiwity/pgzest) (VSCodium,
 Cursor…). It ships its own `pgzest` on those platforms — see
 [Editor](../guides/editor/).
 
