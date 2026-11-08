@@ -1468,6 +1468,7 @@ fn emit_alter_table_op(op: &AlterTableOp) -> String {
         AlterTableOp::EnableRowLevelSecurity => "ENABLE ROW LEVEL SECURITY".to_string(),
         AlterTableOp::DisableRowLevelSecurity => "DISABLE ROW LEVEL SECURITY".to_string(),
         AlterTableOp::ForceRowLevelSecurity => "FORCE ROW LEVEL SECURITY".to_string(),
+        AlterTableOp::NoForceRowLevelSecurity => "NO FORCE ROW LEVEL SECURITY".to_string(),
         AlterTableOp::AddColumn {
             column,
             if_not_exists,

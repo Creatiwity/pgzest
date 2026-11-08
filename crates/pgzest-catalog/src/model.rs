@@ -438,6 +438,10 @@ pub struct Relation {
     pub constraints: Vec<Constraint>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub row_level_security: bool,
+    /// `FORCE ROW LEVEL SECURITY`: the policies apply to the table owner too
+    /// (`relforcerowsecurity`), independently of `row_level_security`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force_row_level_security: bool,
     /// Columns not established (view whose query could not be expanded):
     /// their absence proves nothing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

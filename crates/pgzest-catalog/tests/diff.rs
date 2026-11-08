@@ -244,6 +244,52 @@ fn constraints_policies_and_row_level_security() {
 }
 
 #[test]
+fn forced_row_level_security_is_independent() {
+    let m = migrate(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY);",
+        "CREATE TABLE t (id BIGINT PRIMARY KEY);\n\
+         ALTER TABLE t ENABLE ROW LEVEL SECURITY;\n\
+         ALTER TABLE t FORCE ROW LEVEL SECURITY;",
+    );
+    assert!(
+        sql(&m).contains("ALTER TABLE t FORCE ROW LEVEL SECURITY;"),
+        "{}",
+        sql(&m)
+    );
+    let m = migrate(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY);\nALTER TABLE t FORCE ROW LEVEL SECURITY;",
+        "CREATE TABLE t (id BIGINT PRIMARY KEY);",
+    );
+    assert_eq!(sql(&m).trim(), "ALTER TABLE t NO FORCE ROW LEVEL SECURITY;");
+}
+
+#[test]
+fn a_foreign_key_without_columns_references_the_primary_key() {
+    let m = migrate(
+        "CREATE TABLE a (id BIGINT PRIMARY KEY);",
+        "CREATE TABLE a (id BIGINT PRIMARY KEY);\n\
+         CREATE TABLE b (id BIGINT PRIMARY KEY, a_id BIGINT REFERENCES a);",
+    );
+    let s = sql(&m);
+    assert!(s.contains("FOREIGN KEY (a_id) REFERENCES a (id)"), "{s}");
+}
+
+#[test]
+fn a_foreign_key_to_a_table_without_primary_key_is_an_error() {
+    let p = ProjectCatalog::from_sql(
+        "CREATE TABLE a (id BIGINT);\nCREATE TABLE b (a_id BIGINT REFERENCES a);",
+    )
+    .unwrap();
+    assert!(
+        p.diagnostics.iter().any(|(_, d)| d
+            .message
+            .contains("no primary key for referenced table \"a\"")),
+        "{:?}",
+        p.diagnostics
+    );
+}
+
+#[test]
 fn comments_set_and_removed() {
     let m = migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY);\nCOMMENT ON TABLE t IS 'before';",

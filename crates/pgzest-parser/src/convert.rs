@@ -2740,6 +2740,10 @@ pub(crate) fn convert_alter_table_op(
 ) -> Result<AlterTableOp, ParseError> {
     match op {
         sp::AlterTableOperation::EnableRowLevelSecurity => Ok(AlterTableOp::EnableRowLevelSecurity),
+        sp::AlterTableOperation::ForceRowLevelSecurity => Ok(AlterTableOp::ForceRowLevelSecurity),
+        sp::AlterTableOperation::NoForceRowLevelSecurity => {
+            Ok(AlterTableOp::NoForceRowLevelSecurity)
+        }
         sp::AlterTableOperation::DisableRowLevelSecurity => {
             Ok(AlterTableOp::DisableRowLevelSecurity)
         }

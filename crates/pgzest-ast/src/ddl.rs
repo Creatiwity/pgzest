@@ -492,6 +492,7 @@ pub enum AlterTableOp {
     EnableRowLevelSecurity,
     DisableRowLevelSecurity,
     ForceRowLevelSecurity,
+    NoForceRowLevelSecurity,
     AddColumn {
         column: ColumnDef,
         if_not_exists: bool,

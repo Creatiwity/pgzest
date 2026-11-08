@@ -796,6 +796,7 @@ impl Applier<'_> {
             columns: Vec::new(),
             constraints: Vec::new(),
             row_level_security: false,
+            force_row_level_security: false,
             opaque: false,
             definition: None,
             order: self.next_order(),
@@ -1121,6 +1122,16 @@ impl Applier<'_> {
                 } else {
                     cols(ref_columns)
                 };
+                if ref_columns.is_empty() {
+                    self.error(
+                        codes::OBJECT_NOT_FOUND,
+                        format!(
+                            "there is no primary key for referenced table \"{}\"",
+                            references.name
+                        ),
+                    );
+                    return;
+                }
                 (
                     name,
                     ConstraintKind::ForeignKey {
@@ -1205,19 +1216,39 @@ impl Applier<'_> {
                 }
             }
         }
+        // As PostgreSQL records it: a foreign key names the columns it
+        // references, the primary key when it was written without them.
+        let mut stored = unnamed(tc);
+        if let (
+            TableConstraint::ForeignKey { ref_columns, .. },
+            ConstraintKind::ForeignKey {
+                ref_columns: resolved,
+                ..
+            },
+        ) = (&mut stored, &kind)
+            && ref_columns.is_empty()
+        {
+            *ref_columns = resolved.iter().map(Ident::new).collect();
+        }
         rel.constraints.push(Constraint {
             name,
             kind,
-            definition: Some(pgzest_ast::emit::emit_table_constraint(&unnamed(tc))),
+            definition: Some(pgzest_ast::emit::emit_table_constraint(&stored)),
             not_valid,
         });
     }
 
     fn alter_table(&mut self, table: &QName, op: &AlterTableOp) {
         match op {
-            AlterTableOp::EnableRowLevelSecurity | AlterTableOp::ForceRowLevelSecurity => {
+            AlterTableOp::EnableRowLevelSecurity => {
                 if let Some(r) = self.cat.relations.get_mut(table) {
                     r.row_level_security = true;
+                }
+            }
+            // Independent of ENABLE/DISABLE, as in PostgreSQL.
+            AlterTableOp::ForceRowLevelSecurity | AlterTableOp::NoForceRowLevelSecurity => {
+                if let Some(r) = self.cat.relations.get_mut(table) {
+                    r.force_row_level_security = matches!(op, AlterTableOp::ForceRowLevelSecurity);
                 }
             }
             AlterTableOp::DisableRowLevelSecurity => {
@@ -2027,6 +2058,7 @@ impl Applier<'_> {
                 columns,
                 constraints: Vec::new(),
                 row_level_security: false,
+                force_row_level_security: false,
                 opaque,
                 definition: Some(emit_statement(&Statement::Ddl(DdlStatement::CreateView(
                     cv.clone(),

@@ -212,6 +212,17 @@ pub fn dump(cat: &Catalog, postgres: u32) -> Dump {
                 ),
             );
         }
+        if r.force_row_level_security {
+            out.push(
+                12,
+                &r.name.schema,
+                r.order,
+                format!(
+                    "ALTER TABLE {} FORCE ROW LEVEL SECURITY;",
+                    name_sql(&r.name)
+                ),
+            );
+        }
     }
 
     // 6. Routines and views, in their creation order (a SQL function and a

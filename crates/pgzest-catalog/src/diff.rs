@@ -993,6 +993,12 @@ fn diff_relations(
                         format!("ALTER TABLE {} ENABLE ROW LEVEL SECURITY;", name_sql(q)),
                     );
                 }
+                if after.force_row_level_security {
+                    out.push(
+                        ROW_SECURITY,
+                        format!("ALTER TABLE {} FORCE ROW LEVEL SECURITY;", name_sql(q)),
+                    );
+                }
             }
             Some(b) => alter_table(new, b, after, out),
         }
@@ -1222,6 +1228,19 @@ fn alter_table(new: &Catalog, before: &Relation, after: &Relation, out: &mut Out
                     "ENABLE"
                 } else {
                     "DISABLE"
+                }
+            ),
+        );
+    }
+    if before.force_row_level_security != after.force_row_level_security {
+        out.push(
+            ROW_SECURITY,
+            format!(
+                "ALTER TABLE {table} {}FORCE ROW LEVEL SECURITY;",
+                if after.force_row_level_security {
+                    ""
+                } else {
+                    "NO "
                 }
             ),
         );

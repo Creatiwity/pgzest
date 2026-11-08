@@ -377,7 +377,7 @@ impl Snapshot {
         let relations = client
             .query(
                 "SELECT c.oid::int8, n.nspname::text, c.relname::text, c.relkind::text,
-                        c.relpersistence::text, c.relrowsecurity
+                        c.relpersistence::text, c.relrowsecurity, c.relforcerowsecurity
                    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                   WHERE n.nspname = ANY($1) AND c.relkind IN ('r', 'p', 'v', 'm', 'f')",
                 &[&schemas],
@@ -618,6 +618,7 @@ impl Snapshot {
                     .unwrap_or_default(),
                 constraints: Vec::new(),
                 row_level_security: r.get(5),
+                force_row_level_security: r.get(6),
                 opaque: false,
                 definition: None,
                 order: 0,
