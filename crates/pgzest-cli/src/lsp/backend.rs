@@ -983,6 +983,9 @@ fn hover_schema_file(
     word: &str,
     global: &ProjectCatalog,
 ) -> Option<String> {
+    if let Some(h) = hover_routine_body(text, stmts, global, offset, word) {
+        return Some(h);
+    }
     // The file's own definitions first: it may not be saved yet.
     let own = ProjectCatalog::from_sql(text).ok();
     let table = |name: &str| {
@@ -1156,16 +1159,13 @@ fn hover_query(
     word: &str,
 ) -> Option<String> {
     use pgzest_ast::Statement;
-    use pgzest_sema::Nullability;
-    let null = |n: Nullability| match n {
-        Nullability::NonNull => " NOT NULL",
-        Nullability::Nullable => " NULL",
-        Nullability::Unknown => " (unknown nullability)",
-    };
     let stmt = stmts.iter().find(|s| {
         pgzest_ast::stmt_span(s)
             .is_some_and(|sp| sp.start as usize <= offset && offset <= sp.end as usize)
     });
+    if let Some(h) = hover_routine_body(text, stmts, catalog, offset, word) {
+        return Some(h);
+    }
     if let Some(
         stmt @ (Statement::Select(_)
         | Statement::Insert(_)
@@ -1175,56 +1175,12 @@ fn hover_query(
     {
         let mut a = pgzest_sema::Analyzer::new(
             pgzest_sema::TypeSystem::new(&catalog.catalog),
-            catalog.search_path.clone(),
+            search_path_at(stmts, stmt, catalog),
         );
         // References resolved before a possible error remain valid.
         let _ = a.describe(stmt);
-        let contains =
-            |sp: &pgzest_ast::Span| sp.start as usize <= offset && offset < sp.end as usize;
-        let column = a
-            .column_refs
-            .iter()
-            .filter(|(sp, _)| contains(sp))
-            .min_by_key(|(sp, _)| sp.end - sp.start);
-        let call = a
-            .call_refs
-            .iter()
-            .filter(|c| contains(&c.span))
-            .min_by_key(|c| c.span.end - c.span.start);
-        // On the function's name only, not on the keywords of the call
-        // (`FILTER (WHERE …)`, `OVER (…)`).
-        let call = call.filter(|c| {
-            c.name
-                .rsplit('.')
-                .next()
-                .is_some_and(|n| n.eq_ignore_ascii_case(word))
-        });
-        // The innermost: a column inside a call's arguments wins.
-        match (column, call) {
-            (Some((sp, t)), c)
-                if c.is_none_or(|c| sp.end - sp.start <= c.span.end - c.span.start) =>
-            {
-                let written = text
-                    .get(sp.start as usize..sp.end as usize)
-                    .filter(|w| !w.contains('\n') && !w.contains('@'))
-                    .unwrap_or(word);
-                return Some(format!(
-                    "(column) **{written}**: `{}`{}",
-                    pgzest_sema::format_type(&t.ty),
-                    null(t.nullable)
-                ));
-            }
-            (_, Some(c)) => {
-                let args: Vec<String> = c.args.iter().map(pgzest_sema::format_type).collect();
-                return Some(format!(
-                    "(function) {}({}): `{}`{}",
-                    fmt_qualified_bold(&c.name, word),
-                    args.join(", "),
-                    pgzest_sema::format_type(&c.result.ty),
-                    null(c.result.nullable)
-                ));
-            }
-            _ => {}
+        if let Some(h) = hover_refs(text, offset, word, &a.column_refs, &a.call_refs) {
+            return Some(h);
         }
         if let Some(h) = hover_target_column(stmt, catalog, word) {
             return Some(h);
@@ -1247,6 +1203,125 @@ fn hover_query(
         return Some(fmt_table_hover(&t.name, word, t));
     }
     hover_function_name(text, offset, word, catalog)
+}
+
+/// Search path in effect for `stmt`: the project's, changed by the
+/// `SET search_path` that precede it in the file.
+fn search_path_at(
+    stmts: &[pgzest_ast::Statement],
+    stmt: &pgzest_ast::Statement,
+    catalog: &ProjectCatalog,
+) -> pgzest_catalog::SearchPath {
+    let mut path = catalog.search_path.clone();
+    for s in stmts {
+        if std::ptr::eq(s, stmt) {
+            break;
+        }
+        if let Some(p) = pgzest_sema::check::search_path_change(s) {
+            path = p;
+        }
+    }
+    path
+}
+
+/// Hover inside the body of a routine (`CREATE FUNCTION`, `CREATE
+/// PROCEDURE`, `DO`): what the analysis of the body resolved, its
+/// variables in scope. A trigger function shared between several tables
+/// is analyzed once per table: each distinct answer is shown.
+fn hover_routine_body(
+    text: &str,
+    stmts: &[pgzest_ast::Statement],
+    catalog: &ProjectCatalog,
+    offset: usize,
+    word: &str,
+) -> Option<String> {
+    use pgzest_ast::{DdlStatement, Statement, UtilityKind};
+    let routine = |s: &Statement| match s {
+        Statement::Ddl(DdlStatement::CreateFunction(_) | DdlStatement::CreateProcedure(_)) => true,
+        Statement::Utility(u) => matches!(u.kind, UtilityKind::Do { .. }),
+        _ => false,
+    };
+    let stmt = stmts.iter().find(|s| {
+        routine(s)
+            && pgzest_ast::stmt_span(s)
+                .is_some_and(|sp| sp.start as usize <= offset && offset < sp.end as usize)
+    })?;
+    let path = search_path_at(stmts, stmt, catalog);
+    let refs = pgzest_sema::check::body_refs(&catalog.catalog, &path, stmt);
+    hover_refs(text, offset, word, &refs.columns, &refs.calls)
+}
+
+/// The innermost reference under the cursor among those resolved by an
+/// analysis: a column, or a function call when the cursor is on its name.
+/// Several analyses of the same text (one per trigger table) may give
+/// several answers for the same reference: each distinct one is listed.
+fn hover_refs(
+    text: &str,
+    offset: usize,
+    word: &str,
+    columns: &[(pgzest_ast::Span, pgzest_sema::Typed)],
+    calls: &[pgzest_sema::CallRef],
+) -> Option<String> {
+    use pgzest_sema::Nullability;
+    let null = |n: Nullability| match n {
+        Nullability::NonNull => " NOT NULL",
+        Nullability::Nullable => " NULL",
+        Nullability::Unknown => " (unknown nullability)",
+    };
+    let contains = |sp: &pgzest_ast::Span| sp.start as usize <= offset && offset < sp.end as usize;
+    let len = |sp: &pgzest_ast::Span| sp.end - sp.start;
+    let column = columns
+        .iter()
+        .filter(|(sp, _)| contains(sp))
+        .map(|(sp, _)| *sp)
+        .min_by_key(len);
+    // On the function's name only, not on the keywords of the call
+    // (`FILTER (WHERE …)`, `OVER (…)`).
+    let on_name = |c: &&pgzest_sema::CallRef| {
+        c.name
+            .rsplit('.')
+            .next()
+            .is_some_and(|n| n.eq_ignore_ascii_case(word))
+    };
+    let call = calls
+        .iter()
+        .filter(|c| contains(&c.span))
+        .min_by_key(|c| len(&c.span))
+        .filter(on_name)
+        .map(|c| c.span);
+    let mut lines: Vec<String> = Vec::new();
+    // The innermost: a column inside a call's arguments wins.
+    match (column, call) {
+        (Some(sp), c) if c.is_none_or(|c| len(&sp) <= len(&c)) => {
+            let written = text
+                .get(sp.start as usize..sp.end as usize)
+                .filter(|w| !w.contains('\n') && !w.contains('@'))
+                .unwrap_or(word);
+            for (_, t) in columns.iter().filter(|(s, _)| *s == sp) {
+                lines.push(format!(
+                    "(column) **{written}**: `{}`{}",
+                    pgzest_sema::format_type(&t.ty),
+                    null(t.nullable)
+                ));
+            }
+        }
+        (_, Some(sp)) => {
+            for c in calls.iter().filter(|c| c.span == sp) {
+                let args: Vec<String> = c.args.iter().map(pgzest_sema::format_type).collect();
+                lines.push(format!(
+                    "(function) {}({}): `{}`{}",
+                    fmt_qualified_bold(&c.name, word),
+                    args.join(", "),
+                    pgzest_sema::format_type(&c.result.ty),
+                    null(c.result.nullable)
+                ));
+            }
+        }
+        _ => {}
+    }
+    let mut seen = std::collections::HashSet::new();
+    lines.retain(|l| seen.insert(l.clone()));
+    (!lines.is_empty()).then(|| lines.join("\n\n"))
 }
 
 /// Column of the target table of an `UPDATE … SET` (or an `INSERT` column

@@ -583,6 +583,38 @@ fn hover_in_a_schema_follows_the_enclosing_table() {
 }
 
 #[test]
+fn hover_in_a_routine_body_uses_its_analysis() {
+    let values = hovers(
+        "hover-body",
+        &[
+            ("pgzest.toml", QUERY_PROJECT),
+            ("schema/t.sql", TWO_TABLES),
+            (
+                "schema/f.sql",
+                "CREATE FUNCTION total(p_id BIGINT) RETURNS bigint LANGUAGE plpgsql AS $$\n\
+                 DECLARE n bigint;\n\
+                 BEGIN\n\
+                 \x20 SELECT count(*) INTO n FROM b WHERE b.a_id = p_id;\n\
+                 \x20 RETURN n;\n\
+                 END $$;\n\
+                 CREATE FUNCTION label_of(p BIGINT) RETURNS text LANGUAGE sql AS \
+                 $$ SELECT a.label FROM a WHERE a.id = p $$;\n",
+            ),
+        ],
+        "schema/f.sql",
+        &[(3, 10), (3, 41), (6, 77)],
+    );
+    assert_eq!(
+        values,
+        [
+            "(function) pg_catalog.**count**(): `bigint` NOT NULL",
+            "(column) **b.a_id**: `bigint` NULL",
+            "(column) **a.label**: `text` NOT NULL",
+        ]
+    );
+}
+
+#[test]
 fn hovering_a_header_gives_the_descriptor() {
     let root = scaffold(
         "hover-query",

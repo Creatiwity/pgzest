@@ -287,7 +287,7 @@ fn deferred(
     path: &SearchPath,
     stmt: &Statement,
     out: &mut Vec<Diagnostic>,
-    collect: &mut Option<Vec<BodyQuery>>,
+    collect: &mut Option<Collected>,
 ) {
     match stmt {
         Statement::Ddl(DdlStatement::CreateFunction(f)) => {
@@ -326,7 +326,39 @@ pub struct BodyQuery {
 /// Queries of the body of the routine created by `stmt` (PL/pgSQL or SQL),
 /// analyzed in its scope, against `catalog`.
 pub fn body_queries(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> Vec<BodyQuery> {
-    let mut collect = Some(Vec::new());
+    collected(catalog, path, stmt).queries
+}
+
+/// What the analysis of the body of the routine created by `stmt` resolved:
+/// its column references and calls, positioned in the file.
+pub fn body_refs(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> BodyRefs {
+    collected(catalog, path, stmt).refs
+}
+
+/// Column references and calls resolved in a routine body.
+#[derive(Debug, Clone, Default)]
+pub struct BodyRefs {
+    pub columns: Vec<(Span, crate::expr::Typed)>,
+    pub calls: Vec<crate::expr::CallRef>,
+}
+
+/// What a body walk collects on request.
+#[derive(Default)]
+struct Collected {
+    queries: Vec<BodyQuery>,
+    refs: BodyRefs,
+}
+
+impl Collected {
+    /// Keeps the references resolved by `a`.
+    fn harvest(&mut self, a: &Analyzer) {
+        self.refs.columns.extend(a.column_refs.iter().cloned());
+        self.refs.calls.extend(a.call_refs.iter().cloned());
+    }
+}
+
+fn collected(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> Collected {
+    let mut collect = Some(Collected::default());
     let mut ignored = Vec::new();
     match stmt {
         Statement::Ddl(DdlStatement::CreateFunction(f))
@@ -365,14 +397,16 @@ fn run(
     mut w: Walker,
     body: &PlpgsqlBody,
     out: &mut Vec<Diagnostic>,
-    collect: &mut Option<Vec<BodyQuery>>,
+    collect: &mut Option<Collected>,
 ) {
     if collect.is_some() {
-        w.queries = Some(Vec::new());
+        w.collected = Some(Collected::default());
     }
     w.body(body, out);
-    if let (Some(c), Some(q)) = (collect.as_mut(), w.queries.take()) {
-        c.extend(q);
+    if let (Some(c), Some(q)) = (collect.as_mut(), w.collected.take()) {
+        c.queries.extend(q.queries);
+        c.refs.columns.extend(q.refs.columns);
+        c.refs.calls.extend(q.refs.calls);
     }
 }
 
@@ -796,7 +830,7 @@ fn sql_routine(
     params: &[FunctionParam],
     body: &FunctionBody,
     out: &mut Vec<Diagnostic>,
-    collect: &mut Option<Vec<BodyQuery>>,
+    collect: &mut Option<Collected>,
 ) {
     let (_, fname) = split_name(name);
     let stmts: Vec<Statement> = match body {
@@ -814,6 +848,9 @@ fn sql_routine(
             ));
             if let Err(err) = a.expr(e, &Scope::default()) {
                 out.push(diagnostic(err, e.span));
+            }
+            if let Some(c) = collect.as_mut() {
+                c.harvest(&a);
             }
             return;
         }
@@ -845,7 +882,8 @@ fn sql_routine(
         ));
         let result = a.describe(stmt);
         if let Some(c) = collect.as_mut() {
-            c.push(BodyQuery {
+            c.harvest(&a);
+            c.queries.push(BodyQuery {
                 statement: stmt.clone(),
                 result: result
                     .as_ref()
@@ -930,7 +968,7 @@ fn plpgsql_function(
     f: &CreateFunction,
     body: &PlpgsqlBody,
     out: &mut Vec<Diagnostic>,
-    collect: &mut Option<Vec<BodyQuery>>,
+    collect: &mut Option<Collected>,
 ) {
     let (_, name) = split_name(&f.name);
     let make = |out: &mut Vec<Diagnostic>| {
@@ -1067,8 +1105,9 @@ struct Walker<'c> {
     trigger: Option<Option<TriggerContext>>,
     /// Columns of the queries of declared cursors, by name.
     cursors: BTreeMap<String, Option<Vec<Column>>>,
-    /// Analyzed queries, if they are collected ([`body_queries`]).
-    queries: Option<Vec<BodyQuery>>,
+    /// Analyzed queries and references, if they are collected
+    /// ([`body_queries`], [`body_refs`]).
+    collected: Option<Collected>,
     /// Context of the collected queries (see [`BodyQuery::setup`]).
     setup: Vec<String>,
 }
@@ -1086,7 +1125,7 @@ impl<'c> Walker<'c> {
             routine,
             trigger,
             cursors: BTreeMap::new(),
-            queries: None,
+            collected: None,
             setup: Vec::new(),
         }
     }
@@ -1095,7 +1134,7 @@ impl<'c> Walker<'c> {
         // The DDL of the body (temporary tables…) is visible to its queries.
         let mut ddl = Vec::new();
         collect_sql(&body.block, &mut ddl);
-        if self.queries.is_some() {
+        if self.collected.is_some() {
             self.setup = ddl
                 .iter()
                 .filter(|s| matches!(s, Statement::Ddl(_)))
@@ -1268,7 +1307,9 @@ impl<'c> Walker<'c> {
                 if let Some(r) = a.routine.as_mut() {
                     r.frames.push(frame);
                 }
-                let cols = match a.select(query, None, true) {
+                let result = a.select(query, None, true);
+                self.harvest(&a);
+                let cols = match result {
                     Ok(cols) => Some(cols.iter().map(Column::from).collect()),
                     Err(e) => {
                         ctx.out.push(diagnostic(e, query.span));
@@ -1375,7 +1416,9 @@ impl<'c> Walker<'c> {
     /// Body expression: `SELECT expr`, variables in scope.
     fn expr(&mut self, e: &Expr, ctx: &mut Ctx) -> Option<crate::expr::Typed> {
         let mut a = self.analyzer(ctx.catalog);
-        match a.expr(e, &Scope::default()) {
+        let result = a.expr(e, &Scope::default());
+        self.harvest(&a);
+        match result {
             Ok(t) => Some(t),
             Err(err) => {
                 ctx.out.push(diagnostic(err, e.span));
@@ -1398,6 +1441,13 @@ impl<'c> Walker<'c> {
         }
     }
 
+    /// Keeps the references resolved by `a`, if requested ([`body_refs`]).
+    fn harvest(&mut self, a: &Analyzer) {
+        if let Some(c) = self.collected.as_mut() {
+            c.harvest(a);
+        }
+    }
+
     /// Collects an analyzed query, if requested ([`body_queries`]).
     fn record(
         &mut self,
@@ -1405,8 +1455,9 @@ impl<'c> Walker<'c> {
         result: &Result<Vec<crate::query::OutputColumn>, SemaError>,
         a: &Analyzer,
     ) {
-        if let Some(q) = self.queries.as_mut() {
-            q.push(BodyQuery {
+        self.harvest(a);
+        if let Some(c) = self.collected.as_mut() {
+            c.queries.push(BodyQuery {
                 statement: statement(),
                 result: result
                     .clone()
@@ -1447,7 +1498,9 @@ impl<'c> Walker<'c> {
                     Statement::Utility(u) => {
                         if let UtilityKind::Call { .. } = u.kind {
                             let mut a = self.analyzer(ctx.catalog);
-                            if let Err(e) = a.describe(statement) {
+                            let result = a.describe(statement);
+                            self.harvest(&a);
+                            if let Err(e) = result {
                                 ctx.out.push(diagnostic(e, s.span));
                             }
                         }
