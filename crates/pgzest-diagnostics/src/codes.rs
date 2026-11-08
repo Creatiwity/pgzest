@@ -112,8 +112,12 @@ pub const OBJECT_NOT_FOUND: &str = "object-not-found";
 pub const OBJECT_ALREADY_EXISTS: &str = "object-already-exists";
 /// Nonexistent schema.
 pub const SCHEMA_NOT_FOUND: &str = "schema-not-found";
-/// Extension whose catalog pgzest does not ship for this version.
+/// Extension whose catalog pack neither pgzest nor the project
+/// (`[postgres] packs`) provides for this version.
 pub const EXTENSION_UNAVAILABLE: &str = "extension-unavailable";
+/// Project extension pack (`[postgres] packs`) that cannot be used: unreadable,
+/// generated for another PostgreSQL version, or duplicated.
+pub const INVALID_PACK: &str = "invalid-pack";
 /// Routine name without a signature that designates several overloads.
 pub const AMBIGUOUS_ROUTINE: &str = "ambiguous-routine";
 /// Drop refused by PostgreSQL for lack of `CASCADE` (dependent objects).

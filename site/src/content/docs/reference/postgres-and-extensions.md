@@ -1,15 +1,15 @@
 ---
 title: "PostgreSQL versions and extensions"
-description: "Which PostgreSQL version and extensions pgzest knows, how their catalogs are made, and how to add one."
+description: "Which PostgreSQL version and extensions pgzest knows, how to use another extension in your project, and how to contribute a pack."
 sidebar:
   label: "Versions and extensions"
 ---
 
 pgzest never guesses what a function, an operator or a type of PostgreSQL
 is. Everything built in — PostgreSQL's own catalog and each extension's —
-comes from a **pack**: a JSON file generated from a real server, versioned
-in the repository (`crates/pgzest-catalog/packs/`) and shipped inside
-pgzest.
+comes from a **pack**: a JSON file generated from a real server. pgzest
+ships the packs below; your project can add its own for any other
+extension.
 
 ## What is covered
 
@@ -50,7 +50,7 @@ statements of your schema or migrations, replayed like the rest:
   the schema the statement names (`SCHEMA extensions`) or the first
   schema of the `search_path`, as in PostgreSQL;
 - `VERSION '…'` selects that version's pack; without it, the version used
-  is the only one shipped;
+  is the only one available;
 - `ALTER EXTENSION … UPDATE [TO '…']` and `ALTER EXTENSION … SET SCHEMA`
   swap the pack accordingly;
 - a type from an extension that was never created is reported as
@@ -66,16 +66,56 @@ written for, checked on every replay:
 
 | Diagnostic | When |
 |------------|------|
-| `extension-unavailable` | No pack for this extension, or not for this version: the hint lists the versions available. |
+| `extension-unavailable` | No pack for this extension, or not for this version: the hint lists the versions available, or how to generate the pack. |
+| `invalid-pack` | A pack of `[postgres] packs` cannot be used (see below). |
 | `type-not-found` | Includes types of an extension not created; the hint names the extension. |
 | `migration-header-mismatch` | A migration announces an extension the replay does not have, or the reverse. |
 
-## Adding an extension, or another version of one
+## Using another extension in your project
 
-The pack is generated from a PostgreSQL 18 server on which the extension
-is installed (for PostGIS, the `postgis/postgis:18-3.6` image). The
-generator creates a temporary database, records the catalog, runs
-`CREATE EXTENSION`, records it again and keeps the difference:
+For an extension pgzest does not ship (`hstore`, `pg_partman`, an
+in-house one…), or another version of a shipped one, generate its pack
+from a server where it is installed and list its directory in
+`pgzest.toml`:
+
+```toml
+[postgres]
+version = 18
+packs = ["catalog"]
+```
+
+```sh
+pgzest db pack --url postgres://postgres:…@localhost:5432/postgres \
+  --extension hstore
+# writes catalog/hstore-1.8.json
+```
+
+Commit the file: it is part of the project, like a migration. The command
+creates a temporary database on the server (it needs the `CREATEDB`
+privilege), records the catalog, runs `CREATE EXTENSION`, records it again
+and keeps the difference; then it drops the database. Nothing else is
+modified on the server. `--version` picks a version other than the
+server's default one, `--out` another directory.
+
+`CREATE EXTENSION hstore` then loads it, exactly as a shipped pack. A
+project pack with the same name and version as a shipped one replaces it
+(said in an `info`).
+
+A pack is refused, with an `invalid-pack` error that stops `pgzest check`,
+`describe`, `migrate` and the build, when it:
+
+- was generated on another PostgreSQL major version than `[postgres]
+  version` — the server must run that version;
+- cannot be read, or is in an unknown format;
+- duplicates another project pack of the same name and version;
+- is a base catalog (`postgres`) rather than an extension.
+
+A directory listed in `packs` that does not exist is an error as well.
+
+## Contributing a pack to pgzest
+
+To ship a pack with pgzest itself, it is generated the same way, into the
+repository (for PostGIS, from the `postgis/postgis:18-3.6` image):
 
 ```sh
 cargo xtask catalog-gen --pg-url postgres://postgres:…@localhost:5432/postgres \

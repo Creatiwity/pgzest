@@ -22,16 +22,22 @@ struct Loaded {
     config: ProjectConfig,
     chunks: Vec<SqlChunk>,
     macros: pgzest_expand::MacroSet,
+    packs: std::sync::Arc<pgzest_catalog::ProjectPacks>,
     project: ProjectCatalog,
 }
 
-fn build(chunks: &[SqlChunk], macros: &pgzest_expand::MacroSet) -> ProjectCatalog {
+fn build(
+    chunks: &[SqlChunk],
+    macros: &pgzest_expand::MacroSet,
+    packs: &std::sync::Arc<pgzest_catalog::ProjectPacks>,
+) -> ProjectCatalog {
     let mut b = ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_checker(Some(pgzest_sema::check::SemaChecker::shared()))
         .with_instrumentation(macros.instrumentation())
         .declarative(true)
-        .keep_sources(true);
+        .keep_sources(true)
+        .with_packs(packs.clone());
     for chunk in chunks {
         let parsed = parse_source(&chunk.sql, chunk.origin.byte_range.start, macros);
         b.add_file(&chunk.origin.path, &chunk.sql, &chunk.role, parsed.as_ref());
@@ -69,17 +75,19 @@ fn load() -> Result<Loaded, (i32, String)> {
                 .into(),
         ));
     }
-    let (macros, macro_errors) = crate::load_macros(Some(&(root.clone(), config.clone())));
+    let project = (root.clone(), config.clone());
+    let (macros, macro_errors) = crate::load_macros(Some(&project));
     if !macro_errors.is_empty() {
         return Err((2, macro_errors.join("\n")));
     }
+    let packs = crate::load_packs(Some(&project)).map_err(|e| (2, e))?;
     let chunks: Vec<SqlChunk> = config
         .to_source(&root)
         .chunks()
         .into_iter()
         .filter(|c| c.role != FileRole::Query)
         .collect();
-    let project = build(&chunks, &macros);
+    let project = build(&chunks, &macros, &packs);
     let errors = blocking(&project);
     if !errors.is_empty() {
         return Err((
@@ -95,6 +103,7 @@ fn load() -> Result<Loaded, (i32, String)> {
         config,
         chunks,
         macros,
+        packs,
         project,
     })
 }
@@ -334,7 +343,7 @@ pub fn create(name: &str, dry_run: bool) -> i32 {
             role: FileRole::Migration { sequence },
         },
     );
-    let verified = build(&chunks, &l.macros);
+    let verified = build(&chunks, &l.macros, &l.packs);
     let errors = blocking(&verified);
     let rest = diff(
         verified.history.as_ref().expect("declarative project"),

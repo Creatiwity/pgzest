@@ -218,3 +218,70 @@ fn an_invalid_config_stops_check() {
     assert_eq!(code, 2, "output:\n{out}");
     assert!(out.contains("pgzest.toml"), "output:\n{out}");
 }
+
+/// Minimal pack of an extension pgzest does not ship.
+const MYEXT_PACK: &str = r#"{
+  "format": 1,
+  "contributor": {"name": "myext", "version": "1.0"},
+  "postgres": "18",
+  "schemas": [], "types": [], "operators": [], "casts": [], "opclasses": [], "relations": [],
+  "routines": [
+    {"name": "\"@extschema@\".shout", "kind": "Function",
+     "args": [{"ty": "pg_catalog.text", "mode": "In"}], "returns": "pg_catalog.text",
+     "volatility": "Immutable", "strict": true, "language": "c"}
+  ]
+}"#;
+
+fn extension_project(packs: &str, pack: &str) -> Vec<(&'static str, String)> {
+    vec![
+        (
+            "pgzest.toml",
+            format!("[postgres]\nversion = 18\n{packs}[schema]\ndirectory = \"schema\"\n"),
+        ),
+        (
+            "schema/t.sql",
+            "CREATE EXTENSION myext;\nCREATE TABLE t (name TEXT NOT NULL);\n".into(),
+        ),
+        ("queries/q.sql", "SELECT shout(name) FROM t;".into()),
+        ("packs/myext-1.0.json", pack.into()),
+    ]
+}
+
+fn scaffold_owned(name: &str, files: &[(&'static str, String)]) -> PathBuf {
+    let files: Vec<(&str, &str)> = files.iter().map(|(p, c)| (*p, c.as_str())).collect();
+    scaffold(name, &files)
+}
+
+#[test]
+fn a_project_pack_provides_its_extension() {
+    let root = scaffold_owned(
+        "pack-ok",
+        &extension_project("packs = [\"packs\"]\n", MYEXT_PACK),
+    );
+    let (code, out) = check(&root, &["queries/q.sql"]);
+    assert_eq!(code, 0, "output:\n{out}");
+}
+
+#[test]
+fn without_its_pack_an_extension_is_unavailable() {
+    let root = scaffold_owned("pack-none", &extension_project("", MYEXT_PACK));
+    let (code, out) = check(&root, &["schema/t.sql"]);
+    assert_eq!(code, 1, "output:\n{out}");
+    assert!(out.contains("extension-unavailable"), "output:\n{out}");
+    assert!(
+        out.contains("pgzest db pack --extension myext"),
+        "output:\n{out}"
+    );
+}
+
+#[test]
+fn a_pack_for_another_postgres_stops_check() {
+    let pack = MYEXT_PACK.replace("\"postgres\": \"18\"", "\"postgres\": \"17\"");
+    let root = scaffold_owned(
+        "pack-pg17",
+        &extension_project("packs = [\"packs\"]\n", &pack),
+    );
+    let (code, out) = check(&root, &["queries/q.sql"]);
+    assert_eq!(code, 2, "output:\n{out}");
+    assert!(out.contains("generated with postgres@17"), "output:\n{out}");
+}

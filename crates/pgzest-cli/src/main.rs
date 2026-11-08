@@ -11,6 +11,7 @@ mod dev;
 mod import;
 mod lsp;
 mod migrate;
+mod pack;
 
 #[derive(Parser)]
 #[command(name = "pgzest", about = "PostgreSQL language toolchain", version)]
@@ -253,6 +254,28 @@ enum DbAction {
         #[arg(long)]
         until: Option<String>,
     },
+
+    /// Generate the catalog pack of an extension pgzest does not ship, from
+    /// a server where it is installed, for `[postgres] packs`.
+    ///
+    /// The extension is created in a temporary database, then dropped
+    /// (needs the CREATEDB privilege). The server must run the PostgreSQL
+    /// version the project targets.
+    Pack {
+        /// Server URL (default: `DATABASE_URL`)
+        #[arg(long, env = "DATABASE_URL")]
+        url: String,
+        /// Extension name, as in `CREATE EXTENSION`
+        #[arg(long)]
+        extension: String,
+        /// Extension version (default: the server's default one)
+        #[arg(long)]
+        version: Option<String>,
+        /// Directory to write `<name>-<version>.json` into (default: the
+        /// first directory of `[postgres] packs`)
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -407,6 +430,13 @@ fn cmd_check(
     for e in &macro_errors {
         eprintln!("warning: {e}");
     }
+    let packs = match load_packs(project.as_ref()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 2;
+        }
+    };
 
     // ── Parse target files ─────────────────────────────────────────────────────
     // `parse_with_outcome` keeps track of skipped statements instead of
@@ -474,7 +504,8 @@ fn cmd_check(
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_checker(Some(pgzest_sema::check::SemaChecker::shared()))
         .with_instrumentation(macros.instrumentation())
-        .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative));
+        .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative))
+        .with_packs(packs);
     let mut replayed: std::collections::HashSet<std::path::PathBuf> =
         std::collections::HashSet::new();
     for (path, (sql, stmts)) in schemas.iter().zip(&context_files) {
@@ -836,6 +867,17 @@ fn main() {
                 scratch_url,
                 until,
             }),
+            DbAction::Pack {
+                url,
+                extension,
+                version,
+                out,
+            } => pack::run(pack::Options {
+                url,
+                extension,
+                version,
+                out,
+            }),
         },
         Command::Lint { file } => cmd_lint(&file),
         Command::Schema { action } => match action {
@@ -886,6 +928,30 @@ fn load_macros(
         set = set.with_instrumentation(config.log.instrumentation());
     }
     (set, errors)
+}
+
+/// Extension packs of the project (`[postgres] packs`). A configured pack
+/// that cannot be used is an error, like an invalid config: never skipped.
+fn load_packs(
+    project: Option<&(std::path::PathBuf, pgzest_schema::ProjectConfig)>,
+) -> Result<std::sync::Arc<pgzest_catalog::ProjectPacks>, String> {
+    let Some((root, config)) = project else {
+        return Ok(Default::default());
+    };
+    let packs = pgzest_catalog::ProjectPacks::for_config(root, config);
+    let mut errors = Vec::new();
+    for (path, d) in &packs.diagnostics {
+        let line = format!("{}: {}", path.display(), d.message);
+        match d.severity {
+            pgzest_diagnostics::Severity::Error => errors.push(line),
+            _ => eprintln!("info: {line}"),
+        }
+    }
+    if errors.is_empty() {
+        Ok(std::sync::Arc::new(packs))
+    } else {
+        Err(errors.join("\n"))
+    }
 }
 
 /// Project discovered by walking up from the current directory.

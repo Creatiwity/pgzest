@@ -23,6 +23,7 @@
 
 mod case;
 mod ours;
+pub mod pack_gen;
 mod pg;
 mod report;
 pub mod schema;

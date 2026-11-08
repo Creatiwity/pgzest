@@ -213,6 +213,7 @@ Usage: pgzest db <COMMAND>
 
 Commands:
   check  Compare a database with what its migrations produce: what was changed in it by hand (a routine, an index, a trigger…). Exits 1 if it differs
+  pack   Generate the catalog pack of an extension pgzest does not ship, from a server where it is installed, for `[postgres] packs`
   help   Print this message or the help of the given subcommand(s)
 
 Options:
@@ -239,6 +240,34 @@ Options:
 
       --until <UNTIL>
           Last migration the database received, for a database without migrations table
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `pgzest db pack`
+
+```text
+Generate the catalog pack of an extension pgzest does not ship, from a server where it is installed, for `[postgres] packs`.
+
+The extension is created in a temporary database, then dropped (needs the CREATEDB privilege). The server must run the PostgreSQL version the project targets.
+
+Usage: pgzest db pack [OPTIONS] --url <URL> --extension <EXTENSION>
+
+Options:
+      --url <URL>
+          Server URL (default: `DATABASE_URL`)
+          
+          [env: DATABASE_URL=]
+
+      --extension <EXTENSION>
+          Extension name, as in `CREATE EXTENSION`
+
+      --version <VERSION>
+          Extension version (default: the server's default one)
+
+      --out <OUT>
+          Directory to write `<name>-<version>.json` into (default: the first directory of `[postgres] packs`)
 
   -h, --help
           Print help (see a summary with '-h')

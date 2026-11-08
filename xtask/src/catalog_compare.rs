@@ -15,7 +15,7 @@ use pgzest_catalog::model::{
 use pgzest_catalog::{Catalog, Contributor, QName};
 use tokio_postgres::Client;
 
-use crate::catalog_gen::Snapshot;
+use pgzest_oracle::pack_gen::Snapshot;
 
 fn err(e: tokio_postgres::Error) -> String {
     match e.as_db_error() {

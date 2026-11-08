@@ -225,10 +225,23 @@ pub fn load_project(start: &Path) -> Result<Project, String> {
     }
     let macros = macros.with_instrumentation(config.log.instrumentation());
 
+    // Extension packs: a configured pack that cannot be used is an error.
+    let packs = pgzest_catalog::ProjectPacks::for_config(&root, &config);
+    let pack_errors: Vec<String> = packs
+        .errors()
+        .map(|(p, d)| format!("{}: error[{}]: {}", p.display(), d.code, d.message))
+        .collect();
+    if !pack_errors.is_empty() {
+        return Err(pack_errors.join("\n"));
+    }
+    files.extend(config.postgres.packs.iter().map(|d| root.join(d)));
+    files.extend(packs.files().map(Path::to_path_buf));
+
     let mut builder = ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_instrumentation(macros.instrumentation())
-        .declarative(config.schema.declarative);
+        .declarative(config.schema.declarative)
+        .with_packs(std::sync::Arc::new(packs));
     for chunk in SchemaSource::chunks(&config.to_source(&root)) {
         if !files.contains(&chunk.origin.path) {
             files.push(chunk.origin.path.clone());

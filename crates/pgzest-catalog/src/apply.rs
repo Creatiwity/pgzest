@@ -56,6 +56,8 @@ pub struct Replay {
     pub search_path: SearchPath,
     /// Typer for view queries, if there is one.
     pub typer: Option<std::sync::Arc<dyn QueryTyper>>,
+    /// Extension packs of the project, besides those shipped with pgzest.
+    pub packs: std::sync::Arc<crate::ProjectPacks>,
 }
 
 impl Replay {
@@ -64,6 +66,7 @@ impl Replay {
             catalog,
             search_path: SearchPath::default(),
             typer: None,
+            packs: Default::default(),
         }
     }
 
@@ -75,6 +78,7 @@ impl Replay {
             out,
             pending_indexes: Vec::new(),
             typer: self.typer.as_deref(),
+            packs: &self.packs,
         };
         a.statement(stmt);
     }
@@ -88,6 +92,7 @@ struct Applier<'a> {
     /// is registered.
     pending_indexes: Vec<pgzest_ast::ddl::CreateIndex>,
     typer: Option<&'a dyn QueryTyper>,
+    packs: &'a crate::ProjectPacks,
 }
 
 /// Written name, split: `(explicit schema, name)`.
@@ -245,7 +250,8 @@ impl Applier<'_> {
                     codes::TYPE_NOT_FOUND,
                     format!("type \"{written}\" does not exist"),
                 );
-                let from = builtin::extensions_providing(builtin::ObjectSort::Type, name);
+                let from =
+                    builtin::extensions_providing(builtin::ObjectSort::Type, name, self.packs);
                 if let Some(ext) = from.first() {
                     let ext_name = ext.split('@').next().unwrap_or(ext);
                     d = d.with_hint(format!(
@@ -681,9 +687,15 @@ impl Applier<'_> {
         self.load_extension(&name, &version, &schema);
     }
 
-    /// Version to load: the requested one, otherwise the only available pack.
+    /// Version to load: the requested one, otherwise the only available pack
+    /// (the project's and those shipped with pgzest).
     fn extension_version(&mut self, name: &str, requested: Option<&str>) -> Option<String> {
-        let available = builtin::versions(name);
+        let mut available = self.packs.versions(name);
+        for v in builtin::versions(name) {
+            if !available.contains(&v) {
+                available.push(v);
+            }
+        }
         let chosen = match requested {
             Some(v) => available.iter().find(|a| **a == v).map(|v| v.to_string()),
             None if available.len() == 1 => Some(available[0].to_string()),
@@ -697,7 +709,10 @@ impl Applier<'_> {
                     format!("no catalog pack for extension \"{name}{wanted}\""),
                 )
                 .with_hint(if available.is_empty() {
-                    "generate the pack: cargo xtask catalog-gen --extension <name>".to_string()
+                    format!(
+                        "generate its pack with `pgzest db pack --extension {name}` on a server \
+                         where it is installed, and list its directory in `[postgres] packs`"
+                    )
                 } else {
                     format!("available versions: {}", available.join(", "))
                 }),
@@ -707,7 +722,12 @@ impl Applier<'_> {
     }
 
     fn load_extension(&mut self, name: &str, version: &str, schema: &str) {
-        match builtin::extension_pack(name, version, schema) {
+        // The project's pack first: it may replace the shipped one.
+        let pack = match self.packs.get(name, version) {
+            Some(p) => builtin::relocated(p, schema),
+            None => builtin::extension_pack(name, version, schema),
+        };
+        match pack {
             Ok(pack) => {
                 self.cat.load_pack(&pack);
                 self.cat.extension_packs.insert(name.to_string(), pack);

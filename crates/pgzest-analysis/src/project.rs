@@ -26,8 +26,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pgzest_ast::Statement;
-use pgzest_catalog::ProjectCatalog;
 use pgzest_catalog::project::{ProjectBuilder, parse_source};
+use pgzest_catalog::{ProjectCatalog, ProjectPacks};
 use pgzest_diagnostics::Diagnostic;
 use pgzest_expand::MacroSet;
 use pgzest_parser::{ParseError, ParseOutcome};
@@ -60,6 +60,9 @@ pub struct Project {
     pub macros: Arc<MacroSet>,
     /// `[schema] declarative`: migrations are replayed separately (D10).
     pub declarative: bool,
+    /// Extension packs of the project (`[postgres] packs`).
+    #[returns(ref)]
+    pub packs: Arc<ProjectPacks>,
 }
 
 // ── Base ──────────────────────────────────────────────────────────────────────
@@ -140,7 +143,8 @@ pub fn project_replay(db: &dyn Db, project: Project) -> Arc<ProjectCatalog> {
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_checker(Some(pgzest_sema::check::SemaChecker::shared()))
         .with_instrumentation(project.macros(db).instrumentation())
-        .declarative(*project.declarative(db));
+        .declarative(*project.declarative(db))
+        .with_packs(project.packs(db).clone());
     for &file in project.files(db) {
         if !defines_schema(file.role(db)) {
             continue;
@@ -241,7 +245,7 @@ impl Workspace {
                 f
             })
             .collect();
-        let project = Project::new(&db, files, macros, declarative);
+        let project = Project::new(&db, files, macros, declarative, Default::default());
         Workspace {
             db,
             project,
@@ -263,6 +267,11 @@ impl Workspace {
             file.set_text(&mut self.db).to(text.to_string());
         }
         true
+    }
+
+    /// Replaces the project's extension packs: the catalog is replayed.
+    pub fn set_packs(&mut self, packs: Arc<ProjectPacks>) {
+        self.project.set_packs(&mut self.db).to(packs);
     }
 
     /// Replaces the project macros: every file is re-read.

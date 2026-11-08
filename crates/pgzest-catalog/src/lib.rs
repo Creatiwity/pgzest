@@ -17,6 +17,7 @@ pub mod model;
 pub mod names;
 pub mod pack;
 pub mod project;
+pub mod project_packs;
 pub mod query;
 
 pub use apply::{QueryTyper, Replay};
@@ -24,3 +25,4 @@ pub use catalog::{Catalog, SearchPath};
 pub use model::{QName, TypeRef};
 pub use pack::{Contributor, Pack, PackError};
 pub use project::{ProjectCatalog, StatementChecker};
+pub use project_packs::ProjectPacks;

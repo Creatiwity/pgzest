@@ -43,6 +43,7 @@ fn fixture() -> Fixture {
         vec![schema, q1, q2],
         Arc::new(pgzest_expand::MacroSet::builtin()),
         false,
+        Default::default(),
     );
     Fixture {
         db,

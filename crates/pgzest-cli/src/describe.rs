@@ -36,12 +36,20 @@ pub fn run(o: Options) -> i32 {
     for e in &macro_errors {
         eprintln!("warning: {e}");
     }
+    let packs = match crate::load_packs(project.as_ref()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 2;
+        }
+    };
 
     // Catalog: `--schema` schemas, then the project, replayed in order.
     let mut builder = ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_instrumentation(macros.instrumentation())
-        .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative));
+        .declarative(project.as_ref().is_some_and(|(_, c)| c.schema.declarative))
+        .with_packs(packs);
     for path in o.schemas {
         let sql = match std::fs::read_to_string(path) {
             Ok(s) => s,

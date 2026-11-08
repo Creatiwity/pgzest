@@ -71,8 +71,12 @@ pub fn pack(name: &str, version: &str) -> Result<Pack, PackError> {
 /// Extension pack whose objects are placed in `schema` (the schema of
 /// `CREATE EXTENSION … SCHEMA`).
 pub fn extension_pack(name: &str, version: &str, schema: &str) -> Result<Pack, PackError> {
-    let pack = pack(name, version)?;
-    let mut value = serde_json::to_value(&pack).map_err(|e| PackError(e.to_string()))?;
+    relocated(&pack(name, version)?, schema)
+}
+
+/// `pack`, its objects placed in `schema` instead of `@extschema@`.
+pub fn relocated(pack: &Pack, schema: &str) -> Result<Pack, PackError> {
+    let mut value = serde_json::to_value(pack).map_err(|e| PackError(e.to_string()))?;
     let placeholder = format!("{}.", quote_ident(EXTSCHEMA));
     let target = format!("{}.", quote_ident(schema));
     relocate(&mut value, &placeholder, &target);
@@ -101,9 +105,14 @@ pub enum ObjectSort {
     Routine,
 }
 
-/// Extensions (`name@version`) whose pack provides an object with this name:
-/// the suggestion for a missing `CREATE EXTENSION` (D9).
-pub fn extensions_providing(sort: ObjectSort, name: &str) -> Vec<String> {
+/// Extensions (`name@version`) whose pack, shipped with pgzest or provided by
+/// the project, provides an object with this name: the suggestion for a
+/// missing `CREATE EXTENSION` (D9).
+pub fn extensions_providing(
+    sort: ObjectSort,
+    name: &str,
+    project: &crate::ProjectPacks,
+) -> Vec<String> {
     static PACKS_PARSED: std::sync::OnceLock<Vec<Pack>> = std::sync::OnceLock::new();
     let packs = PACKS_PARSED.get_or_init(|| {
         PACKS
@@ -112,14 +121,20 @@ pub fn extensions_providing(sort: ObjectSort, name: &str) -> Vec<String> {
             .filter_map(|(_, _, text)| Pack::from_json(text).ok())
             .collect()
     });
-    packs
+    project
         .iter()
+        .chain(packs.iter())
         .filter(|p| match sort {
             ObjectSort::Type => p.types.iter().any(|t| t.name.name == name),
             ObjectSort::Routine => p.routines.iter().any(|r| r.name.name == name),
         })
         .map(|p| p.contributor.to_string())
-        .collect()
+        .fold(Vec::new(), |mut all, c| {
+            if !all.contains(&c) {
+                all.push(c);
+            }
+            all
+        })
 }
 
 impl Catalog {
@@ -168,14 +183,14 @@ mod tests {
     #[test]
     fn extension_that_provides() {
         assert_eq!(
-            extensions_providing(ObjectSort::Type, "citext"),
+            extensions_providing(ObjectSort::Type, "citext", &Default::default()),
             ["citext@1.8"]
         );
         assert_eq!(
-            extensions_providing(ObjectSort::Routine, "levenshtein"),
+            extensions_providing(ObjectSort::Routine, "levenshtein", &Default::default()),
             ["fuzzystrmatch@1.2"]
         );
-        assert!(extensions_providing(ObjectSort::Type, "int4").is_empty());
+        assert!(extensions_providing(ObjectSort::Type, "int4", &Default::default()).is_empty());
     }
 
     #[test]

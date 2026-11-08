@@ -59,9 +59,10 @@ export function activate(context: vscode.ExtensionContext) {
     initializationOptions: { schemaFile },
     synchronize: {
       // Files created or changed outside the editor (`pgzest migrate
-      // create`, git…): the server reloads the project.
+      // create`, git…): the server reloads the project. `*.json`: the
+      // extension packs of `[postgres] packs`.
       fileEvents: vscode.workspace.createFileSystemWatcher(
-        '**/{*.sql,*.pgsql,*.pgmacro,pgzest.toml}',
+        '**/{*.sql,*.pgsql,*.pgmacro,*.json,pgzest.toml}',
       ),
     },
   };

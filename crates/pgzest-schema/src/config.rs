@@ -127,6 +127,11 @@ pub struct PostgresConfig {
     /// Targeted major version (e.g. `18`). Must be listed in
     /// [`SUPPORTED_POSTGRES_VERSIONS`].
     pub version: u32,
+    /// Directories of extension packs provided by the project
+    /// (`pgzest db pack`), relative to the project root: a `CREATE EXTENSION`
+    /// finds its pack there as well as among those shipped with pgzest.
+    #[serde(default)]
+    pub packs: Vec<PathBuf>,
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────

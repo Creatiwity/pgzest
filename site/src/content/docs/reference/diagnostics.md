@@ -68,7 +68,8 @@ Every diagnostic carries a code: the one to name in `[rules]` of `pgzest.toml` t
 | `object-not-found` | Altered or dropped object that does not exist at this point of the replay. |
 | `object-already-exists` | Object created while it already exists (without `IF NOT EXISTS` / `OR REPLACE`). |
 | `schema-not-found` | Nonexistent schema. |
-| `extension-unavailable` | Extension whose catalog pgzest does not ship for this version. |
+| `extension-unavailable` | Extension whose catalog pack neither pgzest nor the project (`[postgres] packs`) provides for this version. |
+| `invalid-pack` | Project extension pack (`[postgres] packs`) that cannot be used: unreadable, generated for another PostgreSQL version, or duplicated. |
 | `ambiguous-routine` | Routine name without a signature that designates several overloads. |
 | `dependent-objects` | Drop refused by PostgreSQL for lack of `CASCADE` (dependent objects). |
 | `ddl-not-replayed` | DDL in a `DO` block that the replay could not apply: condition not evaluable on the catalog, dynamic SQL, loop, unanalyzed body. The catalog may then differ from the database's. |

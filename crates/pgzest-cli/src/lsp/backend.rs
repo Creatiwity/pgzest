@@ -243,6 +243,23 @@ impl PgsqlBackend {
             .as_ref()
             .is_some_and(|c| c.schema.declarative);
         let mut ws = Workspace::with_mode(&chunks, self.macros().await, declarative);
+        // Extension packs of the project: one that cannot be used is said,
+        // as an invalid config is.
+        let root = self.project_root.lock().await.clone();
+        let config = self.config.lock().await.clone();
+        if let (Some(root), Some(config)) = (root, config) {
+            let packs = pgzest_catalog::ProjectPacks::for_config(&root, &config);
+            for (path, d) in &packs.diagnostics {
+                let error = d.severity == pgzest_diagnostics::Severity::Error;
+                let message = format!("pgzest: {}: {}", path.display(), d.message);
+                if error {
+                    self.client.show_message(MessageType::ERROR, message).await;
+                } else {
+                    self.client.log_message(MessageType::INFO, message).await;
+                }
+            }
+            ws.set_packs(Arc::new(packs));
+        }
         for (uri, text) in self.documents.lock().await.iter() {
             if let Some(path) = uri_to_path(uri) {
                 ws.set_text(&path, text);
@@ -728,8 +745,17 @@ impl LanguageServer for PgsqlBackend {
                 .file_name()
                 .is_some_and(|n| n == ProjectConfig::FILENAME);
             let macro_file = path.extension().is_some_and(|e| e == "pgmacro");
+            let pack_file = match (
+                self.project_root.lock().await.as_ref(),
+                self.config.lock().await.as_ref(),
+            ) {
+                (Some(root), Some(config)) => {
+                    pgzest_catalog::ProjectPacks::is_pack_file(root, config, &path)
+                }
+                _ => false,
+            };
             let role = self.role_of(&uri).await;
-            if config_file || macro_file || role == FileRole::Fragments {
+            if config_file || macro_file || pack_file || role == FileRole::Fragments {
                 reload = true;
             } else if matches!(role, FileRole::Schema | FileRole::Migration { .. }) {
                 // Known file changed: only what depends on it is recomputed.

@@ -164,6 +164,7 @@ impl ProjectBuilder {
         self.history = on.then(|| {
             let mut replay = base();
             replay.typer = self.replay.typer.clone();
+            replay.packs = self.replay.packs.clone();
             History {
                 replay,
                 deferred: Vec::new(),
@@ -191,6 +192,17 @@ impl ProjectBuilder {
             outcome.skipped.is_empty() && diags.is_empty(),
             "instrumentation setup replayed cleanly: {diags:?}"
         );
+        self
+    }
+
+    /// The project's extension packs (`[postgres] packs`) are available to
+    /// its `CREATE EXTENSION`. The ones that could not be loaded are the
+    /// caller's to report ([`crate::ProjectPacks::diagnostics`]).
+    pub fn with_packs(mut self, packs: std::sync::Arc<crate::ProjectPacks>) -> Self {
+        if let Some(h) = &mut self.history {
+            h.replay.packs = packs.clone();
+        }
+        self.replay.packs = packs;
         self
     }
 
