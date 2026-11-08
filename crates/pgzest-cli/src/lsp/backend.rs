@@ -900,9 +900,9 @@ impl LanguageServer for PgsqlBackend {
             .or_else(|| hover_plpgsql_var(&stmts, offset as usize, &word))
             .or_else(|| {
                 if matches!(role, FileRole::Schema) {
-                    hover_schema_file(&text, &word, resolver.as_ref())
+                    hover_schema_file(&text, &stmts, offset as usize, &word, resolver.as_ref())
                 } else {
-                    hover_query(&stmts, resolver.as_ref(), offset as usize, &word)
+                    hover_query(&text, &stmts, resolver.as_ref(), offset as usize, &word)
                 }
             });
 
@@ -971,24 +971,197 @@ impl LanguageServer for PgsqlBackend {
 
 // ── Hover helpers ─────────────────────────────────────────────────────────────
 
-fn hover_schema_file(text: &str, word: &str, global: &dyn SchemaProvider) -> Option<String> {
-    // Build self-schema first; fall back to global for cross-file references.
-    let self_schema = ProjectCatalog::from_sql(text).ok()?;
-    let provider: &dyn SchemaProvider = &self_schema;
+/// Hover in a schema file: a column of the table whose definition or
+/// column list surrounds the cursor (`CREATE TABLE t (…)`, `REFERENCES t
+/// (…)`, `CREATE INDEX … ON t (…)`), otherwise what the name designates by
+/// itself. A column name is never looked up across tables: `id` exists in
+/// most of them.
+fn hover_schema_file(
+    text: &str,
+    stmts: &[pgzest_ast::Statement],
+    offset: usize,
+    word: &str,
+    global: &ProjectCatalog,
+) -> Option<String> {
+    // The file's own definitions first: it may not be saved yet.
+    let own = ProjectCatalog::from_sql(text).ok();
+    let table = |name: &str| {
+        own.as_ref()
+            .and_then(|c| c.get_table(name))
+            .or_else(|| global.get_table(name))
+    };
+    let owners = stmts
+        .iter()
+        .filter(|s| {
+            matches!(
+                s,
+                pgzest_ast::Statement::Ddl(
+                    pgzest_ast::DdlStatement::CreateTable(_)
+                        | pgzest_ast::DdlStatement::CreateIndex(_)
+                )
+            )
+        })
+        .filter_map(pgzest_ast::stmt_span)
+        .find(|sp| sp.start as usize <= offset && offset < sp.end as usize)
+        .map(|sp| list_owners(text, sp.start as usize, offset))
+        .unwrap_or_default();
+    // The innermost list naming its table: never a column of another one.
+    if let Some(h) = owners
+        .first()
+        .and_then(|owner| table(owner))
+        .and_then(|t| fmt_column_hover(t, word))
+    {
+        return Some(h);
+    }
+    if let Some(t) = table(word) {
+        return Some(fmt_table_hover(&t.name, word, t));
+    }
+    hover_function_name(text, offset, word, global)
+}
 
-    lookup_hover(word, provider).or_else(|| lookup_hover(word, global))
+/// Tables owning the parenthesized lists that surround `offset` in the
+/// statement starting at `start`, innermost first: `CREATE TABLE t (`,
+/// `REFERENCES t (`, `ON t (`, `ON t USING method (`, `INSERT INTO t (`
+/// and `COPY t (`. A list not
+/// introduced that way (`CHECK (`, `UNIQUE (`) belongs to the enclosing
+/// one.
+fn list_owners(text: &str, start: usize, offset: usize) -> Vec<String> {
+    let b = text.as_bytes();
+    let mut open: Vec<usize> = Vec::new();
+    let mut i = start;
+    while i < offset.min(b.len()) {
+        match b[i] {
+            b'\'' => {
+                i += 1;
+                while i < b.len() && b[i] != b'\'' {
+                    i += 1;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    i += 1;
+                }
+            }
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'(' => open.push(i),
+            b')' => {
+                open.pop();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    open.iter()
+        .rev()
+        .filter_map(|&paren| {
+            let mut words = words_before(&text[start..paren]);
+            let mut name = words.next()?;
+            let mut keyword = words.next()?;
+            if keyword.eq_ignore_ascii_case("using") {
+                name = words.next()?;
+                keyword = words.next()?;
+            }
+            ["references", "on", "table", "exists", "into", "copy"]
+                .iter()
+                .any(|k| keyword.eq_ignore_ascii_case(k))
+                .then(|| name.replace('"', ""))
+        })
+        .collect()
+}
+
+/// Words of `text` from the end: identifiers, possibly qualified or quoted.
+fn words_before(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.' || c == '"'))
+        .filter(|w| !w.is_empty())
+        .rev()
+}
+
+/// Hover of a function name written as a call (`name(`) that no analysis
+/// resolved: every overload visible on the search path, since only the
+/// arguments decide between them.
+fn hover_function_name(
+    text: &str,
+    offset: usize,
+    word: &str,
+    catalog: &ProjectCatalog,
+) -> Option<String> {
+    let end = offset
+        + text
+            .get(offset..)?
+            .find(|c: char| !(c.is_alphanumeric() || c == '_'))?;
+    if !text[end..].trim_start().starts_with('(') {
+        return None;
+    }
+    let ts = pgzest_sema::TypeSystem::new(&catalog.catalog);
+    let ty = |r: &pgzest_catalog::TypeRef| {
+        ts.of_ref(r)
+            .map_or_else(|| "?".to_string(), |t| pgzest_sema::format_type(&t))
+    };
+    let overloads: Vec<String> = catalog
+        .search_path
+        .lookup_order()
+        .into_iter()
+        .filter_map(|schema| {
+            catalog
+                .catalog
+                .routines
+                .get(&pgzest_catalog::QName::new(schema, word))
+        })
+        .flatten()
+        .map(|r| {
+            use pgzest_catalog::model::ArgMode;
+            let args: Vec<String> = r
+                .args
+                .iter()
+                .filter(|a| !matches!(a.mode, ArgMode::Out | ArgMode::Table))
+                .map(|a| ty(&a.ty))
+                .collect();
+            let returns = r.returns.as_ref().map_or_else(|| "procedure".into(), ty);
+            format!(
+                "{}.**{}**({}) → `{}{}`",
+                r.name.schema,
+                r.name.name,
+                args.join(", "),
+                if r.returns_set { "SETOF " } else { "" },
+                returns
+            )
+        })
+        .collect();
+    match overloads.as_slice() {
+        [] => None,
+        [one] => Some(format!("(function) {one}")),
+        many => Some(format!(
+            "(function) **{word}**, {} overloads: the arguments decide\n\n- {}",
+            many.len(),
+            many.join("\n- ")
+        )),
+    }
 }
 
 /// Hover in a query: what the name under the cursor designates, according to
-/// the semantic analysis of the statement containing it; failing that, the
-/// table or column of that name in the catalog.
+/// the semantic analysis of the statement containing it — a column, a
+/// function call as resolved, a target column; failing that, a table or the
+/// overloads of a function of that name. Never a column found by its name
+/// alone.
 fn hover_query(
+    text: &str,
     stmts: &[pgzest_ast::Statement],
     catalog: &ProjectCatalog,
     offset: usize,
     word: &str,
 ) -> Option<String> {
     use pgzest_ast::Statement;
+    use pgzest_sema::Nullability;
+    let null = |n: Nullability| match n {
+        Nullability::NonNull => " NOT NULL",
+        Nullability::Nullable => " NULL",
+        Nullability::Unknown => " (unknown nullability)",
+    };
     let stmt = stmts.iter().find(|s| {
         pgzest_ast::stmt_span(s)
             .is_some_and(|sp| sp.start as usize <= offset && offset <= sp.end as usize)
@@ -1006,26 +1179,116 @@ fn hover_query(
         );
         // References resolved before a possible error remain valid.
         let _ = a.describe(stmt);
-        let under_cursor = a
+        let contains =
+            |sp: &pgzest_ast::Span| sp.start as usize <= offset && offset < sp.end as usize;
+        let column = a
             .column_refs
             .iter()
-            .filter(|(sp, _)| sp.start as usize <= offset && offset < sp.end as usize)
+            .filter(|(sp, _)| contains(sp))
             .min_by_key(|(sp, _)| sp.end - sp.start);
-        if let Some((_, t)) = under_cursor {
-            let ty = if t.ty.schema == "pg_catalog" {
-                t.ty.name.clone()
-            } else {
-                format!("{}.{}", t.ty.schema, t.ty.name)
-            };
-            let nn = match t.nullable {
-                pgzest_sema::Nullability::NonNull => " NOT NULL",
-                pgzest_sema::Nullability::Nullable => " NULL",
-                pgzest_sema::Nullability::Unknown => " (unknown nullability)",
-            };
-            return Some(format!("(column) **{word}**: `{ty}`{nn}"));
+        let call = a
+            .call_refs
+            .iter()
+            .filter(|c| contains(&c.span))
+            .min_by_key(|c| c.span.end - c.span.start);
+        // On the function's name only, not on the keywords of the call
+        // (`FILTER (WHERE …)`, `OVER (…)`).
+        let call = call.filter(|c| {
+            c.name
+                .rsplit('.')
+                .next()
+                .is_some_and(|n| n.eq_ignore_ascii_case(word))
+        });
+        // The innermost: a column inside a call's arguments wins.
+        match (column, call) {
+            (Some((sp, t)), c)
+                if c.is_none_or(|c| sp.end - sp.start <= c.span.end - c.span.start) =>
+            {
+                let written = text
+                    .get(sp.start as usize..sp.end as usize)
+                    .filter(|w| !w.contains('\n') && !w.contains('@'))
+                    .unwrap_or(word);
+                return Some(format!(
+                    "(column) **{written}**: `{}`{}",
+                    pgzest_sema::format_type(&t.ty),
+                    null(t.nullable)
+                ));
+            }
+            (_, Some(c)) => {
+                let args: Vec<String> = c.args.iter().map(pgzest_sema::format_type).collect();
+                return Some(format!(
+                    "(function) {}({}): `{}`{}",
+                    fmt_qualified_bold(&c.name, word),
+                    args.join(", "),
+                    pgzest_sema::format_type(&c.result.ty),
+                    null(c.result.nullable)
+                ));
+            }
+            _ => {}
+        }
+        if let Some(h) = hover_target_column(stmt, catalog, word) {
+            return Some(h);
         }
     }
-    lookup_hover(word, catalog)
+    // A column list naming its table: `INSERT INTO t (…)`, `COPY t (…)`.
+    if let Some(h) = stmt
+        .and_then(pgzest_ast::stmt_span)
+        .and_then(|sp| {
+            list_owners(text, sp.start as usize, offset)
+                .into_iter()
+                .next()
+        })
+        .and_then(|owner| catalog.get_table(&owner))
+        .and_then(|t| fmt_column_hover(t, word))
+    {
+        return Some(h);
+    }
+    if let Some(t) = catalog.get_table(word) {
+        return Some(fmt_table_hover(&t.name, word, t));
+    }
+    hover_function_name(text, offset, word, catalog)
+}
+
+/// Column of the target table of an `UPDATE … SET` (or an `INSERT` column
+/// list): written as a bare name, it designates a column of that table only.
+fn hover_target_column(
+    stmt: &pgzest_ast::Statement,
+    catalog: &ProjectCatalog,
+    word: &str,
+) -> Option<String> {
+    use pgzest_ast::Statement;
+    let (table, columns): (&pgzest_ast::ObjectName, Vec<&pgzest_ast::Ident>) = match stmt {
+        Statement::Insert(i) => (&i.table, i.columns.iter().collect()),
+        Statement::Update(u) => (
+            &u.table.name,
+            u.assignments.iter().flat_map(|a| &a.columns).collect(),
+        ),
+        _ => return None,
+    };
+    columns
+        .iter()
+        .find(|c| c.value.eq_ignore_ascii_case(word))?;
+    let name = table
+        .0
+        .iter()
+        .map(|i| i.value.as_str())
+        .collect::<Vec<_>>()
+        .join(".");
+    fmt_column_hover(catalog.get_table(&name)?, word)
+}
+
+/// Column `word` of the table `t`, as declared.
+fn fmt_column_hover(t: &pgzest_schema::provider::TableSchema, word: &str) -> Option<String> {
+    let col = t.get_column(word)?;
+    let nn = if col.nullable { "" } else { " NOT NULL" };
+    Some(format!(
+        "(column) {}.{}.**{}**: `{}`{}",
+        tbl_schema(&t.name),
+        tbl_local(&t.name),
+        col.name,
+        emit_data_type(&col.data_type),
+        nn
+    ))
 }
 
 /// Name of the `$name` (or `$1`) parameter under the cursor.
@@ -1175,7 +1438,7 @@ fn hover_rust(
         .unwrap_or_default();
     hover_fragment(&prepared, macros, at).or_else(|| {
         let word = word_at_offset(&e.sql, at)?;
-        hover_query(&stmts, catalog, at, &word)
+        hover_query(&e.sql, &stmts, catalog, at, &word)
     })
 }
 
@@ -1301,53 +1564,6 @@ fn fmt_table_hover(
     } else {
         format!("(table) {}\n\n{}", header, cols.join("  \n"))
     }
-}
-
-fn lookup_hover(word: &str, schema: &dyn SchemaProvider) -> Option<String> {
-    // Table name?
-    if let Some(table) = schema.get_table(word) {
-        return Some(fmt_table_hover(&table.name, word, table));
-    }
-
-    let lower = word.to_lowercase();
-
-    // Function signature?
-    let func_candidates = [format!("public.{}", lower), lower.clone()];
-    for key in &func_candidates {
-        if let Some(sig) = schema.get_function(key) {
-            let params_str = sig
-                .params
-                .iter()
-                .map(|dt| format!("`{}`", emit_data_type(dt)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Some(format!(
-                "(function) **{}**({}): `{}`",
-                sig.name,
-                params_str,
-                emit_data_type(&sig.return_type)
-            ));
-        }
-    }
-
-    // Column name anywhere
-    for table_name in schema.all_table_names() {
-        if let Some(table) = schema.get_table(table_name)
-            && let Some(col) = table.get_column(&lower)
-        {
-            let nn = if col.nullable { "" } else { " NOT NULL" };
-            return Some(format!(
-                "(column) {}.{}.**{}**: `{}`{}",
-                tbl_schema(&table.name),
-                tbl_local(&table.name),
-                col.name,
-                emit_data_type(&col.data_type),
-                nn
-            ));
-        }
-    }
-
-    None
 }
 
 fn var_type_to_sql(t: &pgzest_ast::plpgsql::VarType) -> String {

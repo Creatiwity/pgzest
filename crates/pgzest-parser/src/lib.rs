@@ -124,6 +124,18 @@ impl Offsets {
                 .unwrap_or_else(|| (self.point(start), self.point(end))),
         }
     }
+
+    /// Translates a range enclosing whole constructs (a statement): its end
+    /// follows the source across generated text, see
+    /// [`pgzest_ast::SourceMap::remap_enclosing`].
+    pub(crate) fn extent(&self, start: usize, end: usize) -> (usize, usize) {
+        match self {
+            Self::Shift(base) => (base + start, base + end),
+            Self::Mapped(map) => map
+                .remap_enclosing(start, end)
+                .unwrap_or_else(|| (self.point(start), self.point(end))),
+        }
+    }
 }
 
 /// Parses a SQL fragment extracted from a larger document.

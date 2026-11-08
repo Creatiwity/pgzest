@@ -29,7 +29,7 @@ mod types;
 pub mod view;
 
 pub use coerce::{CoercionContext, Pathway};
-pub use expr::{Analyzer, Param, Typed};
+pub use expr::{Analyzer, CallRef, Param, Typed, format_type};
 pub use query::{Description, OutputColumn, figure_colname};
 pub use resolve::{Resolution, ResolveError, ResolvedCall};
 pub use scope::{Nullability, SemaError};

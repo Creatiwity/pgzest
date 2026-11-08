@@ -467,7 +467,119 @@ fn hover_gives_the_type_of_the_name_under_the_cursor() {
         .as_str()
         .unwrap_or_default()
         .to_string();
-    assert_eq!(value, "(column) **id**: `text` NULL", "{response:?}");
+    assert_eq!(value, "(column) **b.id**: `text` NULL", "{response:?}");
+}
+
+/// Hover text at each `(line, character)` of `file`, in a project.
+fn hovers(name: &str, files: &[(&str, &str)], file: &str, at: &[(u32, u32)]) -> Vec<String> {
+    let root = scaffold(name, files);
+    let mut lsp = Lsp::spawn();
+    lsp.init(&root);
+    let language = if file.ends_with(".rs") { "rust" } else { "sql" };
+    let uri = lsp.open(&root.join(file), language);
+    lsp.await_diagnostics(&uri);
+    at.iter()
+        .map(|&(line, character)| {
+            let id = lsp.request(
+                "textDocument/hover",
+                serde_json::json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": line, "character": character }
+                }),
+            );
+            let response = lsp.await_response(id);
+            response["result"]["contents"]["value"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect()
+}
+
+const QUERY_PROJECT: &str = "[postgres]\nversion = 18\n[schema]\ndirectory = \"schema\"\n\
+                             [queries]\ndirectory = \"queries\"\n[macros]\ndirectory = \"macros\"\n";
+/// `id` in both tables, with different types: a hover by name alone would
+/// have to guess.
+const TWO_TABLES: &str = "CREATE TABLE a (id BIGINT PRIMARY KEY, label TEXT NOT NULL);\n\
+                          CREATE TABLE b (id UUID PRIMARY KEY, a_id BIGINT REFERENCES a (id));\n";
+
+#[test]
+fn hover_after_a_fragment_still_uses_the_analysis() {
+    // The fragment once truncated the statement's extent: everything after
+    // it fell back on a lookup by name.
+    let values = hovers(
+        "hover-fragment",
+        &[
+            ("pgzest.toml", QUERY_PROJECT),
+            ("schema/t.sql", TWO_TABLES),
+            ("macros/f.sql", "-- fragment: card(x)\nx.id, x.label\n"),
+            (
+                "queries/q.sql",
+                "-- name: q :one\nSELECT @card(a)\nFROM a\nWHERE a.id = $id;\n",
+            ),
+        ],
+        "queries/q.sql",
+        &[(3, 8)],
+    );
+    assert_eq!(values, ["(column) **a.id**: `bigint` NOT NULL"]);
+}
+
+#[test]
+fn hover_of_a_call_gives_the_resolved_overload() {
+    let values = hovers(
+        "hover-call",
+        &[
+            ("pgzest.toml", QUERY_PROJECT),
+            ("schema/t.sql", TWO_TABLES),
+            (
+                "queries/q.sql",
+                "-- name: q :one\nSELECT sum(a.id) FILTER (WHERE a.id > 0) FROM a;\n",
+            ),
+        ],
+        "queries/q.sql",
+        // `sum`, then the `FILTER` keyword: not the function.
+        &[(1, 8), (1, 18)],
+    );
+    assert_eq!(
+        values,
+        ["(function) pg_catalog.**sum**(bigint): `numeric` NULL", ""]
+    );
+}
+
+#[test]
+fn hover_never_guesses_a_column_by_its_name() {
+    let values = hovers(
+        "hover-no-guess",
+        &[
+            ("pgzest.toml", QUERY_PROJECT),
+            ("schema/t.sql", TWO_TABLES),
+            // Unknown table: nothing resolves `id`, and nothing is made up.
+            ("queries/q.sql", "-- name: q :one\nSELECT id FROM nope;\n"),
+        ],
+        "queries/q.sql",
+        &[(1, 8)],
+    );
+    assert_eq!(values, [""]);
+}
+
+#[test]
+fn hover_in_a_schema_follows_the_enclosing_table() {
+    let values = hovers(
+        "hover-schema",
+        &[("pgzest.toml", QUERY_PROJECT), ("schema/t.sql", TWO_TABLES)],
+        "schema/t.sql",
+        // `id` of b, then the `id` of `REFERENCES a (id)`, then the type
+        // name `TEXT`, which is not the function `text()`.
+        &[(1, 16), (1, 63), (0, 46)],
+    );
+    assert_eq!(
+        values,
+        [
+            "(column) public.b.**id**: `UUID` NOT NULL",
+            "(column) public.a.**id**: `BIGINT` NOT NULL",
+            "",
+        ]
+    );
 }
 
 #[test]

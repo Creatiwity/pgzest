@@ -56,6 +56,21 @@ pub struct Analyzer<'c> {
     /// Resolved column (or variable) references, with their type and
     /// nullability: what each name of the query designates.
     pub column_refs: Vec<(Span, Typed)>,
+    /// Resolved function calls: the call's position and the overload
+    /// PostgreSQL would pick.
+    pub call_refs: Vec<CallRef>,
+}
+
+/// A function call as resolved: the function, the argument types of the
+/// chosen overload and the result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallRef {
+    pub span: Span,
+    /// Qualified name of the routine, or the written name for a construct
+    /// resolved without one (`coalesce`, a coercion).
+    pub name: String,
+    pub args: Vec<Ty>,
+    pub result: Typed,
 }
 
 /// PostgreSQL operator name of an AST binary operator.
@@ -89,7 +104,7 @@ enum Subject<'a> {
 }
 
 /// Name of a type as `format_type` displays it (`integer`, `text[]`…).
-pub(crate) fn format_type(ty: &Ty) -> String {
+pub fn format_type(ty: &Ty) -> String {
     if ty.schema != "pg_catalog" {
         return ty.name.clone();
     }
@@ -240,6 +255,7 @@ impl<'c> Analyzer<'c> {
             routine: None,
             var_refs: Vec::new(),
             column_refs: Vec::new(),
+            call_refs: Vec::new(),
         }
     }
 
@@ -1167,7 +1183,20 @@ impl<'c> Analyzer<'c> {
             },
             Resolution::Operator(_) => Nullability::Unknown,
         };
-        Ok(Typed::new(ty, nullable))
+        let result = Typed::new(ty, nullable);
+        if span != Span::DUMMY {
+            let name = match &call.target {
+                Resolution::Routine(r) => format!("{}.{}", r.name.schema, r.name.name),
+                _ => fname.to_string(),
+            };
+            self.call_refs.push(CallRef {
+                span,
+                name,
+                args: call.arg_types.clone(),
+                result: result.clone(),
+            });
+        }
+        Ok(result)
     }
 
     /// `COALESCE`, `GREATEST`, `LEAST`: common type of the arguments.

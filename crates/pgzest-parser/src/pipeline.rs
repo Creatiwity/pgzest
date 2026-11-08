@@ -106,7 +106,7 @@ fn parse_statement(
         }
     };
 
-    let (span_start, span_end) = offsets.span(base + start, base + end);
+    let (span_start, span_end) = offsets.extent(base + start, base + end);
     crate::set_stmt_span(&mut stmt, span_start, span_end);
 
     if let Some(body) = body
@@ -267,7 +267,7 @@ fn skipped(
     end: usize,
     reason: SkipReason,
 ) -> SkippedStatement {
-    let (s, e) = offsets.span(base + start, base + end);
+    let (s, e) = offsets.extent(base + start, base + end);
     SkippedStatement {
         sql: text[start..end].to_string(),
         start: s,
