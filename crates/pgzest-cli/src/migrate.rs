@@ -142,7 +142,7 @@ fn log_change(l: &Loaded) -> Option<String> {
     if header.log == now {
         return None;
     }
-    let shown = |i| {
+    let shown = |i: &pgzest_expand::Instrumentation| {
         let f = pgzest_schema::LogField(i).to_string();
         if f.is_empty() {
             "log=none".to_string()
@@ -152,12 +152,12 @@ fn log_change(l: &Loaded) -> Option<String> {
     };
     Some(format!(
         "run log level changed ({} in {}, {} in {}): the instrumented routines are created again at the new level",
-        shown(header.log),
+        shown(&header.log),
         last.origin
             .path
             .file_name()
             .map_or_else(String::new, |f| f.to_string_lossy().into_owned()),
-        shown(now),
+        shown(&now),
         pgzest_schema::ProjectConfig::FILENAME,
     ))
 }

@@ -333,7 +333,7 @@ pub fn header(cat: &Catalog, postgres: u32, log: pgzest_expand::Instrumentation)
     if !exts.is_empty() {
         let _ = write!(out, " extensions={}", exts.join(","));
     }
-    let _ = write!(out, "{}", pgzest_schema::LogField(log));
+    let _ = write!(out, "{}", pgzest_schema::LogField(&log));
     out
 }
 

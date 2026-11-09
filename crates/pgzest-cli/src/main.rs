@@ -851,10 +851,8 @@ fn main() {
             once,
         } => dev::run(dev::Options {
             url,
-            instrumentation: pgzest_expand::Instrumentation {
-                log: log.into(),
-                target: log_target.into(),
-            },
+            log: log.into(),
+            target: log_target.into(),
             once,
         }),
         Command::Db { action } => match action {
@@ -1042,9 +1040,10 @@ fn cmd_build(
     let instrumentation = pgzest_expand::Instrumentation {
         log: log.unwrap_or(configured.log),
         target: target.unwrap_or(configured.target),
+        ..configured
     };
-    let set = set.with_instrumentation(instrumentation);
     let setup = instrumentation.setup_sql();
+    let set = set.with_instrumentation(instrumentation);
     for e in &errors {
         eprintln!("warning: {e}");
     }

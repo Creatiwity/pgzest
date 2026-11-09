@@ -416,7 +416,7 @@ impl MacroSet {
     }
 
     pub fn instrumentation(&self) -> crate::instrument::Instrumentation {
-        self.instrumentation
+        self.instrumentation.clone()
     }
 
     pub fn get(&self, name: &str) -> Option<&MacroDef> {

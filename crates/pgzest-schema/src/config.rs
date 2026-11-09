@@ -60,13 +60,20 @@ pub struct ProjectConfig {
 /// of the generated code: analysis, migrations and `pgzest build` all see
 /// the routines instrumented at this level, and each generated migration
 /// records it in its header (`log=…`).
-#[derive(Debug, Clone, Copy, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct LogConfig {
     #[serde(default)]
     pub level: LogLevelConfig,
     #[serde(default)]
     pub target: LogTargetConfig,
+    /// Schema of the `table` target's tables (default `pgzest_log`).
+    /// `public` is never created, for hosts that forbid `CREATE SCHEMA`;
+    /// outside `pgzest_log`, the tables are prefixed (`pgzest_log_run`).
+    pub schema: Option<String>,
+    /// Schema of the `@snapshot` tables of a debug build (default
+    /// `pgzest_debug`), under the same rules.
+    pub debug_schema: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -91,19 +98,26 @@ pub enum LogTargetConfig {
 impl LogConfig {
     pub fn instrumentation(&self) -> pgzest_expand::Instrumentation {
         use pgzest_expand::{LogLevel, LogTarget};
-        pgzest_expand::Instrumentation {
-            log: match self.level {
+        let mut i = pgzest_expand::Instrumentation::new(
+            match self.level {
                 LogLevelConfig::None => LogLevel::None,
                 LogLevelConfig::Info => LogLevel::Info,
                 LogLevelConfig::Step => LogLevel::Step,
                 LogLevelConfig::Debug => LogLevel::Debug,
             },
-            target: match self.target {
+            match self.target {
                 LogTargetConfig::Table => LogTarget::Table,
                 LogTargetConfig::Notify => LogTarget::Notify,
                 LogTargetConfig::Notice => LogTarget::Notice,
             },
+        );
+        if let Some(s) = &self.schema {
+            i.log_schema = s.clone();
         }
+        if let Some(s) = &self.debug_schema {
+            i.debug_schema = s.clone();
+        }
+        i
     }
 }
 
@@ -368,6 +382,27 @@ impl ProjectConfig {
                 supported.join(", ")
             )));
         }
+        for (key, schema) in [
+            ("schema", &self.log.schema),
+            ("debug_schema", &self.log.debug_schema),
+        ] {
+            let Some(s) = schema else { continue };
+            // Written as is in the migration header: one token, no `=`.
+            let reason = if s.is_empty() || s.len() > 63 {
+                Some("expected 1 to 63 bytes")
+            } else if s.chars().any(|c| c.is_whitespace() || c == '=') {
+                Some("no whitespace or `=`")
+            } else if s.starts_with("pg_") {
+                Some("`pg_` schemas are reserved by PostgreSQL")
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                return Err(ConfigError(format!(
+                    "[log] {key} = {s:?}: invalid schema name ({reason})"
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -611,10 +646,33 @@ mod tests {
         let i = c.log.instrumentation();
         assert_eq!(i.log, pgzest_expand::LogLevel::Step);
         assert_eq!(i.target, pgzest_expand::LogTarget::Notify);
-        for bad in ["level = \"trace\"", "target = \"file\"", "levle = \"info\""] {
+        for bad in [
+            "level = \"trace\"",
+            "target = \"file\"",
+            "levle = \"info\"",
+            "schema = \"\"",
+            "schema = \"my logs\"",
+            "debug_schema = \"pg_debug\"",
+        ] {
             let content = format!("[postgres]\nversion = 18\n[log]\n{bad}\n");
             assert!(ProjectConfig::parse(&content).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn log_schemas_default_to_their_own() {
+        let c = ProjectConfig::parse("[postgres]\nversion = 18\n").unwrap();
+        let i = c.log.instrumentation();
+        assert_eq!(i.log_schema, "pgzest_log");
+        assert_eq!(i.debug_schema, "pgzest_debug");
+        let c = ProjectConfig::parse(
+            "[postgres]\nversion = 18\n[log]\nlevel = \"info\"\nschema = \"public\"\n\
+             debug_schema = \"app\"\n",
+        )
+        .unwrap();
+        let i = c.log.instrumentation();
+        assert_eq!(i.log_schema, "public");
+        assert_eq!(i.debug_schema, "app");
     }
 
     #[test]

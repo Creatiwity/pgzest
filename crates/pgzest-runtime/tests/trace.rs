@@ -109,10 +109,7 @@ async fn runs_become_spans_under_the_callers_span() {
     let tracing = Tracing::new(move |run| trace::otel::export(&tracer, &run, &Context::new()));
     let (client, others) = traced(&config, &tracing).await;
 
-    let i = Instrumentation {
-        log: LogLevel::Step,
-        target: LogTarget::Notice,
-    };
+    let i = Instrumentation::new(LogLevel::Step, LogTarget::Notice);
     let exp = pgzest_expand::expand_source(SOURCE, &MacroSet::builtin().with_instrumentation(i));
     assert!(exp.diagnostics.is_empty(), "{:?}", exp.diagnostics);
     client.batch_execute(&exp.sql).await.expect("schema");

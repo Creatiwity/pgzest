@@ -9,7 +9,9 @@
 //! before the first statement. `postgres` is required, `extensions` optional;
 //! each extension carries its version. `log` is the run log level the
 //! routines of the migration were generated at (`[log]` of `pgzest.toml`),
-//! `log=step:notify` for the `notify` target; absent, they are not logged. Any other form is an error: a misread
+//! `log=step:notify` for the `notify` target; absent, they are not logged.
+//! `log_schema` and `debug_schema` name the schemas of the tables they
+//! write to, when not the default ones. Any other form is an error: a misread
 //! header would analyze the migration against a context other than the
 //! announced one.
 
@@ -99,6 +101,8 @@ fn parse_fields(fields: &str) -> Result<Fields, String> {
     let mut postgres = None;
     let mut extensions: Option<Vec<ExtensionRef>> = None;
     let mut log = None;
+    let mut log_schema = None;
+    let mut debug_schema = None;
     for field in fields.split_whitespace() {
         let Some((key, value)) = field.split_once('=') else {
             return Err(format!("field `{field}`: expected `key=value`"));
@@ -124,15 +128,42 @@ fn parse_fields(fields: &str) -> Result<Fields, String> {
                 }
                 log = Some(parse_log(value)?);
             }
+            "log_schema" | "debug_schema" => {
+                let slot = if key == "log_schema" {
+                    &mut log_schema
+                } else {
+                    &mut debug_schema
+                };
+                if slot.is_some() {
+                    return Err(format!("duplicate `{key}`"));
+                }
+                if value.is_empty() {
+                    return Err(format!("`{key}=`: expected a schema name"));
+                }
+                *slot = Some(value.to_string());
+            }
             other => return Err(format!("unknown field `{other}`")),
         }
     }
     let postgres = postgres.ok_or("missing `postgres` field")?;
-    Ok((
-        postgres,
-        extensions.unwrap_or_default(),
-        log.unwrap_or_default(),
-    ))
+    let mut log: Instrumentation = log.unwrap_or_default();
+    // A schema the routines do not write to would be read as context they
+    // were generated in: refused, like any field without effect.
+    if let Some(s) = log_schema {
+        if !log.logs_to_table() {
+            return Err(format!(
+                "`log_schema={s}`: only with a `log` level writing to tables"
+            ));
+        }
+        log.log_schema = s;
+    }
+    if let Some(s) = debug_schema {
+        if log.log < LogLevel::Debug {
+            return Err(format!("`debug_schema={s}`: only with `log=debug`"));
+        }
+        log.debug_schema = s;
+    }
+    Ok((postgres, extensions.unwrap_or_default(), log))
 }
 
 fn parse_log(value: &str) -> Result<Instrumentation, String> {
@@ -152,7 +183,7 @@ fn parse_log(value: &str) -> Result<Instrumentation, String> {
         Some(t) => LogTarget::parse(t).ok_or_else(expected)?,
         None => LogTarget::Table,
     };
-    Ok(Instrumentation { log, target })
+    Ok(Instrumentation::new(log, target))
 }
 
 fn parse_extensions(value: &str) -> Result<Vec<ExtensionRef>, String> {
@@ -189,22 +220,29 @@ impl fmt::Display for MigrationHeader {
                 .collect();
             write!(f, " extensions={}", list.join(","))?;
         }
-        write!(f, "{}", LogField(self.log))
+        write!(f, "{}", LogField(&self.log))
     }
 }
 
-/// ` log=…` of a header, empty when routines are not logged.
-pub struct LogField(pub Instrumentation);
+/// ` log=…` of a header, empty when routines are not logged, with the
+/// schemas they write to when not the default ones.
+pub struct LogField<'a>(pub &'a Instrumentation);
 
-impl fmt::Display for LogField {
+impl fmt::Display for LogField<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Instrumentation { log, target } = self.0;
-        if log == LogLevel::None {
+        let i = self.0;
+        if i.log == LogLevel::None {
             return Ok(());
         }
-        write!(f, " log={}", log.as_str())?;
-        if target != LogTarget::Table {
-            write!(f, ":{}", target.as_str())?;
+        write!(f, " log={}", i.log.as_str())?;
+        if i.target != LogTarget::Table {
+            write!(f, ":{}", i.target.as_str())?;
+        }
+        if i.logs_to_table() && i.log_schema != pgzest_expand::DEFAULT_LOG_SCHEMA {
+            write!(f, " log_schema={}", i.log_schema)?;
+        }
+        if i.log >= LogLevel::Debug && i.debug_schema != pgzest_expand::DEFAULT_DEBUG_SCHEMA {
+            write!(f, " debug_schema={}", i.debug_schema)?;
         }
         Ok(())
     }
@@ -273,12 +311,29 @@ mod tests {
             "log=trace",
             "log=step:file",
             "log=step log=info",
+            "log=step:notify log_schema=public",
+            "log=step debug_schema=public",
+            "log_schema=public",
         ] {
             assert!(
                 err(&format!("-- pgzest: postgres=18 {bad}")).contains("log"),
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn log_schemas() {
+        let h = ok("-- pgzest: postgres=18 log=debug log_schema=public debug_schema=obs");
+        assert_eq!(h.log.log_schema, "public");
+        assert_eq!(h.log.debug_schema, "obs");
+        assert_eq!(
+            h.to_string(),
+            "-- pgzest: postgres=18 log=debug log_schema=public debug_schema=obs"
+        );
+        // Default schemas are not written.
+        let h = ok("-- pgzest: postgres=18 log=debug log_schema=pgzest_log");
+        assert_eq!(h.to_string(), "-- pgzest: postgres=18 log=debug");
     }
 
     #[test]

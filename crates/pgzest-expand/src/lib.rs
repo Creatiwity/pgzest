@@ -35,7 +35,10 @@ mod lex;
 pub use def::{MacroDef, MacroSet};
 pub use expand::{Expansion, expand_source, expand_source_at};
 pub use fragment::{FragmentDef, fragment_file_diagnostics, parse_fragment_file};
-pub use instrument::{Instrumentation, LogLevel, LogTarget, instrumentation_of};
+pub use instrument::{
+    DEFAULT_DEBUG_SCHEMA, DEFAULT_LOG_SCHEMA, Instrumentation, LogLevel, LogTarget,
+    instrumentation_of,
+};
 /// Re-export: the position mapping lives in `pgzest-ast`, next to `Span`, so
 /// that the parser can use it without depending on this crate.
 pub use pgzest_ast::SourceMap;

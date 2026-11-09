@@ -168,3 +168,68 @@ fn the_log_level_is_generated_and_recorded_in_the_header() {
     );
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn log_tables_in_public_create_no_schema() {
+    let routine = "@function bump(k INT): INT {\n    UPDATE t SET n = n + 1 WHERE id <= k;\n    RETURN k;\n}\n";
+    let root = scaffold(
+        "log-public",
+        &[
+            (
+                "pgzest.toml",
+                &format!("{CONFIG}[log]\nlevel = \"info\"\nschema = \"public\"\n"),
+            ),
+            (
+                "schema/t.sql",
+                "CREATE TABLE t (id INT PRIMARY KEY, n INT);\n",
+            ),
+            ("schema/bump.sql", routine),
+        ],
+    );
+    let (code, out) = migrate(&root, &["create", "init"]);
+    assert_eq!(code, 0, "{out}");
+    let sql = fs::read_to_string(root.join("migrations/0001_init.sql")).unwrap();
+    assert!(
+        sql.starts_with("-- pgzest: postgres=18 log=info log_schema=public\n"),
+        "{sql}"
+    );
+    assert!(!sql.contains("CREATE SCHEMA"), "{sql}");
+    assert!(
+        sql.contains("CREATE UNLOGGED TABLE pgzest_log_run"),
+        "{sql}"
+    );
+    assert!(sql.contains("INSERT INTO public.pgzest_log_run"), "{sql}");
+    let (code, out) = migrate(&root, &["check"]);
+    assert_eq!(code, 0, "{out}");
+
+    // Back to the default schema: the routine writes elsewhere, and the
+    // tables come with it.
+    fs::write(
+        root.join("pgzest.toml"),
+        format!("{CONFIG}[log]\nlevel = \"info\"\n"),
+    )
+    .unwrap();
+    let (code, out) = migrate(&root, &["create", "own_schema"]);
+    assert_eq!(code, 0, "{out}");
+    let sql = fs::read_to_string(root.join("migrations/0002_own_schema.sql")).unwrap();
+    assert!(sql.contains("CREATE SCHEMA pgzest_log"), "{sql}");
+    assert!(sql.contains("INSERT INTO pgzest_log.run"), "{sql}");
+    assert!(sql.contains("run log level changed"), "{sql}");
+    let (code, out) = migrate(&root, &["check"]);
+    assert_eq!(code, 0, "{out}");
+
+    // A header naming another schema than its routines write to is an error.
+    let first = fs::read_to_string(root.join("migrations/0001_init.sql")).unwrap();
+    fs::write(
+        root.join("migrations/0001_init.sql"),
+        first.replace(" log_schema=public", ""),
+    )
+    .unwrap();
+    let (code, out) = migrate(&root, &["check"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out.contains("generated with `log=info log_schema=public`, the header declares `log=info`"),
+        "{out}"
+    );
+    let _ = fs::remove_dir_all(&root);
+}

@@ -136,6 +136,18 @@ to the named query format. They are never indexed as schema.
 |---|---|---|---|
 | `level` | `"none"` \| `"info"` \| `"step"` \| `"debug"` | `"none"` | What the PL/pgSQL macro routines record of their runs ([run logs](../../guides/observability/#run-logs)). Part of the generated code: analysis, the LSP, `pgzest build` and `pgzest migrate` expand the routines at this level, and the migration header records it (`log=step`). |
 | `target` | `"table"` \| `"notify"` \| `"notice"` | `"table"` | Where the entries go: the unlogged tables `pgzest_log.run` / `.step` (part of the schema when the level is not `none`), `pg_notify('pgzest_log', …)`, or `RAISE NOTICE 'pgzest_log'` at the start and the end of each run of a sampled trace ([traces](../../guides/observability/#traces)). |
+| `schema` | schema name | `"pgzest_log"` | Schema of the `table` target's tables. |
+| `debug_schema` | schema name | `"pgzest_debug"` | Schema of the `@snapshot` tables of a `debug` build. |
+
+For a host that allows no schema besides `public` (some managed
+offers), set `schema = "public"` and `debug_schema = "public"`: `public`
+is never created, so no `CREATE SCHEMA` is attempted. Any other schema is
+created if missing. Outside their default schema, the tables are
+prefixed so they cannot meet the application's: `public.pgzest_log_run`,
+`public.pgzest_log_step`, `public.pgzest_debug_snapshot`,
+`public.pgzest_debug_snapshot_rows`. A schema other than the default is
+recorded in the migration header (`log=step log_schema=public`), and the
+routines of the migration are checked against it.
 
 `pgzest build --log` / `--log-target` override it for one build;
 `pgzest dev` uses `debug` unless `--log` is given.

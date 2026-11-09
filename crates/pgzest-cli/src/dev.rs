@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use pgzest_diagnostics::Severity;
-use pgzest_expand::{Instrumentation, MacroSet};
+use pgzest_expand::{Instrumentation, LogLevel, LogTarget, MacroSet};
 use pgzest_schema::source::SchemaSource;
 use pgzest_schema::{FileRole, ProjectConfig};
 use tokio_postgres::error::{ErrorPosition, SqlState};
@@ -24,7 +24,10 @@ const INTERVAL: Duration = Duration::from_millis(300);
 
 pub struct Options {
     pub url: String,
-    pub instrumentation: Instrumentation,
+    /// Log level and target of the routines; the tables' schemas are the
+    /// project's (`[log] schema`, `debug_schema`).
+    pub log: LogLevel,
+    pub target: LogTarget,
     /// Apply once and exit (1 if a file could not be applied).
     pub once: bool,
 }
@@ -91,13 +94,12 @@ async fn watch(opts: Options) -> i32 {
     let Some(mut client) = connect(&config).await else {
         return 2;
     };
-    let i = opts.instrumentation;
     println!(
         "pgzest dev: routines of {} → {} (log {}, {}){}",
         root.display(),
         describe(&config),
-        i.log.as_str(),
-        i.target.as_str(),
+        opts.log.as_str(),
+        opts.target.as_str(),
         if opts.once { "" } else { "; Ctrl-C to stop" }
     );
 
@@ -132,8 +134,13 @@ async fn watch(opts: Options) -> i32 {
             for e in &errors {
                 eprintln!("warning: {e}");
             }
-            macros = set.with_instrumentation(i);
+            let i = Instrumentation {
+                log: opts.log,
+                target: opts.target,
+                ..set.instrumentation()
+            };
             let setup = i.setup_sql();
+            macros = set.with_instrumentation(i);
             if !setup.is_empty()
                 && let Err(e) = client.batch_execute(&setup).await
             {

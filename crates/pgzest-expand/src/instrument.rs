@@ -84,32 +84,35 @@ const CONFIG_VAR: &str = "_pgzest_config";
 /// Value of a `RETURN`, evaluated before the exit code.
 const RESULT_VAR: &str = "_pgzest_result";
 
-/// Tables written by `@snapshot` in a debug build. Created by
-/// `pgzest build --log debug` before the routines.
-pub const DEBUG_SETUP: &str = "\
-CREATE SCHEMA IF NOT EXISTS pgzest_debug;
-CREATE TABLE IF NOT EXISTS pgzest_debug.snapshot (
+/// Default schema of the `table` log target ([`Instrumentation::log_schema`]).
+pub const DEFAULT_LOG_SCHEMA: &str = "pgzest_log";
+/// Default schema of the `@snapshot` tables ([`Instrumentation::debug_schema`]).
+pub const DEFAULT_DEBUG_SCHEMA: &str = "pgzest_debug";
+/// Schema every database has: never created, so a host that forbids
+/// `CREATE SCHEMA` (some managed offers) can still hold the tables.
+const PUBLIC_SCHEMA: &str = "public";
+
+/// Columns of the tables written by `@snapshot` in a debug build, created
+/// by `pgzest build --log debug` before the routines.
+const SNAPSHOT_COLUMNS: &str = "(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     run UUID NOT NULL,
     routine TEXT NOT NULL,
     label TEXT NOT NULL,
     taken_at TIMESTAMPTZ NOT NULL,
     variables JSONB NOT NULL
-);
-CREATE TABLE IF NOT EXISTS pgzest_debug.snapshot_rows (
+)";
+const SNAPSHOT_ROWS_COLUMNS: &str = "(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     run UUID NOT NULL,
     label TEXT NOT NULL,
     table_name TEXT NOT NULL,
     row_data JSONB NOT NULL
-);
-";
+)";
 
-/// Tables written by the `table` log target. Unlogged: a log is not worth
-/// WAL, and it does not survive a crash.
-pub const LOG_SETUP: &str = "\
-CREATE SCHEMA IF NOT EXISTS pgzest_log;
-CREATE UNLOGGED TABLE IF NOT EXISTS pgzest_log.run (
+/// Columns of the tables written by the `table` log target. Unlogged: a log
+/// is not worth WAL, and it does not survive a crash.
+const RUN_COLUMNS: &str = "(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     run UUID NOT NULL,
     routine TEXT NOT NULL,
@@ -120,8 +123,8 @@ CREATE UNLOGGED TABLE IF NOT EXISTS pgzest_log.run (
     duration_ms DOUBLE PRECISION NOT NULL,
     steps INT,
     error TEXT
-);
-CREATE UNLOGGED TABLE IF NOT EXISTS pgzest_log.step (
+)";
+const STEP_COLUMNS: &str = "(
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     run UUID NOT NULL,
     step INT NOT NULL,
@@ -130,8 +133,7 @@ CREATE UNLOGGED TABLE IF NOT EXISTS pgzest_log.step (
     line INT,
     row_count BIGINT NOT NULL,
     executed_at TIMESTAMPTZ NOT NULL
-);
-";
+)";
 /// `pg_notify` channel of the `notify` log target, and message of the
 /// `notice` one.
 pub const LOG_CHANNEL: &str = "pgzest_log";
@@ -185,7 +187,7 @@ impl LogLevel {
 /// Where the log entries go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LogTarget {
-    /// `pgzest_log.run` / `pgzest_log.step` ([`LOG_SETUP`]).
+    /// `pgzest_log.run` / `pgzest_log.step` ([`Instrumentation::setup_sql`]).
     #[default]
     Table,
     /// `pg_notify('pgzest_log', json)`, one notification per entry.
@@ -216,29 +218,114 @@ impl LogTarget {
 }
 
 /// Build options of the instrumentation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instrumentation {
     pub log: LogLevel,
     pub target: LogTarget,
+    /// Schema of the `table` log target's tables (`[log] schema`).
+    pub log_schema: String,
+    /// Schema of the `@snapshot` tables (`[log] debug_schema`).
+    pub debug_schema: String,
+}
+
+impl Default for Instrumentation {
+    fn default() -> Self {
+        Self::new(LogLevel::None, LogTarget::Table)
+    }
+}
+
+/// A table of the instrumentation: `short` in its own schema, prefixed with
+/// that schema's default name in any other one (`public.pgzest_log_run`),
+/// where a bare `run` or `step` could be the application's.
+fn instrumentation_table(schema: &str, default: &str, short: &str) -> (String, String) {
+    let name = if schema == default {
+        short.to_string()
+    } else {
+        format!("{default}_{short}")
+    };
+    (schema.to_string(), name)
 }
 
 impl Instrumentation {
-    /// SQL creating what the instrumented routines write to, to run before
-    /// them (idempotent). Empty when they write nothing.
-    pub fn setup_sql(&self) -> String {
-        let mut out = String::new();
-        if self.log >= LogLevel::Info && self.target == LogTarget::Table {
-            out.push_str(LOG_SETUP);
+    /// Tables in their default schemas (`pgzest_log`, `pgzest_debug`).
+    pub fn new(log: LogLevel, target: LogTarget) -> Self {
+        Instrumentation {
+            log,
+            target,
+            log_schema: DEFAULT_LOG_SCHEMA.into(),
+            debug_schema: DEFAULT_DEBUG_SCHEMA.into(),
         }
-        if self.log >= LogLevel::Debug {
-            out.push_str(DEBUG_SETUP);
-        }
-        out
+    }
+
+    /// Writes to the log tables: `table` target from `info` on.
+    pub fn logs_to_table(&self) -> bool {
+        self.log >= LogLevel::Info && self.target == LogTarget::Table
     }
 
     fn snapshots(&self) -> bool {
         self.log >= LogLevel::Debug
     }
+
+    /// `(schema, table)` of the run and step log tables.
+    pub fn log_tables(&self) -> [(String, String); 2] {
+        ["run", "step"].map(|t| instrumentation_table(&self.log_schema, DEFAULT_LOG_SCHEMA, t))
+    }
+
+    /// `(schema, table)` of the snapshot tables.
+    pub fn debug_tables(&self) -> [(String, String); 2] {
+        ["snapshot", "snapshot_rows"]
+            .map(|t| instrumentation_table(&self.debug_schema, DEFAULT_DEBUG_SCHEMA, t))
+    }
+
+    /// Every table the instrumented routines write to.
+    pub fn tables(&self) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        if self.logs_to_table() {
+            out.extend(self.log_tables());
+        }
+        if self.snapshots() {
+            out.extend(self.debug_tables());
+        }
+        out
+    }
+
+    /// SQL creating what the instrumented routines write to, to run before
+    /// them (idempotent). Empty when they write nothing. `public` is never
+    /// created: it exists, and a host may forbid `CREATE SCHEMA`.
+    pub fn setup_sql(&self) -> String {
+        let mut out = String::new();
+        let schema = |s: &str, out: &mut String| {
+            if s != PUBLIC_SCHEMA {
+                out.push_str(&format!("CREATE SCHEMA IF NOT EXISTS {};\n", quote(s)));
+            }
+        };
+        if self.logs_to_table() {
+            schema(&self.log_schema, &mut out);
+            let [run, step] = self.log_tables();
+            for ((s, t), columns) in [(run, RUN_COLUMNS), (step, STEP_COLUMNS)] {
+                out.push_str(&format!(
+                    "CREATE UNLOGGED TABLE IF NOT EXISTS {} {columns};\n",
+                    qualified(&s, &t)
+                ));
+            }
+        }
+        if self.snapshots() {
+            schema(&self.debug_schema, &mut out);
+            let [snapshot, rows] = self.debug_tables();
+            for ((s, t), columns) in [(snapshot, SNAPSHOT_COLUMNS), (rows, SNAPSHOT_ROWS_COLUMNS)] {
+                out.push_str(&format!(
+                    "CREATE TABLE IF NOT EXISTS {} {columns};\n",
+                    qualified(&s, &t)
+                ));
+            }
+        }
+        out
+    }
+}
+
+/// `schema.table`, each quoted when needed.
+fn qualified(schema: &str, table: &str) -> String {
+    format!("{}.{}", quote(schema), quote(table))
 }
 
 /// Run log level a routine definition was generated at, read from the code
@@ -249,7 +336,8 @@ pub fn instrumentation_of(definition: &str) -> Option<Instrumentation> {
     if !definition.contains(&format!("{STARTED_VAR} timestamptz")) {
         return None;
     }
-    let log = if definition.contains("INSERT INTO pgzest_debug.snapshot ") {
+    let snapshot = written_schema(definition, SNAPSHOT_INSERT);
+    let log = if snapshot.is_some() {
         LogLevel::Debug
     } else if definition.contains(&format!("{STEPS_VAR} json")) {
         LogLevel::Step
@@ -263,7 +351,41 @@ pub fn instrumentation_of(definition: &str) -> Option<Instrumentation> {
     } else {
         LogTarget::Table
     };
-    Some(Instrumentation { log, target })
+    let mut found = Instrumentation::new(log, target);
+    if let Some(s) = written_schema(definition, RUN_INSERT) {
+        found.log_schema = s;
+    }
+    if let Some(s) = snapshot {
+        found.debug_schema = s;
+    }
+    Some(found)
+}
+
+/// Column lists of the instrumentation's inserts, which only they write.
+const RUN_INSERT: &str = " (run, routine, parent, depth, traceparent, started_at,";
+const SNAPSHOT_INSERT: &str = " (run, routine, label, taken_at, variables)";
+
+/// Schema of the table an `INSERT INTO <schema>.<table><columns>` of the
+/// instrumentation writes to, unquoted.
+fn written_schema(definition: &str, columns: &str) -> Option<String> {
+    let end = definition.find(columns)?;
+    let start = definition[..end].rfind("INSERT INTO ")? + "INSERT INTO ".len();
+    let target = &definition[start..end];
+    // The schema ends at the first `.` outside double quotes.
+    let mut quoted = false;
+    let dot = target.char_indices().find_map(|(i, c)| {
+        if c == '"' {
+            quoted = !quoted;
+        }
+        (c == '.' && !quoted).then_some(i)
+    })?;
+    let schema = &target[..dot];
+    Some(
+        match schema.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            Some(inner) => inner.replace("\"\"", "\""),
+            None => schema.to_string(),
+        },
+    )
 }
 
 /// Instruments the PL/pgSQL bodies of `exp`: those holding a directive,
@@ -289,7 +411,7 @@ pub(crate) fn instrument(
         base,
     };
     for body in &bodies {
-        instrument_body(&exp.sql, body, opts, &lines, &mut out);
+        instrument_body(&exp.sql, body, &opts, &lines, &mut out);
     }
     stray_directives(&exp.sql, &bodies, &mut out);
 
@@ -586,7 +708,7 @@ fn result_type(rt: &ReturnType) -> Option<String> {
     }
 }
 
-fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>, out: &mut Out) {
+fn instrument_body(sql: &str, b: &Body, opts: &Instrumentation, lines: &Lines<'_>, out: &mut Out) {
     let directives = find_directives(sql, b.body.clone(), out);
     let logged = opts.log >= LogLevel::Info;
     if directives.is_empty() && !logged {
@@ -717,10 +839,15 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
     let exit = Exit {
         result: routine.result.clone(),
         cleanup: cleanup_sql(&tables),
-        log: logged.then(|| RunLog {
-            routine: routine.name.clone(),
-            target: opts.target,
-            steps: opts.log >= LogLevel::Step,
+        log: logged.then(|| {
+            let [run, step] = opts.log_tables().map(|(s, t)| qualified(&s, &t));
+            RunLog {
+                routine: routine.name.clone(),
+                target: opts.target,
+                steps: opts.log >= LogLevel::Step,
+                run_table: run,
+                step_table: step,
+            }
         }),
     };
     let mut w = Walker {
@@ -897,7 +1024,12 @@ fn instrument_body(sql: &str, b: &Body, opts: Instrumentation, lines: &Lines<'_>
         let text = match d.kind {
             DirectiveKind::TempTable => String::new(),
             DirectiveKind::Snapshot if opts.snapshots() => {
-                match snapshot_sql(sql, d, &routine, &body.block, &scopes, &tables) {
+                let [snapshot, rows] = opts.debug_tables().map(|(s, t)| qualified(&s, &t));
+                let target = SnapshotTables {
+                    snapshot: &snapshot,
+                    rows: &rows,
+                };
+                match snapshot_sql(sql, d, &routine, &body.block, &scopes, &tables, target) {
                     Ok(s) => s,
                     Err(msg) => {
                         out.error(d.range.clone(), msg);
@@ -945,6 +1077,9 @@ struct RunLog {
     routine: String,
     target: LogTarget,
     steps: bool,
+    /// Log tables of the `table` target, qualified.
+    run_table: String,
+    step_table: String,
 }
 
 impl Exit {
@@ -1020,19 +1155,21 @@ impl RunLog {
             LogTarget::Table => {
                 if self.steps {
                     out.push(format!(
-                        "INSERT INTO pgzest_log.step (run, step, kind, target, line, row_count, \
+                        "INSERT INTO {} (run, step, kind, target, line, row_count, \
                          executed_at) SELECT {RUN_VAR}, _pgzest_s.ord, \
                          _pgzest_s.entry->>'kind', _pgzest_s.entry->>'target', \
                          (_pgzest_s.entry->>'line')::int, \
                          (_pgzest_s.entry->>'row_count')::bigint, \
-                         (_pgzest_s.entry->>'executed_at')::timestamptz FROM {entries};"
+                         (_pgzest_s.entry->>'executed_at')::timestamptz FROM {entries};",
+                        self.step_table
                     ));
                 }
                 out.push(format!(
-                    "INSERT INTO pgzest_log.run (run, routine, parent, depth, traceparent, \
+                    "INSERT INTO {} (run, routine, parent, depth, traceparent, \
                      started_at, duration_ms, steps, error) VALUES ({RUN_VAR}, {routine}, \
                      {PARENT_VAR}, {DEPTH_VAR}, {TRACEPARENT_VAR}, {STARTED_VAR}, {duration}, \
-                     {steps}, {error});"
+                     {steps}, {error});",
+                    self.run_table
                 ));
             }
             LogTarget::Notify => {
@@ -2242,6 +2379,12 @@ fn literal(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+/// Where a snapshot is copied, qualified.
+struct SnapshotTables<'a> {
+    snapshot: &'a str,
+    rows: &'a str,
+}
+
 fn snapshot_sql(
     sql: &str,
     d: &Directive,
@@ -2249,6 +2392,7 @@ fn snapshot_sql(
     top: &Block,
     scopes: &[Scope],
     tables: &[TempTable],
+    into: SnapshotTables<'_>,
 ) -> Result<String, String> {
     let label = snapshot_label(sql, d)?;
     // Variables visible here: parameters, top-level declarations, then the
@@ -2292,16 +2436,18 @@ fn snapshot_sql(
     };
     let indent = indent_at(sql, d.range.start);
     let mut out = format!(
-        "INSERT INTO pgzest_debug.snapshot (run, routine, label, taken_at, variables) \
+        "INSERT INTO {}{SNAPSHOT_INSERT} \
          VALUES ({RUN_VAR}, {}, {}, clock_timestamp(), {variables});",
+        into.snapshot,
         literal(&routine.name),
         literal(&label),
     );
     for t in tables {
         out.push_str(&format!(
-            "\n{indent}INSERT INTO pgzest_debug.snapshot_rows (run, label, table_name, row_data) \
+            "\n{indent}INSERT INTO {} (run, label, table_name, row_data) \
              SELECT {RUN_VAR}, {}, {}, to_jsonb(_pgzest_t) - '{RUN_COLUMN}' FROM pg_temp.{} \
              AS _pgzest_t WHERE _pgzest_t.{RUN_COLUMN} = {RUN_VAR};",
+            into.rows,
             literal(&label),
             literal(&t.name),
             t.physical,
@@ -2333,7 +2479,7 @@ mod tests {
     }
 
     fn logged(src: &str, log: LogLevel, target: LogTarget) -> crate::Expansion {
-        let i = Instrumentation { log, target };
+        let i = Instrumentation::new(log, target);
         expand_source(src, &MacroSet::builtin().with_instrumentation(i))
     }
 
@@ -2504,6 +2650,66 @@ mod tests {
             "{:?}",
             errors(src)
         );
+    }
+
+    #[test]
+    fn tables_follow_the_configured_schemas() {
+        let src = "@function f(p INT): INT {\n    @snapshot start;\n    RETURN p;\n}\n";
+        let build = |log_schema: &str, debug_schema: &str| {
+            let mut i = Instrumentation::new(LogLevel::Debug, LogTarget::Table);
+            i.log_schema = log_schema.into();
+            i.debug_schema = debug_schema.into();
+            let setup = i.setup_sql();
+            let e = expand_source(src, &MacroSet::builtin().with_instrumentation(i));
+            assert!(e.diagnostics.is_empty(), "{:?}", e.diagnostics);
+            (setup, e.sql)
+        };
+
+        // Default schemas: created, short names.
+        let (setup, sql) = build("pgzest_log", "pgzest_debug");
+        assert!(
+            setup.contains("CREATE SCHEMA IF NOT EXISTS pgzest_log;"),
+            "{setup}"
+        );
+        assert!(
+            setup.contains("CREATE SCHEMA IF NOT EXISTS pgzest_debug;"),
+            "{setup}"
+        );
+        assert!(sql.contains("INSERT INTO pgzest_log.run "), "{sql}");
+        assert!(sql.contains("INSERT INTO pgzest_debug.snapshot "), "{sql}");
+        assert_eq!(
+            super::instrumentation_of(&sql),
+            Some(Instrumentation::new(LogLevel::Debug, LogTarget::Table))
+        );
+
+        // `public` is never created; the tables are prefixed there.
+        let (setup, sql) = build("public", "public");
+        assert!(!setup.contains("CREATE SCHEMA"), "{setup}");
+        for t in [
+            "public.pgzest_log_run ",
+            "public.pgzest_log_step ",
+            "public.pgzest_debug_snapshot ",
+            "public.pgzest_debug_snapshot_rows ",
+        ] {
+            assert!(setup.contains(t), "{t}: {setup}");
+        }
+        assert!(sql.contains("INSERT INTO public.pgzest_log_run "), "{sql}");
+        assert!(
+            sql.contains("INSERT INTO public.pgzest_debug_snapshot "),
+            "{sql}"
+        );
+
+        // Another schema is created, quoted when needed, and read back from
+        // the generated code.
+        let (setup, sql) = build("Obs", "obs");
+        assert!(
+            setup.contains("CREATE SCHEMA IF NOT EXISTS \"Obs\";"),
+            "{setup}"
+        );
+        assert!(sql.contains("INSERT INTO \"Obs\".pgzest_log_run "), "{sql}");
+        let found = super::instrumentation_of(&sql).expect("instrumented");
+        assert_eq!(found.log_schema, "Obs");
+        assert_eq!(found.debug_schema, "obs");
     }
 
     #[test]

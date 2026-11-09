@@ -557,8 +557,8 @@ fn check_header(sql: &str, stmts: &[Statement], cat: &Catalog, out: &mut Vec<Dia
 
     // Log level: the routines of the file were generated at it, and what
     // they write to exists at this point of the migrations.
-    use pgzest_expand::{LogLevel, LogTarget};
-    let declared = pgzest_schema::LogField(h.log).to_string();
+    use pgzest_expand::LogLevel;
+    let declared = pgzest_schema::LogField(&h.log).to_string();
     let declared = declared.trim();
     let declared = if declared.is_empty() {
         "none"
@@ -575,17 +575,19 @@ fn check_header(sql: &str, stmts: &[Statement], cat: &Catalog, out: &mut Vec<Dia
             continue;
         };
         let found = pgzest_expand::instrumentation_of(text);
-        let matches = match found {
+        let matches = match &found {
             None => true,
             // `debug` without `@snapshot` emits the `step` code.
             Some(i) => {
                 i.target == h.log.target
                     && (i.log == h.log.log
                         || (i.log == LogLevel::Step && h.log.log == LogLevel::Debug))
+                    && (!i.logs_to_table() || i.log_schema == h.log.log_schema)
+                    && (i.log < LogLevel::Debug || i.debug_schema == h.log.debug_schema)
             }
         };
         if !matches {
-            let found = pgzest_schema::LogField(found.unwrap_or_default()).to_string();
+            let found = pgzest_schema::LogField(&found.unwrap_or_default()).to_string();
             out.push(
                 Diagnostic::error(
                     codes::MIGRATION_HEADER_MISMATCH,
@@ -602,15 +604,8 @@ fn check_header(sql: &str, stmts: &[Statement], cat: &Catalog, out: &mut Vec<Dia
             );
         }
     }
-    let mut needed = Vec::new();
-    if h.log.log >= LogLevel::Info && h.log.target == LogTarget::Table {
-        needed.extend(["pgzest_log.run", "pgzest_log.step"]);
-    }
-    if h.log.log >= LogLevel::Debug {
-        needed.extend(["pgzest_debug.snapshot", "pgzest_debug.snapshot_rows"]);
-    }
-    for table in needed {
-        let (schema, name) = table.split_once('.').expect("qualified");
+    for (schema, name) in h.log.tables() {
+        let table = format!("{schema}.{name}");
         if !cat
             .relations
             .contains_key(&crate::model::QName::new(schema, name))

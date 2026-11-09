@@ -32,8 +32,8 @@ and the code that does it is in the migration, for review.
   per run, and the rows are deleted when the run returns.
 - **`@snapshot label;`** — at the `debug` log level, copies the run's rows
   of each temp table and the variables in scope into
-  `pgzest_debug.snapshot` and `pgzest_debug.snapshot_rows`. At any other
-  level it emits nothing.
+  `pgzest_debug.snapshot` and `pgzest_debug.snapshot_rows` (another
+  schema with `[log] debug_schema`). At any other level it emits nothing.
 
 An access pgzest cannot rewrite is an error (`TRUNCATE`, `RETURNING *`, a
 CTE of the same name); dynamic SQL (`EXECUTE`) in such a body is a
@@ -62,7 +62,7 @@ routines at this level, and a migration records it in its header
 
 | Target | Where |
 |--------|-------|
-| `table` | unlogged tables `pgzest_log.run` and `pgzest_log.step`, created by the migrations |
+| `table` | unlogged tables `pgzest_log.run` and `pgzest_log.step`, created by the migrations (another schema with `[log] schema`, `public` included for hosts that forbid `CREATE SCHEMA`: see [`[log]`](../../reference/config/#log)) |
 | `notify` | one JSON `pg_notify('pgzest_log', …)` per entry |
 | `notice` | a `RAISE NOTICE 'pgzest_log'` when a run starts and when it ends, sent to the client at once — even when the transaction then fails: the target for traces |
 

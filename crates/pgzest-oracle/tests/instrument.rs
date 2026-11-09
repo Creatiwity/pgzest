@@ -91,10 +91,14 @@ fn expand(debug: bool) -> String {
 
 /// `source` built as `pgzest build --log … --log-target …` does.
 fn build(source: &str, log: LogLevel, target: LogTarget) -> String {
-    let i = Instrumentation { log, target };
+    build_with(source, Instrumentation::new(log, target))
+}
+
+fn build_with(source: &str, i: Instrumentation) -> String {
+    let setup = i.setup_sql();
     let exp = pgzest_expand::expand_source(source, &MacroSet::builtin().with_instrumentation(i));
     assert!(exp.diagnostics.is_empty(), "{:?}", exp.diagnostics);
-    format!("{}\n{}", i.setup_sql(), exp.sql)
+    format!("{setup}\n{}", exp.sql)
 }
 
 async fn count(client: &Client, sql: &str) -> i64 {
@@ -213,6 +217,56 @@ async fn snapshots_show_each_run_in_a_debug_build() {
             assert!(!r.get::<_, bool>(1), "hidden column left out");
         }
     }
+}
+
+/// A host that forbids `CREATE SCHEMA` (some managed offers): logs and
+/// snapshots in `public`, which is never created, under prefixed names.
+#[tokio::test]
+#[ignore = "requires PostgreSQL: make oracle"]
+async fn logs_and_snapshots_fit_in_public_without_create_schema() {
+    let url = std::env::var(pgzest_oracle::URL_ENV).expect("PGZEST_ORACLE_URL");
+    let client = fresh(&url, "pgzest_log_public").await;
+    client
+        .batch_execute(
+            "DO $$ BEGIN CREATE ROLE pgzest_hosted NOLOGIN; \
+             EXCEPTION WHEN duplicate_object THEN NULL; END $$; \
+             GRANT ALL ON SCHEMA public TO pgzest_hosted; \
+             SET ROLE pgzest_hosted",
+        )
+        .await
+        .expect("restricted role");
+    assert!(
+        client.batch_execute("CREATE SCHEMA probe").await.is_err(),
+        "the role must not be able to create a schema"
+    );
+    let mut i = Instrumentation::new(LogLevel::Debug, LogTarget::Table);
+    i.log_schema = "public".into();
+    i.debug_schema = "public".into();
+    let sql = build_with(SOURCE, i);
+    assert!(!sql.contains("CREATE SCHEMA"), "{sql}");
+    client
+        .batch_execute(&sql)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}\n{sql}"));
+    assert_eq!(count(&client, "SELECT collect(2)").await, 9);
+    assert_eq!(
+        count(
+            &client,
+            "SELECT count(*) FROM public.pgzest_log_run WHERE routine = 'collect'"
+        )
+        .await,
+        3
+    );
+    assert_eq!(
+        count(
+            &client,
+            "SELECT count(*) FROM public.pgzest_debug_snapshot s \
+             JOIN public.pgzest_debug_snapshot_rows r USING (run, label) \
+             WHERE s.routine = 'collect'"
+        )
+        .await,
+        9
+    );
 }
 
 const LOGGED: &str = r#"
