@@ -20,7 +20,7 @@ pub use checker::Checker;
 
 use pgzest_catalog::ProjectCatalog;
 use pgzest_diagnostics::{Diagnostic, Severity, Span, Suppressions, codes};
-use pgzest_parser::{SkipReason, SkippedStatement};
+use pgzest_parser::{LostSyntax, SkipReason, SkippedStatement};
 use pgzest_schema::{ParseConfig, SkipLevel};
 
 // ── Parser tolerance ──────────────────────────────────────────────────────────
@@ -75,6 +75,60 @@ pub fn skipped_to_diagnostics(skipped: &[SkippedStatement], cfg: &ParseConfig) -
     }
 
     out
+}
+
+/// Where a gap of the AST is reported, prefilled from the issue form
+/// `.github/ISSUE_TEMPLATE/syntax-not-modeled.yml`.
+const ISSUE_URL: &str = "https://github.com/Creatiwity/pgzest/issues/new";
+
+/// Percent-encoding of a URL query value.
+fn url_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Statements read with syntax the AST does not hold → `syntax-not-modeled`
+/// warnings, each with the link to a prefilled issue. The link carries the
+/// lost words and the kind of statement, never the statement itself: the
+/// project's SQL stays private, the reporter writes a minimal example.
+pub fn lost_to_diagnostics(lost: &[LostSyntax]) -> Vec<Diagnostic> {
+    lost.iter()
+        .map(|l| {
+            let words = l.words.join(" ");
+            let title = format!("Syntax not modeled: {words} in {}", l.statement);
+            let url = format!(
+                "{ISSUE_URL}?template=syntax-not-modeled.yml&title={}&syntax={}&statement={}&version={}",
+                url_encode(&title),
+                url_encode(&words),
+                url_encode(&l.statement),
+                url_encode(env!("CARGO_PKG_VERSION")),
+            );
+            let mut d = Diagnostic::error(
+                codes::SYNTAX_NOT_MODELED,
+                format!(
+                    "pgzest reads this statement but does not model `{words}`: the analysis, the \
+                     migrations and the SQL pgzest emits lack it"
+                ),
+            );
+            d.severity = Severity::Warning;
+            d.with_span(Span {
+                start: l.start,
+                end: l.end,
+            })
+            .with_hint(format!(
+                "a gap of pgzest, not of your SQL: report it ({url}), with a minimal \
+                 statement using it; `[rules] \"syntax-not-modeled\" = \"off\"` silences it"
+            ))
+        })
+        .collect()
 }
 
 fn hint_for(reason: &SkipReason) -> &'static str {
@@ -334,6 +388,7 @@ fn analyze_parsed(
     };
 
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
+    diagnostics.extend(lost_to_diagnostics(&outcome.lost));
     diagnostics.extend(header_diagnostic(sql));
     diagnostics.extend(checks(&outcome.statements, catalog));
     suppressions.apply(&mut diagnostics);
@@ -705,6 +760,7 @@ pub fn analyze_source_with_macros(
     };
 
     let mut diagnostics = skipped_to_diagnostics(&outcome.skipped, &opts.parse);
+    diagnostics.extend(lost_to_diagnostics(&outcome.lost));
     diagnostics.extend(header_diagnostic(source));
     diagnostics.extend(crate::check_statements(&outcome.statements, schema));
     // Macro diagnostics are already in the source frame.

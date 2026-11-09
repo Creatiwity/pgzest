@@ -41,6 +41,7 @@ Every diagnostic carries a code: the one to name in `[rules]` of `pgzest.toml` t
 |------|---------|
 | `unparsable-statement` | Statement the parser could not read: either valid PostgreSQL outside the supported scope, or a syntax error. Level controlled by `[parse] unparsable`. |
 | `unsupported-statement` | Valid statement deliberately not modeled in the AST (GRANT, …). Level controlled by `[parse] unsupported`. |
+| `syntax-not-modeled` | Statement read, but with syntax pgzest does not model yet (`DEFERRABLE` on a foreign key…): the analysis, the migrations and the emitted SQL lack it. The hint links to a prefilled issue, to close the gap. |
 | `unparsed-function-body` | PL/pgSQL body the parser could not read: the routine is replayed, its body is not analyzed. Level controlled by `[parse] unparsable`. |
 
 ## Named queries

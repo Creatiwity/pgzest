@@ -3,6 +3,7 @@ pub mod dialect;
 pub mod error;
 mod grammar;
 mod ids;
+mod lost;
 pub mod normalize;
 mod pipeline;
 pub mod plpgsql;
@@ -53,6 +54,24 @@ pub struct SkippedStatement {
 pub struct ParseOutcome {
     pub statements: Vec<Statement>,
     pub skipped: Vec<SkippedStatement>,
+    /// Statements read, but with syntax the AST does not hold: what pgzest
+    /// analyzes, migrates or emits lacks it ([`LostSyntax`]).
+    pub lost: Vec<LostSyntax>,
+}
+
+/// A statement whose words do not all survive its conversion: written in
+/// the source, absent from what pgzest emits back from its AST
+/// (`DEFERRABLE`, `MATCH FULL`…). Found by comparing the two, so a gap of
+/// the AST never goes unnoticed, whatever the statement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LostSyntax {
+    /// Byte offsets of the statement in the full source.
+    pub start: usize,
+    pub end: usize,
+    /// Leading keywords of the statement, uppercased (`CREATE TABLE`).
+    pub statement: String,
+    /// Words of the source missing from the emission, in source order.
+    pub words: Vec<String>,
 }
 
 pub use split::SplitStatement;

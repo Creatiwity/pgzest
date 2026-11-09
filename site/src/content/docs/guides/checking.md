@@ -54,7 +54,14 @@ says so, rather than a misleading one:
 | `unparsable-statement` | the parser could not read it: valid PostgreSQL outside the supported scope, or a syntax error | `warn` |
 | `unsupported-statement` | valid, deliberately not modeled (`GRANT`…) | `warn` |
 | `unparsed-function-body` | a PL/pgSQL body the parser could not read: it is not analyzed | follows `unparsable` |
+| `syntax-not-modeled` | read, but part of it is lost (`DEFERRABLE` on a foreign key…): the analysis, the migrations and the emitted SQL lack it | `warn` |
 | `not-analyzed` | an expression or construct the analysis does not conclude on | `info` |
+
+`syntax-not-modeled` comes from a check of every statement: each word
+written must come back in what pgzest emits from its model of the
+statement. A word that does not is a gap of pgzest, not of your SQL; the
+warning's hint links to a prefilled GitHub issue (the lost words and the
+kind of statement, never your SQL), for anyone to report it or close it.
 
 ```toml
 # pgzest.toml

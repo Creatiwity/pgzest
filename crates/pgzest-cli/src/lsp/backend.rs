@@ -444,6 +444,7 @@ impl PgsqlBackend {
             &outcome.skipped,
             &parse_cfg,
         ));
+        diags.extend(pgzest_analysis::lost_to_diagnostics(&outcome.lost));
 
         // ── Check ─────────────────────────────────────────────────────────────
         // Like `pgzest check`: a schema or migration file of the project is

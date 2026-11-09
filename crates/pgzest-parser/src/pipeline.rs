@@ -65,6 +65,8 @@ fn parse_statement(
     out: &mut ParseOutcome,
 ) -> Result<(), ParseError> {
     let (start, end) = (st.start, st.end);
+    // The source's tokens, before the grammar extensions remove some.
+    let source = st.tokens.clone();
     let mut tokens = st.tokens;
     let parsed = crate::grammar::returning::extract(&mut tokens).and_then(|aliases| {
         let set_columns = crate::grammar::set_columns::extract(&mut tokens)?;
@@ -112,6 +114,15 @@ fn parse_statement(
 
     let (span_start, span_end) = offsets.extent(base + start, base + end);
     crate::set_stmt_span(&mut stmt, span_start, span_end);
+    let words = crate::lost::lost_words(&source, &stmt);
+    if !words.is_empty() {
+        out.lost.push(crate::LostSyntax {
+            start: span_start,
+            end: span_end,
+            statement: crate::lost::statement_kind(&source),
+            words,
+        });
+    }
 
     if let Some(body) = body
         && let Some(reason) = analyze_body(&mut stmt, body, base, offsets)?

@@ -446,6 +446,7 @@ impl ProjectCatalog {
         let outcome = ParseOutcome {
             statements: stmts.to_vec(),
             skipped: Vec::new(),
+            lost: Vec::new(),
         };
         b.add_file(Path::new(""), "", &FileRole::Schema, Ok(&outcome));
         b.finish()

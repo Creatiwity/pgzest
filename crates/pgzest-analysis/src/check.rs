@@ -29,6 +29,7 @@ pub fn check_script(stmts: &[Statement]) -> Vec<Diagnostic> {
     let outcome = ParseOutcome {
         statements: stmts.to_vec(),
         skipped: Vec::new(),
+        lost: Vec::new(),
     };
     b.add_file(
         std::path::Path::new(""),

@@ -494,11 +494,14 @@ fn cmd_check(
         String,
         String,
         Vec<Statement>,
-        Vec<pgzest_parser::SkippedStatement>,
+        (
+            Vec<pgzest_parser::SkippedStatement>,
+            Vec<pgzest_parser::LostSyntax>,
+        ),
         Vec<pgzest_diagnostics::Diagnostic>,
     );
     let parsed_targets: Vec<Target> = {
-        // (path, source, stmts, skipped, macro diagnostics)
+        // (path, source, stmts, (skipped, lost syntax), macro diagnostics)
         let mut out = Vec::new();
         for file in files {
             let sql = match read_file(file) {
@@ -524,7 +527,7 @@ fn cmd_check(
                     file.clone(),
                     sql,
                     o.statements,
-                    o.skipped,
+                    (o.skipped, o.lost),
                     prepared.diagnostics,
                 )),
                 Err(e) => {
@@ -561,6 +564,7 @@ fn cmd_check(
         let outcome = pgzest_parser::ParseOutcome {
             statements: stmts.clone(),
             skipped: Vec::new(),
+            lost: Vec::new(),
         };
         let path = canonical(Path::new(path));
         builder.add_file(&path, sql, &pgzest_schema::FileRole::Schema, Ok(&outcome));
@@ -587,6 +591,7 @@ fn cmd_check(
         let outcome = pgzest_parser::ParseOutcome {
             statements: stmts.clone(),
             skipped: Vec::new(),
+            lost: Vec::new(),
         };
         builder.add_file(&path, sql, &pgzest_schema::FileRole::Schema, Ok(&outcome));
         replayed.insert(path);
@@ -654,7 +659,7 @@ fn cmd_check(
         std::path::PathBuf,
         Vec<pgzest_query::QueryModule>,
     > = std::collections::HashMap::new();
-    for (file, sql, stmts, skipped, macro_diags) in &parsed_targets {
+    for (file, sql, stmts, (skipped, lost), macro_diags) in &parsed_targets {
         // Plugin rule context: the triggers of the other files.
         let all_other_stmts: Vec<Statement> = context_stmts
             .iter()
@@ -716,6 +721,7 @@ fn cmd_check(
             skipped,
             &analysis_opts.parse,
         ));
+        all.extend(pgzest_analysis::lost_to_diagnostics(lost));
         all.append(&mut diagnostics);
         let mut diagnostics = all;
 

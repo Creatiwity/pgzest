@@ -1,0 +1,56 @@
+name: Syntax not modeled
+description: pgzest reads a statement but loses part of it (warning `syntax-not-modeled`)
+title: "Syntax not modeled: "
+labels: ["syntax-not-modeled"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The `syntax-not-modeled` warning links here, with the fields below
+        filled in: the words pgzest lost and the kind of statement. Your
+        project's SQL is never sent, so please add a **minimal** statement
+        that reproduces it — the smallest you can write, with neutral names.
+
+        If you want to close the gap yourself: the AST is in
+        `crates/pgzest-ast`, the conversion from sqlparser in
+        `crates/pgzest-parser/src/convert.rs` (or pgzest's own grammar in
+        `crates/pgzest-parser/src/grammar/`), the emission in
+        `crates/pgzest-ast/src/emit.rs`; the warning disappears once the
+        emitted statement holds every word.
+  - type: input
+    id: syntax
+    attributes:
+      label: Words lost
+      description: As the warning lists them.
+      placeholder: deferrable initially deferred
+    validations:
+      required: true
+  - type: input
+    id: statement
+    attributes:
+      label: Statement
+      placeholder: CREATE TABLE
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal statement
+      description: The smallest statement showing it. It is used as a test.
+      render: sql
+      placeholder: |
+        CREATE TABLE c (a INT, FOREIGN KEY (a) REFERENCES p DEFERRABLE INITIALLY DEFERRED);
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: What it changes for you
+      description: Optional — what the lost syntax does in your project (helps prioritize).
+  - type: input
+    id: version
+    attributes:
+      label: pgzest version
+      placeholder: 0.1.0
+    validations:
+      required: true
