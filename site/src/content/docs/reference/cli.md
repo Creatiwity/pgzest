@@ -225,7 +225,7 @@ Options:
 ```text
 Compare a database with what its migrations produce: what was changed in it by hand (a routine, an index, a trigger…). Exits 1 if it differs.
 
-The migrations it received (`_prisma_migrations`, `__diesel_schema_migrations`, or all of them) are replayed in an empty database created on the server, then dropped; both are described by PostgreSQL itself.
+The migrations it received (registry of `pgzest migrate apply`, `_prisma_migrations`, `__diesel_schema_migrations`, or all of them) are replayed in an empty database created on the server, then dropped; both are described by PostgreSQL itself.
 
 Usage: pgzest db check [OPTIONS] --url <URL>
 
@@ -295,10 +295,13 @@ Migration subcommands
 Usage: pgzest migrate <COMMAND>
 
 Commands:
-  diff    Migration between two schemas (SQL files or directories), without a project: both are replayed and their catalogs compared
-  create  Generate the next migration of a declarative project (`[schema] declarative = true`): what separates the state reached by the migrations from the declarative schema, checked by replay before it is written. It is the simplest migration that reaches the schema: steps that lose data or may fail on a populated database are listed in its header, for the developer to adapt
-  check   Fail if the migrations do not reach the declarative schema (CI)
-  help    Print this message or the help of the given subcommand(s)
+  diff     Migration between two schemas (SQL files or directories), without a project: both are replayed and their catalogs compared
+  create   Generate the next migration of a declarative project (`[schema] declarative = true`): what separates the state reached by the migrations from the declarative schema, checked by replay before it is written. It is the simplest migration that reaches the schema: steps that lose data or may fail on a populated database are listed in its header, for the developer to adapt
+  check    Fail if the migrations do not reach the declarative schema (CI)
+  status   Applied and pending migrations of a database. Exits 1 if some are pending
+  apply    Apply the pending migrations, in order, each in its own transaction recorded in the registry (`[migrations] table`, default `_pgzest_migrations`)
+  resolve  Record, after checking the database by hand, how a migration ended when it ran outside a transaction and failed, or accept an applied migration's new content
+  help     Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help  Print help
@@ -343,6 +346,58 @@ Usage: pgzest migrate check
 
 Options:
   -h, --help  Print help
+```
+
+## `pgzest migrate status`
+
+```text
+Applied and pending migrations of a database. Exits 1 if some are pending
+
+Usage: pgzest migrate status --url <URL>
+
+Options:
+      --url <URL>  Database URL (default: `DATABASE_URL`) [env: DATABASE_URL=]
+  -h, --help       Print help
+```
+
+## `pgzest migrate apply`
+
+```text
+Apply the pending migrations, in order, each in its own transaction recorded in the registry (`[migrations] table`, default `_pgzest_migrations`).
+
+Nothing is applied unless every check passes: the migrations replay, the registry matches the repository (no applied migration missing or edited, no pending one sorting before an applied one), and the server matches their headers (PostgreSQL version, extensions). An advisory lock lets one run at a time proceed.
+
+Usage: pgzest migrate apply [OPTIONS] --url <URL>
+
+Options:
+      --url <URL>
+          Database URL (default: `DATABASE_URL`)
+          
+          [env: DATABASE_URL=]
+
+      --dry-run
+          Check and list what would be applied, without applying it
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## `pgzest migrate resolve`
+
+```text
+Record, after checking the database by hand, how a migration ended when it ran outside a transaction and failed, or accept an applied migration's new content
+
+Usage: pgzest migrate resolve --url <URL> <--applied|--rolled-back|--checksum> <NAME>
+
+Arguments:
+  <NAME>  Migration name (file stem)
+
+Options:
+      --applied      It took full effect
+      --rolled-back  It left nothing: it is applied again next time
+      --checksum     Applied, then edited: record its new checksum
+      --url <URL>    Database URL (default: `DATABASE_URL`) [env: DATABASE_URL=]
+  -h, --help         Print help
 ```
 
 ## `pgzest schema`

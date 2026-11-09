@@ -73,6 +73,63 @@ PostgreSQL version, the extensions and their versions, the
 [run log level](../observability/) of the routines — and the replay
 checks the file against it.
 
+## Applying migrations
+
+```sh
+pgzest migrate status  --url postgres://…/myapp   # or DATABASE_URL; exit 1 if some are pending
+pgzest migrate apply   --dry-run                  # what would run, nothing applied
+pgzest migrate apply
+```
+
+`apply` runs the pending migrations in order and records each one in
+`_pgzest_migrations` (`[migrations] table`), created in the connection's
+current schema: no schema of its own, for hosts that allow only `public`.
+Nothing is applied unless every check passes:
+
+- **The migrations replay** without error: a migration pgzest cannot read,
+  or that PostgreSQL would reject against the state before it, never
+  reaches the database. Neither does one still holding the `TODO` lines
+  `migrate create` writes for a change left to write.
+- **The registry matches the repository**: an applied migration missing
+  from the repository, or edited since (its SHA-256 differs), stops the
+  run; so does a pending migration that sorts before an applied one — the
+  replay verified the repository's order, the database would receive
+  another one (rename it after the last applied one).
+- **The server matches the headers**: the project's PostgreSQL major
+  version; each extension version a pending migration's header names is
+  available; the installed extensions are at the versions the last applied
+  migration left them. A header describes the state *after* its migration,
+  so one that runs `ALTER EXTENSION … UPDATE` carries the new version.
+
+Then:
+
+- **One transaction per migration**, its registry row written in it: a
+  failed migration leaves nothing, and the error gives its line in the
+  file.
+- **`lock_timeout`** of 5 s per migration (`[migrations] lock_timeout`):
+  one waiting for a lock queues every query behind it; better to fail and
+  retry.
+- **One run at a time**: an advisory lock, so replicas starting together
+  apply each migration once.
+- **Statements that cannot run in a transaction** (`CREATE INDEX
+  CONCURRENTLY`, `VACUUM`) go in a migration of their own, run statement by
+  statement; mixed with other statements, the migration is refused before
+  anything runs. Its row is written as started first: if it fails, what
+  ran stays (an invalid index, for instance), and `pgzest migrate resolve
+  <name> --applied` or `--rolled-back` records what you found. `BEGIN` and
+  `COMMIT` in a migration are refused: they would end its transaction.
+- The SQL runs as written: a migration using pgzest macros is refused
+  (write their expansion, `pgzest build`). No down migrations: a rollback
+  is a new migration.
+
+An applied migration edited on purpose, after review: `pgzest migrate
+resolve <name> --checksum`. `db check` reads the registry to know what
+the database received.
+
+Prisma (`_prisma_migrations`) and Diesel (`__diesel_schema_migrations`)
+layouts keep their tool's registry, which `apply` does not write yet:
+apply them with their tool.
+
 ## An existing project
 
 Migrations of an existing project are read as they are, in their layout:

@@ -25,6 +25,8 @@ opentelemetry = { version = "0.33", default-features = false, features = ["trace
 [features]
 trace = ["dep:serde_json", "dep:chrono"]
 opentelemetry = ["trace", "dep:opentelemetry"]
+# `migrate`: applies migrations, with their registry (`pgzest migrate apply`).
+migrate = []
 
 [package.metadata.docs.rs]
 all-features = true

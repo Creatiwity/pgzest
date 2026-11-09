@@ -9,8 +9,9 @@
 //! them, a difference is one PostgreSQL sees.
 //!
 //! Which migrations the database received is read from the table of the
-//! tool that applied them (`_prisma_migrations`, `__diesel_schema_migrations`);
-//! without one, all of them, or up to `--until`.
+//! tool that applied them (`pgzest migrate apply`'s registry,
+//! `_prisma_migrations`, `__diesel_schema_migrations`); without one, all of
+//! them, or up to `--until`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -94,14 +95,14 @@ fn migrations(root: &std::path::Path, config: &ProjectConfig) -> Vec<MigrationFi
 
 /// The table a migration tool records its runs in.
 struct History {
-    table: &'static str,
+    table: String,
     /// Names (Prisma) or versions (Diesel) of the applied migrations.
     applied: BTreeSet<String>,
     /// Started and neither finished nor rolled back (Prisma).
     failed: Vec<String>,
 }
 
-async fn history(client: &Client) -> Result<Option<History>, String> {
+async fn history(client: &Client, registry: &str) -> Result<Option<History>, String> {
     let exists = |table: &str| {
         let sql = format!("SELECT to_regclass('{table}') IS NOT NULL");
         async move {
@@ -112,6 +113,35 @@ async fn history(client: &Client) -> Result<Option<History>, String> {
                 .map_err(|e| db_error(&e))
         }
     };
+    // `pgzest migrate apply`: names, finished or not.
+    let quoted = registry
+        .split('.')
+        .map(|p| format!("\"{}\"", p.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(".");
+    if exists(&quoted).await? {
+        let rows = client
+            .query(
+                &format!("SELECT name, finished_at IS NOT NULL FROM {quoted}"),
+                &[],
+            )
+            .await
+            .map_err(|e| db_error(&e))?;
+        let mut h = History {
+            table: registry.to_string(),
+            applied: BTreeSet::new(),
+            failed: Vec::new(),
+        };
+        for r in rows {
+            let (name, finished): (String, bool) = (r.get(0), r.get(1));
+            if finished {
+                h.applied.insert(name);
+            } else {
+                h.failed.push(name);
+            }
+        }
+        return Ok(Some(h));
+    }
     if exists("_prisma_migrations").await? {
         let rows = client
             .query(
@@ -122,7 +152,7 @@ async fn history(client: &Client) -> Result<Option<History>, String> {
             .await
             .map_err(|e| db_error(&e))?;
         let mut h = History {
-            table: "_prisma_migrations",
+            table: "_prisma_migrations".into(),
             applied: BTreeSet::new(),
             failed: Vec::new(),
         };
@@ -145,7 +175,7 @@ async fn history(client: &Client) -> Result<Option<History>, String> {
             .await
             .map_err(|e| db_error(&e))?;
         return Ok(Some(History {
-            table: "__diesel_schema_migrations",
+            table: "__diesel_schema_migrations".into(),
             applied: rows.iter().map(|r| r.get(0)).collect(),
             failed: Vec::new(),
         }));
@@ -172,7 +202,12 @@ async fn run(opts: Options) -> Result<i32, String> {
     let live = connect(&live_config).await?;
 
     // The migrations the database received, in the repository's order.
-    let history = history(&live).await?;
+    let registry = config
+        .migrations
+        .table
+        .clone()
+        .unwrap_or_else(|| pgzest_runtime::migrate::DEFAULT_TABLE.into());
+    let history = history(&live, &registry).await?;
     let mut notes = Vec::new();
     let received: Vec<&MigrationFile> = match (&history, &opts.until) {
         (Some(h), Some(_)) => {
@@ -235,8 +270,9 @@ async fn run(opts: Options) -> Result<i32, String> {
         }
         (None, None) => {
             notes.push(format!(
-                "no migrations table (`_prisma_migrations`, `__diesel_schema_migrations`): \
-                 compared with all {} migrations (`--until <name>` for an earlier one)",
+                "no migrations table (`{registry}`, `_prisma_migrations`, \
+                 `__diesel_schema_migrations`): compared with all {} migrations (`--until \
+                 <name>` for an earlier one)",
                 files.len()
             ));
             files.iter().collect()
@@ -280,7 +316,9 @@ async fn run(opts: Options) -> Result<i32, String> {
         })?;
     let mut actual = pgzest_oracle::schema::introspect(&live).await?;
     if let Some(h) = &history {
-        actual.retain(|line| !concerns(line, h.table));
+        // The registry's own name, without its schema.
+        let table = h.table.rsplit('.').next().unwrap_or(&h.table);
+        actual.retain(|line| !concerns(line, table));
     }
 
     for n in &notes {

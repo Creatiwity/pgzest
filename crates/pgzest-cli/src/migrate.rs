@@ -26,16 +26,17 @@ struct Loaded {
     project: ProjectCatalog,
 }
 
-fn build(
+pub(crate) fn build(
     chunks: &[SqlChunk],
     macros: &pgzest_expand::MacroSet,
     packs: &std::sync::Arc<pgzest_catalog::ProjectPacks>,
+    declarative: bool,
 ) -> ProjectCatalog {
     let mut b = ProjectBuilder::new()
         .with_typer(Some(pgzest_sema::ViewTyper::shared()))
         .with_checker(Some(pgzest_sema::check::SemaChecker::shared()))
         .with_instrumentation(macros.instrumentation())
-        .declarative(true)
+        .declarative(declarative)
         .keep_sources(true)
         .with_packs(packs.clone());
     for chunk in chunks {
@@ -47,7 +48,7 @@ fn build(
 
 /// Errors that make a rebuilt state unusable: unread statement, replay or
 /// analysis error.
-fn blocking(project: &ProjectCatalog) -> Vec<String> {
+pub(crate) fn blocking(project: &ProjectCatalog) -> Vec<String> {
     let mut out: Vec<String> = project
         .skipped
         .iter()
@@ -87,7 +88,7 @@ fn load() -> Result<Loaded, (i32, String)> {
         .into_iter()
         .filter(|c| c.role != FileRole::Query)
         .collect();
-    let project = build(&chunks, &macros, &packs);
+    let project = build(&chunks, &macros, &packs, true);
     let errors = blocking(&project);
     if !errors.is_empty() {
         return Err((
@@ -343,7 +344,7 @@ pub fn create(name: &str, dry_run: bool) -> i32 {
             role: FileRole::Migration { sequence },
         },
     );
-    let verified = build(&chunks, &l.macros, &l.packs);
+    let verified = build(&chunks, &l.macros, &l.packs, true);
     let errors = blocking(&verified);
     let rest = diff(
         verified.history.as_ref().expect("declarative project"),

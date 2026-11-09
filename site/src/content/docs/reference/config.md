@@ -107,6 +107,8 @@ and hidden directories.
 | Key | Type | Default | Purpose |
 |---|---|---|---|
 | `directory` | path | `"migrations"` | Migrations, indexed in the order of their sequence (numeric prefix of the name). |
+| `table` | table name | `"_pgzest_migrations"` | Registry of `pgzest migrate apply`, optionally qualified (`"app._pgzest_migrations"`); unqualified, in the connection's current schema. |
+| `lock_timeout` | PostgreSQL duration | `"5s"` | `lock_timeout` of each migration `pgzest migrate apply` runs; `"0"` disables it. |
 
 ### `[queries]`
 

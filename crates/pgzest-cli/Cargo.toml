@@ -30,6 +30,8 @@ pgzest-codegen = { workspace = true }
 pgzest-lint = { workspace = true }
 pgzest-plugin = { workspace = true }
 pgzest-oracle = { workspace = true }
+pgzest-runtime = { workspace = true, features = ["migrate"] }
+sha2 = "0.11"
 similar = "3"
 
 serde = { workspace = true }

@@ -15,6 +15,8 @@
 
 use std::fmt;
 
+#[cfg(feature = "migrate")]
+pub mod migrate;
 #[cfg(feature = "trace")]
 pub mod trace;
 

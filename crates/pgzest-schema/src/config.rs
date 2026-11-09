@@ -184,12 +184,21 @@ pub struct MigrationsConfig {
     /// taken from its name.
     #[serde(default = "default_migrations_dir")]
     pub directory: String,
+    /// Registry `pgzest migrate apply` records the applied migrations in,
+    /// optionally qualified (default `_pgzest_migrations`, in the
+    /// connection's current schema: no schema of its own is needed).
+    pub table: Option<String>,
+    /// `lock_timeout` of each migration `pgzest migrate apply` runs
+    /// (default `"5s"`, `"0"` disables it).
+    pub lock_timeout: Option<String>,
 }
 
 impl Default for MigrationsConfig {
     fn default() -> Self {
         Self {
             directory: default_migrations_dir(),
+            table: None,
+            lock_timeout: None,
         }
     }
 }

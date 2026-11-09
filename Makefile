@@ -131,6 +131,7 @@ oracle: oracle-up ## Check the analysis against PostgreSQL 18 (report: crates/pg
 	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-oracle --test instrument -- --ignored
 	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest --test dev -- --ignored
 	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest --test db_check -- --ignored
+	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest --test migrate_apply -- --ignored
 	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-runtime --features opentelemetry --test trace -- --ignored
 	PGZEST_ORACLE_URL=$(ORACLE_URL) $(CARGO) test -p pgzest-example-rust-service -- --ignored
 

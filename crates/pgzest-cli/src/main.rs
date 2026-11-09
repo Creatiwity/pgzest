@@ -5,6 +5,7 @@ use std::process;
 use clap::{Parser, Subcommand};
 use pgzest_ast::Statement;
 
+mod apply;
 mod db;
 mod describe;
 mod dev;
@@ -237,8 +238,9 @@ enum DbAction {
     /// changed in it by hand (a routine, an index, a trigger…). Exits 1 if
     /// it differs.
     ///
-    /// The migrations it received (`_prisma_migrations`,
-    /// `__diesel_schema_migrations`, or all of them) are replayed in an
+    /// The migrations it received (registry of `pgzest migrate apply`,
+    /// `_prisma_migrations`, `__diesel_schema_migrations`, or all of them)
+    /// are replayed in an
     /// empty database created on the server, then dropped; both are
     /// described by PostgreSQL itself.
     Check {
@@ -328,6 +330,53 @@ enum MigrateAction {
 
     /// Fail if the migrations do not reach the declarative schema (CI).
     Check,
+
+    /// Applied and pending migrations of a database. Exits 1 if some are
+    /// pending.
+    Status {
+        /// Database URL (default: `DATABASE_URL`)
+        #[arg(long, env = "DATABASE_URL")]
+        url: String,
+    },
+
+    /// Apply the pending migrations, in order, each in its own transaction
+    /// recorded in the registry (`[migrations] table`, default
+    /// `_pgzest_migrations`).
+    ///
+    /// Nothing is applied unless every check passes: the migrations replay,
+    /// the registry matches the repository (no applied migration missing or
+    /// edited, no pending one sorting before an applied one), and the
+    /// server matches their headers (PostgreSQL version, extensions). An
+    /// advisory lock lets one run at a time proceed.
+    Apply {
+        /// Database URL (default: `DATABASE_URL`)
+        #[arg(long, env = "DATABASE_URL")]
+        url: String,
+        /// Check and list what would be applied, without applying it
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Record, after checking the database by hand, how a migration ended
+    /// when it ran outside a transaction and failed, or accept an applied
+    /// migration's new content.
+    #[command(group(clap::ArgGroup::new("outcome").required(true)))]
+    Resolve {
+        /// Migration name (file stem)
+        name: String,
+        /// It took full effect
+        #[arg(long, group = "outcome")]
+        applied: bool,
+        /// It left nothing: it is applied again next time
+        #[arg(long, group = "outcome")]
+        rolled_back: bool,
+        /// Applied, then edited: record its new checksum
+        #[arg(long, group = "outcome")]
+        checksum: bool,
+        /// Database URL (default: `DATABASE_URL`)
+        #[arg(long, env = "DATABASE_URL")]
+        url: String,
+    },
 }
 
 fn read_file(path: &str) -> Result<String, String> {
@@ -897,6 +946,26 @@ fn main() {
             MigrateAction::Diff { old, new } => migrate::diff_files(&old, &new),
             MigrateAction::Create { name, dry_run } => migrate::create(&name, dry_run),
             MigrateAction::Check => migrate::check(),
+            MigrateAction::Status { url } => apply::run(&url, apply::Action::Status),
+            MigrateAction::Apply { url, dry_run } => {
+                apply::run(&url, apply::Action::Apply { dry_run })
+            }
+            MigrateAction::Resolve {
+                name,
+                applied,
+                rolled_back,
+                checksum,
+                url,
+            } => {
+                use pgzest_runtime::migrate::Resolution;
+                let resolution = match (applied, rolled_back, checksum) {
+                    (true, _, _) => Resolution::Applied,
+                    (_, true, _) => Resolution::RolledBack,
+                    (_, _, true) => Resolution::Checksum,
+                    _ => unreachable!("clap requires one outcome"),
+                };
+                apply::run(&url, apply::Action::Resolve { name, resolution })
+            }
         },
         Command::Emit { file } => cmd_emit(&file),
         Command::Lsp => lsp::run(),
