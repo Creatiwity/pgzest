@@ -2,7 +2,7 @@
   "name": "pgzest",
   "displayName": "pgzest",
   "description": "Raw PostgreSQL, with zest: checked the way PostgreSQL would, without a database — diagnostics, hover, completion and macro expansion for SQL, PL/pgSQL and SQL in Rust strings.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "Creatiwity",
   "author": {
     "name": "Creatiwity",

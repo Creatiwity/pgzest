@@ -39,7 +39,9 @@ convention do not appear in it.
    git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
    ```
 
-   Review it, then check that everything publishes:
+   `--prepend` writes the section at the very top: move it under the
+   introduction, before the previous version. Review it, then check that
+   everything publishes:
 
    ```sh
    cargo publish --workspace --dry-run --locked

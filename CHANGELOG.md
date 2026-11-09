@@ -6,6 +6,30 @@ from the commit messages ([Conventional Commits](https://www.conventionalcommits
 versions follow [Semantic Versioning](https://semver.org) — before 1.0, a
 minor version may break.
 
+## [0.2.0] - 2026-11-09
+
+### Features
+
+- **lsp**: hover inside routine bodies (058d944)
+- extension packs provided by the project (709f5a1)
+- **log**: configurable schemas for the log and snapshot tables (189c767)
+- **migrate**: apply migrations with a registry (e393d70)
+- report syntax read but not modeled (syntax-not-modeled) (70447d5)
+
+### Fixes
+
+- **lsp**: hover from the analysis, never a guess by name (a90f314)
+- **catalog**: FORCE ROW LEVEL SECURITY, foreign keys without columns (2c0c500)
+- **parser**: ON DELETE SET NULL | SET DEFAULT (columns) (5b1f287)
+
+### Documentation
+
+- the site is at pgzest.creatiwity.net (b0583f6)
+
+### Maintenance
+
+- **release**: resumable crates.io publication (4a9233f)
+
 ## [0.1.0] - 2026-11-06
 
 First release.
