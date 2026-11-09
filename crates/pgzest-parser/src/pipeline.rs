@@ -67,6 +67,7 @@ fn parse_statement(
     let (start, end) = (st.start, st.end);
     let mut tokens = st.tokens;
     let parsed = crate::grammar::returning::extract(&mut tokens).and_then(|aliases| {
+        let set_columns = crate::grammar::set_columns::extract(&mut tokens)?;
         let mut p = Parser::new(&DIALECT).with_tokens_with_locations(tokens);
         let mut parsed = match crate::grammar::parse(&mut p, ctx) {
             Some(ours) => ours,
@@ -76,6 +77,9 @@ fn parse_statement(
         };
         if let (Some(a), Ok((stmt, _))) = (aliases, &mut parsed) {
             crate::grammar::returning::apply(stmt, a)?;
+        }
+        if let (Some(lists), Ok((stmt, _))) = (set_columns, &mut parsed) {
+            crate::grammar::set_columns::apply(stmt, lists)?;
         }
         parsed
     });
@@ -136,6 +140,7 @@ pub(crate) fn statement_from_tokens(
 ) -> Result<Statement, ParseError> {
     let mut tokens = tokens;
     let aliases = crate::grammar::returning::extract(&mut tokens)?;
+    let set_columns = crate::grammar::set_columns::extract(&mut tokens)?;
     let mut p = Parser::new(&DIALECT).with_tokens_with_locations(tokens);
     let mut stmt = match crate::grammar::parse(&mut p, ctx) {
         Some(r) => r.map(|(s, _)| s),
@@ -143,6 +148,9 @@ pub(crate) fn statement_from_tokens(
     }?;
     if let Some(a) = aliases {
         crate::grammar::returning::apply(&mut stmt, a)?;
+    }
+    if let Some(lists) = set_columns {
+        crate::grammar::set_columns::apply(&mut stmt, lists)?;
     }
     Ok(stmt)
 }

@@ -180,6 +180,9 @@ pub enum TableConstraint {
         ref_table: ObjectName,
         ref_columns: Vec<Ident>,
         on_delete: Option<ReferentialAction>,
+        /// `ON DELETE SET NULL (columns)` / `SET DEFAULT (columns)`
+        /// (PostgreSQL 15): the columns set; empty, all of them.
+        on_delete_columns: Vec<Ident>,
         on_update: Option<ReferentialAction>,
     },
     Check {

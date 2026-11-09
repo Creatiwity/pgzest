@@ -1042,14 +1042,21 @@ pub fn emit_table_constraint(tc: &TableConstraint) -> String {
             ref_table,
             ref_columns,
             on_delete,
+            on_delete_columns,
             on_update,
             ..
         } => {
             let cols: Vec<String> = columns.iter().map(emit_ident).collect();
             let ref_cols: Vec<String> = ref_columns.iter().map(emit_ident).collect();
+            let set: Vec<String> = on_delete_columns.iter().map(emit_ident).collect();
+            let set = if set.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", set.join(", "))
+            };
             let on_del = on_delete
                 .as_ref()
-                .map(|a| format!(" ON DELETE {}", emit_referential_action(a)))
+                .map(|a| format!(" ON DELETE {}{set}", emit_referential_action(a)))
                 .unwrap_or_default();
             let on_upd = on_update
                 .as_ref()

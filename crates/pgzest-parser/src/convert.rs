@@ -2498,6 +2498,8 @@ pub(crate) fn convert_table_constraint(
             ref_table: convert_object_name(fk.foreign_table),
             ref_columns: fk.referred_columns.into_iter().map(convert_ident).collect(),
             on_delete: fk.on_delete.map(convert_referential_action),
+            // Read by pgzest's grammar (`grammar::set_columns`).
+            on_delete_columns: Vec::new(),
             on_update: fk.on_update.map(convert_referential_action),
         }),
         sp::TableConstraint::Check(cc) => Ok(TableConstraint::Check {

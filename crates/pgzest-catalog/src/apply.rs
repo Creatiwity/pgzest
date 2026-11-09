@@ -1030,6 +1030,7 @@ impl Applier<'_> {
                     ref_table: table.clone(),
                     ref_columns: ref_col.iter().cloned().collect(),
                     on_delete: on_delete.clone(),
+                    on_delete_columns: Vec::new(),
                     on_update: on_update.clone(),
                 },
             };
@@ -1102,11 +1103,27 @@ impl Applier<'_> {
                 columns,
                 ref_table,
                 ref_columns,
+                on_delete_columns,
                 ..
             } => {
                 let Some(references) = self.relation_name(ref_table) else {
                     return;
                 };
+                // `ON DELETE SET NULL (c)`: only columns of the key are set.
+                if let Some(c) = on_delete_columns
+                    .iter()
+                    .find(|c| !columns.iter().any(|k| k.value == c.value))
+                {
+                    self.error(
+                        codes::COLUMN_NOT_FOUND,
+                        format!(
+                            "column \"{}\" referenced in ON DELETE SET action must be part of \
+                             foreign key",
+                            c.value
+                        ),
+                    );
+                    return;
+                }
                 // Without referenced columns: the target's primary key.
                 let ref_columns = if ref_columns.is_empty() {
                     self.cat

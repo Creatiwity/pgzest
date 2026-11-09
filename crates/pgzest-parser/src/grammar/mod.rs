@@ -8,6 +8,7 @@
 pub(crate) mod ddl;
 pub(crate) mod returning;
 pub(crate) mod routine;
+pub(crate) mod set_columns;
 pub(crate) mod utility;
 
 use pgzest_ast::Statement;

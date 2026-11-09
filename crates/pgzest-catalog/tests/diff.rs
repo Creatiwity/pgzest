@@ -290,6 +290,62 @@ fn a_foreign_key_to_a_table_without_primary_key_is_an_error() {
 }
 
 #[test]
+fn on_delete_set_null_keeps_its_columns() {
+    let parent = "CREATE TABLE p (org BIGINT, id BIGINT, PRIMARY KEY (org, id));\n";
+    let child = |action: &str| {
+        format!(
+            "{parent}CREATE TABLE c (org BIGINT NOT NULL, p_id BIGINT, \
+             FOREIGN KEY (org, p_id) REFERENCES p ON DELETE {action});"
+        )
+    };
+    let m = migrate(parent, &child("SET NULL (p_id)"));
+    let s = sql(&m);
+    assert!(
+        s.contains("FOREIGN KEY (org, p_id) REFERENCES p (org, id) ON DELETE SET NULL (p_id)"),
+        "{s}"
+    );
+    // Another list, or none: the constraint changes.
+    for other in ["SET NULL", "SET DEFAULT (p_id)"] {
+        let m = migrate(&child("SET NULL (p_id)"), &child(other));
+        let s = sql(&m);
+        assert!(s.contains(&format!("ON DELETE {other}")), "{other}: {s}");
+    }
+    assert!(migrate(&child("SET NULL (p_id)"), &child("SET NULL (p_id)")).is_empty());
+
+    // Added by ALTER TABLE as well.
+    let m = migrate(
+        &child("CASCADE"),
+        &format!(
+            "{parent}CREATE TABLE c (org BIGINT NOT NULL, p_id BIGINT);\n\
+             ALTER TABLE c ADD CONSTRAINT c_fk FOREIGN KEY (org, p_id) REFERENCES p \
+             ON DELETE SET NULL (p_id) ON UPDATE CASCADE;"
+        ),
+    );
+    let s = sql(&m);
+    assert!(
+        s.contains("ON DELETE SET NULL (p_id) ON UPDATE CASCADE"),
+        "{s}"
+    );
+}
+
+#[test]
+fn on_delete_set_null_columns_belong_to_the_key() {
+    let p = ProjectCatalog::from_sql(
+        "CREATE TABLE p (id BIGINT PRIMARY KEY);\n\
+         CREATE TABLE c (id BIGINT, other BIGINT, \
+         FOREIGN KEY (id) REFERENCES p ON DELETE SET NULL (other));",
+    )
+    .unwrap();
+    assert!(
+        p.diagnostics.iter().any(|(_, d)| d.message.contains(
+            "column \"other\" referenced in ON DELETE SET action must be part of foreign key"
+        )),
+        "{:?}",
+        p.diagnostics
+    );
+}
+
+#[test]
 fn comments_set_and_removed() {
     let m = migrate(
         "CREATE TABLE t (id BIGINT PRIMARY KEY);\nCOMMENT ON TABLE t IS 'before';",
