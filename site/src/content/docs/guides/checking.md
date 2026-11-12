@@ -54,7 +54,7 @@ says so, rather than a misleading one:
 | `unparsable-statement` | the parser could not read it: valid PostgreSQL outside the supported scope, or a syntax error | `warn` |
 | `unsupported-statement` | valid, deliberately not modeled (`GRANT`…) | `warn` |
 | `unparsed-function-body` | a PL/pgSQL body the parser could not read: it is not analyzed | follows `unparsable` |
-| `syntax-not-modeled` | read, but part of it is lost (`DEFERRABLE` on a foreign key…): the analysis, the migrations and the emitted SQL lack it | `warn` |
+| `syntax-not-modeled` | read, but part of it is not modeled (`DEFERRABLE` on a foreign key…): the analysis ignores it, SQL generated from the model (migrations) may lack it | `warn` |
 | `not-analyzed` | an expression or construct the analysis does not conclude on | `info` |
 
 `syntax-not-modeled` comes from a check of every statement: each word

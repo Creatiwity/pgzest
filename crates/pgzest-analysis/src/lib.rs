@@ -114,8 +114,8 @@ pub fn lost_to_diagnostics(lost: &[LostSyntax]) -> Vec<Diagnostic> {
             let mut d = Diagnostic::error(
                 codes::SYNTAX_NOT_MODELED,
                 format!(
-                    "pgzest reads this statement but does not model `{words}`: the analysis, the \
-                     migrations and the SQL pgzest emits lack it"
+                    "pgzest reads this statement but does not model `{words}`: the analysis \
+                     ignores it, and SQL generated from the model (migrations) may lack it"
                 ),
             );
             d.severity = Severity::Warning;

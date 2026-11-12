@@ -10,6 +10,7 @@
 //! SQL no longer have.
 
 use pgzest_ast::Statement;
+use pgzest_ast::ddl::DdlStatement;
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::tokenizer::{Token, TokenWithSpan, Tokenizer};
 
@@ -39,6 +40,38 @@ fn spelled_as(w: &str) -> &'static [&'static str] {
         "char" => &["character"],
         _ => &[],
     }
+}
+
+/// Routine options the emission leaves out or writes otherwise: the
+/// defaults (`VOLATILE`, `CALLED ON NULL INPUT`, `SECURITY INVOKER`,
+/// `NOT LEAKPROOF`, `PARALLEL UNSAFE`), the noise word `EXTERNAL`, and
+/// `RETURNS NULL ON NULL INPUT`, emitted `STRICT`.
+const ROUTINE_SPELLINGS: &[&[&str]] = &[
+    &["returns", "null", "on", "null", "input"],
+    &["called", "on", "null", "input"],
+    &["security", "invoker"],
+    &["not", "leakproof"],
+    &["parallel", "unsafe"],
+    &["volatile"],
+    &["external"],
+];
+
+/// `words` without the routine options of [`ROUTINE_SPELLINGS`].
+fn without_routine_spellings(words: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(words.len());
+    let mut i = 0;
+    'next: while i < words.len() {
+        for phrase in ROUTINE_SPELLINGS {
+            let rest = &words[i..];
+            if rest.len() >= phrase.len() && rest.iter().zip(*phrase).all(|(w, p)| w == p) {
+                i += phrase.len();
+                continue 'next;
+            }
+        }
+        out.push(words[i].clone());
+        i += 1;
+    }
+    out
 }
 
 /// Leading keywords of a statement, uppercased, up to the first other
@@ -71,9 +104,24 @@ pub(crate) fn lost_words(tokens: &[TokenWithSpan], stmt: &Statement) -> Vec<Stri
         // nothing can be compared.
         return Vec::new();
     };
-    let have: std::collections::HashSet<String> = emitted.iter().filter_map(word).collect();
+    // A value may come back quoted: `SET search_path = public` is emitted
+    // `SET search_path TO 'public'`.
+    let have: std::collections::HashSet<String> = emitted
+        .iter()
+        .filter_map(|t| match t {
+            Token::SingleQuotedString(s) => Some(s.clone()),
+            t => word(t),
+        })
+        .collect();
+    let mut words: Vec<String> = tokens.iter().filter_map(|t| word(&t.token)).collect();
+    if matches!(
+        stmt,
+        Statement::Ddl(DdlStatement::CreateFunction(_) | DdlStatement::CreateProcedure(_))
+    ) {
+        words = without_routine_spellings(words);
+    }
     let mut out: Vec<String> = Vec::new();
-    for w in tokens.iter().filter_map(|t| word(&t.token)) {
+    for w in words {
         let kept = have.contains(&w) || spelled_as(&w).iter().any(|a| have.contains(*a));
         if !kept && !out.contains(&w) {
             out.push(w);
@@ -115,6 +163,11 @@ mod tests {
             "ALTER TABLE t ADD COLUMN n INT NOT NULL DEFAULT 0",
             "CREATE INDEX CONCURRENTLY i ON t USING btree (a DESC NULLS LAST)",
             "CREATE TABLE \"Quoted\" (\"Col\" TEXT, lower_col TEXT)",
+            "CREATE FUNCTION f() RETURNS int LANGUAGE sql VOLATILE CALLED ON NULL INPUT \
+             EXTERNAL SECURITY INVOKER NOT LEAKPROOF PARALLEL UNSAFE AS 'select 1'",
+            "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql RETURNS NULL ON NULL INPUT \
+             SECURITY DEFINER SET search_path = public, pg_temp AS 'select a'",
+            "CREATE PROCEDURE p() LANGUAGE sql SECURITY INVOKER AS 'select 1'",
         ] {
             assert_eq!(lost(sql), Vec::<String>::new(), "{sql}");
         }

@@ -70,9 +70,9 @@ pub const UNPARSABLE_STATEMENT: &str = "unparsable-statement";
 pub const UNSUPPORTED_STATEMENT: &str = "unsupported-statement";
 
 /// Statement read, but with syntax pgzest does not model yet
-/// (`DEFERRABLE` on a foreign key…): the analysis, the migrations and the
-/// emitted SQL lack it. The hint links to a prefilled issue, to close the
-/// gap.
+/// (`DEFERRABLE` on a foreign key…): the analysis ignores it, and SQL
+/// generated from the model (migrations) may lack it. The hint links to a
+/// prefilled issue, to close the gap.
 pub const SYNTAX_NOT_MODELED: &str = "syntax-not-modeled";
 
 /// PL/pgSQL body the parser could not read: the routine is replayed, its
