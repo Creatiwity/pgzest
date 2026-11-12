@@ -10,6 +10,7 @@ use pgzest_catalog::model::RoutineKind;
 use pgzest_diagnostics::codes;
 
 use crate::coerce::{CoercionContext, Pathway};
+use crate::null_results;
 use crate::resolve::{Resolution, ResolveError, ResolvedCall};
 use crate::routine::{Language, Routine, VarRef, VarTy};
 use crate::scope::{Nullability, Scope, SemaError};
@@ -629,9 +630,16 @@ impl<'c> Analyzer<'c> {
         }
         self.coerce_to(right, call.arg_types.last().expect("one operand"));
         let inputs = l.iter().chain(Some(&r)).map(|t| t.nullable);
+        let nullable = match Nullability::strict(inputs) {
+            Nullability::NonNull => match call.target {
+                Resolution::Operator(o) => null_results::operator_result(o),
+                _ => Nullability::NonNull,
+            },
+            n => n,
+        };
         Ok(Typed::new(
             call.returns.expect("an operator has a result"),
-            Nullability::strict(inputs),
+            nullable,
         ))
     }
 
@@ -1178,7 +1186,13 @@ impl<'c> Analyzer<'c> {
             Resolution::Routine(r) => match r.kind {
                 RoutineKind::Aggregate if fname == "count" => Nullability::NonNull,
                 RoutineKind::Aggregate => Nullability::Nullable,
-                _ if r.strict => Nullability::strict(typed.iter().map(|t| t.nullable)),
+                _ if null_results::routine_result(r) == Nullability::Nullable => {
+                    Nullability::Nullable
+                }
+                _ if r.strict => match Nullability::strict(typed.iter().map(|t| t.nullable)) {
+                    Nullability::NonNull => null_results::routine_result(r),
+                    n => n,
+                },
                 _ => Nullability::Unknown,
             },
             Resolution::Operator(_) => Nullability::Unknown,

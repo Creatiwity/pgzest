@@ -20,6 +20,7 @@
 pub mod check;
 pub mod coerce;
 pub mod expr;
+mod null_results;
 pub mod polymorphic;
 pub mod query;
 pub mod resolve;

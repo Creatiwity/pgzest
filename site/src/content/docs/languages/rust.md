@@ -215,6 +215,17 @@ Never assumed:
 
 - **column**: `T` only if its non-nullability is established (`NOT NULL`
   preserved through joins, `count(*)`, literal…), otherwise `Option<T>`;
+- **call**: a built-in strict function or operator (`lower(x)`, `a + b`)
+  is non-null when its arguments are, except those that return NULL by
+  themselves: `->`, `->>`, `#>`, `#>>` (missing key, JSON `null`),
+  `regexp_match`, `array_position`, `array_length`, `lag`, `lead`,
+  `current_setting(name, true)`…; a function or operator of the project or
+  of an extension gives `Option<T>`, `STRICT` only saying that a NULL
+  argument gives NULL. `coalesce(…, default)` makes a column `T`;
+- **scalar subquery**: `(SELECT count(*) FROM …)` is `Option<T>`, as any
+  scalar subquery: it gives NULL when it returns no row, which a `GROUP
+  BY` or a `LIMIT` can cause. `coalesce((SELECT count(*) …), 0)` makes it
+  `T`;
 - **parameter**: assigned to a column (`VALUES`, `SET`), it takes that
   column's nullability (`Option<T>` for a nullable column); elsewhere
   (`WHERE id = $id`), it is expected non-null.

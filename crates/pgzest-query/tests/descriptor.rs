@@ -146,6 +146,56 @@ fn nullability_of_parameters_and_columns() {
 }
 
 #[test]
+fn nullability_of_calls() {
+    let cat = ProjectCatalog::from_sql(
+        "CREATE TABLE docs (data JSONB NOT NULL, ids INT[] NOT NULL, name TEXT NOT NULL,
+             during TSTZRANGE NOT NULL);
+         CREATE FUNCTION slug(t TEXT) RETURNS TEXT LANGUAGE sql STRICT IMMUTABLE AS 'SELECT lower(t)';",
+    )
+    .expect("schema");
+    let parsed = parse_query_file(
+        "-- name: q
+         SELECT lower(name) AS lowered, name || '!' AS shouted, data ->> 'k' AS field,
+                data -> 'k' AS node, data #>> '{a,b}' AS path, data @? '$.a' AS matches,
+                array_position(ids, 1) AS position, regexp_match(name, 'x') AS matched,
+                substring(name, 2) AS rest, substring(name, 'x+') AS run, lower(during) AS since,
+                current_setting('app.user_id', true) AS setting, lag(name) OVER () AS previous,
+                coalesce(data ->> 'k', '') AS defaulted, slug(name) AS project
+         FROM docs;\n",
+    );
+    let d = describe_named(&cat, &parsed.queries[0]).expect("described");
+    let columns: Vec<(&str, NullabilityDesc)> = d
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.nullable))
+        .collect();
+    use NullabilityDesc::*;
+    assert_eq!(
+        columns,
+        [
+            ("lowered", NonNull),
+            ("shouted", NonNull),
+            // `STRICT` only says NULL in, NULL out: these return NULL by
+            // themselves (missing key, no match, empty range…).
+            ("field", Nullable),
+            ("node", Nullable),
+            ("path", Nullable),
+            ("matches", Nullable),
+            ("position", Nullable),
+            ("matched", Nullable),
+            ("rest", NonNull),
+            ("run", Nullable),
+            ("since", Nullable),
+            ("setting", Nullable),
+            ("previous", Nullable),
+            ("defaulted", NonNull),
+            // A project function: nothing establishes its result.
+            ("project", Unknown),
+        ]
+    );
+}
+
+#[test]
 fn project_dependencies_only() {
     let d = one(
         "SELECT p.id, p.status, t.tag FROM pages p JOIN tags t ON t.page_id = p.id WHERE p.slug = lower($slug)",
