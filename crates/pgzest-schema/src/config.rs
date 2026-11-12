@@ -374,6 +374,20 @@ impl ProjectConfig {
 
     /// Parses and validates config content (no file, for tests).
     pub fn parse(content: &str) -> Result<Self, ConfigError> {
+        let table: toml::Table = toml::from_str(content).map_err(|e| ConfigError(e.to_string()))?;
+        // The one required key: say what to write rather than serde's
+        // "missing field".
+        let version = table
+            .get("postgres")
+            .and_then(toml::Value::as_table)
+            .and_then(|p| p.get("version"));
+        if version.is_none() {
+            return Err(ConfigError(format!(
+                "[postgres] version is required: the major version of PostgreSQL the project \
+                 targets, for example\n\n[postgres]\nversion = {}\n",
+                SUPPORTED_POSTGRES_VERSIONS[SUPPORTED_POSTGRES_VERSIONS.len() - 1]
+            )));
+        }
         let config: Self = toml::from_str(content).map_err(|e| ConfigError(e.to_string()))?;
         config.validate()?;
         Ok(config)
@@ -617,8 +631,17 @@ mod tests {
 
     #[test]
     fn postgres_version_is_required() {
-        let err = ProjectConfig::parse("[schema]\ndirectory = \"schema\"\n").unwrap_err();
-        assert!(err.0.contains("postgres"), "{err}");
+        for content in [
+            "[schema]\ndirectory = \"schema\"\n",
+            "[postgres]\npacks = []\n",
+        ] {
+            let err = ProjectConfig::parse(content).unwrap_err();
+            assert!(
+                err.0.contains("[postgres] version is required")
+                    && err.0.contains("\n[postgres]\nversion = 18\n"),
+                "{err}"
+            );
+        }
     }
 
     #[test]
