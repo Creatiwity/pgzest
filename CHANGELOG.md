@@ -6,6 +6,20 @@ from the commit messages ([Conventional Commits](https://www.conventionalcommits
 versions follow [Semantic Versioning](https://semver.org) — before 1.0, a
 minor version may break.
 
+## [0.2.1] - 2026-11-12
+
+### Features
+
+- **cli**: TLS to the database, sslmode and sslrootcert read as libpq (06d6b04)
+
+### Fixes
+
+- **sema**: calls that return NULL by themselves are nullable (1b9225f)
+- **check**: no syntax-not-modeled for routine defaults and quoted values (3f47691)
+- **config**: say what to write when [postgres] version is missing (fc4bbea)
+- **codegen**: no dead_code warnings on generated items (1f1a6cc)
+- **check**: routine bodies resolve names with the routine's search_path (8513c95)
+
 ## [0.2.0] - 2026-11-09
 
 ### Features
