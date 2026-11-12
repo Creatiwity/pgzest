@@ -13,6 +13,51 @@ fn check(sql: &str) -> Vec<String> {
         .collect()
 }
 
+/// A quoted body runs with the routine's `SET search_path`; a standard SQL
+/// body (`BEGIN ATOMIC`, `RETURN`) is resolved at creation, with the path in
+/// effect then. Checked on PostgreSQL 18.
+#[test]
+fn routine_body_search_path() {
+    let sql = "
+        CREATE SCHEMA a; CREATE SCHEMA b;
+        CREATE TABLE a.t (x int); CREATE TABLE b.t (y text);
+        SET search_path = a;
+        CREATE FUNCTION f1() RETURNS text LANGUAGE sql SET search_path = b
+            AS $$ SELECT y FROM t $$;
+        CREATE FUNCTION f2() RETURNS text LANGUAGE sql SET search_path = b
+            BEGIN ATOMIC SELECT y FROM t; END;
+        CREATE FUNCTION f3() RETURNS int LANGUAGE sql SET search_path = b
+            BEGIN ATOMIC SELECT x FROM t; END;
+        CREATE FUNCTION f4() RETURNS int LANGUAGE sql SET search_path = b
+            RETURN (SELECT x FROM t);
+        CREATE FUNCTION f5() RETURNS text LANGUAGE plpgsql SET search_path = b
+            AS $$ BEGIN RETURN (SELECT y FROM t); END $$;
+        CREATE FUNCTION f6() RETURNS int LANGUAGE sql SET search_path = ''
+            AS $$ SELECT x FROM t $$;
+        CREATE FUNCTION f7() RETURNS int LANGUAGE sql SET search_path = ''
+            AS $$ SELECT x FROM a.t $$;
+        CREATE FUNCTION f8() RETURNS int LANGUAGE sql SET search_path FROM CURRENT
+            AS $$ SELECT x FROM t $$;
+        CREATE FUNCTION f9() RETURNS text LANGUAGE plpgsql SET search_path = ''
+            AS $$ BEGIN RETURN (SELECT y FROM t); END $$;
+        CREATE PROCEDURE p1() LANGUAGE plpgsql SET search_path TO b, public
+            AS $$ BEGIN PERFORM y FROM t; END $$;
+        -- The trigger function is found by its creation name, its body
+        -- resolves with its own path.
+        CREATE FUNCTION trg() RETURNS trigger LANGUAGE plpgsql SET search_path = b
+            AS $$ BEGIN NEW.x := (SELECT length(y) FROM t LIMIT 1); RETURN NEW; END $$;
+        CREATE TRIGGER tg BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION trg();
+    ";
+    assert_eq!(
+        check(sql),
+        vec![
+            "column-not-found: column \"y\" does not exist",
+            "table-not-found: relation \"t\" does not exist",
+            "table-not-found: relation \"t\" does not exist",
+        ]
+    );
+}
+
 const SCHEMA: &str = "
 CREATE TABLE users (id int PRIMARY KEY, name text NOT NULL, email text);
 CREATE TABLE posts (id int PRIMARY KEY, user_id int REFERENCES users, title text);

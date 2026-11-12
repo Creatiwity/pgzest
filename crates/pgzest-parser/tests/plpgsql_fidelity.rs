@@ -24,7 +24,10 @@ fn body_of(sql: &str) -> pgzest_ast::plpgsql::PlpgsqlBody {
                 FunctionBody::Raw(raw) => {
                     panic!("body not parsed (fell back to Raw):\n{raw}")
                 }
-                FunctionBody::SqlQuery(_) | FunctionBody::Sql(_) | FunctionBody::SqlReturn(_) => {
+                FunctionBody::SqlQuery(_)
+                | FunctionBody::Sql(_)
+                | FunctionBody::Atomic(_)
+                | FunctionBody::SqlReturn(_) => {
                     panic!("unexpected SQL body")
                 }
             };

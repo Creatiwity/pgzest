@@ -314,10 +314,14 @@ pub enum FunctionBody {
     Raw(String),
     /// `LANGUAGE sql` body reduced to a single SELECT.
     SqlQuery(Box<SelectStmt>),
-    /// `LANGUAGE sql` body with several statements, or `BEGIN ATOMIC … END`.
+    /// `LANGUAGE sql` body with several statements.
     /// The routine's result is that of the last statement.
     Sql(Vec<crate::stmt::Statement>),
-    /// Standard SQL body `RETURN expr`.
+    /// Standard SQL body `BEGIN ATOMIC … END`: PostgreSQL resolves its names
+    /// at creation, with the `search_path` in effect then, not the routine's
+    /// `SET search_path`. The routine's result is that of the last statement.
+    Atomic(Vec<crate::stmt::Statement>),
+    /// Standard SQL body `RETURN expr`, resolved at creation as `Atomic`.
     SqlReturn(Expr),
     /// LANGUAGE plpgsql body parsed into a structured AST
     Parsed(Box<crate::plpgsql::PlpgsqlBody>),

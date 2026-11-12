@@ -2597,7 +2597,9 @@ fn index_column_name(e: &pgzest_ast::Expr) -> String {
 fn body_has_effects(body: &FunctionBody) -> bool {
     match body {
         FunctionBody::Parsed(b) => has_effect(&b.block.statements),
-        FunctionBody::Sql(stmts) => stmts.iter().any(|s| matches!(s, Statement::Ddl(_))),
+        FunctionBody::Sql(stmts) | FunctionBody::Atomic(stmts) => {
+            stmts.iter().any(|s| matches!(s, Statement::Ddl(_)))
+        }
         _ => false,
     }
 }

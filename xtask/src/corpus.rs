@@ -360,6 +360,7 @@ impl Stats {
                     FunctionBody::Parsed(_) => self.bodies_parsed += 1,
                     FunctionBody::SqlQuery(_)
                     | FunctionBody::Sql(_)
+                    | FunctionBody::Atomic(_)
                     | FunctionBody::SqlReturn(_) => self.bodies_sql += 1,
                     FunctionBody::Raw(_) => {}
                 }

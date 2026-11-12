@@ -1191,7 +1191,7 @@ pub fn emit_create_function(cf: &CreateFunction) -> String {
     let params: Vec<String> = cf.params.iter().map(emit_function_param).collect();
     let returns = emit_return_type(&cf.return_type);
     let lang = emit_function_language(&cf.language);
-    let body = emit_function_body(&cf.body);
+    let body = emit_routine_body(&cf.body);
     let mut options = String::new();
     match cf.volatility {
         Volatility::Volatile => {}
@@ -1221,7 +1221,7 @@ pub fn emit_create_function(cf: &CreateFunction) -> String {
     }
     options.push_str(&emit_settings(&cf.settings));
     format!(
-        "CREATE {}FUNCTION {}({}){}\nLANGUAGE {}{}\nAS {};",
+        "CREATE {}FUNCTION {}({}){}\nLANGUAGE {}{}\n{};",
         or_replace,
         emit_object_name(&cf.name),
         params.join(", "),
@@ -1236,14 +1236,14 @@ pub fn emit_create_procedure(cp: &CreateProcedure) -> String {
     let or_replace = if cp.or_replace { "OR REPLACE " } else { "" };
     let params: Vec<String> = cp.params.iter().map(emit_function_param).collect();
     let lang = emit_function_language(&cp.language);
-    let body = emit_function_body(&cp.body);
+    let body = emit_routine_body(&cp.body);
     let mut options = String::new();
     if cp.security_definer {
         options.push_str("\nSECURITY DEFINER");
     }
     options.push_str(&emit_settings(&cp.settings));
     format!(
-        "CREATE {}PROCEDURE {}({})\nLANGUAGE {}{}\nAS {};",
+        "CREATE {}PROCEDURE {}({})\nLANGUAGE {}{}\n{};",
         or_replace,
         emit_object_name(&cp.name),
         params.join(", "),
@@ -1331,16 +1331,29 @@ fn emit_function_body(body: &FunctionBody) -> String {
         FunctionBody::Raw(s) => dollar_quote(s),
         FunctionBody::Parsed(b) => dollar_quote(&b.source),
         FunctionBody::SqlQuery(sel) => dollar_quote(&format!("{}\n", emit_select(sel))),
-        FunctionBody::Sql(stmts) => dollar_quote(&format!(
-            "\n{}\n",
-            stmts
-                .iter()
-                .map(emit_statement)
-                .collect::<Vec<_>>()
-                .join("\n")
-        )),
+        FunctionBody::Sql(stmts) | FunctionBody::Atomic(stmts) => {
+            dollar_quote(&format!("\n{}\n", emit_statements(stmts)))
+        }
         FunctionBody::SqlReturn(e) => dollar_quote(&format!("SELECT {}", emit_expr(e))),
     }
+}
+
+/// Body of a routine, after its options: `AS …`, or a standard SQL body,
+/// kept as such since its names are resolved at creation.
+fn emit_routine_body(body: &FunctionBody) -> String {
+    match body {
+        FunctionBody::Atomic(stmts) => format!("BEGIN ATOMIC\n{}\nEND", emit_statements(stmts)),
+        FunctionBody::SqlReturn(e) => format!("RETURN {}", emit_expr(e)),
+        _ => format!("AS {}", emit_function_body(body)),
+    }
+}
+
+fn emit_statements(stmts: &[Statement]) -> String {
+    stmts
+        .iter()
+        .map(emit_statement)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// `$$text$$`, or `$pgzestN$text$pgzestN$` if the text already contains the

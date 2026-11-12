@@ -132,7 +132,7 @@ fn standard_sql_body() {
         "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC
          SELECT CASE WHEN a > 0 THEN a END; SELECT a + 1; END",
     );
-    let FunctionBody::Sql(stmts) = &f.body else {
+    let FunctionBody::Atomic(stmts) = &f.body else {
         panic!("{:?}", f.body)
     };
     assert_eq!(stmts.len(), 2);
@@ -140,6 +140,22 @@ fn standard_sql_body() {
     let f = function("CREATE FUNCTION f(a int) RETURNS int RETURN a * 2");
     assert_eq!(f.language, FunctionLanguage::Sql);
     assert!(matches!(f.body, FunctionBody::SqlReturn(_)));
+}
+
+/// A standard SQL body is emitted as such, not as `AS $$ … $$`: PostgreSQL
+/// resolves its names at creation, a quoted body's at each execution.
+#[test]
+fn standard_sql_body_is_emitted_as_written() {
+    for sql in [
+        "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql SET search_path = b BEGIN ATOMIC
+         SELECT a + 1; END",
+        "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql SET search_path = b RETURN a * 2",
+        "CREATE PROCEDURE p(a int) LANGUAGE sql BEGIN ATOMIC INSERT INTO t VALUES (a); END",
+    ] {
+        let emitted = pgzest_ast::emit::emit_statement(&one(sql));
+        assert!(!emitted.contains("$$"), "{emitted}");
+        assert_eq!(pgzest_ast::emit::emit_statement(&one(&emitted)), emitted);
+    }
 }
 
 #[test]

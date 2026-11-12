@@ -237,7 +237,7 @@ fn analyze_body(
             let converted: Result<Vec<_>, _> =
                 stmts.into_iter().map(convert::convert_statement).collect();
             match converted {
-                Ok(stmts) => (FunctionBody::Sql(stmts), None),
+                Ok(stmts) => (FunctionBody::Atomic(stmts), None),
                 Err(e) => (FunctionBody::Raw(String::new()), Some(e.to_string())),
             }
         }

@@ -40,6 +40,10 @@ in the [diagnostics reference](../../reference/diagnostics/).
   arguments, the queries inside the body with their variables typed — and
   a trigger function once per table that fires it, `NEW` and `OLD` of
   that table's type.
+- **Names in routine bodies** resolved as PostgreSQL resolves them: a
+  quoted body (`AS $$ … $$`) with the routine's `SET search_path`, a
+  standard SQL body (`BEGIN ATOMIC`, `RETURN`) with the path in effect at
+  its creation.
 - **Table expressions**: `DEFAULT`, `CHECK`, generated columns, domain
   checks, in the context of their table.
 

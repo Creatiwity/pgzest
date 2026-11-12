@@ -18,7 +18,8 @@ use std::collections::BTreeMap;
 
 use pgzest_ast::Span;
 use pgzest_ast::ddl::{
-    CreateFunction, CreatePolicy, DdlStatement, FunctionBody, FunctionParam, ParamMode, ReturnType,
+    CreateFunction, CreatePolicy, DdlStatement, FunctionBody, FunctionParam, FunctionSetting,
+    ParamMode, ReturnType, SettingValue,
 };
 use pgzest_ast::expr::{ColumnRef, Expr, Ident, ObjectName};
 use pgzest_ast::plpgsql::{
@@ -148,6 +149,47 @@ pub fn search_path_change(stmt: &Statement) -> Option<SearchPath> {
     }
 }
 
+/// Search path a routine body is analyzed with. A quoted body (`AS $$ … $$`,
+/// PL/pgSQL or SQL) is validated and run with the routine's `SET
+/// search_path`; a standard SQL body (`BEGIN ATOMIC`, `RETURN`) is resolved at
+/// creation, with `path`. `FROM CURRENT` and `DEFAULT` leave `path`.
+fn body_search_path(
+    path: &SearchPath,
+    settings: &[FunctionSetting],
+    body: &FunctionBody,
+) -> SearchPath {
+    if matches!(body, FunctionBody::Atomic(_) | FunctionBody::SqlReturn(_)) {
+        return path.clone();
+    }
+    // As in PostgreSQL, the last `SET` of a parameter wins.
+    match settings
+        .iter()
+        .rev()
+        .find(|s| s.name.eq_ignore_ascii_case("search_path"))
+        .map(|s| &s.value)
+    {
+        Some(SettingValue::Values(v)) if !v.is_empty() => {
+            // `''` names no schema: only `pg_catalog` (and `pg_temp`) remain.
+            SearchPath::new(v.iter().filter(|s| *s != "$user" && !s.is_empty()).cloned())
+        }
+        _ => path.clone(),
+    }
+}
+
+/// `SET LOCAL search_path` to `path`, for a body query prepared on its own.
+fn set_local_search_path(path: &SearchPath) -> String {
+    let schemas: Vec<String> = path
+        .schemas()
+        .iter()
+        .map(|s| pgzest_catalog::model::quote_sql_ident(s))
+        .collect();
+    if schemas.is_empty() {
+        "SET LOCAL search_path TO ''".into()
+    } else {
+        format!("SET LOCAL search_path TO {}", schemas.join(", "))
+    }
+}
+
 /// The body of this statement is only analyzed by PostgreSQL at execution:
 /// it is checked by [`check_deferred`].
 pub fn is_deferred(stmt: &Statement) -> bool {
@@ -249,8 +291,9 @@ pub fn check_applied(
                     sink.out,
                 );
                 if !matches!(f.body, FunctionBody::Parsed(_)) {
+                    let path = body_search_path(path, &f.settings, &f.body);
                     sql_routine(
-                        catalog, path, &f.name, &f.params, &f.body, sink.out, &mut None,
+                        catalog, &path, &f.name, &f.params, &f.body, sink.out, &mut None,
                     );
                 }
             }
@@ -262,8 +305,9 @@ pub fn check_applied(
                     sink.out,
                 );
                 if !matches!(p.body, FunctionBody::Parsed(_)) {
+                    let path = body_search_path(path, &p.settings, &p.body);
                     sql_routine(
-                        catalog, path, &p.name, &p.params, &p.body, sink.out, &mut None,
+                        catalog, &path, &p.name, &p.params, &p.body, sink.out, &mut None,
                     );
                 }
             }
@@ -297,6 +341,7 @@ fn deferred(
         }
         Statement::Ddl(DdlStatement::CreateProcedure(p)) => {
             if let FunctionBody::Parsed(b) = &p.body {
+                let path = &body_search_path(path, &p.settings, &p.body);
                 let mut a = Analyzer::new(TypeSystem::new(catalog), path.clone());
                 let (_, name) = split_name(&p.name);
                 let routine =
@@ -366,7 +411,7 @@ fn collected(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> Collecte
         {
             sql_routine(
                 catalog,
-                path,
+                &body_search_path(path, &f.settings, &f.body),
                 &f.name,
                 &f.params,
                 &f.body,
@@ -379,7 +424,7 @@ fn collected(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> Collecte
         {
             sql_routine(
                 catalog,
-                path,
+                &body_search_path(path, &p.settings, &p.body),
                 &p.name,
                 &p.params,
                 &p.body,
@@ -389,7 +434,24 @@ fn collected(catalog: &Catalog, path: &SearchPath, stmt: &Statement) -> Collecte
         }
         _ => deferred(catalog, path, stmt, &mut ignored, &mut collect),
     }
-    collect.unwrap_or_default()
+    let mut collected = collect.unwrap_or_default();
+    // A body with its own search path: its queries are prepared with it.
+    let own = match stmt {
+        Statement::Ddl(DdlStatement::CreateFunction(f)) => {
+            Some(body_search_path(path, &f.settings, &f.body))
+        }
+        Statement::Ddl(DdlStatement::CreateProcedure(p)) => {
+            Some(body_search_path(path, &p.settings, &p.body))
+        }
+        _ => None,
+    };
+    if let Some(own) = own.filter(|p| p != path) {
+        let set = set_local_search_path(&own);
+        for q in &mut collected.queries {
+            q.setup.insert(0, set.clone());
+        }
+    }
+    collected
 }
 
 /// Walks `body` with `w`, collecting its queries if requested.
@@ -834,7 +896,7 @@ fn sql_routine(
 ) {
     let (_, fname) = split_name(name);
     let stmts: Vec<Statement> = match body {
-        FunctionBody::Sql(stmts) => stmts.clone(),
+        FunctionBody::Sql(stmts) | FunctionBody::Atomic(stmts) => stmts.clone(),
         FunctionBody::SqlQuery(q) => vec![Statement::Select((**q).clone())],
         FunctionBody::SqlReturn(e) => {
             let mut a = Analyzer::new(TypeSystem::new(catalog), path.clone());
@@ -971,6 +1033,10 @@ fn plpgsql_function(
     collect: &mut Option<Collected>,
 ) {
     let (_, name) = split_name(&f.name);
+    // The routine is named with the path of its creation, its body runs
+    // with its own.
+    let qname = routine_qname(&f.name, path);
+    let path = &body_search_path(path, &f.settings, &f.body);
     let make = |out: &mut Vec<Diagnostic>| {
         let mut a = Analyzer::new(TypeSystem::new(catalog), path.clone());
         let mut r = routine_scope(&mut a, Language::Plpgsql, name, &f.params, out, f.span);
@@ -999,7 +1065,7 @@ fn plpgsql_function(
         run(Walker::new(catalog, path, r, None), body, out, collect);
         return;
     }
-    let contexts = trigger_contexts(catalog, &routine_qname(&f.name, path));
+    let contexts = trigger_contexts(catalog, &qname);
     if contexts.is_empty() {
         out.push(
             Diagnostic::warning(
