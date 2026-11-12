@@ -15,7 +15,7 @@ use pgzest_ast::utility::{MaintenanceCommand, TransactionCommand, UtilityKind};
 use pgzest_runtime::migrate::{self, Event, Header, Migration, Options, Resolution};
 use pgzest_schema::{FileRole, MigrationHeader, ProjectConfig, SchemaSource, SqlChunk};
 use sha2::{Digest, Sha256};
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::Client;
 
 pub enum Action {
     Status,
@@ -375,14 +375,8 @@ fn separate_statements(sql: &str, blockers: &mut Vec<String>) -> Vec<String> {
 }
 
 async fn connect(url: &str) -> Result<Client, String> {
-    let config: tokio_postgres::Config = url.parse().map_err(|e| format!("database URL: {e}"))?;
-    let (client, connection) = config.connect(NoTls).await.map_err(|e| e.to_string())?;
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection: {e}");
-        }
-    });
-    Ok(client)
+    let db = pgzest_oracle::connect::Database::parse(url)?;
+    db.connect().await
 }
 
 #[cfg(test)]

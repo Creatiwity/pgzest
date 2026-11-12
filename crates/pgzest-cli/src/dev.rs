@@ -16,8 +16,8 @@ use pgzest_diagnostics::Severity;
 use pgzest_expand::{Instrumentation, LogLevel, LogTarget, MacroSet};
 use pgzest_schema::source::SchemaSource;
 use pgzest_schema::{FileRole, ProjectConfig};
+use tokio_postgres::Client;
 use tokio_postgres::error::{ErrorPosition, SqlState};
-use tokio_postgres::{Client, NoTls};
 
 /// How often the files are compared with their last applied content.
 const INTERVAL: Duration = Duration::from_millis(300);
@@ -84,20 +84,20 @@ async fn watch(opts: Options) -> i32 {
         }
     };
     let root = project.0.clone();
-    let config: tokio_postgres::Config = match opts.url.parse() {
-        Ok(c) => c,
+    let database = match pgzest_oracle::connect::Database::parse(&opts.url) {
+        Ok(d) => d,
         Err(e) => {
-            eprintln!("error: database URL: {e}");
+            eprintln!("error: {e}");
             return 2;
         }
     };
-    let Some(mut client) = connect(&config).await else {
+    let Some(mut client) = connect(&database).await else {
         return 2;
     };
     println!(
         "pgzest dev: routines of {} → {} (log {}, {}){}",
         root.display(),
-        describe(&config),
+        describe(&database.config),
         opts.log.as_str(),
         opts.target.as_str(),
         if opts.once { "" } else { "; Ctrl-C to stop" }
@@ -109,7 +109,7 @@ async fn watch(opts: Options) -> i32 {
     let mut files: BTreeMap<PathBuf, FileState> = BTreeMap::new();
     loop {
         if client.is_closed() {
-            match connect(&config).await {
+            match connect(&database).await {
                 Some(c) => {
                     println!("reconnected");
                     client = c;
@@ -203,18 +203,14 @@ async fn watch(opts: Options) -> i32 {
     }
 }
 
-async fn connect(config: &tokio_postgres::Config) -> Option<Client> {
-    match config.connect(NoTls).await {
-        Ok((client, conn)) => {
-            tokio::spawn(async move {
-                if let Err(e) = conn.await {
-                    eprintln!("error: connection lost: {e}");
-                }
-            });
-            Some(client)
-        }
+async fn connect(database: &pgzest_oracle::connect::Database) -> Option<Client> {
+    match database.connect().await {
+        Ok(client) => Some(client),
         Err(e) => {
-            eprintln!("error: cannot connect to {}: {e}", describe(config));
+            eprintln!(
+                "error: cannot connect to {}: {e}",
+                describe(&database.config)
+            );
             None
         }
     }

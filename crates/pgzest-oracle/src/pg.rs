@@ -1,5 +1,7 @@
+use tokio_postgres::Client;
 use tokio_postgres::types::{Kind, Type};
-use tokio_postgres::{Client, Config, NoTls};
+
+use crate::connect::Database;
 
 use crate::case::Case;
 
@@ -69,9 +71,7 @@ async fn describe_in(
     db: &str,
     case: &Case,
 ) -> Result<Vec<Result<PgDescription, String>>, String> {
-    let mut config: Config = admin_url.parse().map_err(|e| format!("URL: {e}"))?;
-    config.dbname(db);
-    let client = connect_config(&config).await?;
+    let client = connect_database(&Database::parse(admin_url)?.with_dbname(db)).await?;
 
     client.batch_execute(&case.schema).await.map_err(|e| {
         format!(
@@ -119,19 +119,12 @@ async fn connect(url: &str) -> Result<Client, String> {
 }
 
 pub(crate) async fn connect_url(url: &str) -> Result<Client, String> {
-    let config: Config = url.parse().map_err(|e| format!("URL: {e}"))?;
-    connect_config(&config).await
+    connect_database(&Database::parse(url)?).await
 }
 
-pub(crate) async fn connect_config(config: &Config) -> Result<Client, String> {
-    let (client, connection) = config
-        .connect(NoTls)
+pub(crate) async fn connect_database(database: &Database) -> Result<Client, String> {
+    database
+        .connect()
         .await
-        .map_err(|e| format!("connecting to PostgreSQL: {e}"))?;
-    tokio::spawn(async move {
-        // A connection error also shows up on the client's queries, which
-        // report it: nothing more to do here.
-        let _ = connection.await;
-    });
-    Ok(client)
+        .map_err(|e| format!("connecting to PostgreSQL: {e}"))
 }

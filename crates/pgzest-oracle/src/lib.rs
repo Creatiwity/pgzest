@@ -22,6 +22,7 @@
 //! nullability inference (P3).
 
 mod case;
+pub mod connect;
 mod ours;
 pub mod pack_gen;
 mod pg;

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use pgzest_schema::source::{MigrationDirSource, SchemaSource};
 use pgzest_schema::{FileRole, ProjectConfig};
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::Client;
 
 pub struct Options {
     pub url: String,
@@ -197,9 +197,9 @@ async fn run(opts: Options) -> Result<i32, String> {
             root.join(&config.migrations.directory).display()
         ));
     }
-    let live_config: tokio_postgres::Config =
-        opts.url.parse().map_err(|e| format!("database URL: {e}"))?;
-    let live = connect(&live_config).await?;
+    let live = pgzest_oracle::connect::Database::parse(&opts.url)?
+        .connect()
+        .await?;
 
     // The migrations the database received, in the repository's order.
     let registry = config
@@ -283,12 +283,10 @@ async fn run(opts: Options) -> Result<i32, String> {
     let (live_version, scratch_version) = (
         major_version(&live).await?,
         major_version(
-            &connect(
-                &scratch_url
-                    .parse()
-                    .map_err(|e| format!("scratch URL: {e}"))?,
-            )
-            .await?,
+            &pgzest_oracle::connect::Database::parse(scratch_url)
+                .map_err(|e| format!("scratch URL: {e}"))?
+                .connect()
+                .await?,
         )
         .await?,
     );
@@ -475,16 +473,6 @@ fn object(line: &str) -> String {
         _ => word(0).to_string(),
     };
     format!("{kind} {identity}")
-}
-
-async fn connect(config: &tokio_postgres::Config) -> Result<Client, String> {
-    let (client, connection) = config.connect(NoTls).await.map_err(|e| db_error(&e))?;
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection: {e}");
-        }
-    });
-    Ok(client)
 }
 
 async fn major_version(client: &Client) -> Result<i32, String> {

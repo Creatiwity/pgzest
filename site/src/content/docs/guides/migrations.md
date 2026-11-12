@@ -130,6 +130,32 @@ Prisma (`_prisma_migrations`) and Diesel (`__diesel_schema_migrations`)
 layouts keep their tool's registry, which `apply` does not write yet:
 apply them with their tool.
 
+### TLS
+
+The URL's TLS parameters are read as libpq reads them, for every command
+that connects (`migrate`, `db check`, `db pack`, `dev`):
+
+| `sslmode` | Encrypted | Server checked |
+|---|---|---|
+| `disable` | no | — |
+| `prefer` (default) | if the server accepts | chain, only if an authority file is there |
+| `require` | yes | chain, only if an authority file is there |
+| `verify-ca` | yes | chain up to an authority |
+| `verify-full` | yes | chain, and the certificate names the host |
+
+The authorities come from `sslrootcert` (a PEM file), otherwise
+`~/.postgresql/root.crt` (`%APPDATA%\postgresql\root.crt` on Windows);
+`sslrootcert=system` uses the system's store and requires `verify-full`.
+`PGSSLMODE` and `PGSSLROOTCERT` apply when the URL says nothing. A managed
+PostgreSQL usually gives its authority's certificate:
+
+```sh
+pgzest migrate apply --url "postgres://app@db.example.net/myapp?sslmode=verify-full&sslrootcert=ca.pem"
+```
+
+`sslmode=allow` and client certificates (`sslcert`, `sslkey`) are not
+supported: the connection is refused rather than made otherwise.
+
 ## An existing project
 
 Migrations of an existing project are read as they are, in their layout:

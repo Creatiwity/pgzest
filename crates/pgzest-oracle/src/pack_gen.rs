@@ -19,7 +19,9 @@ use pgzest_catalog::model::{
 };
 use pgzest_catalog::pack::{EXTSCHEMA, PACK_FORMAT};
 use pgzest_catalog::{Contributor, Pack, QName, TypeRef};
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::Client;
+
+use crate::connect::Database;
 
 /// Work schema where the extension is created.
 const WORK_SCHEMA: &str = "pgzest_ext";
@@ -31,12 +33,8 @@ fn err(e: tokio_postgres::Error) -> String {
     }
 }
 
-async fn connect(config: &tokio_postgres::Config) -> Result<Client, String> {
-    let (client, conn) = config.connect(NoTls).await.map_err(err)?;
-    tokio::spawn(async move {
-        let _ = conn.await;
-    });
-    Ok(client)
+async fn connect(database: &Database) -> Result<Client, String> {
+    database.connect().await
 }
 
 /// Pack generated on the server at `url`: `postgres@<major>` without
@@ -47,15 +45,14 @@ pub async fn generate(
     extension: Option<&str>,
     version: Option<&str>,
 ) -> Result<Pack, String> {
-    let base: tokio_postgres::Config = url.parse().map_err(|e| format!("URL: {e}"))?;
+    let base = Database::parse(url)?;
     let admin = connect(&base).await?;
     let db = format!("pgzest_catalog_{}", std::process::id());
     admin
         .batch_execute(&format!("CREATE DATABASE \"{db}\" TEMPLATE template0"))
         .await
         .map_err(err)?;
-    let mut config = base.clone();
-    config.dbname(&db);
+    let config = base.with_dbname(&db);
     let result = async {
         let client = connect(&config).await?;
         let major: i32 = client

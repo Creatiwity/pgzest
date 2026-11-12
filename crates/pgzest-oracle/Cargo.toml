@@ -18,6 +18,11 @@ pgzest-schema = { workspace = true }
 pgzest-sema = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
+# TLS to the database, read as libpq does (`sslmode`, `sslrootcert`): ring
+# rather than aws-lc-rs, which needs a C toolchain on every release target.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
 
 [dev-dependencies]
 insta = { workspace = true }

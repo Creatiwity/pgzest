@@ -10,9 +10,11 @@
 
 use std::collections::BTreeSet;
 
-use tokio_postgres::{Client, Config};
+use tokio_postgres::Client;
 
-use crate::pg::{connect_config, connect_url, db_error_message};
+use crate::connect::Database;
+
+use crate::pg::{connect_database, connect_url, db_error_message};
 
 /// Objects of a database, excluding the system catalog and extension
 /// members: one normalized line per compared property.
@@ -148,9 +150,7 @@ impl Scratch {
     }
 
     async fn client(&self, admin_url: &str) -> Result<Client, String> {
-        let mut config: Config = admin_url.parse().map_err(|e| format!("URL: {e}"))?;
-        config.dbname(&self.name);
-        connect_config(&config).await
+        connect_database(&Database::parse(admin_url)?.with_dbname(&self.name)).await
     }
 
     async fn drop(self) -> Result<(), String> {
