@@ -328,7 +328,7 @@ impl Generator<'_> {
         let _ = writeln!(o, "/// `{}`", d.sql.replace('\n', " "));
         let _ = writeln!(
             o,
-            "pub const {const_name}: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};\n",
+            "#[allow(dead_code)]\npub const {const_name}: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};\n",
             d.name, d.sql
         );
         if let Some(dy) = &d.dynamic {
@@ -353,7 +353,7 @@ impl Generator<'_> {
                 };
                 let _ = writeln!(
                     o,
-                    "#[doc(hidden)]\npub const {const_name}_V{i}: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};",
+                    "#[doc(hidden)]\n#[allow(dead_code)]\npub const {const_name}_V{i}: {rt}::Query = {rt}::Query {{ name: {:?}, sql: {:?}, param_oids: {oids} }};",
                     d.name, v.sql
                 );
             }
@@ -389,7 +389,7 @@ impl Generator<'_> {
         for (name, ty, variants) in &choice_types {
             let _ = writeln!(
                 o,
-                "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum {ty} {{\n{}}}\n",
+                "#[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum {ty} {{\n{}}}\n",
                 variants
                     .iter()
                     .map(|v| format!("    {v},\n"))
@@ -402,7 +402,10 @@ impl Generator<'_> {
         } else {
             let name = format!("{pascal}Params");
             let lt = if lifetime { "<'a>" } else { "" };
-            let _ = writeln!(o, "#[derive(Debug, Clone)]\npub struct {name}{lt} {{");
+            let _ = writeln!(
+                o,
+                "#[allow(dead_code)]\n#[derive(Debug, Clone)]\npub struct {name}{lt} {{"
+            );
             for (f, t) in &params {
                 let _ = writeln!(o, "    pub {f}: {t},");
             }
@@ -439,13 +442,13 @@ impl Generator<'_> {
             }
             let _ = writeln!(
                 o,
-                "#[derive(Debug, Clone, PartialEq)]\npub struct {name} {{"
+                "#[allow(dead_code)]\n#[derive(Debug, Clone, PartialEq)]\npub struct {name} {{"
             );
             for (f, t) in &fields {
                 let _ = writeln!(o, "    pub {f}: {t},");
             }
             let _ = writeln!(o, "}}\n");
-            let _ = writeln!(o, "impl {name} {{");
+            let _ = writeln!(o, "#[allow(dead_code)]\nimpl {name} {{");
             // Columns (name, PostgreSQL type, non-null): a query that reuses
             // this row (`-> Path`) is compared against it at compile
             // time.
@@ -526,13 +529,13 @@ impl Generator<'_> {
         };
         let _ = writeln!(
             o,
-            "pub async fn {fn_name}<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<{ret}, {rt}::Error> {{\n{prelude}    {call}.await\n}}\n"
+            "#[allow(dead_code)]\npub async fn {fn_name}<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<{ret}, {rt}::Error> {{\n{prelude}    {call}.await\n}}\n"
         );
         // Several rows: also as a stream, decoded as they arrive.
         if let (Cardinality::Many, Some(r)) = (d.cardinality, &row_ty) {
             let _ = writeln!(
                 o,
-                "/// Like [`{fn_name}`], with rows decoded as they arrive.\npub async fn {fn_name}_stream<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<impl {rt}::futures_util::Stream<Item = Result<{r}, {rt}::Error>> + Send + use<C>, {rt}::Error> {{\n{prelude}    {rt}::stream(client, {qref}, {bound}, {r}::from_row).await\n}}\n"
+                "/// Like [`{fn_name}`], with rows decoded as they arrive.\n#[allow(dead_code)]\npub async fn {fn_name}_stream<C: {rt}::GenericClient + ?Sized>(client: &C{args}) -> Result<impl {rt}::futures_util::Stream<Item = Result<{r}, {rt}::Error>> + Send + use<C>, {rt}::Error> {{\n{prelude}    {rt}::stream(client, {qref}, {bound}, {r}::from_row).await\n}}\n"
             );
         }
         Ok(o)
@@ -677,13 +680,13 @@ impl Generator<'_> {
         let _ = writeln!(o, "/// `{}`", d.sql.replace('\n', " "));
         let _ = writeln!(
             o,
-            "pub const {const_name}: {rt}::CopyIn = {rt}::CopyIn {{ name: {:?}, sql: {:?}, table: {table:?}, columns: {columns:?}, column_oids: {oids} }};\n",
+            "#[allow(dead_code)]\npub const {const_name}: {rt}::CopyIn = {rt}::CopyIn {{ name: {:?}, sql: {:?}, table: {table:?}, columns: {columns:?}, column_oids: {oids} }};\n",
             d.name, d.sql
         );
         if copy.format != "binary" {
             let _ = writeln!(
                 o,
-                "/// Data in {} format read from `reader`, as is; returns the number of rows copied.\npub async fn {fn_name}<C: {rt}::CopyClient + ?Sized, R: {rt}::tokio::io::AsyncRead + Unpin>(client: &C, reader: R) -> Result<u64, {rt}::Error> {{\n    {rt}::copy_in_stream(client, &{const_name}, reader).await\n}}\n",
+                "/// Data in {} format read from `reader`, as is; returns the number of rows copied.\n#[allow(dead_code)]\npub async fn {fn_name}<C: {rt}::CopyClient + ?Sized, R: {rt}::tokio::io::AsyncRead + Unpin>(client: &C, reader: R) -> Result<u64, {rt}::Error> {{\n    {rt}::copy_in_stream(client, &{const_name}, reader).await\n}}\n",
                 copy.format
             );
             return Ok(o);
@@ -701,7 +704,10 @@ impl Generator<'_> {
             fields.push((field_ident(&c.name)?, ty));
         }
         let lt = if lifetime { "<'a>" } else { "" };
-        let _ = writeln!(o, "#[derive(Debug, Clone)]\npub struct {record}{lt} {{");
+        let _ = writeln!(
+            o,
+            "#[allow(dead_code)]\n#[derive(Debug, Clone)]\npub struct {record}{lt} {{"
+        );
         for (f, t) in &fields {
             let _ = writeln!(o, "    pub {f}: {t},");
         }
@@ -718,7 +724,7 @@ impl Generator<'_> {
             .join(", ");
         let _ = writeln!(
             o,
-            "/// Binary copy of the records; returns the number of rows copied.\npub async fn {fn_name}<'a, C: {rt}::CopyClient + ?Sized>(client: &C, records: impl IntoIterator<Item = {item}>) -> Result<u64, {rt}::Error> {{\n    let mut copy = {rt}::BinaryCopy::open(client, &{const_name}).await?;\n    for r in records {{\n        copy.write(&[{values}]).await?;\n    }}\n    copy.finish().await\n}}\n"
+            "/// Binary copy of the records; returns the number of rows copied.\n#[allow(dead_code)]\npub async fn {fn_name}<'a, C: {rt}::CopyClient + ?Sized>(client: &C, records: impl IntoIterator<Item = {item}>) -> Result<u64, {rt}::Error> {{\n    let mut copy = {rt}::BinaryCopy::open(client, &{const_name}).await?;\n    for r in records {{\n        copy.write(&[{values}]).await?;\n    }}\n    copy.finish().await\n}}\n"
         );
         Ok(o)
     }
@@ -915,7 +921,10 @@ pub fn inline_query(
                 },
             ));
         }
-        let _ = writeln!(o, "#[derive(Debug, Clone, PartialEq)]\npub struct Row {{");
+        let _ = writeln!(
+            o,
+            "#[allow(dead_code)]\n#[derive(Debug, Clone, PartialEq)]\npub struct Row {{"
+        );
         for (f, t) in &fields {
             let _ = writeln!(o, "    pub {f}: {t},");
         }
@@ -974,7 +983,7 @@ fn enum_code(
     let mut o = String::new();
     let _ = writeln!(
         o,
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub enum {rust} {{"
+        "#[allow(dead_code)]\n#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub enum {rust} {{"
     );
     for (v, l) in &variants {
         let _ = writeln!(o, "    /// `{l}`\n    {v},");
