@@ -126,9 +126,9 @@ An applied migration edited on purpose, after review: `pgzest migrate
 resolve <name> --checksum`. `db check` reads the registry to know what
 the database received.
 
-Prisma (`_prisma_migrations`) and Diesel (`__diesel_schema_migrations`)
-layouts keep their tool's registry, which `apply` does not write yet:
-apply them with their tool.
+Prisma and Diesel layouts are not applied by `apply` yet: apply them with
+their tool. pgzest will record them in its own registry, and never write
+`_prisma_migrations` or `__diesel_schema_migrations`.
 
 ### TLS
 

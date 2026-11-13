@@ -1082,6 +1082,24 @@ show each step.
 **Exit**: the `getPage` example of the target DX typed end to end, without
 cast.
 
+**Later, with the Vite plugin (not a priority): devtools.** A panel in
+the Vite DevTools (Nuxt included) showing the queries the current page ran
+and, under each one, the routine and trigger runs it caused (P9 traces,
+snapshots). Prerequisites, useful without any panel:
+
+1. A span per query in the runtimes (Rust, then TypeScript): query name,
+   parameters, duration, rows; behind a feature.
+2. Correlation with the page: the browser sets a `traceparent` on its
+   requests, the backend passes it on (`pgzest.traceparent`, already
+   read by the routines).
+3. A feed to read them from, locally: served by `pgzest dev`, or an
+   OpenTelemetry collector (a local Jaeger already shows the trees).
+
+Candidate UI: [Devframe](https://devfra.me) (the foundation of Vite
+DevTools): one definition mounted in Vite DevTools, standalone, as a
+static report or as an MCP server. Experimental as of 2026-11; to be
+reassessed when this item opens.
+
 After TypeScript, **.NET** (Npgsql) is considered, not committed: a
 generator over the same descriptor. The site presents languages as such
 (`site/src/content/docs/languages/`: shared SQL side, per-language

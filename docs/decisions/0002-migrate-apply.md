@@ -191,9 +191,26 @@ at startup.
    checksums, header checks. Oracle tests on PostgreSQL 18: concurrent
    runs, a failing migration, an edited applied migration, an out-of-order
    pending one.
-2. The Prisma and Diesel registries, tested against the real tools.
+2. Prisma and Diesel layouts, recorded in `_pgzest_migrations` like the
+   flat one (revised 2026-11-13, see below).
 3. Non-transactional migrations and `migrate resolve`.
 4. `migrations!()` and `pgzest_runtime::migrate`.
+
+### Revision (2026-11-13): no foreign registry written
+
+Writing `_prisma_migrations` and `__diesel_schema_migrations` makes
+pgzest depend on formats it does not own, and that their tools may change.
+`apply` therefore records every layout in its own registry; the foreign
+one is at most read, never written:
+
+- the foreign registry table is left out of the analysis, the
+  introspection and `db check`'s comparison, as it is today;
+- adopting pgzest on a database migrated by Prisma or Diesel records the
+  migrations already applied once (`migrate resolve --applied`, or a
+  baseline command reading the foreign registry's applied names: to be
+  settled when phase 2 opens);
+- going back to the previous tool is no longer free: its registry stops
+  at the switch.
 
 ## Open questions
 
