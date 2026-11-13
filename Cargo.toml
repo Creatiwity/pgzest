@@ -26,7 +26,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.99"
 license = "MIT OR Apache-2.0"
@@ -36,22 +36,22 @@ authors = ["Creatiwity <hello@creatiwity.net>"]
 
 [workspace.dependencies]
 # Internal crates (same version as [workspace.package]).
-pgzest-analysis = { path = "crates/pgzest-analysis", version = "0.2.1" }
-pgzest-ast = { path = "crates/pgzest-ast", version = "0.2.1" }
-pgzest-build = { path = "crates/pgzest-build", version = "0.2.1" }
-pgzest-catalog = { path = "crates/pgzest-catalog", version = "0.2.1" }
-pgzest-codegen = { path = "crates/pgzest-codegen", version = "0.2.1" }
-pgzest-diagnostics = { path = "crates/pgzest-diagnostics", version = "0.2.1" }
-pgzest-expand = { path = "crates/pgzest-expand", version = "0.2.1" }
-pgzest-lint = { path = "crates/pgzest-lint", version = "0.2.1" }
-pgzest-macros = { path = "crates/pgzest-macros", version = "0.2.1" }
-pgzest-oracle = { path = "crates/pgzest-oracle", version = "0.2.1" }
-pgzest-parser = { path = "crates/pgzest-parser", version = "0.2.1" }
-pgzest-plugin = { path = "crates/pgzest-plugin", version = "0.2.1" }
-pgzest-query = { path = "crates/pgzest-query", version = "0.2.1" }
-pgzest-runtime = { path = "crates/pgzest-runtime", version = "0.2.1" }
-pgzest-schema = { path = "crates/pgzest-schema", version = "0.2.1" }
-pgzest-sema = { path = "crates/pgzest-sema", version = "0.2.1" }
+pgzest-analysis = { path = "crates/pgzest-analysis", version = "0.2.2" }
+pgzest-ast = { path = "crates/pgzest-ast", version = "0.2.2" }
+pgzest-build = { path = "crates/pgzest-build", version = "0.2.2" }
+pgzest-catalog = { path = "crates/pgzest-catalog", version = "0.2.2" }
+pgzest-codegen = { path = "crates/pgzest-codegen", version = "0.2.2" }
+pgzest-diagnostics = { path = "crates/pgzest-diagnostics", version = "0.2.2" }
+pgzest-expand = { path = "crates/pgzest-expand", version = "0.2.2" }
+pgzest-lint = { path = "crates/pgzest-lint", version = "0.2.2" }
+pgzest-macros = { path = "crates/pgzest-macros", version = "0.2.2" }
+pgzest-oracle = { path = "crates/pgzest-oracle", version = "0.2.2" }
+pgzest-parser = { path = "crates/pgzest-parser", version = "0.2.2" }
+pgzest-plugin = { path = "crates/pgzest-plugin", version = "0.2.2" }
+pgzest-query = { path = "crates/pgzest-query", version = "0.2.2" }
+pgzest-runtime = { path = "crates/pgzest-runtime", version = "0.2.2" }
+pgzest-schema = { path = "crates/pgzest-schema", version = "0.2.2" }
+pgzest-sema = { path = "crates/pgzest-sema", version = "0.2.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

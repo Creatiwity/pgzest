@@ -1216,7 +1216,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pgzest"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "clap",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-analysis"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-ast",
  "pgzest-catalog",
@@ -1263,14 +1263,14 @@ dependencies = [
 
 [[package]]
 name = "pgzest-ast"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "pgzest-build"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-catalog",
  "pgzest-codegen",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-catalog"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-ast",
  "pgzest-diagnostics",
@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-codegen"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-ast",
  "pgzest-catalog",
@@ -1320,7 +1320,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-diagnostics"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
 ]
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-expand"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-ast",
  "pgzest-diagnostics",
@@ -1350,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-lint"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-ast",
  "pgzest-diagnostics",
@@ -1360,7 +1360,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-macros"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-build",
  "pgzest-codegen",
@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-oracle"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "insta",
  "pgzest-ast",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-parser"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-analysis",
  "pgzest-ast",
@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-plugin"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-analysis",
  "pgzest-ast",
@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-query"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "insta",
  "pgzest-ast",
@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-runtime"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-schema"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-ast",
  "pgzest-diagnostics",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "pgzest-sema"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "pgzest-ast",
  "pgzest-catalog",

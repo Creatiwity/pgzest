@@ -6,6 +6,16 @@ from the commit messages ([Conventional Commits](https://www.conventionalcommits
 versions follow [Semantic Versioning](https://semver.org) — before 1.0, a
 minor version may break.
 
+## [0.2.2] - 2026-11-13
+
+### Fixes
+
+- **vscode**: the extension starts its language server again (be106a3)
+
+### Documentation
+
+- **plan**: no foreign migration registry written; devtools after the Vite plugin (e096efc)
+
 ## [0.2.1] - 2026-11-12
 
 ### Features
