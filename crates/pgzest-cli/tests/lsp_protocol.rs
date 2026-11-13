@@ -27,8 +27,13 @@ struct Lsp {
 
 impl Lsp {
     fn spawn() -> Self {
+        Self::spawn_with(&[])
+    }
+
+    fn spawn_with(args: &[&str]) -> Self {
         let mut child = Command::new(BIN)
             .arg("lsp")
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -202,6 +207,15 @@ CREATE TABLE {name} (
 );
 end
 ";
+
+/// vscode-languageclient's stdio transport appends `--stdio`: the 0.2.1
+/// extension could not start the server it shipped.
+#[test]
+fn starts_with_the_stdio_option() {
+    let root = scaffold("stdio", &[("pgzest.toml", CONFIG)]);
+    let mut lsp = Lsp::spawn_with(&["--stdio"]);
+    lsp.init(&root);
+}
 
 #[test]
 fn a_clean_pgsql_produces_no_diagnostic() {

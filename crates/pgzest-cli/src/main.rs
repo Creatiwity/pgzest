@@ -229,7 +229,12 @@ enum Command {
     },
 
     /// Run the language server over stdio (what editors start).
-    Lsp,
+    Lsp {
+        /// Accepted for the clients that pass it (vscode-languageclient's
+        /// stdio transport): stdio is the only transport.
+        #[arg(long)]
+        stdio: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -974,7 +979,7 @@ fn main() {
             }
         },
         Command::Emit { file } => cmd_emit(&file),
-        Command::Lsp => lsp::run(),
+        Command::Lsp { stdio: _ } => lsp::run(),
     };
 
     process::exit(exit_code);

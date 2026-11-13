@@ -5,7 +5,6 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
-  TransportKind,
 } from 'vscode-languageclient/node';
 
 import { registerExpandMacro } from './expand';
@@ -42,10 +41,11 @@ export function activate(context: vscode.ExtensionContext) {
   );
   const schemaFile = config.get<string>('schemaFile', '');
 
+  // No `transport`: stdio is the default, and `TransportKind.stdio` would
+  // append `--stdio` to the arguments, which older servers refuse.
   const serverOptions: ServerOptions = {
     command: server,
     args: ['lsp'],
-    transport: TransportKind.stdio,
   };
 
   const clientOptions: LanguageClientOptions = {

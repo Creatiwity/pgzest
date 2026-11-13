@@ -471,8 +471,9 @@ Options:
 ```text
 Run the language server over stdio (what editors start)
 
-Usage: pgzest lsp
+Usage: pgzest lsp [OPTIONS]
 
 Options:
-  -h, --help  Print help
+      --stdio  Accepted for the clients that pass it (vscode-languageclient's stdio transport): stdio is the only transport
+  -h, --help   Print help
 ```
