@@ -108,11 +108,11 @@ pub fn queries(input: TokenStream) -> TokenStream {
         }
     };
     match expand_queries(root, &path.value()) {
-        // Each generated token carries the position of the path: "go to
-        // definition" leads to the `queries!("…")` call. A token reparsed
-        // from a string has no position in the file, and rust-analyzer
-        // derives an offset outside the file from it (panic).
-        Ok(tokens) => respan(tokens, path.span()).into(),
+        // Definitions at the path: "go to definition" leads to the
+        // `queries!("…")` call. Every token gets a position: one reparsed
+        // from a string has none in the file, and rust-analyzer derives an
+        // offset outside the file from it (panic).
+        Ok(tokens) => respan_defs(tokens, path.span()).into(),
         Err(message) => syn::Error::new(path.span(), message)
             .to_compile_error()
             .into(),
@@ -343,23 +343,10 @@ fn expand_sql(root: PathBuf, def: &SqlDef) -> Result<Tokens, String> {
         }
     }
     let code = parse(&out)?;
-    // Code at the position of the string; the name of the function and of
-    // the structs at that of the written name: "go to definition" leads there.
-    let pascal: String = name
-        .split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            c.next()
-                .map(|f| f.to_ascii_uppercase().to_string() + c.as_str())
-                .unwrap_or_default()
-        })
-        .collect();
-    let code = respan_names(
-        respan(code, def.sql.span()),
-        &name,
-        &pascal,
-        def.name.span(),
-    );
+    // Definitions at the written name, where "go to definition" leads;
+    // nothing at the string, whose hover is the query's (pgzest's language
+    // server).
+    let code = respan_defs(code, def.name.span());
 
     let check = match (&def.row, &row) {
         (Some(path), Some(shown)) => row_check(path, shown, &name, &d),
@@ -419,30 +406,74 @@ fn row_check(path: &Path, shown: &str, name: &str, d: &pgzest_query::Descriptor)
     quote!(#(#checks)*)
 }
 
-/// The identifiers `name` and `Name…` (function, structs) at `span`.
-fn respan_names(tokens: Tokens, name: &str, pascal: &str, span: proc_macro2::Span) -> Tokens {
-    use proc_macro2::TokenTree;
-    tokens
-        .into_iter()
-        .map(|t| match t {
+/// Generated code placed for the editor: the identifiers that define
+/// something (items, fields, parameters, enum variants) at `def`, where "go
+/// to definition" leads; every other token at the macro call.
+///
+/// Not everything at `def`: hovering a token, rust-analyzer shows the
+/// hover of every generated token placed on it — attributes, derives, types
+/// — burying the query's own hover. Not everything at the call either: a
+/// definition placed there gives two targets, the call and the macro.
+fn respan_defs(tokens: Tokens, def: proc_macro2::Span) -> Tokens {
+    respan_defs_in(tokens, def, false)
+}
+
+fn respan_defs_in(tokens: Tokens, def: proc_macro2::Span, enum_body: bool) -> Tokens {
+    use proc_macro2::{Delimiter, Spacing, Span, TokenTree};
+    const ITEM: &[&str] = &[
+        "fn", "struct", "enum", "mod", "const", "static", "type", "trait", "union",
+    ];
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    let ident = |i: usize, s: &str| matches!(trees.get(i), Some(TokenTree::Ident(x)) if x == s);
+    let punct = |i: usize, c: char, alone: bool| {
+        matches!(trees.get(i), Some(TokenTree::Punct(p))
+            if p.as_char() == c && (!alone || p.spacing() == Spacing::Alone))
+    };
+    let mut out = Vec::with_capacity(trees.len());
+    for (i, t) in trees.iter().enumerate() {
+        let before = i.checked_sub(1);
+        out.push(match t.clone() {
             TokenTree::Group(g) => {
-                let mut out = proc_macro2::Group::new(
+                // `enum Name { … }`: its variants are definitions.
+                let variants = g.delimiter() == Delimiter::Brace
+                    && i >= 2
+                    && ident(i - 2, "enum");
+                let mut group = proc_macro2::Group::new(
                     g.delimiter(),
-                    respan_names(g.stream(), name, pascal, span),
+                    respan_defs_in(g.stream(), def, variants),
                 );
-                out.set_span(g.span());
-                TokenTree::Group(out)
+                group.set_span(Span::call_site());
+                TokenTree::Group(group)
             }
-            TokenTree::Ident(mut i) => {
-                let s = i.to_string();
-                if s == name || s == format!("{name}_stream") || s.starts_with(pascal) {
-                    i.set_span(span);
-                }
-                TokenTree::Ident(i)
+            TokenTree::Ident(mut x) => {
+                let item = before.is_some_and(|b| {
+                    matches!(&trees[b], TokenTree::Ident(k) if ITEM.contains(&k.to_string().as_str()))
+                });
+                // `name: Type` (`::` starts with a joint `:`).
+                let typed = punct(i + 1, ':', true);
+                // A variant starts the body, or follows `,` or an attribute.
+                let variant = enum_body
+                    && match before {
+                        None => true,
+                        Some(b) => {
+                            punct(b, ',', false)
+                                || matches!(&trees[b], TokenTree::Group(g) if g.delimiter() == Delimiter::Bracket)
+                        }
+                    };
+                x.set_span(if item || typed || variant {
+                    def
+                } else {
+                    Span::call_site()
+                });
+                TokenTree::Ident(x)
             }
-            other => other,
-        })
-        .collect()
+            mut other => {
+                other.set_span(Span::call_site());
+                other
+            }
+        });
+    }
+    out.into_iter().collect()
 }
 
 // ── types! ────────────────────────────────────────────────────────────────────
